@@ -329,27 +329,49 @@
     color: var(--gold-light);
     font-family: 'Cinzel', serif;
     font-size: 1.1rem;
-    margin-bottom: 12px;
+    margin-bottom: 0;
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .image-gallery {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-    gap: 10px;
-    margin-bottom: 14px;
-  }
-  .image-gallery img {
+  .slide-image {
     width: 100%;
-    height: 130px;
-    object-fit: cover;
-    border-radius: 8px;
+    max-height: 220px;
+    object-fit: contain;
+    border-radius: 10px;
     border: 2px solid var(--gold-dark);
-    cursor: pointer;
-    transition: transform 0.2s;
+    background: #1a0a05;
+    display: block;
+    margin: 0 auto;
   }
-  .image-gallery img:hover { transform: scale(1.05); }
+  .wiki-image {
+    width: 100%;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: 10px;
+    border: 2px solid var(--gold-dark);
+    background: #1a0a05;
+    display: block;
+    margin: 0 auto;
+  }
+  .yt-btn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #c00, #e00);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.2s;
+    font-family: 'Lato', sans-serif;
+  }
+  .yt-btn:hover { background: linear-gradient(135deg, #a00, #c00); transform: translateY(-2px); }
   .video-container {
     position: relative;
     padding-bottom: 56.25%;
@@ -357,6 +379,7 @@
     overflow: hidden;
     border-radius: 10px;
     border: 2px solid var(--gold-dark);
+    margin-top: 10px;
   }
   .video-container iframe {
     position: absolute;
@@ -643,10 +666,10 @@
 
 <!-- HEADER -->
 <div class="header">
-  <img class="header-logo" src="https://arkglobalschool.netlify.app/logo.png" onerror="this.style.display='none'" alt="Logo"/>
+  <img class="header-logo" src="logo.png" onerror="this.style.display='none'" alt="Logo"/>
   <div class="header-title">
-    <h1>ARK Global School</h1>
-    <p>LearnBot — AI-Powered Learning Assistant</p>
+    <h1>LearnBot</h1>
+    <p>AI Powered Teacher — Smart Classroom Assistant</p>
   </div>
   <span class="ai-badge">✨ AI Powered</span>
 </div>
@@ -869,9 +892,24 @@
 
       <!-- MEDIA: Images + Video -->
       <div class="media-section" id="media-section" style="display:none;">
-        <h3>🖼️ Visual Aid</h3>
-        <div class="image-gallery" id="lesson-images-display"></div>
-        <div id="youtube-container"></div>
+        <!-- Image Row -->
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+          <h3 style="margin:0;">🖼️ Visual Aid</h3>
+          <div style="display:flex;gap:8px;">
+            <button class="btn btn-sm btn-outline" id="prev-img-btn" onclick="prevImage()" style="display:none;">◀</button>
+            <span id="img-counter" style="color:var(--sandal);font-size:0.9rem;align-self:center;"></span>
+            <button class="btn btn-sm btn-outline" id="next-img-btn" onclick="nextImage()" style="display:none;">▶</button>
+          </div>
+        </div>
+        <!-- Images display -->
+        <div id="lesson-images-display" style="text-align:center;margin-bottom:12px;min-height:0;"></div>
+        <!-- Wikipedia auto image -->
+        <div id="wiki-image-display" style="text-align:center;margin-bottom:12px;"></div>
+        <!-- YouTube section -->
+        <div id="youtube-section">
+          <div id="youtube-btn-area"></div>
+          <div id="youtube-container"></div>
+        </div>
       </div>
 
       <!-- VOICE CONTROLS -->
@@ -982,7 +1020,10 @@
   <!-- QUIZ MODE -->
   <div id="quiz-mode" style="display:none;">
     <div class="card">
-      <div class="card-title">🧪 Quiz Time!</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div class="card-title" style="margin-bottom:0;border-bottom:none;padding-bottom:0;">🧪 Quiz Time!</div>
+        <button class="btn btn-sm btn-outline" onclick="backToSetup()">← Back to Modes</button>
+      </div>
       <div id="quiz-loading" class="loading">
         <div class="spinner"></div>
         Generating Quiz... Creating 10 questions from the lesson
@@ -1005,7 +1046,7 @@
         <div style="font-size:1.3rem;color:var(--maroon-light);margin-bottom:20px;" id="final-score-text"></div>
         <div class="controls-bar">
           <button class="btn btn-gold" onclick="restartQuiz()">🔄 Try Again</button>
-          <button class="btn btn-sm" onclick="backToSetup()">← Back</button>
+          <button class="btn btn-primary btn-sm" onclick="backToSetup()">← Choose Another Mode</button>
         </div>
       </div>
     </div>
@@ -1308,13 +1349,96 @@ function loadVoices() {
       sel.innerHTML = '<option>No voices found</option>';
       return;
     }
-    voices.forEach((v, i) => {
-      const opt = document.createElement('option');
-      opt.value = i;
-      opt.textContent = v.name + (v.lang ? ' (' + v.lang + ')' : '');
-      if (selectedLang === 'tamil' && v.lang && v.lang.startsWith('ta')) opt.selected = true;
-      sel.appendChild(opt);
-    });
+
+    if (selectedLang === 'tamil') {
+      // Show Tamil voices first, then Indian English voices
+      const tamilVoices = voices.filter(v => v.lang && (v.lang.startsWith('ta') || v.lang === 'ta-IN'));
+      const indianVoices = voices.filter(v => v.lang && (v.lang === 'en-IN' || v.lang === 'hi-IN'));
+      const otherVoices = voices.filter(v => !tamilVoices.includes(v) && !indianVoices.includes(v));
+
+      if (tamilVoices.length > 0) {
+        const grp1 = document.createElement('optgroup');
+        grp1.label = '🇮🇳 Tamil Voices';
+        tamilVoices.forEach((v, i) => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name;
+          opt.selected = i === 0;
+          grp1.appendChild(opt);
+        });
+        sel.appendChild(grp1);
+      }
+
+      if (indianVoices.length > 0) {
+        const grp2 = document.createElement('optgroup');
+        grp2.label = '🇮🇳 Indian English Voices';
+        indianVoices.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name;
+          grp2.appendChild(opt);
+        });
+        sel.appendChild(grp2);
+      }
+
+      if (tamilVoices.length === 0) {
+        // No Tamil voice — show all with note
+        const note = document.createElement('option');
+        note.disabled = true;
+        note.textContent = '⚠️ No Tamil voice installed — using available voices';
+        sel.appendChild(note);
+        otherVoices.forEach((v, i) => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name + ' (' + v.lang + ')';
+          if (i === 0) opt.selected = true;
+          sel.appendChild(opt);
+        });
+      }
+    } else {
+      // English — show all voices grouped
+      const enIn = voices.filter(v => v.lang === 'en-IN');
+      const enUs = voices.filter(v => v.lang && v.lang.startsWith('en-'));
+      const others = voices.filter(v => !enIn.includes(v) && !enUs.includes(v));
+
+      if (enIn.length > 0) {
+        const g = document.createElement('optgroup');
+        g.label = '🇮🇳 Indian English';
+        enIn.forEach((v, i) => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name;
+          if (i === 0) opt.selected = true;
+          g.appendChild(opt);
+        });
+        sel.appendChild(g);
+      }
+
+      if (enUs.length > 0) {
+        const g2 = document.createElement('optgroup');
+        g2.label = '🌐 English Voices';
+        enUs.forEach((v, i) => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name;
+          if (enIn.length === 0 && i === 0) opt.selected = true;
+          g2.appendChild(opt);
+        });
+        sel.appendChild(g2);
+      }
+
+      if (others.length > 0) {
+        const g3 = document.createElement('optgroup');
+        g3.label = '🌍 Other Voices';
+        others.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = voices.indexOf(v);
+          opt.textContent = v.name + ' (' + v.lang + ')';
+          g3.appendChild(opt);
+        });
+        sel.appendChild(g3);
+      }
+    }
   }
   if (speechSynthesis.getVoices().length) populate();
   else speechSynthesis.onvoiceschanged = populate;
@@ -1332,10 +1456,41 @@ function toggleChatVoice() {
   t.classList.toggle('on', chatVoiceEnabled);
 }
 
+function cleanTextForSpeech(text) {
+  return text
+    // Remove emojis
+    .replace(/[\u{1F600}-\u{1F64F}]/gu, '')
+    .replace(/[\u{1F300}-\u{1F5FF}]/gu, '')
+    .replace(/[\u{1F680}-\u{1F6FF}]/gu, '')
+    .replace(/[\u{1F700}-\u{1F77F}]/gu, '')
+    .replace(/[\u{1F780}-\u{1F7FF}]/gu, '')
+    .replace(/[\u{1F800}-\u{1F8FF}]/gu, '')
+    .replace(/[\u{1F900}-\u{1F9FF}]/gu, '')
+    .replace(/[\u{1FA00}-\u{1FA6F}]/gu, '')
+    .replace(/[\u{2600}-\u{26FF}]/gu, '')
+    .replace(/[\u{2700}-\u{27BF}]/gu, '')
+    // Remove markdown symbols
+    .replace(/#{1,6}\s/g, '')
+    .replace(/\*\*/g, '')
+    .replace(/\*/g, '')
+    .replace(/__/g, '')
+    .replace(/_/g, ' ')
+    .replace(/`/g, '')
+    .replace(/>/g, '')
+    .replace(/\|/g, '')
+    // Remove bullet points and dashes at start of lines
+    .replace(/^[-•*]\s/gm, '')
+    .replace(/^\d+\.\s/gm, '')
+    // Clean up extra spaces
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function speak(text, onDone) {
   stopSpeaking();
   if (!voiceEnabled) { onDone && onDone(); return; }
-  currentUtterance = new SpeechSynthesisUtterance(text);
+  const cleanText = cleanTextForSpeech(text);
+  currentUtterance = new SpeechSynthesisUtterance(cleanText);
   const sel = document.getElementById('voice-select');
   const voices = speechSynthesis.getVoices();
   if (sel && voices[sel.value]) currentUtterance.voice = voices[sel.value];
@@ -1350,7 +1505,8 @@ function speak(text, onDone) {
 function speakChat(text, onDone) {
   stopSpeaking();
   if (!chatVoiceEnabled) { onDone && onDone(); return; }
-  const utt = new SpeechSynthesisUtterance(text);
+  const cleanText = cleanTextForSpeech(text);
+  const utt = new SpeechSynthesisUtterance(cleanText);
   const sel = document.getElementById('chat-lang-select');
   const lang = sel ? sel.value : 'both';
   if (lang === 'tamil') utt.lang = 'ta-IN';
@@ -1415,17 +1571,36 @@ async function generateSlides() {
     return;
   }
 
-  if (!getKey() || !getKey().startsWith('sk-ant-')) {
-    document.getElementById('slide-content').textContent = '❌ API Key missing!\n\nPlease paste your Anthropic API key in the gold bar at the top of the page.';
-    document.getElementById('start-btn').disabled = false;
-    return;
-  }
-
-  document.getElementById('slide-content').textContent = '⏳ Connecting to AI... (lesson: ' + lessonContent.substring(0,30) + '...)';
+  document.getElementById('slide-content').textContent = '⏳ Malar Teacher is preparing your lesson...';
 
   const prompt = selectedLang === 'tamil'
-    ? `You are a Tamil school teacher. Based on this lesson content, create exactly 8 teaching slides in Tamil language. Each slide should be 3-5 simple sentences suitable for school students. Number each slide like: SLIDE 1: ... SLIDE 2: ... etc. Keep language simple and clear for children.\n\nLesson:\n${lessonContent.substring(0, 3000)}`
-    : `You are a school teacher. Based on this lesson content, create exactly 8 teaching slides in simple English. Each slide should be 3-5 simple sentences suitable for school students. Number each slide like: SLIDE 1: ... SLIDE 2: ... etc. Keep language simple and engaging.\n\nLesson:\n${lessonContent.substring(0, 3000)}`;
+    ? `நீங்கள் ஒரு அனுபவமிக்க தமிழ் பள்ளி ஆசிரியர். வகுப்பறையில் மாணவர்களுக்கு நேரடியாக கற்பிக்கிறீர்கள். கீழே உள்ள பாடத்திலிருந்து சரியாக 8 slides உருவாக்கவும்.
+
+ஒவ்வொரு slide-லும்:
+- மாணவர்களை நேரடியாக "நண்பர்களே", "குழந்தைகளே" என்று அழைக்கவும்
+- கேள்விகள் கேட்கவும் (உதாரணம்: "இதை நீங்கள் பார்த்திருக்கிறீர்களா?")
+- நிஜ வாழ்க்கை உதாரணங்கள் கொடுக்கவும்
+- எளிய தமிழில் விளக்கவும்
+- மாணவர்களை ஊக்குவிக்கவும்
+
+Format: SLIDE 1: ... SLIDE 2: ... என்று எழுதவும்
+
+பாடம்: ${lessonContent.substring(0, 2000)}`
+    : `You are an enthusiastic, engaging school teacher teaching students in a real classroom. Create exactly 8 teaching slides from the lesson below.
+
+Each slide must:
+- Address students directly ("Class!", "Friends!", "Can anyone tell me...?")
+- Ask engaging questions ("Have you ever seen...?", "Who knows why...?")  
+- Give real life examples students can relate to
+- Use simple, warm, encouraging language
+- Build excitement about the topic
+- Include "Think about this..." or "Amazing fact:" moments
+
+Example style: "Good morning class! Today we are going to learn something really exciting! Has anyone ever wondered why the sky is blue? Well, today Malar Teacher is going to explain this mystery! Let's begin..."
+
+Format: SLIDE 1: ... SLIDE 2: ... etc.
+
+Lesson content: ${lessonContent.substring(0, 2000)}`;
 
   try {
     let messages;
@@ -1473,40 +1648,129 @@ function showSlide(idx) {
   document.getElementById('slide-counter').textContent = `Slide ${idx + 1} of ${slides.length}`;
   document.getElementById('avatar-status').querySelector('#status-text').textContent = `Teaching Slide ${idx + 1}...`;
 
-  // Show images on slides
   const mediaSection = document.getElementById('media-section');
-  const imgDisplay = document.getElementById('lesson-images-display');
-  const ytContainer = document.getElementById('youtube-container');
+  mediaSection.style.display = 'block';
 
-  if (lessonImages.length > 0) {
-    mediaSection.style.display = 'block';
-    imgDisplay.innerHTML = '';
-    const img = lessonImages[idx % lessonImages.length];
-    if (img) {
-      const el = document.createElement('img');
-      el.src = img;
-      imgDisplay.appendChild(el);
+  // Show teacher-uploaded images if available
+  const imgDisplay = document.getElementById('lesson-images-display');
+  imgDisplay.innerHTML = '';
+  if (lessonImages && lessonImages.length > 0) {
+    currentImageIndex = idx % lessonImages.length;
+    showUploadedImage(currentImageIndex);
+    if (lessonImages.length > 1) {
+      document.getElementById('prev-img-btn').style.display = 'inline-flex';
+      document.getElementById('next-img-btn').style.display = 'inline-flex';
+      document.getElementById('img-counter').textContent = `${currentImageIndex + 1}/${lessonImages.length}`;
     }
   }
 
-  // Show YouTube search for slide
+  // Auto-fetch Wikipedia image for this slide's topic
   const chapter = window.activeLesson ? window.activeLesson.chapter : '';
-  const subject = document.getElementById('s-subject').value;
-  if (idx === 0 && chapter) {
-    const query = encodeURIComponent(chapter + ' ' + subject + ' for kids');
-    ytContainer.innerHTML = `
-      <div class="video-placeholder" style="cursor:pointer;" onclick="loadYouTube('${query}')">
-        ▶ Click to load YouTube video: "${chapter}"
-      </div>`;
+  const subject = document.getElementById('s-subject') ? document.getElementById('s-subject').value : '';
+  fetchWikiImage(chapter, subject, idx);
+
+  // Show YouTube button (only on first slide, stays visible after)
+  const ytBtnArea = document.getElementById('youtube-btn-area');
+  const ytContainer = document.getElementById('youtube-container');
+  if (idx === 0) {
+    ytContainer.innerHTML = ''; // Reset video on new lesson
+    if (chapter) {
+      const query = chapter + ' ' + subject + ' lesson for students';
+      ytBtnArea.innerHTML = `
+        <button class="yt-btn" onclick="loadYouTube('${encodeURIComponent(query)}', this)">
+          ▶ ▶ Watch YouTube Video: "${chapter}"
+        </button>`;
+    }
   }
 }
 
-function loadYouTube(query) {
+let currentImageIndex = 0;
+
+function showUploadedImage(idx) {
+  const imgDisplay = document.getElementById('lesson-images-display');
+  imgDisplay.innerHTML = '';
+  if (!lessonImages || lessonImages.length === 0) return;
+  const img = document.createElement('img');
+  img.src = lessonImages[idx];
+  img.className = 'slide-image';
+  img.alt = 'Lesson image';
+  imgDisplay.appendChild(img);
+}
+
+function prevImage() {
+  if (!lessonImages || lessonImages.length === 0) return;
+  currentImageIndex = (currentImageIndex - 1 + lessonImages.length) % lessonImages.length;
+  showUploadedImage(currentImageIndex);
+  document.getElementById('img-counter').textContent = `${currentImageIndex + 1}/${lessonImages.length}`;
+}
+
+function nextImage() {
+  if (!lessonImages || lessonImages.length === 0) return;
+  currentImageIndex = (currentImageIndex + 1) % lessonImages.length;
+  showUploadedImage(currentImageIndex);
+  document.getElementById('img-counter').textContent = `${currentImageIndex + 1}/${lessonImages.length}`;
+}
+
+async function fetchWikiImage(chapter, subject, slideIdx) {
+  const wikiDisplay = document.getElementById('wiki-image-display');
+  if (!chapter) { wikiDisplay.innerHTML = ''; return; }
+
+  // Only fetch new image every 2 slides to avoid too many requests
+  if (slideIdx > 0 && slideIdx % 2 !== 0) return;
+
+  try {
+    // Use Wikipedia API to get a relevant image - free, no key needed
+    const searchTerm = encodeURIComponent(chapter + ' ' + subject);
+    const url = `https://en.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(chapter)}`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error('Not found');
+    const data = await res.json();
+
+    if (data.thumbnail && data.thumbnail.source) {
+      wikiDisplay.innerHTML = `
+        <div style="margin-bottom:6px;">
+          <img src="${data.thumbnail.source}" class="wiki-image" alt="${chapter}"
+            onerror="this.parentElement.parentElement.innerHTML=''"/>
+          <div style="color:var(--sandal);font-size:0.8rem;margin-top:4px;text-align:center;">
+            📚 ${data.title} — Wikipedia
+          </div>
+        </div>`;
+    } else {
+      // Try image search via Wikipedia Commons
+      wikiDisplay.innerHTML = '';
+    }
+  } catch(e) {
+    wikiDisplay.innerHTML = '';
+  }
+}
+
+function loadYouTube(query, btn) {
   const container = document.getElementById('youtube-container');
+  if (btn) btn.style.display = 'none'; // Hide button after clicking
   container.innerHTML = `
     <div class="video-container">
-      <iframe src="https://www.youtube.com/embed?listType=search&list=${query}&autoplay=0" allowfullscreen></iframe>
-    </div>`;
+      <iframe
+        src="https://www.youtube.com/embed?listType=search&list=${query}&autoplay=0&rel=0"
+        allowfullscreen
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture">
+      </iframe>
+    </div>
+    <button class="btn btn-sm btn-outline" style="margin-top:8px;width:100%;" onclick="closeYouTube()">✕ Close Video</button>`;
+}
+
+function closeYouTube() {
+  document.getElementById('youtube-container').innerHTML = '';
+  const ytBtnArea = document.getElementById('youtube-btn-area');
+  const chapter = window.activeLesson ? window.activeLesson.chapter : '';
+  const subject = document.getElementById('s-subject') ? document.getElementById('s-subject').value : '';
+  if (chapter) {
+    const query = chapter + ' ' + subject + ' lesson for students';
+    ytBtnArea.innerHTML = `
+      <button class="yt-btn" onclick="loadYouTube('${encodeURIComponent(query)}', this)">
+        ▶ ▶ Watch YouTube Video: "${chapter}"
+      </button>`;
+  }
 }
 
 function startTeaching() {
