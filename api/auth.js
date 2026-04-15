@@ -116,8 +116,8 @@ module.exports = async function(req, res) {
       // Create school record
       const schoolRes = await supabase('POST', '/rest/v1/schools', {
         name: school_name, email, phone, city,
-        subscription_status: 'trial',
-        subscription_end: new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0]
+        subscription_status: 'active',
+        subscription_end: req.body.subscription_end || new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0]
       });
 
       if (schoolRes.status !== 201) return res.json({ error: 'Failed to create school record' });
