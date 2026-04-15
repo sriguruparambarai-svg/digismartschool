@@ -376,31 +376,45 @@ function handleTxt(inp){
       status.textContent='✅ '+f.name+' loaded';
     });
   } else if(f.type==='application/pdf'){
-    // Handle PDF - convert to base64 and extract via API
     status.textContent='⏳ Reading PDF... please wait';
     status.style.color='var(--maroon)';
     const reader=new FileReader();
     reader.onload=async function(e){
       const base64=e.target.result.split(',')[1];
-      // Store base64 for later use
       window.pdfBase64=base64;
       window.pdfName=f.name;
-      status.textContent='⏳ Extracting text from PDF ('+f.name+')... This may take 30-60 seconds for large files';
+
+      // Check size - warn if very large
+      const sizeMB=(base64.length*0.75/1024/1024).toFixed(1);
+      status.textContent='⏳ Extracting text from PDF ('+f.name+', '+sizeMB+'MB)... Please wait up to 60 seconds...';
+      status.style.color='var(--maroon)';
+
       try{
         const res=await fetch('/api/extract-pdf',{
           method:'POST',
           headers:{'Content-Type':'application/json'},
           body:JSON.stringify({pdfBase64:base64})
         });
+
+        if(!res.ok){
+          const errData=await res.json().catch(()=>({}));
+          throw new Error(errData.error||'Server error '+res.status);
+        }
+
         const data=await res.json();
         if(data.error)throw new Error(data.error);
+        if(!data.text||data.text.trim().length<10)throw new Error('Could not extract text from PDF');
+
         document.getElementById('t-text').value=data.text;
-        status.textContent='✅ PDF extracted: '+f.name+' ('+data.text.length+' characters)';
+        status.textContent='✅ PDF text extracted! ('+data.text.length+' characters) — Ready to activate';
         status.style.color='green';
+        window.pdfBase64=null; // Clear PDF since we have text now
       }catch(err){
-        // If API extraction fails, store PDF for direct use
-        status.textContent='✅ PDF ready: '+f.name+' — will be sent directly to AI';
-        status.style.color='green';
+        console.error('PDF extraction error:',err);
+        // Keep PDF stored for direct use
+        status.textContent='⚠️ Text extraction failed ('+err.message+'). PDF stored — will teach directly from PDF file.';
+        status.style.color='orange';
+        document.getElementById('t-text').value='PDF file loaded: '+f.name;
       }
     };
     reader.onerror=()=>{ status.textContent='❌ Could not read file. Try again.'; };
@@ -418,11 +432,24 @@ function activateLesson(){
   const ch=document.getElementById('t-chapter').value;
   const txt=document.getElementById('t-text').value;
   if(!cls||!sub||!ch){alert('Please select Class, Subject and enter Chapter name.');return;}
-  if(!txt.trim()&&!window.pdfBase64){alert('Please paste lesson text OR upload a PDF file.');return;}
-  lessonTxt=txt||'[PDF content will be sent directly to AI]';
+
+  const hasPDF = window.pdfBase64 && window.pdfBase64.length > 0;
+  const hasText = txt.trim().length > 20 && !txt.startsWith('PDF file loaded:');
+
+  if(!hasText && !hasPDF){
+    alert('Please paste lesson text OR upload a PDF file.');
+    return;
+  }
+
+  lessonTxt = hasText ? txt : '';
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
-  alert('✅ Lesson Activated!\n\nMalar Teacher has studied the lesson and is ready to teach!');
+
+  const msg = hasText
+    ? '✅ Lesson Activated!\n\nMalar Teacher has studied the lesson text and is ready to teach!'
+    : '✅ Lesson Activated!\n\nPDF is ready — Malar Teacher will teach from the uploaded PDF file!';
+
+  alert(msg);
   showTab('student',document.querySelectorAll('.tab-btn')[1]);
 }
 
@@ -542,12 +569,17 @@ POINT 2: [content]
 Lesson:
 ${lessonTxt.substring(0,2500)}`;
 
-  // Build message - use PDF directly if available, else use text
+  // Build message - use PDF directly if available and no extracted text
   let messages;
-  if(window.pdfBase64 && (!lessonTxt || lessonTxt==='[PDF content will be sent directly to AI]')){
+  const hasPDF = window.pdfBase64 && window.pdfBase64.length > 100;
+  const hasText = lessonTxt && lessonTxt.trim().length > 20;
+
+  if(hasPDF && !hasText){
+    // Send PDF directly - limit to first 5MB to avoid payload issues
+    const limitedPdf = window.pdfBase64.substring(0, 6000000); // ~4.5MB limit
     messages=[{role:'user',content:[
-      {type:'document',source:{type:'base64',media_type:'application/pdf',data:window.pdfBase64}},
-      {type:'text',text:prompt}
+      {type:'document',source:{type:'base64',media_type:'application/pdf',data:limitedPdf}},
+      {type:'text',text:prompt.replace(lessonTxt.substring(0,2500),'')+'\nPlease read this PDF and create 10 teaching points from it.'}
     ]}];
   } else {
     messages=[{role:'user',content:prompt}];
