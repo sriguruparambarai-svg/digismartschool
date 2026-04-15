@@ -587,21 +587,10 @@ POINT 2: [content]
 Lesson:
 ${lessonTxt.substring(0,2500)}`;
 
-  // Build message - use PDF directly if available and no extracted text
-  let messages;
-  const hasPDF = window.pdfBase64 && window.pdfBase64.length > 100;
-  const hasText = lessonTxt && lessonTxt.trim().length > 20;
-
-  if(hasPDF && !hasText){
-    // Send PDF directly - limit to first 5MB to avoid payload issues
-    const limitedPdf = window.pdfBase64.substring(0, 6000000); // ~4.5MB limit
-    messages=[{role:'user',content:[
-      {type:'document',source:{type:'base64',media_type:'application/pdf',data:limitedPdf}},
-      {type:'text',text:prompt.replace(lessonTxt.substring(0,2500),'')+'\nPlease read this PDF and create 10 teaching points from it.'}
-    ]}];
-  } else {
-    messages=[{role:'user',content:prompt}];
-  }
+  // Build message - use text only (PDF already extracted earlier)
+  // Keep payload small - max 3000 chars of lesson text
+  const safeText = lessonTxt ? lessonTxt.substring(0, 3000) : '';
+  let messages = [{role:'user', content:prompt.replace(lessonTxt.substring(0,2500), safeText)}];
 
   try{
     const d=await callAI({model:'claude-sonnet-4-5',max_tokens:2000,messages});
