@@ -1,5 +1,14 @@
 const https = require('https');
 
+// Allow large request bodies for PDF content
+module.exports.config = {
+  api: {
+    bodyParser: {
+      sizeLimit: '50mb',
+    },
+  },
+};
+
 module.exports = async function(req, res) {
   // Allow CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
