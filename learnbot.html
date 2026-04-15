@@ -202,9 +202,9 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div id="lang-choice" style="display:none;" class="card">
     <div class="card-title">🌐 Choose Teaching Language</div>
     <div class="lang-grid">
-      <div class="lang-card" onclick="selLang('tamil',this)"><div style="font-size:2rem;">🇮🇳</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">Tamil</div><div style="font-size:0.85rem;margin-top:3px;">தமிழ் வழி</div></div>
-      <div class="lang-card" onclick="selLang('english',this)"><div style="font-size:2rem;">🇬🇧</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">English</div><div style="font-size:0.85rem;margin-top:3px;">English Medium</div></div>
-      <div class="lang-card" onclick="selLang('both',this)"><div style="font-size:2rem;">🌏</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">Both</div><div style="font-size:0.85rem;margin-top:3px;">Tamil + English</div></div>
+      <div class="lang-card" onclick="setLang('tamil',this)"><div style="font-size:2rem;">🇮🇳</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">Tamil</div><div style="font-size:0.85rem;margin-top:3px;">தமிழ் வழி</div></div>
+      <div class="lang-card" onclick="setLang('english',this)"><div style="font-size:2rem;">🇬🇧</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">English</div><div style="font-size:0.85rem;margin-top:3px;">English Medium</div></div>
+      <div class="lang-card" onclick="setLang('both',this)"><div style="font-size:2rem;">🌏</div><div style="font-weight:800;font-size:1.1rem;margin-top:6px;">Both</div><div style="font-size:0.85rem;margin-top:3px;">Tamil + English</div></div>
     </div>
     <br/>
     <button class="btn btn-primary btn-full" onclick="beginTeaching()">▶ Start Class</button>
@@ -357,7 +357,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 </div>
 <script>
 const API_URL='/api/ai';
-let lessonTxt='',lessonImgs=[],teacherImgs=[],selectedMode='',selLang='tamil';
+let lessonTxt='',lessonImgs=[],teacherImgs=[],selectedMode='',teachLang='tamil';
 let pts=[],curPt=0,paused=false,speaking=false,tvOn=true,cvOn=true;
 let chatHist=[],quizQs=[],qIdx=0,qSc=0,qOk=0,qWr=0;
 let mouthT=null,curUtt=null;
@@ -472,7 +472,7 @@ function activateLesson(){
 }
 
 function selMode(m,el){document.querySelectorAll('.mode-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');selectedMode=m;}
-function selLang(l,el){document.querySelectorAll('.lang-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');selLang=l;}
+function setLang(l,el){document.querySelectorAll('.lang-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');teachLang=l;}
 
 function startStudent(){
   const cls=document.getElementById('s-class').value;
@@ -496,7 +496,7 @@ function loadVoices(){
     const ta=vs.filter(v=>v.lang&&v.lang.startsWith('ta'));
     const in_=vs.filter(v=>v.lang&&(v.lang==='en-IN'||v.lang==='hi-IN'));
     const oth=vs.filter(v=>!ta.includes(v)&&!in_.includes(v));
-    if(ta.length>0){const g=document.createElement('optgroup');g.label='🇮🇳 Tamil Voices (தமிழ்)';ta.forEach((v,i)=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name;if(selLang==='tamil'&&i===0)o.selected=true;g.appendChild(o);});sel.appendChild(g);}
+    if(ta.length>0){const g=document.createElement('optgroup');g.label='🇮🇳 Tamil Voices (தமிழ்)';ta.forEach((v,i)=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name;if(teachLang==='tamil'&&i===0)o.selected=true;g.appendChild(o);});sel.appendChild(g);}
     else{const n=document.createElement('option');n.disabled=true;n.textContent='⚠️ No Tamil voice on this device';sel.appendChild(n);}
     if(in_.length>0){const g2=document.createElement('optgroup');g2.label='🇮🇳 Indian English';in_.forEach(v=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name;g2.appendChild(o);});sel.appendChild(g2);}
     if(oth.length>0){const g3=document.createElement('optgroup');g3.label='🌐 Other Voices';oth.forEach(v=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name+' ('+v.lang+')';g3.appendChild(o);});sel.appendChild(g3);}
@@ -515,8 +515,8 @@ function spk(txt,done){
   if(sel&&vs[parseInt(sel.value)])utt.voice=vs[parseInt(sel.value)];
   const spd=document.getElementById('t-spd');
   utt.rate=spd?parseFloat(spd.value):0.9;
-  if(selLang==='tamil')utt.lang='ta-IN';
-  else if(selLang==='english')utt.lang='en-IN';
+  if(teachLang==='tamil')utt.lang='ta-IN';
+  else if(teachLang==='english')utt.lang='en-IN';
   utt.onstart=()=>{speaking=true;setSpkUI(true);};
   utt.onend=()=>{speaking=false;setSpkUI(false);done&&done();};
   utt.onerror=()=>{speaking=false;setSpkUI(false);done&&done();};
@@ -535,7 +535,7 @@ function spkChat(txt,done){
   speechSynthesis.speak(utt);
 }
 
-function stopSpk(){speechSynthesis.cancel();speaking=false;setSpkUI(false);const cr=document.getElementById('c-ring');if(cr)cr.classList.remove('on');const cr2=document.getElementById('c-ring2');if(cr2)cr2.classList.remove('on');const cr2=document.getElementById('c-ring2');if(cr2)cr2.classList.remove('on');clearInterval(mouthT);}
+function stopSpk(){speechSynthesis.cancel();speaking=false;setSpkUI(false);const cr=document.getElementById('c-ring');if(cr)cr.classList.remove('on');const cr2=document.getElementById('c-ring2');if(cr2)cr2.classList.remove('on');clearInterval(mouthT);}
 
 function setSpkUI(on){
   const r=document.getElementById('t-ring');
@@ -561,7 +561,7 @@ async function genPts(){
   const ch=window.AL?window.AL.ch:'';
   const sub=window.AL?window.AL.sub:'';
   const cls=document.getElementById('s-class').value;
-  const li=selLang==='tamil'?'Teach ONLY in Tamil. Use simple Tamil for school students.':selLang==='both'?'Teach in Tamil first then explain in English.':'Teach in simple English.';
+  const li=teachLang==='tamil'?'Teach ONLY in Tamil. Use simple Tamil for school students.':teachLang==='both'?'Teach in Tamil first then explain in English.':'Teach in simple English.';
 
   const prompt=`You are Malar Teacher, a warm experienced Tamil Nadu school teacher teaching ${cls} students.
 Subject: ${sub} | Chapter: "${ch}"
@@ -648,7 +648,7 @@ async function fetchWiki(ch,sub){
     const r=await fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(ch));
     if(!r.ok)return;
     const d=await r.json();
-    if(d.thumbnail)a.innerHTML='<img src="'+d.thumbnail.source+'" class="wiki-img" alt="'+ch+'" onerror="this.parentElement.innerHTML=''"/><div style="color:var(--sandal);font-size:0.8rem;text-align:center;margin-top:4px;">📚 Wikipedia: '+d.title+'</div>';
+    if(d.thumbnail){a.innerHTML='<img src="'+d.thumbnail.source+'" class="wiki-img" alt="lesson"/>';} 
   }catch(e){}
 }
 
