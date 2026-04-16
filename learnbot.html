@@ -551,12 +551,24 @@ function startStudent(){
   if(!selectedMode){alert('Please choose a mode.');return;}
   if(!lessonTxt&&!window.pdfBase64){alert('No lesson found!\n\nPlease go to Teacher Panel, paste lesson text and click Activate.');return;}
   if(selectedMode==='teaching'){H('student-setup');S('lang-choice');}
+  else if(selectedMode==='video'){H('student-setup');S('lang-choice');}
   else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">வணக்கம்! நான் மலர் ஆசிரியை. இந்த பாடத்தைப் பற்றி எந்த கேள்வியும் கேளுங்கள்! Hello! Ask me anything about this lesson!</div></div>';}
   else if(selectedMode==='quiz'){H('student-setup');S('quiz-mode');startQuiz();}
 }
 
-function beginTeaching(){H('lang-choice');S('teaching-mode');loadVoices();genPts();}
-function backToSetup(){stopSpk();S('student-setup');H('lang-choice');H('teaching-mode');H('chat-mode');H('quiz-mode');document.getElementById('qz-final').style.display='none';document.getElementById('qz-content').style.display='none';document.querySelectorAll('.mode-card').forEach(m=>m.classList.remove('selected'));selectedMode='';}
+function beginTeaching(){
+  H('lang-choice');
+  if(selectedMode==='video'){
+    S('video-mode');
+    genVideoSlides();
+  } else {
+    S('teaching-mode');
+    loadVoices();
+    genPts();
+  }
+}
+
+function backToSetup(){stopSpk();vStop();S('student-setup');H('lang-choice');H('teaching-mode');H('chat-mode');H('quiz-mode');H('video-mode');document.getElementById('qz-final').style.display='none';document.getElementById('qz-content').style.display='none';document.querySelectorAll('.mode-card').forEach(m=>m.classList.remove('selected'));selectedMode='';}
 
 function loadVoices(){
   function pop(){
@@ -857,6 +869,82 @@ Create a warm professional parent message with: learning summary, key concepts, 
     const o=document.getElementById('n-out');o.style.display='block';o.textContent=d.content[0].text;
   }catch(e){document.getElementById('n-load').classList.remove('on');alert('Error: '+e.message);}
 }
+
+// ── VIDEO MODE ──
+var vSlides=[],vIdx=0,vPlaying=false,vUtterance=null;
+
+async function genVideoSlides(){
+  document.getElementById('vloading').style.display='flex';
+  document.getElementById('vslide').style.display='none';
+  ['vplay-btn','vprev-btn','vnext-btn','vstop-btn'].forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=true;});
+  var info=window.AL||{};
+  var li=teachLang==='tamil'?'Write ONLY in Tamil language.':teachLang==='both'?'Write in Tamil first then English.':'Write in clear simple English.';
+  var prompt='Create an educational video lesson for '+document.getElementById('s-class').value+' students.\nSubject: '+(info.sub||'')+' | Chapter: "'+(info.ch||'')+'"\n\n'+li+'\n\nCreate exactly 8 video slides. Each teaches one concept.\n\nReturn ONLY a JSON array:\n[{"title":"Short Title","content":"2-3 sentences in simple language","keyword":"one English word for image search"},...]\n\nLesson:\n'+lessonTxt.substring(0,2500);
+  try{
+    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:1500,messages:[{role:'user',content:prompt}]});
+    const raw=d.content[0].text.replace(/```json|```/g,'').trim();
+    vSlides=JSON.parse(raw);
+    document.getElementById('vloading').style.display='none';
+    document.getElementById('vslide').style.display='flex';
+    vIdx=0; vShowSlide(0);
+    ['vplay-btn','vprev-btn','vnext-btn','vstop-btn'].forEach(function(id){var el=document.getElementById(id);if(el)el.disabled=false;});
+    vSlides.forEach(function(s,i){
+      fetch('https://en.wikipedia.org/api/rest_v1/page/summary/'+encodeURIComponent(s.keyword||s.title))
+        .then(function(r){return r.json();})
+        .then(function(data){if(data.thumbnail&&data.thumbnail.source){vSlides[i].img=data.thumbnail.source;if(vIdx===i){var imgEl=document.getElementById('vsimg');if(imgEl){imgEl.src=data.thumbnail.source;imgEl.style.display='block';}}}}
+        ).catch(function(){});
+    });
+  }catch(e){
+    document.getElementById('vloading').innerHTML='<div style="color:#ff6b6b;text-align:center;padding:20px;font-family:Nunito,sans-serif;">Error: '+e.message+'<br/><button onclick="backToSetup()" style="margin-top:12px;padding:8px 16px;background:#C9A84C;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Go Back</button></div>';
+  }
+}
+
+function vShowSlide(i){
+  if(i<0||i>=vSlides.length)return;
+  vIdx=i;var s=vSlides[i];
+  var n=document.getElementById('vsnum'),t=document.getElementById('vstitle'),x=document.getElementById('vstext'),img=document.getElementById('vsimg'),p=document.getElementById('vpfill'),c=document.getElementById('vcounter');
+  if(n)n.textContent='Slide '+(i+1)+' / '+vSlides.length;
+  if(t)t.textContent=s.title||'';
+  if(x)x.textContent=s.content||'';
+  if(c)c.textContent=(i+1)+' / '+vSlides.length;
+  if(p)p.style.width=(((i+1)/vSlides.length)*100)+'%';
+  if(img){if(s.img){img.src=s.img;img.style.display='block';}else{img.style.display='none';}}
+  var slide=document.getElementById('vslide');
+  if(slide){slide.style.animation='none';setTimeout(function(){slide.style.animation='slin 0.5s ease';},10);}
+}
+
+function vPlay(){
+  if(vSlides.length===0)return;
+  vPlaying=true;
+  var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');
+  if(pb)pb.disabled=false;if(plb)plb.disabled=true;
+  vPlayCurrent();
+}
+
+function vPlayCurrent(){
+  if(!vPlaying||vIdx>=vSlides.length)return;
+  vShowSlide(vIdx);
+  var txt=(vSlides[vIdx].title||'')+'. '+(vSlides[vIdx].content||'');
+  var spd=parseFloat((document.getElementById('vspeed-sel')||{value:'0.9'}).value)||0.9;
+  speechSynthesis.cancel();
+  var utt=new SpeechSynthesisUtterance(txt.replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF ]/g,''));
+  var voices=speechSynthesis.getVoices();
+  var taVoice=voices.find(function(v){return v.lang&&v.lang.startsWith('ta');});
+  if(taVoice&&teachLang==='tamil')utt.voice=taVoice;
+  utt.lang=teachLang==='tamil'?'ta-IN':'en-IN';utt.rate=spd;vUtterance=utt;
+  utt.onend=function(){
+    if(!vPlaying)return;
+    if(vIdx<vSlides.length-1){vIdx++;setTimeout(vPlayCurrent,500);}
+    else{vPlaying=false;var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');if(pb)pb.disabled=true;if(plb)plb.disabled=false;var num=document.getElementById('vsnum');if(num)num.textContent='Completed! \u2705';}
+  };
+  utt.onerror=function(){if(vPlaying&&vIdx<vSlides.length-1){vIdx++;setTimeout(vPlayCurrent,500);}};
+  speechSynthesis.speak(utt);
+}
+
+function vPause(){speechSynthesis.cancel();vPlaying=false;var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');if(pb)pb.disabled=true;if(plb)plb.disabled=false;}
+function vStop(){speechSynthesis.cancel();vPlaying=false;var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');if(pb)pb.disabled=true;if(plb&&vSlides.length>0)plb.disabled=false;}
+function vPrev(){speechSynthesis.cancel();vPlaying=false;var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');if(pb)pb.disabled=true;if(plb)plb.disabled=false;if(vIdx>0){vIdx--;vShowSlide(vIdx);}}
+function vNext(){speechSynthesis.cancel();vPlaying=false;var pb=document.getElementById('vpause-btn'),plb=document.getElementById('vplay-btn');if(pb)pb.disabled=true;if(plb)plb.disabled=false;if(vIdx<vSlides.length-1){vIdx++;vShowSlide(vIdx);}}
 
 async function callAI(payload){
   const r=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload})});
