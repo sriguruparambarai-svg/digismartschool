@@ -15,6 +15,8 @@ function req(method, path, body) {
         'apikey': key,
         'Authorization': 'Bearer ' + key,
         'Prefer': 'return=representation',
+        'Accept-Profile': 'public',
+        'Content-Profile': 'public',
         ...(data && { 'Content-Length': Buffer.byteLength(data) })
       }
     };
