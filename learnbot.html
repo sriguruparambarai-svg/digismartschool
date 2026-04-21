@@ -128,7 +128,11 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 
 
 .video-stage{position:relative;background:#000;border-radius:16px 16px 0 0;overflow:hidden;min-height:340px;display:flex;flex-direction:column;}
-.vslide{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:28px 20px;background:linear-gradient(135deg,#1a0a0f,#2d0f1a,#1a0a0f);min-height:280px;animation:slin 0.5s ease;}
+.vslide{flex:1;display:flex;flex-direction:row;align-items:stretch;background:linear-gradient(135deg,#1a0a0f,#2d0f1a,#1a0a0f);min-height:300px;animation:slin 0.5s ease;}
+.vslide-img-col{flex:0 0 45%;background:rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;overflow:hidden;border-right:2px solid rgba(201,168,76,0.3);}
+.vslide-text-col{flex:1;display:flex;flex-direction:column;justify-content:center;padding:24px 20px;}
+.vsimg{width:100%;height:100%;object-fit:cover;opacity:0.9;}
+.vsimg-placeholder{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:4rem;opacity:0.5;}
 @keyframes slin{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 .vsnum{position:absolute;top:10px;left:14px;background:rgba(201,168,76,0.3);color:#E8C96A;font-size:0.78rem;font-weight:700;padding:3px 9px;border-radius:8px;font-family:Cinzel,serif;}
 .vstitle{font-family:Cinzel,serif;font-size:1.35rem;color:#E8C96A;text-align:center;margin-bottom:14px;line-height:1.4;}
@@ -411,9 +415,12 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       </div>
     </div>
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-        <div class="card-title" style="margin-bottom:0;border:none;padding:0;">💬 Ask Malar Mam</div>
-        <button class="btn btn-sm btn-outline" onclick="backToSetup()">← Back</button>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px;">
+        <div class="card-title" style="margin-bottom:0;border:none;padding:0;" id="chat-mode-title">💬 Ask Your Teacher</div>
+        <div style="display:flex;gap:6px;">
+          <button class="btn btn-sm" style="background:linear-gradient(135deg,#c00,#e00);color:white;" onclick="stopSpk()" title="Stop Voice">⏹ Stop Voice</button>
+          <button class="btn btn-sm btn-outline" onclick="backToSetup()">← Back</button>
+        </div>
       </div>
       <div class="chat-box" id="chat-box">
         <div class="msg teacher"><div class="bubble">வணக்கம்! நான் மலர் ஆசிரியை. இந்த பாடத்தைப் பற்றி எந்த கேள்வியும் கேளுங்கள்! Hello! Ask me anything about this lesson!</div></div>
@@ -480,10 +487,15 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
           <div style="font-size:0.82rem;color:#A07830;margin-top:5px;">AI is creating animated slides from your lesson</div>
         </div>
         <div class="vslide" id="vslide" style="display:none;position:relative;">
-          <span class="vsnum" id="vsnum">Slide 1/8</span>
-          <div class="vstitle" id="vstitle"></div>
-          <img class="vsimg" id="vsimg" style="display:none;" alt=""/>
-          <div class="vstext" id="vstext"></div>
+          <span class="vsnum" id="vsnum" style="position:absolute;top:10px;left:14px;z-index:2;">Slide 1/8</span>
+          <div class="vslide-img-col" id="vslide-img-col">
+            <img class="vsimg" id="vsimg" style="display:none;" alt=""/>
+            <div class="vsimg-placeholder" id="vsimg-placeholder">🖼️</div>
+          </div>
+          <div class="vslide-text-col">
+            <div class="vstitle" id="vstitle"></div>
+            <div class="vstext" id="vstext"></div>
+          </div>
         </div>
         <div class="vprog-wrap"><div class="vprog-fill" id="vpfill" style="width:0%"></div></div>
       </div>
@@ -858,7 +870,7 @@ function startStudent(){
   if(!selectedMode){alert('Please choose a mode.');return;}
   if(!lessonTxt&&!window.pdfBase64){alert('No lesson found!\n\nPlease go to Teacher Panel, paste lesson text and click Activate.');return;}
   if(selectedMode==='teaching'||selectedMode==='video'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
-  else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">வணக்கம்! நான் மலர் ஆசிரியை. இந்த பாடத்தைப் பற்றி எந்த கேள்வியும் கேளுங்கள்! Hello! Ask me anything about this lesson!</div></div>';}
+  else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];var tNameC=window.teacherName||'Malar Mam'; document.getElementById('chat-mode-title').textContent='💬 Ask '+tNameC; document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">Good morning, students! I am '+tNameC+'. Ask me anything about today\'s lesson — I am here to help you understand!</div></div>';}
   else if(selectedMode==='quiz'){H('student-setup');S('quiz-mode');startQuiz();}
 }
 
@@ -899,6 +911,9 @@ function clean(t){return t.replace(/[\u{1F300}-\u{1FAFF}]/gu,'').replace(/[\u{26
 
 function spk(txt,done){
   stopSpk();if(!tvOn){done&&done();return;}
+  // Auto-detect if text has Tamil script - use Tamil voice
+  var hasTamil=/[஀-௿]/.test(txt);
+  var hasEnglish=/[a-zA-Z]/.test(txt);
   const utt=new SpeechSynthesisUtterance(clean(txt));
   const sel=document.getElementById('t-voice');
   const vs=speechSynthesis.getVoices();
@@ -944,7 +959,7 @@ function togCV(){cvOn=!cvOn;document.getElementById('c-tog').classList.toggle('o
 async function genPts(){
   document.getElementById('teach-box'||'t-box'||'teach-box');
   const tb=document.getElementById('teach-box');
-  if(tb)tb.textContent='⏳ Malar Mam is studying the lesson and preparing to teach...';
+  if(tb)tb.textContent='⏳ '+(window.teacherName||'Malar Mam')+' is studying the lesson and preparing to teach...';
   document.getElementById('t-start').disabled=true;
   document.getElementById('pt-counter').textContent='Preparing lesson...';
 
@@ -953,21 +968,26 @@ async function genPts(){
   const cls=document.getElementById('s-class').value;
   const li=teachLang==='tamil'?'Teach ONLY in Tamil. Use simple Tamil for school students.':teachLang==='both'?'Teach in Tamil first then explain in English.':'Teach in simple English.';
 
-  const prompt=`You are Malar Mam, a warm experienced Tamil Nadu school teacher teaching ${cls} students.
+  const tName=window.teacherName||'Malar Mam';
+  const prompt=`You are ${tName}, an experienced English medium school teacher in Tamil Nadu teaching ${cls} students.
 Subject: ${sub} | Chapter: "${ch}"
 
-Teaching style:
-- Start with: "Dear Students," (English) or "மாணவர்களே," (Tamil) - NEVER use நண்பர்களே
-- Introduce topic: "Today we are going to learn about..." or "இன்று நாம் பற்றி படிக்கப் போகிறோம்..."
-- Teach each concept clearly with real life examples from Tamil Nadu
-- Ask questions: "Can you tell me...?", "Have you seen...?", "Listen carefully..."
-- Use encouraging words: "Very good!", "Excellent!", "சாபாஷ்!"
-- ONLY teach from the given lesson content - nothing outside
-- Each point: 3-5 natural sentences exactly as a Tamil Nadu school teacher speaks
+CRITICAL TEACHING RULES:
+- This is an ENGLISH MEDIUM school. Teach primarily in English.
+- Start EXACTLY like a real classroom teacher: "Dear Students," or "Good morning, students." or "Alright, class, let us begin." - NEVER use friends, நண்பர்களே
+- Introduce topic naturally: "Today we are going to learn about ${ch}." or "Let us start with today's lesson on ${ch}."
+- When introducing an English term, say it in English first then give Tamil meaning in brackets. Example: "Natural Environment (இயற்கை சுற்றுசூழல்) means..."  NOT the reverse.
+- Use both languages naturally: English sentences with Tamil meaning in brackets only for key terms
+- Give real examples from Tamil Nadu context: "In our state Tamil Nadu...", "Like the Nilgiri hills near Ooty...", "The Cauvery river in our region..."
+- Ask engaging questions: "Can you tell me...?", "Have you noticed...?", "Listen carefully, students..."
+- Use encouragement: "Very good!", "Excellent!", "Well done!", "சாபாஷ்!"
+- DO NOT just translate English to Tamil. EXPLAIN the concept in English with Tamil key terms.
+- ONLY teach from the given lesson content - nothing outside syllabus
+- Each point: 3-5 sentences as a real English medium teacher speaks in class
 
 ${li}
 
-Create EXACTLY 10 teaching points from this lesson.
+Create EXACTLY 10 teaching points. Each point should feel like the teacher is speaking live in class.
 
 Format:
 POINT 1: [content]
@@ -1213,7 +1233,11 @@ function vShowSlide(i){
   if(x)x.textContent=s.content||'';
   if(c)c.textContent=(i+1)+' / '+vSlides.length;
   if(p)p.style.width=(((i+1)/vSlides.length)*100)+'%';
-  if(img){if(s.img){img.src=s.img;img.style.display='block';}else{img.style.display='none';}}
+  if(img){
+    var ph=document.getElementById('vsimg-placeholder');
+    if(s.img){img.src=s.img;img.style.display='block';if(ph)ph.style.display='none';}
+    else{img.style.display='none';if(ph){ph.style.display='flex';ph.textContent=s.emoji||'🖼️';}}
+  }
   var slide=document.getElementById('vslide');
   if(slide){slide.style.animation='none';setTimeout(function(){slide.style.animation='slin 0.5s ease';},10);}
 }
@@ -1387,7 +1411,23 @@ async function genDiagram(){
   try{
     var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1200,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
-    var data=JSON.parse(raw);
+    // Fix common JSON issues - replace unescaped quotes in values
+    var data;
+    try { data=JSON.parse(raw); }
+    catch(e2){
+      // Try to fix by extracting just the JSON object
+      var jsonStart=raw.indexOf('{'); var jsonEnd=raw.lastIndexOf('}');
+      if(jsonStart>=0&&jsonEnd>jsonStart){
+        try{ data=JSON.parse(raw.substring(jsonStart,jsonEnd+1)); }
+        catch(e3){
+          // Fallback: create simple data from lesson
+          data={has_diagram:true,diagram_type:'labeled diagram',svg_description:'Topic: '+ch,
+            parts:[{label:ch,color:'#C9A84C',description:'Main concept of this topic',x:50,y:50}],
+            process:['Step 1: Understand the structure','Step 2: Learn the functions','Step 3: Connect the concepts'],
+            youtube_search:ch+' diagram explanation India',key_facts:['Key concept from lesson']};
+        }
+      } else { throw e2; }
+    }
     diagramParts=data.parts||[];
     diagramPartIdx=0;
 
