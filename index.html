@@ -425,12 +425,59 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 </head>
 <body>
 
-<!-- LOCAL FILE WARNING -->
-<div id="local-warning" style="display:none;background:#FFD700;color:#4A0A12;padding:14px 20px;text-align:center;font-size:1.05rem;font-weight:700;border-bottom:3px solid #A07830;">
-  ⚠️ You are opening this file directly from your computer. Please <strong>upload this file to Netlify</strong> to use the app.
-</div>
+<!-- ── SESSION: Read school name from login.html's localStorage ── -->
 <script>
-  if(location.protocol === 'file:') document.getElementById('local-warning').style.display = 'block';
+(function() {
+  // Redirect to login if not logged in
+  var token = localStorage.getItem('dss_token');
+  if (!token && location.protocol !== 'file:') { window.location.href = '/login.html'; return; }
+
+  // Read the logged-in school's data
+  var user = {};
+  try { user = JSON.parse(localStorage.getItem('dss_user') || '{}'); } catch(e) {}
+
+  var schoolName = user.school_name || user.name || 'DigiSmartSchool';
+  var schoolAddress = user.address || '';
+  var userEmail = user.email || '';
+
+  // Apply to DOM once it's ready
+  function applySchool() {
+    var el;
+    el = document.getElementById('header-school-name');
+    if (el) el.textContent = schoolName;
+
+    el = document.getElementById('header-subtitle');
+    if (el) el.textContent = schoolName + ' — AI-Powered Academic Tools';
+
+    el = document.getElementById('header-user-label');
+    if (el) el.textContent = userEmail;
+
+    el = document.getElementById('welcome-school-name');
+    if (el) el.textContent = schoolName;
+
+    // Pre-fill report card school fields
+    el = document.getElementById('rc-school');
+    if (el && !el.value) el.value = schoolName;
+    el = document.getElementById('rc-address');
+    if (el && !el.value && schoolAddress) el.value = schoolAddress;
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', applySchool);
+  } else {
+    applySchool();
+  }
+
+  // Logout function — used by the header logout button
+  window.doLogout = function() {
+    if (!confirm('Logout from ' + schoolName + '?')) return;
+    localStorage.removeItem('dss_token');
+    localStorage.removeItem('dss_role');
+    localStorage.removeItem('dss_user');
+    window.location.href = '/login.html';
+  };
+})();
+</script>
 
 
 // ── GENERATE DIARY (new version with subject tabs) ──
@@ -463,8 +510,9 @@ function getGrade(pct) {
 
 // ── GENERATE REPORT CARD ──
 async function generateReportCard() {
-  var school = document.getElementById('rc-school').value.trim() || 'DigiSmartSchool';
-  var address = document.getElementById('rc-address').value.trim() || 'Tamil Nadu';
+  var _schoolSession = (function(){ try{ return JSON.parse(localStorage.getItem('dss_user')||'{}'); }catch(e){ return {}; } })();
+  var school = document.getElementById('rc-school').value.trim() || _schoolSession.school_name || 'DigiSmartSchool';
+  var address = document.getElementById('rc-address').value.trim() || _schoolSession.address || 'Tamil Nadu';
   var year = document.getElementById('rc-year').value.trim() || '2024-2025';
   var name = document.getElementById('rc-name').value.trim();
   var father = document.getElementById('rc-father').value.trim();
@@ -765,12 +813,18 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <!-- HEADER -->
 <div class="header">
-  <img class="header-logo" src="logo.png" onerror="this.style.display='none'" alt="Logo"/>
+  <img id="header-logo-img" class="header-logo" src="logo.png" onerror="this.style.display='none'" alt="Logo"/>
   <div class="header-text">
-    <h1>DigiSmartSchool</h1>
-    <p>Teacher Dashboard — AI-Powered Academic Tools</p>
+    <h1 id="header-school-name">DigiSmartSchool</h1>
+    <p id="header-subtitle">Teacher Dashboard — AI-Powered Academic Tools</p>
   </div>
-  <span class="header-badge">✨ AI Powered</span>
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+    <span class="header-badge">✨ AI Powered</span>
+    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+      <span id="header-user-label" style="color:var(--sandal);font-size:0.72rem;font-weight:700;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
+      <button onclick="doLogout()" style="background:rgba(255,255,255,0.1);border:1px solid rgba(201,168,76,0.35);color:var(--sandal);font-family:Nunito,sans-serif;font-size:0.75rem;font-weight:700;padding:5px 12px;border-radius:8px;cursor:pointer;transition:all 0.2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'">🚪 Logout</button>
+    </div>
+  </div>
 </div>
 
 <div class="layout">
@@ -828,7 +882,7 @@ document.addEventListener('DOMContentLoaded', function() {
   <div class="welcome-banner">
     <div class="w-icon">🎓</div>
     <div>
-      <h2>Welcome to DigiSmartSchool!</h2>
+      <h2>Welcome to <span id="welcome-school-name">DigiSmartSchool</span>!</h2>
       <p>Your complete AI-powered academic assistant. Choose any tool from the left menu or click below to get started. Every tool works from your lesson content — just upload or paste your book text.</p>
     </div>
   </div>
@@ -1646,7 +1700,7 @@ function renderDiaryNew(subjects, aiText, cls, date, teacher, announce, lang) {
   html += '<div style="font-family:Nunito,sans-serif;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">';
   html += '<div style="background:#075E54;padding:12px 16px;display:flex;align-items:center;gap:10px;">';
   html += '<div style="width:36px;height:36px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🏫</div>';
-  html += '<div><div style="color:white;font-weight:700;font-size:0.9rem;">DigiSmartSchool · '+(teacher||'Class Teacher')+'</div><div style="color:#9de1d0;font-size:0.72rem;">'+cls+'</div></div>';
+  html += '<div><div style="color:white;font-weight:700;font-size:0.9rem;">'+(function(){var u={};try{u=JSON.parse(localStorage.getItem('dss_user')||'{}');}catch(e){}return escHtml(u.school_name||u.name||'DigiSmartSchool');})()+' · '+(teacher||'Class Teacher')+'</div><div style="color:#9de1d0;font-size:0.72rem;">'+cls+'</div></div>';
   html += '</div>';
   html += '<div style="background:#ECE5DD;padding:14px;">';
   html += '<div style="background:white;border-radius:0 12px 12px 12px;padding:13px 15px;max-width:95%;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-size:0.9rem;line-height:1.9;white-space:pre-wrap;color:#111;">';
@@ -1751,7 +1805,7 @@ function renderReportCard(text) {
   var html = '<div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;border:3px double #6B0F1A;padding:24px;background:white;color:#111;">';
   html += '<div style="text-align:center;border-bottom:2px solid #6B0F1A;padding-bottom:12px;margin-bottom:16px;">';
   html += '<div style="font-size:1.5rem;font-weight:700;color:#6B0F1A;letter-spacing:2px;">STUDENT REPORT CARD</div>';
-  html += '<div style="font-size:0.85rem;color:#666;margin-top:4px;">DigiSmartSchool · Tamil Nadu</div>';
+  html += '<div style="font-size:0.85rem;color:#666;margin-top:4px;">'+escHtml(d.school)+' · Tamil Nadu</div>';
   html += '</div>';
   // Render text lines with special formatting
   var lines = text.split('\n');
