@@ -1291,7 +1291,26 @@ async function genMathsLesson(){
   try{
     var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1500,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
-    var data=JSON.parse(raw);
+    var data;
+    try{ data=JSON.parse(raw); }
+    catch(e2){
+      // Try extracting just the JSON object
+      var s0=raw.indexOf('{'),e0=raw.lastIndexOf('}');
+      if(s0>=0&&e0>s0){
+        try{ data=JSON.parse(raw.substring(s0,e0+1)); }
+        catch(e3){
+          // Build simple fallback from text
+          var lines=raw.split('\n').filter(function(l){return l.trim().length>5;});
+          data={formula:ch+' — Key Formula',formula_explained:'Core concept of '+ch,
+            steps:lines.slice(0,4).map(function(l,i){return{num:i+1,title:'Step '+(i+1),content:l.replace(/["\'{}\[\]]/g,''),working:''};}),
+            example:{problem:'Solve a '+ch+' problem',solution_steps:['Identify the values','Apply the formula','Calculate the answer'],answer:'See textbook'},
+            practice:[{q:'Practice problem from '+ch,hint:'Use the formula above',answer:'Refer textbook'},{q:'Advanced problem',hint:'Apply step by step',answer:'Refer textbook'}],
+            real_life:'In Tamil Nadu, '+ch+' is used in daily life for calculations.'};
+        }
+      } else {
+        data={formula:ch,formula_explained:'Study from textbook',steps:[{num:1,title:'Main Concept',content:raw.substring(0,300).replace(/["\'{}\[\]]/g,''),working:''}],example:{problem:'Example from textbook',solution_steps:['Step 1','Step 2'],answer:'See book'},practice:[{q:'Practice',hint:'Try it',answer:'Textbook'}],real_life:'Used in daily calculations.'};
+      }
+    }
     mathsSteps=[];
     mathsIdx=0;
 

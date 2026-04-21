@@ -414,6 +414,13 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
   .welcome-banner { flex-direction: column; text-align: center; }
   .main-content { padding: 16px; }
 }
+
+/* Subject tabs */
+.subj-tab{padding:8px 16px;border-radius:20px;font-size:0.85rem;font-weight:700;cursor:pointer;border:2px solid var(--sandal-dark);background:white;color:var(--maroon);font-family:Nunito,sans-serif;transition:all 0.2s;}
+.subj-tab:hover{background:var(--sandal);border-color:var(--gold);}
+.subj-tab.active{background:linear-gradient(135deg,var(--maroon-dark),var(--maroon));color:var(--gold-light);border-color:var(--maroon);}
+.subj-panel textarea{min-height:80px;}
+
 </style>
 </head>
 <body>
@@ -424,6 +431,145 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 </div>
 <script>
   if(location.protocol === 'file:') document.getElementById('local-warning').style.display = 'block';
+
+// ── SUBJECT TABS ──
+function showSubjTab(id, btn) {
+  document.querySelectorAll('.subj-panel').forEach(function(p){ p.style.display='none'; });
+  document.querySelectorAll('.subj-tab').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('subj-'+id).style.display='block';
+  btn.classList.add('active');
+}
+
+// ── GENERATE DIARY (new version with subject tabs) ──
+async function generateDiary() {
+  var cls = document.getElementById('hd-class').value;
+  var date = document.getElementById('hd-date').value;
+  var teacher = document.getElementById('hd-teacher').value;
+  var announce = document.getElementById('hd-announce').value;
+  var lang = document.getElementById('hd-lang').value;
+
+  if(!cls){ alert('Please select Class.'); return; }
+
+  // Collect subject data
+  var subjects = ['english','tamil','maths','science','social','hindi','computer'];
+  var subjectNames = {english:'English',tamil:'Tamil',maths:'Maths',science:'Science',social:'Social Science',hindi:'Hindi',computer:'Computer'};
+  var subjectData = [];
+  subjects.forEach(function(s){
+    var cw = document.getElementById('cw-'+s) ? document.getElementById('cw-'+s).value.trim() : '';
+    var hw = document.getElementById('hw-'+s) ? document.getElementById('hw-'+s).value.trim() : '';
+    if(cw||hw) subjectData.push({name:subjectNames[s],cw:cw,hw:hw});
+  });
+  // Misc subject
+  var miscName = document.getElementById('misc-name').value.trim();
+  var miscCW = document.getElementById('cw-misc').value.trim();
+  var miscHW = document.getElementById('hw-misc').value.trim();
+  if((miscCW||miscHW)&&miscName) subjectData.push({name:miscName,cw:miscCW,hw:miscHW});
+
+  if(subjectData.length===0){ alert('Please enter at least one subject class work or homework.'); return; }
+
+  // Show loading
+  document.getElementById('load-diary').classList.add('show');
+  document.getElementById('out-diary').classList.remove('show');
+  document.getElementById('actions-diary').style.display='none';
+
+  var subjectSummary = subjectData.map(function(s){
+    return s.name+': CW='+s.cw+' | HW='+s.hw;
+  }).join('\n');
+
+  var langInstr = lang==='tamil' ? 'Write the WhatsApp message ONLY in Tamil language.' :
+                  lang==='both' ? 'Write in English first, then Tamil translation below.' :
+                  'Write in clear simple English.';
+
+  var prompt = 'You are a professional school teacher sending a daily diary/WhatsApp message to parents in Tamil Nadu.\n\n'+
+    'Class: '+cls+' | Date: '+(date||new Date().toLocaleDateString('en-IN'))+' | Teacher: '+(teacher||'Class Teacher')+'\n\n'+
+    'Subjects covered today:\n'+subjectSummary+'\n\n'+
+    (announce?'Announcements: '+announce+'\n\n':'')+
+    langInstr+'\n\n'+
+    'Create TWO things:\n'+
+    '1. A TABLE with columns: Subject | Class Work Done | Home Work Given — for all subjects covered\n'+
+    '2. A WhatsApp message for parents — warm, clear, professional with emoji\n\n'+
+    'Format the WhatsApp message with school greeting, brief learning summary, HW list clearly, announcements, and warm closing.';
+
+  try{
+    var res = await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,messages:[{role:'user',content:prompt}]}})});
+    var data = await res.json();
+    document.getElementById('load-diary').classList.remove('show');
+    var text = data.content && data.content[0] ? data.content[0].text : 'Error generating';
+    // Render diary output beautifully
+    document.getElementById('out-diary').innerHTML = renderDiaryNew(subjectData, text, cls, date, teacher, announce, lang);
+    document.getElementById('out-diary').classList.add('show');
+    document.getElementById('actions-diary').style.display='flex';
+    document.getElementById('out-diary').scrollIntoView({behavior:'smooth'});
+  } catch(e){
+    document.getElementById('load-diary').classList.remove('show');
+    alert('Error: '+e.message);
+  }
+}
+
+function renderDiaryNew(subjects, aiText, cls, date, teacher, announce, lang) {
+  var html = '<div style="font-family:Nunito,sans-serif;">';
+
+  // ── HEADER ──
+  html += '<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#FFD700;padding:16px 20px;border-radius:14px 14px 0 0;margin-bottom:0;">';
+  html += '<div style="font-family:Cinzel,serif;font-size:1.2rem;font-weight:700;letter-spacing:1px;">📚 CLASS DIARY</div>';
+  html += '<div style="display:flex;gap:20px;margin-top:6px;font-size:0.85rem;color:#F5E6C8;">';
+  html += '<span>🏫 '+cls+'</span><span>📅 '+(date||new Date().toLocaleDateString('en-IN'))+'</span><span>👩‍🏫 '+(teacher||'Class Teacher')+'</span>';
+  html += '</div></div>';
+
+  // ── SUBJECT TABLE ──
+  html += '<div style="overflow-x:auto;margin-bottom:16px;">';
+  html += '<table style="width:100%;border-collapse:collapse;background:white;">';
+  html += '<thead><tr>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:18%;">Subject</th>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📖 Class Work Done</th>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📝 Home Work Given</th>';
+  html += '</tr></thead><tbody>';
+
+  subjects.forEach(function(s, i) {
+    var bg = i%2===0 ? '#FFFDF5' : '#FFF8EE';
+    html += '<tr style="background:'+bg+';">';
+    html += '<td style="padding:10px 14px;font-weight:800;color:#6B0F1A;border-bottom:1px solid #EDD9A3;font-size:0.9rem;">'+escHtml(s.name)+'</td>';
+    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;">'+(s.cw?escHtml(s.cw):'<span style="color:#aaa;">—</span>')+'</td>';
+    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;font-weight:'+(s.hw?'700':'400')+';color:'+(s.hw?'#6B0F1A':'#aaa')+'">'+(s.hw?'✏️ '+escHtml(s.hw):'<span style="color:#aaa;">No HW</span>')+'</td>';
+    html += '</tr>';
+  });
+
+  // Announcements row if any
+  if(announce){
+    html += '<tr style="background:#FFF3CD;"><td colspan="3" style="padding:10px 14px;font-size:0.9rem;color:#856404;border-top:2px solid #ffc107;">';
+    html += '📢 <strong>Announcements:</strong> '+escHtml(announce)+'</td></tr>';
+  }
+
+  html += '</tbody></table></div>';
+
+  // ── WHATSAPP MESSAGE ──
+  // Extract WhatsApp message part from AI text
+  var waText = aiText;
+  var waStart = aiText.search(/WhatsApp|message|Message/i);
+  if(waStart > 100) {
+    // There's likely a table first then whatsapp message
+    var parts = aiText.split(/
+
+(?=Dear|Good|Hello|Greetings|🏫|வணக்கம்)/);
+    if(parts.length > 1) waText = parts[parts.length-1];
+  }
+
+  html += '<div style="max-width:440px;margin:0 auto;">';
+  html += '<div style="font-family:Nunito,sans-serif;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">';
+  html += '<div style="background:#075E54;padding:12px 16px;display:flex;align-items:center;gap:10px;">';
+  html += '<div style="width:36px;height:36px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🏫</div>';
+  html += '<div><div style="color:white;font-weight:700;font-size:0.9rem;">DigiSmartSchool · '+(teacher||'Class Teacher')+'</div><div style="color:#9de1d0;font-size:0.72rem;">'+cls+'</div></div>';
+  html += '</div>';
+  html += '<div style="background:#ECE5DD;padding:14px;">';
+  html += '<div style="background:white;border-radius:0 12px 12px 12px;padding:13px 15px;max-width:95%;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-size:0.9rem;line-height:1.9;white-space:pre-wrap;color:#111;">';
+  html += escHtml(waText.trim());
+  html += '</div><div style="text-align:right;font-size:0.7rem;color:#999;margin-top:3px;">✓✓ Delivered</div>';
+  html += '</div></div></div>';
+  html += '</div>';
+  return html;
+}
+
 </script>
 
 <!-- API KEY STORED SECURELY IN VERCEL ENVIRONMENT VARIABLES -->
@@ -978,7 +1124,9 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
   <p class="page-subtitle">Generate professional WhatsApp-ready daily messages for parents</p>
 
   <div class="card">
-    <div class="card-title">📅 Today's Class Details</div>
+    <div class="card-title">📅 Class & Homework Diary</div>
+
+    <!-- Class Details Row -->
     <div class="form-row">
       <div class="form-group">
         <label>Class</label>
@@ -986,52 +1134,116 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
           <option>Pre KG</option><option>LKG</option><option>UKG</option>
           <option>Class 1</option><option>Class 2</option><option>Class 3</option>
           <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-          <option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option><option>Class 11</option><option>Class 12</option>
+          <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+          <option>Class 10</option><option>Class 11</option><option>Class 12</option>
         </select>
       </div>
       <div class="form-group">
         <label>Date</label>
         <input type="date" id="hd-date"/>
       </div>
+      <div class="form-group">
+        <label>Teacher Name</label>
+        <input type="text" id="hd-teacher" placeholder="Class Teacher"/>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Subject(s) Taught Today</label>
-      <input type="text" id="hd-subjects" placeholder="e.g. English, Maths, Science"/>
+
+    <!-- Subject Tabs -->
+    <div style="margin-top:8px;">
+      <div style="font-weight:700;color:#6B0F1A;margin-bottom:8px;font-size:0.95rem;">📚 Enter Class Work & Home Work per Subject</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;" id="subj-tabs">
+        <button class="subj-tab active" onclick="showSubjTab('english',this)">English</button>
+        <button class="subj-tab" onclick="showSubjTab('tamil',this)">Tamil</button>
+        <button class="subj-tab" onclick="showSubjTab('maths',this)">Maths</button>
+        <button class="subj-tab" onclick="showSubjTab('science',this)">Science</button>
+        <button class="subj-tab" onclick="showSubjTab('social',this)">Social</button>
+        <button class="subj-tab" onclick="showSubjTab('hindi',this)">Hindi</button>
+        <button class="subj-tab" onclick="showSubjTab('computer',this)">Computer</button>
+        <button class="subj-tab" onclick="showSubjTab('misc',this)">+ Other</button>
+      </div>
+
+      <!-- Subject panels -->
+      <div id="subj-english" class="subj-panel">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — English</label><textarea id="cw-english" placeholder="e.g. Chapter 3 — Reading comprehension. Discussed new words. Answered Q1-Q5."></textarea></div>
+          <div class="form-group"><label>📝 Home Work — English</label><textarea id="hw-english" placeholder="e.g. Write 5 sentences using today's new words. Learn spelling of pg 24."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-tamil" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Tamil</label><textarea id="cw-tamil" placeholder="e.g. பாடம் 4 — கவிதை வாசிப்பு மற்றும் விளக்கம்"></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Tamil</label><textarea id="hw-tamil" placeholder="e.g. கவிதை மனனம். பக்கம் 32 கேள்விகளுக்கு விடை எழுதவும்."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-maths" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Maths</label><textarea id="cw-maths" placeholder="e.g. Chapter 5 — Fractions. Solved examples on pg 56-57."></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Maths</label><textarea id="hw-maths" placeholder="e.g. Exercise 5.2 — Q1 to Q10. Page 58."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-science" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Science</label><textarea id="cw-science" placeholder="e.g. Lesson 6 — Water cycle. Drew diagram in notebook."></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Science</label><textarea id="hw-science" placeholder="e.g. Learn water cycle diagram. Answer Q1-Q3 pg 44."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-social" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Social Science</label><textarea id="cw-social" placeholder="e.g. Chapter 4 — Our Environment. Discussed biosphere."></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Social Science</label><textarea id="hw-social" placeholder="e.g. Draw and label the layers of atmosphere. Pg 38 Q1-Q5."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-hindi" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Hindi</label><textarea id="cw-hindi" placeholder="e.g. पाठ 3 — पढ़ना और अर्थ समझना"></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Hindi</label><textarea id="hw-hindi" placeholder="e.g. पाठ 3 याद करें। पृष्ठ 28 के प्रश्नों के उत्तर लिखें।"></textarea></div>
+        </div>
+      </div>
+      <div id="subj-computer" class="subj-panel" style="display:none;">
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work — Computer</label><textarea id="cw-computer" placeholder="e.g. Chapter 2 — MS Word basics. Typed a paragraph."></textarea></div>
+          <div class="form-group"><label>📝 Home Work — Computer</label><textarea id="hw-computer" placeholder="e.g. Learn keyboard shortcuts. Answer Q1-Q4 pg 20."></textarea></div>
+        </div>
+      </div>
+      <div id="subj-misc" class="subj-panel" style="display:none;">
+        <div class="form-group">
+          <label>Subject Name (Other)</label>
+          <input type="text" id="misc-name" placeholder="e.g. Drawing, EVS, GK, PT..."/>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>📖 Class Work</label><textarea id="cw-misc" placeholder="What was done in class..."></textarea></div>
+          <div class="form-group"><label>📝 Home Work</label><textarea id="hw-misc" placeholder="Homework given..."></textarea></div>
+        </div>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Topics Covered</label>
-      <textarea id="hd-topics" placeholder="e.g. English: Chapter 3 reading and comprehension. Maths: Addition with carrying. Science: Water cycle diagram."></textarea>
+
+    <!-- Announcements -->
+    <div class="form-group" style="margin-top:10px;">
+      <label>📢 Announcements / Notices</label>
+      <input type="text" id="hd-announce" placeholder="e.g. Unit test on Friday. Bring craft materials tomorrow."/>
     </div>
-    <div class="form-group">
-      <label>Homework Given</label>
-      <textarea id="hd-homework" placeholder="e.g. English: Write 5 sentences using new words. Maths: Page 45, Q1 to Q10. Science: Draw and label the water cycle."></textarea>
+
+    <div class="form-row" style="margin-top:10px;">
+      <div class="form-group">
+        <label>Language</label>
+        <select id="hd-lang">
+          <option value="english">English</option>
+          <option value="tamil">Tamil</option>
+          <option value="both">Both English + Tamil</option>
+        </select>
+      </div>
     </div>
-    <div class="form-group">
-      <label>Any Announcements</label>
-      <input type="text" id="hd-announce" placeholder="e.g. Unit test on Friday, bring coloured pencils tomorrow"/>
-    </div>
-    <div class="form-group">
-      <label>Teacher Name</label>
-      <input type="text" id="hd-teacher" placeholder="Your name"/>
-    </div>
-    <div class="form-group">
-      <label>Language</label>
-      <select id="hd-lang">
-        <option value="english">English</option>
-        <option value="tamil">Tamil</option>
-        <option value="both">Both English + Tamil</option>
-      </select>
-    </div>
-    <button class="btn btn-primary btn-full" onclick="generateTool('diary')">
-      📱 Generate Diary Message
+
+    <button class="btn btn-primary btn-full" onclick="generateDiary()" style="margin-top:14px;">
+      📋 Generate Diary / WhatsApp Message
     </button>
   </div>
 
-  <div class="loading-box" id="load-diary"><div class="spinner"></div>Generating diary message...</div>
+  <div class="loading-box" id="load-diary"><div class="spinner"></div>Generating diary...</div>
   <div class="output-box" id="out-diary"></div>
   <div class="btn-row" id="actions-diary" style="display:none">
     <button class="btn btn-gold btn-sm" onclick="copyOutput('out-diary')">📋 Copy</button>
-    <button class="btn btn-primary btn-sm" onclick="whatsappOutput('out-diary')">📱 Send WhatsApp</button>
+    <button class="btn btn-primary btn-sm" onclick="whatsappOutput('out-diary')">📱 WhatsApp</button>
     <button class="btn btn-outline btn-sm" onclick="printOutput('out-diary')">🖨️ Print</button>
   </div>
 </div>
