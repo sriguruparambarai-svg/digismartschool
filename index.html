@@ -432,147 +432,12 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 <script>
   if(location.protocol === 'file:') document.getElementById('local-warning').style.display = 'block';
 
-// ── SUBJECT TABS ──
-function showSubjTab(id, btn) {
-  document.querySelectorAll('.subj-panel').forEach(function(p){ p.style.display='none'; });
-  document.querySelectorAll('.subj-tab').forEach(function(b){ b.classList.remove('active'); });
-  document.getElementById('subj-'+id).style.display='block';
-  btn.classList.add('active');
-}
 
 // ── GENERATE DIARY (new version with subject tabs) ──
-async function generateDiary() {
-  var cls = document.getElementById('hd-class').value;
-  var date = document.getElementById('hd-date').value;
-  var teacher = document.getElementById('hd-teacher').value;
-  var announce = document.getElementById('hd-announce').value;
-  var lang = document.getElementById('hd-lang').value;
-
-  if(!cls){ alert('Please select Class.'); return; }
-
-  // Collect subject data
-  var subjects = ['english','tamil','maths','science','social','hindi','computer'];
-  var subjectNames = {english:'English',tamil:'Tamil',maths:'Maths',science:'Science',social:'Social Science',hindi:'Hindi',computer:'Computer'};
-  var subjectData = [];
-  subjects.forEach(function(s){
-    var cw = document.getElementById('cw-'+s) ? document.getElementById('cw-'+s).value.trim() : '';
-    var hw = document.getElementById('hw-'+s) ? document.getElementById('hw-'+s).value.trim() : '';
-    if(cw||hw) subjectData.push({name:subjectNames[s],cw:cw,hw:hw});
-  });
-  // Misc subject
-  var miscName = document.getElementById('misc-name').value.trim();
-  var miscCW = document.getElementById('cw-misc').value.trim();
-  var miscHW = document.getElementById('hw-misc').value.trim();
-  if((miscCW||miscHW)&&miscName) subjectData.push({name:miscName,cw:miscCW,hw:miscHW});
-
-  if(subjectData.length===0){ alert('Please enter at least one subject class work or homework.'); return; }
-
-  // Show loading
-  document.getElementById('load-diary').classList.add('show');
-  document.getElementById('out-diary').classList.remove('show');
-  document.getElementById('actions-diary').style.display='none';
-
-  var subjectSummary = subjectData.map(function(s){
-    return s.name+': CW='+s.cw+' | HW='+s.hw;
-  }).join('\n');
-
-  var langInstr = lang==='tamil' ? 'Write the WhatsApp message ONLY in Tamil language.' :
-                  lang==='both' ? 'Write in English first, then Tamil translation below.' :
-                  'Write in clear simple English.';
-
-  var prompt = 'You are a professional school teacher sending a daily diary/WhatsApp message to parents in Tamil Nadu.\n\n'+
-    'Class: '+cls+' | Date: '+(date||new Date().toLocaleDateString('en-IN'))+' | Teacher: '+(teacher||'Class Teacher')+'\n\n'+
-    'Subjects covered today:\n'+subjectSummary+'\n\n'+
-    (announce?'Announcements: '+announce+'\n\n':'')+
-    langInstr+'\n\n'+
-    'Create TWO things:\n'+
-    '1. A TABLE with columns: Subject | Class Work Done | Home Work Given — for all subjects covered\n'+
-    '2. A WhatsApp message for parents — warm, clear, professional with emoji\n\n'+
-    'Format the WhatsApp message with school greeting, brief learning summary, HW list clearly, announcements, and warm closing.';
-
-  try{
-    var res = await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,messages:[{role:'user',content:prompt}]}})});
-    var data = await res.json();
-    document.getElementById('load-diary').classList.remove('show');
-    var text = data.content && data.content[0] ? data.content[0].text : 'Error generating';
-    // Render diary output beautifully
-    document.getElementById('out-diary').innerHTML = renderDiaryNew(subjectData, text, cls, date, teacher, announce, lang);
-    document.getElementById('out-diary').classList.add('show');
-    document.getElementById('actions-diary').style.display='flex';
-    document.getElementById('out-diary').scrollIntoView({behavior:'smooth'});
-  } catch(e){
-    document.getElementById('load-diary').classList.remove('show');
-    alert('Error: '+e.message);
-  }
-}
-
-function renderDiaryNew(subjects, aiText, cls, date, teacher, announce, lang) {
-  var html = '<div style="font-family:Nunito,sans-serif;">';
-
-  // ── HEADER ──
-  html += '<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#FFD700;padding:16px 20px;border-radius:14px 14px 0 0;margin-bottom:0;">';
-  html += '<div style="font-family:Cinzel,serif;font-size:1.2rem;font-weight:700;letter-spacing:1px;">📚 CLASS DIARY</div>';
-  html += '<div style="display:flex;gap:20px;margin-top:6px;font-size:0.85rem;color:#F5E6C8;">';
-  html += '<span>🏫 '+cls+'</span><span>📅 '+(date||new Date().toLocaleDateString('en-IN'))+'</span><span>👩‍🏫 '+(teacher||'Class Teacher')+'</span>';
-  html += '</div></div>';
-
-  // ── SUBJECT TABLE ──
-  html += '<div style="overflow-x:auto;margin-bottom:16px;">';
-  html += '<table style="width:100%;border-collapse:collapse;background:white;">';
-  html += '<thead><tr>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:18%;">Subject</th>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📖 Class Work Done</th>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📝 Home Work Given</th>';
-  html += '</tr></thead><tbody>';
-
-  subjects.forEach(function(s, i) {
-    var bg = i%2===0 ? '#FFFDF5' : '#FFF8EE';
-    html += '<tr style="background:'+bg+';">';
-    html += '<td style="padding:10px 14px;font-weight:800;color:#6B0F1A;border-bottom:1px solid #EDD9A3;font-size:0.9rem;">'+escHtml(s.name)+'</td>';
-    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;">'+(s.cw?escHtml(s.cw):'<span style="color:#aaa;">—</span>')+'</td>';
-    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;font-weight:'+(s.hw?'700':'400')+';color:'+(s.hw?'#6B0F1A':'#aaa')+'">'+(s.hw?'✏️ '+escHtml(s.hw):'<span style="color:#aaa;">No HW</span>')+'</td>';
-    html += '</tr>';
-  });
-
-  // Announcements row if any
-  if(announce){
-    html += '<tr style="background:#FFF3CD;"><td colspan="3" style="padding:10px 14px;font-size:0.9rem;color:#856404;border-top:2px solid #ffc107;">';
-    html += '📢 <strong>Announcements:</strong> '+escHtml(announce)+'</td></tr>';
-  }
-
-  html += '</tbody></table></div>';
-
-  // ── WHATSAPP MESSAGE ──
-  // Extract WhatsApp message part from AI text
-  var waText = aiText;
-  var waStart = aiText.search(/WhatsApp|message|Message/i);
-  if(waStart > 100) {
-    // There's likely a table first then whatsapp message
-    var parts = aiText.split(/
-
-(?=Dear|Good|Hello|Greetings|🏫|வணக்கம்)/);
-    if(parts.length > 1) waText = parts[parts.length-1];
-  }
-
-  html += '<div style="max-width:440px;margin:0 auto;">';
-  html += '<div style="font-family:Nunito,sans-serif;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">';
-  html += '<div style="background:#075E54;padding:12px 16px;display:flex;align-items:center;gap:10px;">';
-  html += '<div style="width:36px;height:36px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🏫</div>';
-  html += '<div><div style="color:white;font-weight:700;font-size:0.9rem;">DigiSmartSchool · '+(teacher||'Class Teacher')+'</div><div style="color:#9de1d0;font-size:0.72rem;">'+cls+'</div></div>';
-  html += '</div>';
-  html += '<div style="background:#ECE5DD;padding:14px;">';
-  html += '<div style="background:white;border-radius:0 12px 12px 12px;padding:13px 15px;max-width:95%;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-size:0.9rem;line-height:1.9;white-space:pre-wrap;color:#111;">';
-  html += escHtml(waText.trim());
-  html += '</div><div style="text-align:right;font-size:0.7rem;color:#999;margin-top:3px;">✓✓ Delivered</div>';
-  html += '</div></div></div>';
-  html += '</div>';
-  return html;
-}
-
-
 // ── LOGO PREVIEW ──
-var rcLogoBase64 = '';
+var rcLogoBase64 = '';<script>
+
+
 function previewLogo(input) {
   var file = input.files[0];
   if (!file) return;
@@ -823,7 +688,78 @@ function buildReportCardHTML(d) {
   return html;
 }
 
+
+// ── BOOK BACK FROM PDF ──
+async function generateBookBackFromPDF(file, cls, sub, questions, style) {
+  document.getElementById('load-bookback').classList.add('show');
+  document.getElementById('out-bookback').classList.remove('show');
+  document.getElementById('actions-bookback').style.display = 'none';
+
+  try {
+    // Convert PDF to base64
+    const base64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = () => res(reader.result.split(',')[1]);
+      reader.onerror = () => rej(new Error('File read failed'));
+      reader.readAsDataURL(file);
+    });
+
+    const qText = questions || 'Generate answers for all exercise questions in this lesson.';
+    
+    const response = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: {
+          model: 'claude-sonnet-4-5',
+          max_tokens: 4000,
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'document',
+                source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+              },
+              {
+                type: 'text',
+                text: `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this PDF lesson, answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the PDF.\nNumber each answer clearly. Use simple language for ${cls} students.`
+              }
+            ]
+          }]
+        }
+      })
+    });
+
+    const data = await response.json();
+    document.getElementById('load-bookback').classList.remove('show');
+    
+    if (data.error) throw new Error(data.error.message);
+    const result = data.content && data.content[0] ? data.content[0].text : 'Error generating answers';
+    showOutput('out-bookback', 'actions-bookback', result, 'bookback');
+
+  } catch(e) {
+    document.getElementById('load-bookback').classList.remove('show');
+    alert('Error processing PDF: ' + e.message + '\n\nPlease paste the lesson text manually instead.');
+  }
+}
+
+// ── LOGO UPLOAD FIX ──
+// previewLogo already defined in rc JS - this ensures it works
+document.addEventListener('DOMContentLoaded', function() {
+  var logoInput = document.getElementById('rc-logo');
+  if (logoInput) {
+    logoInput.addEventListener('change', function() {
+      previewLogo(this);
+    });
+  }
+  // Set today's date in diary
+  var hdDate = document.getElementById('hd-date');
+  if (hdDate) hdDate.valueAsDate = new Date();
+});
+
+
 </script>
+
 
 <!-- API KEY STORED SECURELY IN VERCEL ENVIRONMENT VARIABLES -->
 
@@ -1284,15 +1220,17 @@ function buildReportCardHTML(d) {
       <textarea id="bb-content" placeholder="Paste the full chapter or lesson text here first... This is used to generate answers."></textarea>
     </div>
     <div class="form-group">
-      <div class="upload-box" onclick="document.getElementById('bb-file').click()">
-        <div class="u-icon">📄</div><p>Or upload PDF of the lesson</p>
+      <div class="upload-box" onclick="document.getElementById('bb-file').click()" style="border-color:#C9A84C;background:linear-gradient(135deg,#FFFDF5,#FFF8EE);">
+        <div class="u-icon">📄</div>
+        <p style="font-weight:700;color:#6B0F1A;">Upload PDF — AI reads and answers automatically!</p>
+        <p style="font-size:0.8rem;color:#A07830;">No need to type anything. Just upload PDF and click Generate.</p>
         <input type="file" id="bb-file" accept=".pdf,.txt" onchange="handleUpload(this,'bb-content','bb-status')"/>
       </div>
       <div class="upload-note" id="bb-status"></div>
     </div>
     <div class="form-group">
-      <label>Book Back Questions (paste all questions here)</label>
-      <textarea id="bb-questions" placeholder="Paste the book back exercise questions here...&#10;e.g.&#10;1. What is photosynthesis?&#10;2. Name the parts of a plant.&#10;3. What is chlorophyll?"></textarea>
+      <label>Book Back Questions <span style="font-size:0.8rem;color:#A07830;font-weight:400;">(Optional if PDF uploaded — or paste questions here)</span></label>
+      <textarea id="bb-questions" placeholder="Optional: Paste specific questions here if PDF not uploaded&#10;e.g.&#10;1. What is photosynthesis?&#10;2. Name the parts of a plant.&#10;&#10;If left blank with PDF uploaded, AI answers ALL exercise questions."></textarea>
     </div>
     <div class="form-group">
       <label>Answer Style</label>
@@ -1588,7 +1526,142 @@ function buildReportCardHTML(d) {
 </div><!-- end main-content -->
 </div><!-- end layout -->
 
-<script>
+async function generateDiary() {
+  var cls = document.getElementById('hd-class').value;
+  var date = document.getElementById('hd-date').value;
+  var teacher = document.getElementById('hd-teacher').value;
+  var announce = document.getElementById('hd-announce').value;
+  var lang = document.getElementById('hd-lang').value;
+
+  if(!cls){ alert('Please select Class.'); return; }
+
+  // Collect subject data
+  var subjects = ['english','tamil','maths','science','social','hindi','computer'];
+  var subjectNames = {english:'English',tamil:'Tamil',maths:'Maths',science:'Science',social:'Social Science',hindi:'Hindi',computer:'Computer'};
+  var subjectData = [];
+  subjects.forEach(function(s){
+    var cw = document.getElementById('cw-'+s) ? document.getElementById('cw-'+s).value.trim() : '';
+    var hw = document.getElementById('hw-'+s) ? document.getElementById('hw-'+s).value.trim() : '';
+    if(cw||hw) subjectData.push({name:subjectNames[s],cw:cw,hw:hw});
+  });
+  // Misc subject
+  var miscName = document.getElementById('misc-name').value.trim();
+  var miscCW = document.getElementById('cw-misc').value.trim();
+  var miscHW = document.getElementById('hw-misc').value.trim();
+  if((miscCW||miscHW)&&miscName) subjectData.push({name:miscName,cw:miscCW,hw:miscHW});
+
+  if(subjectData.length===0){ alert('Please enter at least one subject class work or homework.'); return; }
+
+  // Show loading
+  document.getElementById('load-diary').classList.add('show');
+  document.getElementById('out-diary').classList.remove('show');
+  document.getElementById('actions-diary').style.display='none';
+
+  var subjectSummary = subjectData.map(function(s){
+    return s.name+': CW='+s.cw+' | HW='+s.hw;
+  }).join('\n');
+
+  var langInstr = lang==='tamil' ? 'Write the WhatsApp message ONLY in Tamil language.' :
+                  lang==='both' ? 'Write in English first, then Tamil translation below.' :
+                  'Write in clear simple English.';
+
+  var prompt = 'You are a professional school teacher sending a daily diary/WhatsApp message to parents in Tamil Nadu.\n\n'+
+    'Class: '+cls+' | Date: '+(date||new Date().toLocaleDateString('en-IN'))+' | Teacher: '+(teacher||'Class Teacher')+'\n\n'+
+    'Subjects covered today:\n'+subjectSummary+'\n\n'+
+    (announce?'Announcements: '+announce+'\n\n':'')+
+    langInstr+'\n\n'+
+    'Create TWO things:\n'+
+    '1. A TABLE with columns: Subject | Class Work Done | Home Work Given — for all subjects covered\n'+
+    '2. A WhatsApp message for parents — warm, clear, professional with emoji\n\n'+
+    'Format the WhatsApp message with school greeting, brief learning summary, HW list clearly, announcements, and warm closing.';
+
+  try{
+    var res = await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,messages:[{role:'user',content:prompt}]}})});
+    var data = await res.json();
+    document.getElementById('load-diary').classList.remove('show');
+    var text = data.content && data.content[0] ? data.content[0].text : 'Error generating';
+    // Render diary output beautifully
+    document.getElementById('out-diary').innerHTML = renderDiaryNew(subjectData, text, cls, date, teacher, announce, lang);
+    document.getElementById('out-diary').classList.add('show');
+    document.getElementById('actions-diary').style.display='flex';
+    document.getElementById('out-diary').scrollIntoView({behavior:'smooth'});
+  } catch(e){
+    document.getElementById('load-diary').classList.remove('show');
+    alert('Error: '+e.message);
+  }
+}
+
+function renderDiaryNew(subjects, aiText, cls, date, teacher, announce, lang) {
+  var html = '<div style="font-family:Nunito,sans-serif;">';
+
+  // ── HEADER ──
+  html += '<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#FFD700;padding:16px 20px;border-radius:14px 14px 0 0;margin-bottom:0;">';
+  html += '<div style="font-family:Cinzel,serif;font-size:1.2rem;font-weight:700;letter-spacing:1px;">📚 CLASS DIARY</div>';
+  html += '<div style="display:flex;gap:20px;margin-top:6px;font-size:0.85rem;color:#F5E6C8;">';
+  html += '<span>🏫 '+cls+'</span><span>📅 '+(date||new Date().toLocaleDateString('en-IN'))+'</span><span>👩‍🏫 '+(teacher||'Class Teacher')+'</span>';
+  html += '</div></div>';
+
+  // ── SUBJECT TABLE ──
+  html += '<div style="overflow-x:auto;margin-bottom:16px;">';
+  html += '<table style="width:100%;border-collapse:collapse;background:white;">';
+  html += '<thead><tr>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:18%;">Subject</th>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📖 Class Work Done</th>';
+  html += '<th style="background:#6B0F1A;color:#FFD700;padding:10px 14px;text-align:left;font-size:0.9rem;width:41%;">📝 Home Work Given</th>';
+  html += '</tr></thead><tbody>';
+
+  subjects.forEach(function(s, i) {
+    var bg = i%2===0 ? '#FFFDF5' : '#FFF8EE';
+    html += '<tr style="background:'+bg+';">';
+    html += '<td style="padding:10px 14px;font-weight:800;color:#6B0F1A;border-bottom:1px solid #EDD9A3;font-size:0.9rem;">'+escHtml(s.name)+'</td>';
+    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;">'+(s.cw?escHtml(s.cw):'<span style="color:#aaa;">—</span>')+'</td>';
+    html += '<td style="padding:10px 14px;color:#333;border-bottom:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;font-weight:'+(s.hw?'700':'400')+';color:'+(s.hw?'#6B0F1A':'#aaa')+'">'+(s.hw?'✏️ '+escHtml(s.hw):'<span style="color:#aaa;">No HW</span>')+'</td>';
+    html += '</tr>';
+  });
+
+  // Announcements row if any
+  if(announce){
+    html += '<tr style="background:#FFF3CD;"><td colspan="3" style="padding:10px 14px;font-size:0.9rem;color:#856404;border-top:2px solid #ffc107;">';
+    html += '📢 <strong>Announcements:</strong> '+escHtml(announce)+'</td></tr>';
+  }
+
+  html += '</tbody></table></div>';
+
+  // ── WHATSAPP MESSAGE ──
+  // Extract WhatsApp message part from AI text
+  var waText = aiText;
+  var waStart = aiText.search(/WhatsApp|message|Message/i);
+  if(waStart > 100) {
+    // There's likely a table first then whatsapp message
+    var parts = aiText.split(/
+
+(?=Dear|Good|Hello|Greetings|🏫|வணக்கம்)/);
+    if(parts.length > 1) waText = parts[parts.length-1];
+  }
+
+  html += '<div style="max-width:440px;margin:0 auto;">';
+  html += '<div style="font-family:Nunito,sans-serif;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">';
+  html += '<div style="background:#075E54;padding:12px 16px;display:flex;align-items:center;gap:10px;">';
+  html += '<div style="width:36px;height:36px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-size:1.1rem;">🏫</div>';
+  html += '<div><div style="color:white;font-weight:700;font-size:0.9rem;">DigiSmartSchool · '+(teacher||'Class Teacher')+'</div><div style="color:#9de1d0;font-size:0.72rem;">'+cls+'</div></div>';
+  html += '</div>';
+  html += '<div style="background:#ECE5DD;padding:14px;">';
+  html += '<div style="background:white;border-radius:0 12px 12px 12px;padding:13px 15px;max-width:95%;box-shadow:0 1px 3px rgba(0,0,0,0.08);font-size:0.9rem;line-height:1.9;white-space:pre-wrap;color:#111;">';
+  html += escHtml(waText.trim());
+  html += '</div><div style="text-align:right;font-size:0.7rem;color:#999;margin-top:3px;">✓✓ Delivered</div>';
+  html += '</div></div></div>';
+  html += '</div>';
+  return html;
+}
+
+// ── SUBJECT TABS ──
+function showSubjTab(id, btn) {
+  document.querySelectorAll('.subj-panel').forEach(function(p){ p.style.display='none'; });
+  document.querySelectorAll('.subj-tab').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('subj-'+id).style.display='block';
+  btn.classList.add('active');
+}
 // ── CONFIG ── API key stored securely in Vercel environment variables
 const API_URL = '/api/ai';
 
@@ -1930,7 +2003,26 @@ Rules:
     const content = document.getElementById('bb-content').value;
     const questions = document.getElementById('bb-questions').value;
     const style = document.getElementById('bb-style').value;
-    if (!questions) { alert('Please paste the book back questions.'); return; }
+    // Book back can work with PDF OR pasted questions
+    const bbFileInput = document.getElementById('bb-file');
+    const hasPdf = bbFileInput && bbFileInput.files && bbFileInput.files[0];
+    
+    if (!questions && !hasPdf && !content) { 
+      alert('Please either:\n1. Upload a PDF of the lesson, OR\n2. Paste the lesson text AND questions below'); 
+      return; 
+    }
+
+    // If PDF uploaded, use it directly with AI
+    if (hasPdf && !content) {
+      await generateBookBackFromPDF(hasPdf, cls, sub, questions, style);
+      return;
+    }
+
+    if (!questions) { 
+      alert('Please paste the book back questions in the questions box.'); 
+      return; 
+    }
+
     prompt = `You are an expert CBSE school teacher in Tamil Nadu, India.
 Answer all the following book back exercise questions for:
 Class: ${cls} | Subject: ${sub}
@@ -1938,9 +2030,9 @@ Class: ${cls} | Subject: ${sub}
 Answer Style: ${style === 'brief' ? 'Brief (2-3 lines each)' : style === 'points' ? 'Point-wise format' : 'Detailed full paragraph answers'}
 
 Base your answers STRICTLY on this lesson content:
-${content || 'Use standard CBSE curriculum knowledge.'}
+${content || 'Use standard CBSE curriculum knowledge for this subject and class.'}
 
-IMPORTANT: Answers must be accurate, simple language suitable for ${cls} students, and strictly from the lesson content only.
+IMPORTANT: Answers must be accurate, simple language suitable for ${cls} students.
 
 QUESTIONS TO ANSWER:
 ${questions}
@@ -1949,49 +2041,9 @@ Format: Number each answer clearly matching the question number.`;
   }
 
   else if (tool === 'reportcard') {
-    const name = document.getElementById('rc-name').value;
-    const cls = document.getElementById('rc-class').value;
-    const roll = document.getElementById('rc-roll').value;
-    const term = document.getElementById('rc-term').value;
-    const max = document.getElementById('rc-max').value;
-    const obs = document.getElementById('rc-obs').value;
-    const subjects = {
-      Tamil: document.getElementById('m-tamil').value,
-      English: document.getElementById('m-english').value,
-      Maths: document.getElementById('m-maths').value,
-      Science: document.getElementById('m-science').value,
-      'Social Science': document.getElementById('m-social').value,
-    };
-    if (!name || !cls) { alert('Please enter Student Name and Class.'); return; }
-    const marksText = Object.entries(subjects)
-      .filter(([, v]) => v)
-      .map(([k, v]) => `${k}: ${v}/${max}`)
-      .join(', ');
-    const total = Object.values(subjects).filter(Boolean).reduce((a, b) => a + parseInt(b || 0), 0);
-    const totalMax = Object.values(subjects).filter(Boolean).length * parseInt(max);
-    const pct = totalMax > 0 ? Math.round((total / totalMax) * 100) : 0;
-    prompt = `You are a compassionate and professional school principal in Tamil Nadu, India.
-Write a formal, warm and detailed report card comment for:
-
-Student: ${name} | Class: ${cls} | Roll No: ${roll || 'N/A'} | Term: ${term}
-Marks: ${marksText}
-Total: ${total}/${totalMax} (${pct}%)
-Teacher's Observations: ${obs || 'Not provided'}
-
-Write:
-1. A formal REPORT CARD with all marks in a table format
-2. Grade for each subject (A+/A/B/C/D based on percentage)
-3. Overall Grade and Percentage
-4. A personalised TEACHER'S COMMENT (4-5 sentences) that:
-   - Mentions the student by name
-   - Highlights strengths genuinely
-   - Gives specific encouragement for weaker areas
-   - Is warm, motivating and professional
-5. PRINCIPAL'S REMARK (2 sentences)
-6. Attendance: Leave blank line
-7. Signature areas for Class Teacher and Principal
-
-Make it feel like a real, professional Indian school report card.`;
+    // Report card now handled by generateReportCard() function
+    generateReportCard();
+    return;
   }
 
   else if (tool === 'diary') {
@@ -2061,6 +2113,3 @@ function whatsappOutput(id) {
 
 // ── INIT ──
 document.getElementById('hd-date').valueAsDate = new Date();
-</script>
-</body>
-</html>
