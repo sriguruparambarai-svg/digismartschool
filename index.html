@@ -1069,7 +1069,7 @@ async function handleUpload(input, targetId, statusId) {
 }
 
 // ── CALL AI ──
-async function callAI(prompt, loadId) {
+async function callAI(prompt, loadId, maxTok) {
   document.getElementById(loadId).classList.add('show');
   try {
     const res = await fetch('/api/ai', {
@@ -1078,7 +1078,7 @@ async function callAI(prompt, loadId) {
       body: JSON.stringify({
         payload: {
           model: 'claude-sonnet-4-5',
-          max_tokens: 1000,
+          max_tokens: maxTok || 4000,
           messages: [{ role: 'user', content: prompt }]
         }
       })
@@ -1095,12 +1095,157 @@ async function callAI(prompt, loadId) {
   }
 }
 
-function showOutput(outId, actionsId, text) {
+function showOutput(outId, actionsId, text, tool) {
   const out = document.getElementById(outId);
-  out.textContent = text;
+  // Render as formatted HTML for printable tools
+  if (tool === 'reportcard') {
+    out.innerHTML = renderReportCard(text);
+  } else if (tool === 'diary') {
+    out.innerHTML = renderDiary(text);
+  } else if (tool === 'qpaper') {
+    out.innerHTML = renderQPaper(text);
+  } else if (tool === 'objective') {
+    out.innerHTML = renderObjective(text);
+  } else {
+    out.innerHTML = renderGeneral(text);
+  }
   out.classList.add('show');
   document.getElementById(actionsId).style.display = 'flex';
   out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderGeneral(text) {
+  return '<div style="font-size:0.95rem;line-height:1.9;white-space:pre-wrap;font-family:Nunito,sans-serif;">'+escHtml(text)+'</div>';
+}
+
+function escHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function renderReportCard(text) {
+  // Build a proper printable report card
+  var html = '<div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;border:3px double #6B0F1A;padding:24px;background:white;color:#111;">';
+  html += '<div style="text-align:center;border-bottom:2px solid #6B0F1A;padding-bottom:12px;margin-bottom:16px;">';
+  html += '<div style="font-size:1.5rem;font-weight:700;color:#6B0F1A;letter-spacing:2px;">STUDENT REPORT CARD</div>';
+  html += '<div style="font-size:0.85rem;color:#666;margin-top:4px;">DigiSmartSchool · Tamil Nadu</div>';
+  html += '</div>';
+  // Render text lines with special formatting
+  var lines = text.split('\n');
+  var inTable = false;
+  lines.forEach(function(line) {
+    var l = line.trim();
+    if (!l) { html += '<br/>'; return; }
+    // Detect table rows (contains |)
+    if (l.includes('|') && l.split('|').length > 2) {
+      if (!inTable) {
+        html += '<table style="width:100%;border-collapse:collapse;margin:12px 0;">';
+        inTable = true;
+      }
+      var cells = l.split('|').filter(function(c){return c.trim();});
+      var isHeader = lines.indexOf(line) === lines.findIndex(function(x){return x.includes('|')&&x.split('|').length>2;});
+      html += '<tr>';
+      cells.forEach(function(c){
+        html += isHeader
+          ? '<th style="border:1px solid #6B0F1A;padding:8px 12px;background:#6B0F1A;color:#FFD700;font-size:0.9rem;">'+escHtml(c.trim())+'</th>'
+          : '<td style="border:1px solid #ddd;padding:8px 12px;font-size:0.9rem;text-align:center;">'+escHtml(c.trim())+'</td>';
+      });
+      html += '</tr>';
+    } else {
+      if (inTable) { html += '</table>'; inTable = false; }
+      // Detect section headers
+      if (l.match(/^[A-Z][A-Z\s':]+$/) || l.startsWith('TEACHER') || l.startsWith('PRINCIPAL') || l.startsWith('RESULT') || l.startsWith('GRADE') || l.startsWith('ATTENDANCE') || l.startsWith('SIGNATURE')) {
+        html += '<div style="font-weight:700;color:#6B0F1A;margin:12px 0 4px;font-size:0.95rem;border-bottom:1px solid #EDD9A3;padding-bottom:3px;">'+escHtml(l)+'</div>';
+      } else if (l.match(/^[1-9]\./) || l.startsWith('•') || l.startsWith('-')) {
+        html += '<div style="padding:3px 0 3px 16px;font-size:0.9rem;line-height:1.7;">'+escHtml(l)+'</div>';
+      } else {
+        html += '<div style="padding:3px 0;font-size:0.9rem;line-height:1.7;">'+escHtml(l)+'</div>';
+      }
+    }
+  });
+  if (inTable) html += '</table>';
+  // Signature section
+  html += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:30px;margin-top:30px;padding-top:16px;border-top:1px solid #ddd;">';
+  html += '<div style="text-align:center;"><div style="border-top:1px solid #333;padding-top:6px;font-size:0.85rem;color:#666;">Class Teacher Signature</div></div>';
+  html += '<div style="text-align:center;"><div style="border-top:1px solid #333;padding-top:6px;font-size:0.85rem;color:#666;">Principal Signature</div></div>';
+  html += '</div>';
+  html += '</div>';
+  return html;
+}
+
+function renderDiary(text) {
+  var html = '<div style="font-family:Nunito,sans-serif;max-width:480px;margin:0 auto;background:white;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.1);">';
+  // WhatsApp-style header
+  html += '<div style="background:#075E54;padding:14px 18px;display:flex;align-items:center;gap:10px;">';
+  html += '<div style="width:38px;height:38px;border-radius:50%;background:#128C7E;display:flex;align-items:center;justify-content:center;font-size:1.2rem;">🏫</div>';
+  html += '<div><div style="color:white;font-weight:700;font-size:0.95rem;">DigiSmartSchool</div><div style="color:#9de1d0;font-size:0.75rem;">Class Teacher</div></div>';
+  html += '</div>';
+  // Message bubble
+  html += '<div style="background:#ECE5DD;padding:16px;">';
+  html += '<div style="background:white;border-radius:0 12px 12px 12px;padding:14px 16px;max-width:92%;box-shadow:0 1px 3px rgba(0,0,0,0.1);font-size:0.92rem;line-height:1.8;white-space:pre-wrap;color:#111;">';
+  html += escHtml(text);
+  html += '</div>';
+  html += '<div style="text-align:right;font-size:0.72rem;color:#999;margin-top:4px;">✓✓ Delivered</div>';
+  html += '</div></div>';
+  return html;
+}
+
+function renderQPaper(text) {
+  var html = '<div style="font-family:Georgia,serif;max-width:720px;margin:0 auto;border:2px solid #333;padding:28px;background:white;color:#111;">';
+  var lines = text.split('\n');
+  var inTable = false;
+  lines.forEach(function(line) {
+    var l = line.trim();
+    if (!l) { html += '<div style="height:10px;"></div>'; return; }
+    if (l.includes('|') && l.split('|').length > 2) {
+      if (!inTable) { html += '<table style="width:100%;border-collapse:collapse;margin:10px 0;">'; inTable = true; }
+      var cells = l.split('|').filter(function(c){return c.trim();});
+      html += '<tr>';
+      cells.forEach(function(c){ html += '<td style="border:1px solid #999;padding:6px 10px;font-size:0.88rem;">'+escHtml(c.trim())+'</td>'; });
+      html += '</tr>';
+    } else {
+      if (inTable) { html += '</table>'; inTable = false; }
+      if (l.match(/^(SECTION|Section)\s+[A-Z]/)) {
+        html += '<div style="background:#1a1a1a;color:white;padding:8px 14px;margin:16px 0 10px;font-weight:700;letter-spacing:1px;font-size:0.95rem;">'+escHtml(l)+'</div>';
+      } else if (l.match(/^\d+[\.\)]/)) {
+        html += '<div style="padding:5px 0 5px 4px;font-size:0.92rem;line-height:1.7;border-bottom:1px dotted #eee;">'+escHtml(l)+'</div>';
+      } else if (l.match(/^[a-d][\.\)]/i)) {
+        html += '<div style="padding:3px 0 3px 24px;font-size:0.88rem;color:#333;">'+escHtml(l)+'</div>';
+      } else if (l.match(/^(ANSWER KEY|Answer Key)/i)) {
+        html += '<div style="background:#f0f7ff;border-top:2px solid #1565c0;padding:10px 14px;margin-top:20px;font-weight:700;color:#1565c0;font-size:0.95rem;">'+escHtml(l)+'</div>';
+      } else {
+        html += '<div style="padding:4px 0;font-size:0.9rem;line-height:1.7;font-weight:'+((l.length<60&&l===l.toUpperCase())||l.match(/^[A-Z]{3,}/)?'700':'400')+';">'+escHtml(l)+'</div>';
+      }
+    }
+  });
+  if (inTable) html += '</table>';
+  html += '</div>';
+  return html;
+}
+
+function renderObjective(text) {
+  var html = '<div style="font-family:Nunito,sans-serif;padding:4px;">';
+  var lines = text.split('\n');
+  var qNum = 0;
+  lines.forEach(function(line) {
+    var l = line.trim();
+    if (!l) return;
+    if (l.match(/^(ANSWER KEY|Answer Key|Answers:)/i)) {
+      html += '<div style="background:#e8f5e9;border-top:2px solid #2e7d32;padding:12px 16px;margin-top:16px;border-radius:0 0 10px 10px;"><div style="font-weight:800;color:#2e7d32;margin-bottom:8px;">✅ ANSWER KEY</div>';
+    } else if (l.match(/^\d+[\.\)]\s/)) {
+      qNum++;
+      html += '<div style="background:white;border:1px solid #E8C96A;border-radius:10px;padding:12px 14px;margin-bottom:8px;"><div style="font-weight:700;font-size:0.95rem;margin-bottom:6px;color:#4A0A12;">'+escHtml(l)+'</div>';
+    } else if (l.match(/^[a-d][\.\)]\s/i)) {
+      var isCorrect = l.includes('✓') || l.includes('*');
+      html += '<div style="padding:4px 8px;font-size:0.88rem;'+(isCorrect?'color:#2e7d32;font-weight:700;':'color:#333;')+'">'+escHtml(l)+'</div>';
+      if (l.match(/^d[\.\)]/i)) html += '</div>'; // close question card after option d
+    } else if (l.match(/^(True|False|TRUE|FALSE)/)) {
+      html += '<div style="font-size:0.9rem;margin:3px 0 10px 8px;"><span style="background:#e3f2fd;padding:3px 10px;border-radius:8px;font-weight:700;">'+escHtml(l)+'</span></div></div>';
+    } else {
+      html += '<div style="font-size:0.88rem;color:#555;padding:2px 0;">'+escHtml(l)+'</div>';
+    }
+  });
+  html += '</div></div>';
+  return html;
 }
 
 // ── GENERATE TOOLS ──
@@ -1336,8 +1481,13 @@ Format it as a proper WhatsApp message with:
 Keep it concise, warm and easy for parents to read on their phone.`;
   }
 
-  const result = await callAI(prompt, loadId);
-  showOutput(outId, actId, result);
+  // Token limits per tool
+  const tokenMap = {
+    lesson: 2000, worksheet: 3000, qpaper: 4000,
+    objective: 4000, bookback: 4000, reportcard: 3000, diary: 1500
+  };
+  const result = await callAI(prompt, loadId, tokenMap[tool] || 4000);
+  showOutput(outId, actId, result, tool);
 }
 
 // ── OUTPUT ACTIONS ──
