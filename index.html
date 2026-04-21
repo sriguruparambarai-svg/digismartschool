@@ -1569,12 +1569,34 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <div class="loading-box" id="load-diary"><div class="spinner"></div>Generating diary...</div>
-  <div class="output-box" id="out-diary"></div>
-  <div class="btn-row" id="actions-diary" style="display:none">
-    <button class="btn btn-gold btn-sm" onclick="copyOutput('out-diary')">📋 Copy</button>
-    <button class="btn btn-primary btn-sm" onclick="whatsappOutput('out-diary')">📱 WhatsApp</button>
-    <button class="btn btn-outline btn-sm" onclick="printOutput('out-diary')">🖨️ Print</button>
+
+  <!-- ── FORM 1: WHATSAPP IMAGE TABLE ── -->
+  <div id="wa-diary-section" style="display:none;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div>
+        <div style="font-family:Cinzel,serif;font-size:1rem;color:var(--maroon);font-weight:700;">📱 WhatsApp Format</div>
+        <div style="font-size:0.82rem;color:var(--text-mid);">Take a screenshot of the table below and send to parents</div>
+      </div>
+      <button class="btn btn-primary btn-sm" onclick="diaryScreenshot()">📸 Save as Image</button>
+    </div>
+    <div class="output-box show" id="out-diary" style="padding:0;border:none;background:transparent;"></div>
   </div>
+
+  <!-- ── FORM 2: PRINT / DIARY FORMAT ── -->
+  <div id="print-diary-section" style="display:none;margin-top:24px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
+      <div>
+        <div style="font-family:Cinzel,serif;font-size:1rem;color:var(--maroon);font-weight:700;">🖨️ Physical Diary Format</div>
+        <div style="font-size:0.82rem;color:var(--text-mid);">Plain format — print 2 or 3 per A4 sheet and paste in student diary</div>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-gold btn-sm" onclick="diaryPrint()">🖨️ Print</button>
+        <button class="btn btn-outline btn-sm" onclick="diaryDownloadWord()">📄 Word File</button>
+      </div>
+    </div>
+    <div class="output-box show" id="out-diary-print" style="padding:0;border:none;background:transparent;"></div>
+  </div>
+
 </div>
 
 </div><!-- end main-content -->
@@ -1610,106 +1632,202 @@ async function generateDiary() {
 
   // Show loading
   document.getElementById('load-diary').classList.add('show');
-  document.getElementById('out-diary').classList.remove('show');
-  document.getElementById('actions-diary').style.display='none';
+  document.getElementById('wa-diary-section').style.display='none';
+  document.getElementById('print-diary-section').style.display='none';
 
   var subjectSummary = subjectData.map(function(s){
     return s.name+': CW='+s.cw+' | HW='+s.hw;
   }).join('\n');
 
-  var langInstr = lang==='tamil' ? 'Write the WhatsApp message ONLY in Tamil language.' :
+  var langInstr = lang==='tamil' ? 'Write ONLY in Tamil language.' :
                   lang==='both' ? 'Write in English first, then Tamil translation below.' :
                   'Write in clear simple English.';
 
-  var prompt = 'You are a professional school teacher sending a daily diary/WhatsApp message to parents in Tamil Nadu.\n\n'+
-    'Class: '+cls+' | Date: '+(date||new Date().toLocaleDateString('en-IN'))+' | Teacher: '+(teacher||'Class Teacher')+'\n\n'+
-    'Subjects covered today:\n'+subjectSummary+'\n\n'+
-    (announce?'Announcements: '+announce+'\n\n':'')+
-    langInstr+'\n\n'+
-    'Create TWO things:\n'+
-    '1. A TABLE with columns: Subject | Class Work Done | Home Work Given — for all subjects covered\n'+
-    '2. A WhatsApp message for parents — warm, clear, professional with emoji\n\n'+
-    'Format the WhatsApp message with school greeting, brief learning summary, HW list clearly, announcements, and warm closing.';
+  // Simple prompt — we build the table ourselves, AI not needed for layout
+  var prompt = 'You are a school teacher. Just confirm receipt: OK';
+  // We don't need AI for the table — build directly from subject data
 
-  try{
-    var res = await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,messages:[{role:'user',content:prompt}]}})});
-    var data = await res.json();
-    document.getElementById('load-diary').classList.remove('show');
-    var text = data.content && data.content[0] ? data.content[0].text : 'Error generating';
-    // Render diary output beautifully
-    document.getElementById('out-diary').innerHTML = renderDiaryNew(subjectData, text, cls, date, teacher, announce, lang);
-    document.getElementById('out-diary').classList.add('show');
-    document.getElementById('actions-diary').style.display='flex';
-    document.getElementById('out-diary').scrollIntoView({behavior:'smooth'});
-  } catch(e){
-    document.getElementById('load-diary').classList.remove('show');
-    alert('Error: '+e.message);
+  // Build both formats directly — no AI call needed
+  document.getElementById('load-diary').classList.remove('show');
+
+  // Form 1: WhatsApp visual table
+  document.getElementById('out-diary').innerHTML = renderDiaryWA(subjectData, cls, date, teacher, announce);
+  document.getElementById('wa-diary-section').style.display='block';
+
+  // Form 2: Print/diary plain format
+  document.getElementById('out-diary-print').innerHTML = renderDiaryPrint(subjectData, cls, date, teacher, announce);
+  document.getElementById('print-diary-section').style.display='block';
+
+  document.getElementById('wa-diary-section').scrollIntoView({behavior:'smooth'});
+}
+
+// ══════════════════════════════════════════════
+// FORM 1 — WhatsApp Visual Table (screenshot)
+// ══════════════════════════════════════════════
+function renderDiaryWA(subjects, cls, date, teacher, announce) {
+  var schoolName = 'DigiSmartSchool';
+  try { var u = JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolName = u.school_name || u.name || 'DigiSmartSchool'; } catch(e) {}
+  var displayDate = date ? new Date(date).toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
+
+  var h = '<div id="wa-table-img" style="font-family:Nunito,sans-serif;max-width:700px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 6px 32px rgba(107,15,26,0.25);border:2px solid #C9A84C;">';
+
+  // School heading
+  h += '<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);padding:16px 24px;text-align:center;">';
+  h += '<div style="font-family:Cinzel,serif;font-size:1.4rem;font-weight:700;color:#FFD700;letter-spacing:2px;">'+escHtml(schoolName)+'</div>';
+  h += '<div style="color:#F5E6C8;font-size:0.8rem;margin-top:3px;letter-spacing:2px;text-transform:uppercase;">Today\'s Homework</div>';
+  h += '</div>';
+
+  // Class & Date
+  h += '<div style="background:#F5E6C8;padding:9px 20px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;border-bottom:2px solid #C9A84C;">';
+  h += '<span style="font-weight:800;color:#6B0F1A;font-size:0.9rem;">🏫 Class : '+escHtml(cls)+'</span>';
+  h += '<span style="font-weight:800;color:#6B0F1A;font-size:0.9rem;">📅 '+displayDate+'</span>';
+  h += '</div>';
+
+  // Table
+  h += '<table style="width:100%;border-collapse:collapse;background:white;">';
+  h += '<thead><tr>';
+  h += '<th style="background:#6B0F1A;color:#FFD700;padding:9px 14px;text-align:left;font-size:0.85rem;width:22%;border:1px solid #A07830;">Subject</th>';
+  h += '<th style="background:#6B0F1A;color:#FFD700;padding:9px 14px;text-align:left;font-size:0.85rem;width:39%;border:1px solid #A07830;">📖 Class Work</th>';
+  h += '<th style="background:#6B0F1A;color:#FFD700;padding:9px 14px;text-align:left;font-size:0.85rem;width:39%;border:1px solid #A07830;">✏️ Home Work</th>';
+  h += '</tr></thead><tbody>';
+
+  subjects.forEach(function(s, i) {
+    var bg = i%2===0 ? '#FFFDF5' : '#FFF8EE';
+    h += '<tr style="background:'+bg+';">';
+    h += '<td style="padding:9px 14px;font-weight:800;color:#6B0F1A;border:1px solid #EDD9A3;font-size:0.88rem;">'+escHtml(s.name)+'</td>';
+    h += '<td style="padding:9px 14px;color:#333;border:1px solid #EDD9A3;font-size:0.85rem;line-height:1.5;">'+(s.cw ? escHtml(s.cw) : '<span style="color:#ccc;">—</span>')+'</td>';
+    h += '<td style="padding:9px 14px;border:1px solid #EDD9A3;font-size:0.85rem;line-height:1.5;font-weight:'+(s.hw?'700':'400')+';color:'+(s.hw?'#6B0F1A':'#bbb')+'">'+(s.hw ? escHtml(s.hw) : '<span style="color:#bbb;">No Homework</span>')+'</td>';
+    h += '</tr>';
+  });
+
+  // Notice row
+  h += '<tr style="background:#FFF8DC;">';
+  h += '<td style="padding:9px 14px;font-weight:800;color:#856404;border:1px solid #EDD9A3;font-size:0.88rem;">📢 Notice</td>';
+  h += '<td colspan="2" style="padding:9px 14px;font-size:0.88rem;color:#856404;border:1px solid #EDD9A3;">'+(announce ? escHtml(announce) : '<span style="color:#ccc;font-style:italic;">No announcements today</span>')+'</td>';
+  h += '</tr>';
+
+  h += '</tbody></table>';
+
+  // Teacher footer
+  h += '<div style="background:#F5E6C8;padding:10px 20px;display:flex;justify-content:flex-end;border-top:2px solid #C9A84C;">';
+  h += '<div style="text-align:right;"><div style="font-size:0.72rem;color:#A07830;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Class Teacher</div>';
+  h += '<div style="font-family:Cinzel,serif;font-weight:700;color:#6B0F1A;font-size:0.95rem;">'+escHtml(teacher||'Class Teacher')+'</div></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+// ══════════════════════════════════════════════
+// FORM 2 — Print / Physical Diary Format
+// ══════════════════════════════════════════════
+function renderDiaryPrint(subjects, cls, date, teacher, announce) {
+  var schoolName = 'DigiSmartSchool';
+  try { var u = JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolName = u.school_name || u.name || 'DigiSmartSchool'; } catch(e) {}
+  var displayDate = date ? new Date(date).toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {day:'numeric', month:'short', year:'numeric'});
+  var dayName = date ? new Date(date).toLocaleDateString('en-IN', {weekday:'long'}) : new Date().toLocaleDateString('en-IN', {weekday:'long'});
+
+  var h = '<div style="font-family:Arial,sans-serif;max-width:680px;margin:0 auto;border:1.5px solid #333;padding:0;">';
+
+  // Compact header
+  h += '<div style="border-bottom:2px solid #333;padding:8px 12px;text-align:center;">';
+  h += '<div style="font-size:13pt;font-weight:bold;text-transform:uppercase;">'+escHtml(schoolName)+'</div>';
+  h += '<div style="font-size:9pt;margin-top:2px;">Today\'s Homework</div>';
+  h += '</div>';
+
+  // Class / Date / Day row
+  h += '<div style="display:flex;border-bottom:1px solid #333;">';
+  h += '<div style="flex:1;padding:5px 10px;border-right:1px solid #333;font-size:9.5pt;font-weight:bold;">Class : '+escHtml(cls)+'</div>';
+  h += '<div style="flex:1;padding:5px 10px;border-right:1px solid #333;font-size:9.5pt;font-weight:bold;">Date : '+displayDate+'</div>';
+  h += '<div style="flex:1;padding:5px 10px;font-size:9.5pt;font-weight:bold;">Day : '+dayName+'</div>';
+  h += '</div>';
+
+  // Table
+  h += '<table style="width:100%;border-collapse:collapse;">';
+  h += '<thead><tr style="background:#ddd;">';
+  h += '<th style="border:1px solid #333;padding:5px 8px;font-size:9pt;text-align:left;width:18%;">Subject</th>';
+  h += '<th style="border:1px solid #333;padding:5px 8px;font-size:9pt;text-align:left;width:41%;">Class Work</th>';
+  h += '<th style="border:1px solid #333;padding:5px 8px;font-size:9pt;text-align:left;width:41%;">Home Work</th>';
+  h += '</tr></thead><tbody>';
+
+  subjects.forEach(function(s) {
+    h += '<tr>';
+    h += '<td style="border:1px solid #333;padding:5px 8px;font-size:9pt;font-weight:bold;">'+escHtml(s.name)+'</td>';
+    h += '<td style="border:1px solid #333;padding:5px 8px;font-size:9pt;">'+(s.cw ? escHtml(s.cw) : '')+'</td>';
+    h += '<td style="border:1px solid #333;padding:5px 8px;font-size:9pt;">'+(s.hw ? escHtml(s.hw) : '')+'</td>';
+    h += '</tr>';
+  });
+
+  // Notice row
+  h += '<tr style="background:#fffacd;">';
+  h += '<td style="border:1px solid #333;padding:5px 8px;font-size:9pt;font-weight:bold;">Notice</td>';
+  h += '<td colspan="2" style="border:1px solid #333;padding:5px 8px;font-size:9pt;">'+(announce ? escHtml(announce) : '')+'</td>';
+  h += '</tr>';
+
+  h += '</tbody></table>';
+
+  // Teacher signature row
+  h += '<div style="display:flex;border-top:1px solid #333;">';
+  h += '<div style="flex:2;padding:6px 10px;font-size:9pt;border-right:1px solid #333;">Note to Parents :</div>';
+  h += '<div style="flex:1;padding:6px 10px;font-size:9pt;text-align:center;">Class Teacher : <strong>'+escHtml(teacher||'')+'</strong></div>';
+  h += '</div>';
+
+  h += '</div>';
+  return h;
+}
+
+// ── SCREENSHOT for WhatsApp ──
+function diaryScreenshot() {
+  var el = document.getElementById('wa-table-img');
+  if (!el) { alert('Nothing to save.'); return; }
+  // Use html2canvas if available, else instruct user
+  if (typeof html2canvas !== 'undefined') {
+    html2canvas(el, {scale:2, backgroundColor:'#fff'}).then(function(canvas){
+      var a = document.createElement('a');
+      a.download = 'Homework_' + new Date().toLocaleDateString('en-IN').replace(/\//g,'-') + '.png';
+      a.href = canvas.toDataURL('image/png');
+      a.click();
+    });
+  } else {
+    alert('📸 To send as image:\n\n1. Press the Print Screen key (or Windows + Shift + S)\n2. Select the table area\n3. Send the saved image on WhatsApp\n\nTip: Zoom in (Ctrl + +) for a clearer image.');
   }
 }
 
-function renderDiaryNew(subjects, aiText, cls, date, teacher, announce, lang) {
-  // Get school name from login session
-  var schoolName = 'DigiSmartSchool';
-  try { var u = JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolName = u.school_name || u.name || 'DigiSmartSchool'; } catch(e) {}
+// ── PRINT Diary Format ──
+function diaryPrint() {
+  var el = document.getElementById('out-diary-print');
+  if (!el) return;
+  var win = window.open('', '_blank');
+  win.document.write('<html><head><title>Homework Diary</title><style>');
+  win.document.write('body{font-family:Arial,sans-serif;margin:10mm;}');
+  win.document.write('@media print{body{margin:8mm;} .no-print{display:none;}}');
+  win.document.write('table{width:100%;border-collapse:collapse;margin-bottom:8mm;}');
+  win.document.write('th,td{border:1px solid #333;padding:4px 7px;font-size:9pt;}');
+  win.document.write('</style></head><body>');
+  // Print 3 copies on one page
+  win.document.write(el.innerHTML + '<br/>' + el.innerHTML + '<br/>' + el.innerHTML);
+  win.document.write('</body></html>');
+  win.document.close();
+  win.print();
+}
 
-  // Format date nicely
-  var displayDate = date ? new Date(date).toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'}) : new Date().toLocaleDateString('en-IN', {weekday:'long', day:'numeric', month:'long', year:'numeric'});
-
-  var html = '<div style="font-family:Nunito,sans-serif;max-width:860px;margin:0 auto;border-radius:16px;overflow:hidden;box-shadow:0 6px 32px rgba(107,15,26,0.18);border:2px solid #C9A84C;">';
-
-  // ── HEADING: School Name ──
-  html += '<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);padding:18px 24px;text-align:center;">';
-  html += '<div style="font-family:Cinzel,serif;font-size:1.5rem;font-weight:700;color:#FFD700;letter-spacing:2px;">'+escHtml(schoolName)+'</div>';
-  html += '<div style="color:#F5E6C8;font-size:0.82rem;margin-top:4px;letter-spacing:1px;">HOMEWORK DIARY</div>';
-  html += '</div>';
-
-  // ── CLASS & DATE ROW ──
-  html += '<div style="background:#F5E6C8;padding:10px 24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:2px solid #C9A84C;">';
-  html += '<div style="font-weight:800;color:#6B0F1A;font-size:0.95rem;">🏫 Class : '+escHtml(cls)+'</div>';
-  html += '<div style="font-weight:800;color:#6B0F1A;font-size:0.95rem;">📅 Date : '+displayDate+'</div>';
-  html += '</div>';
-
-  // ── TABLE ──
-  html += '<div style="overflow-x:auto;">';
-  html += '<table style="width:100%;border-collapse:collapse;background:white;">';
-
-  // Table header
-  html += '<thead><tr>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:11px 16px;text-align:left;font-size:0.9rem;width:20%;border:1px solid #A07830;">Subject</th>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:11px 16px;text-align:left;font-size:0.9rem;width:40%;border:1px solid #A07830;">📖 Class Work</th>';
-  html += '<th style="background:#6B0F1A;color:#FFD700;padding:11px 16px;text-align:left;font-size:0.9rem;width:40%;border:1px solid #A07830;">✏️ Home Work</th>';
-  html += '</tr></thead><tbody>';
-
-  // Table rows
-  subjects.forEach(function(s, i) {
-    var bg = i%2===0 ? '#FFFDF5' : '#FFF8EE';
-    html += '<tr style="background:'+bg+';">';
-    html += '<td style="padding:10px 14px;font-weight:800;color:#6B0F1A;border:1px solid #EDD9A3;font-size:0.9rem;">'+escHtml(s.name)+'</td>';
-    html += '<td style="padding:10px 14px;color:#333;border:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;">'+(s.cw ? escHtml(s.cw) : '<span style="color:#bbb;">—</span>')+'</td>';
-    html += '<td style="padding:10px 14px;border:1px solid #EDD9A3;font-size:0.88rem;line-height:1.6;font-weight:'+(s.hw?'700':'400')+';color:'+(s.hw?'#6B0F1A':'#bbb')+'">'+(s.hw ? escHtml(s.hw) : '<span style="color:#bbb;">No Homework</span>')+'</td>';
-    html += '</tr>';
-  });
-
-  // ── ANNOUNCEMENT ROW (always shown at bottom) ──
-  html += '<tr style="background:#FFF8DC;">';
-  html += '<td style="padding:11px 16px;font-weight:800;color:#6B0F1A;border:1px solid #EDD9A3;font-size:0.9rem;white-space:nowrap;">📢 Notice</td>';
-  html += '<td colspan="2" style="padding:11px 16px;font-size:0.9rem;color:#856404;border:1px solid #EDD9A3;font-weight:600;">'+(announce ? escHtml(announce) : '<span style="color:#bbb;font-style:italic;">Class Test / Activity / Project — No announcements today</span>')+'</td>';
-  html += '</tr>';
-
-  html += '</tbody></table>';
-  html += '</div>';
-
-  // ── TEACHER NAME FOOTER ──
-  html += '<div style="background:#F5E6C8;padding:12px 24px;display:flex;justify-content:flex-end;align-items:center;border-top:2px solid #C9A84C;">';
-  html += '<div style="text-align:right;">';
-  html += '<div style="font-size:0.78rem;color:#A07830;font-weight:700;text-transform:uppercase;letter-spacing:1px;">Class Teacher</div>';
-  html += '<div style="font-family:Cinzel,serif;font-weight:700;color:#6B0F1A;font-size:1rem;">'+escHtml(teacher||'Class Teacher')+'</div>';
-  html += '</div>';
-  html += '</div>';
-
-  html += '</div>';
-  return html;
+// ── WORD FILE Download ──
+function diaryDownloadWord() {
+  var el = document.getElementById('out-diary-print');
+  if (!el) return;
+  var wordHtml = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>'
+    + 'body{font-family:Arial,sans-serif;margin:20px;}'
+    + 'table{width:100%;border-collapse:collapse;margin-bottom:20px;}'
+    + 'th,td{border:1px solid #333;padding:5px 8px;font-size:10pt;}'
+    + 'th{background:#ddd;font-weight:bold;}'
+    + '</style></head><body>'
+    + el.innerHTML + '<br/>' + el.innerHTML + '<br/>' + el.innerHTML
+    + '</body></html>';
+  var blob = new Blob(['\ufeff' + wordHtml], {type:'application/msword;charset=utf-8'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Homework_Diary_' + new Date().toLocaleDateString('en-IN').replace(/\//g,'-') + '.doc';
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
 }
 
 // ── SUBJECT TABS ──
