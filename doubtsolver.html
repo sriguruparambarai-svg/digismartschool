@@ -344,24 +344,84 @@ function langChanged(){
 
 // Clean text for speech — convert maths symbols to spoken words
 function cleanForSpeech(t){
-  return t
-    .replace(/√\(([^)]+)\)/g,'square root of $1')
-    .replace(/√(\d+)/g,'square root of $1')
-    .replace(/√/g,'square root of ')
-    .replace(/(\w)\^2/g,'$1 squared')
-    .replace(/(\w)\^3/g,'$1 cubed')
-    .replace(/\^(\d+)/g,' to the power $1')
-    .replace(/(\d+)\/(\d+)/g,'$1 over $2')
-    .replace(/π/g,' pi ').replace(/°/g,' degrees ')
-    .replace(/²/g,' squared').replace(/³/g,' cubed')
-    .replace(/±/g,' plus or minus ')
-    .replace(/×/g,' times ').replace(/÷/g,' divided by ')
-    .replace(/=/g,' equals ')
-    .replace(/(\d)\s*-\s*(\d)/g,'$1 minus $2')
-    .replace(/(\d)\s*\+\s*(\d)/g,'$1 plus $2')
-    .replace(/∴/g,' therefore ')
-    .replace(/[*`#_\[\]{}|\\]/g,' ')
-    .replace(/\s+/g,' ').trim();
+  var s = String(t||'');
+
+  // 1. Strip HTML tags
+  s = s.replace(/<[^>]*>/g,' ');
+
+  // 2. Strip markdown
+  s = s.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/_/g,' ');
+
+  // 3. (2)(3) or (a)(b) → 2 into 3  (implicit multiplication with brackets)
+  s = s.replace(/\(([^)]+)\)\s*\(([^)]+)\)/g, function(_,a,b){ return a+' into '+b; });
+
+  // 4. 2(3) or 2(x+1) → 2 into bracket 3  (number directly before bracket)
+  s = s.replace(/(\d)\s*\(([^)]+)\)/g, function(_,n,inner){ return n+' into '+inner; });
+
+  // 5. Square roots
+  s = s.replace(/√\(\s*([^)]+)\s*\)/g,'square root of $1');
+  s = s.replace(/√(\d+\.?\d*)/g,'square root of $1');
+  s = s.replace(/√([a-zA-Z])/g,'square root of $1');
+  s = s.replace(/√/g,'square root of ');
+
+  // 6. Powers / superscripts
+  s = s.replace(/\^2/g,' squared');
+  s = s.replace(/\^3/g,' cubed');
+  s = s.replace(/\^(\d+)/g,' to the power $1');
+  s = s.replace(/\^([a-zA-Z])/g,' to the power $1');
+  s = s.replace(/²/g,' squared');
+  s = s.replace(/³/g,' cubed');
+
+  // 7. Subscripts  a_n → a n,  a_{n+1} → a n plus 1
+  s = s.replace(/\_\{([^}]+)\}/g,' $1');
+  s = s.replace(/\_([a-zA-Z0-9])/g,' $1');
+
+  // 8. Fractions  3/4 → 3 over 4  (only digit/digit, not URLs)
+  s = s.replace(/(\d+)\/(\d+)/g,'$1 over $2');
+
+  // 9. Greek and special symbols
+  s = s.replace(/π/g,' pi ');
+  s = s.replace(/θ/g,' theta ');
+  s = s.replace(/α/g,' alpha ');
+  s = s.replace(/β/g,' beta ');
+  s = s.replace(/Δ/g,' delta ');
+  s = s.replace(/∑/g,' sum of ');
+  s = s.replace(/∞/g,' infinity ');
+  s = s.replace(/°/g,' degrees ');
+
+  // 10. Operators — do these BEFORE minus so they don't conflict
+  s = s.replace(/±/g,' plus or minus ');
+  s = s.replace(/×/g,' times ');
+  s = s.replace(/÷/g,' divided by ');
+  s = s.replace(/≠/g,' is not equal to ');
+  s = s.replace(/≤/g,' less than or equal to ');
+  s = s.replace(/≥/g,' greater than or equal to ');
+  s = s.replace(/∴/g,' therefore ');
+  s = s.replace(/∵/g,' because ');
+
+  // 11. Equals  — handle before minus
+  s = s.replace(/==/g,' equals ');
+  s = s.replace(/=/g,' equals ');
+
+  // 12. MINUS — most important fix
+  // Pattern: digit/letter - digit/letter  →  "minus"
+  s = s.replace(/([a-zA-Z0-9])\s*[-−–]\s*([a-zA-Z0-9(])/g,'$1 minus $2');
+  // Leading minus: starts with - digit  →  "minus digit"
+  s = s.replace(/^\s*[-−–]\s*(\d)/,'minus $1');
+  // Remaining dashes that are still there → " minus "
+  s = s.replace(/\s[-−–]\s/g,' minus ');
+
+  // 13. PLUS between terms
+  s = s.replace(/([a-zA-Z0-9])\s*\+\s*([a-zA-Z0-9(])/g,'$1 plus $2');
+
+  // 14. Remove leftover symbols that confuse speech
+  s = s.replace(/[{}\[\]|\\<>]/g,' ');
+  s = s.replace(/[#@$%^&]/g,' ');
+
+  // 15. Clean up extra spaces
+  s = s.replace(/\s+/g,' ').trim();
+
+  return s;
 }
 
 function speakText(txt){
