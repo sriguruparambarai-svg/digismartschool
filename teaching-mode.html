@@ -1,0 +1,1064 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Teaching Mode — DigiSmartSchool</title>
+<script src="voice-engine.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#06080d;--bg2:#0d1117;--bg3:#111827;
+  --gold:#f5c842;--gold2:#fde68a;
+  --teal:#00d4b8;--teal2:#00a896;
+  --violet:#a78bfa;--rose:#f87171;
+  --green:#4ade80;--blue:#60a5fa;--orange:#fb923c;
+  --white:#f8faff;--dim:rgba(248,250,255,0.5);
+  --card:rgba(255,255,255,0.05);--border:rgba(255,255,255,0.09);
+  --maroon:#6B0F1A;--board:#1a2a1a;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html{scroll-behavior:smooth;}
+body{font-family:'Lexend',sans-serif;background:var(--bg);color:var(--white);min-height:100vh;overflow-x:hidden;}
+
+/* ── HEADER ── */
+.hdr{background:linear-gradient(135deg,#06080d,#0d1117);border-bottom:2px solid rgba(245,200,66,0.25);padding:10px 18px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:200;}
+.hdr-icon{width:38px;height:38px;background:linear-gradient(135deg,var(--gold),#e8a820);border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;}
+.hdr-title{font-size:1rem;font-weight:800;color:var(--gold);}
+.hdr-sub{font-size:0.68rem;color:var(--dim);margin-top:1px;}
+.hdr-right{margin-left:auto;display:flex;gap:8px;align-items:center;}
+.back-btn{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.12);color:var(--dim);padding:5px 12px;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.72rem;font-weight:600;cursor:pointer;text-decoration:none;}
+.subj-badge{padding:3px 10px;border-radius:12px;font-size:0.7rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;background:rgba(245,200,66,0.15);color:var(--gold);}
+
+/* ── LAYOUT: Blackboard + Teacher side by side on desktop ── */
+.classroom{display:grid;grid-template-columns:1fr 280px;gap:0;height:calc(100vh - 60px);}
+@media(max-width:700px){.classroom{grid-template-columns:1fr;height:auto;}}
+
+/* ── BLACKBOARD SIDE ── */
+.board-side{background:var(--board);display:flex;flex-direction:column;overflow:hidden;position:relative;}
+
+/* Progress bar */
+.lesson-progress{height:4px;background:rgba(255,255,255,0.08);flex-shrink:0;}
+.lesson-bar{height:100%;background:linear-gradient(90deg,var(--gold),var(--teal));transition:width 0.5s ease;width:0%;}
+
+/* Chapter info */
+.chapter-strip{padding:8px 18px;background:rgba(0,0,0,0.3);border-bottom:1px solid rgba(245,200,66,0.1);display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.chapter-tag{font-size:0.65rem;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:1px;}
+.chapter-name{font-size:0.88rem;font-weight:700;color:var(--white);}
+.chapter-class{font-size:0.68rem;color:var(--dim);margin-left:auto;}
+
+/* Main subtitle area — the blackboard surface */
+.board-text{flex:1;padding:24px 28px;display:flex;flex-direction:column;justify-content:center;overflow:hidden;position:relative;}
+.board-text::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,rgba(255,255,255,0.02),transparent 70%);pointer-events:none;}
+
+/* Current sentence — big */
+.current-sentence{font-family:'Lora',serif;font-size:1.25rem;line-height:1.85;color:rgba(255,255,255,0.92);margin-bottom:18px;min-height:80px;transition:opacity 0.3s ease;}
+.current-sentence .word{display:inline;transition:all 0.15s ease;border-radius:3px;padding:0 2px;}
+.current-sentence .word.active{background:rgba(245,200,66,0.25);color:var(--gold);}
+.current-sentence .word.done{color:rgba(255,255,255,0.45);}
+.current-sentence .word.emphasis{color:var(--gold);font-weight:700;font-size:1.1em;}
+.current-sentence .word.tamil{color:var(--teal3,#7fffd4);}
+
+/* Previous line (faded) */
+.prev-sentence{font-family:'Lora',serif;font-size:0.88rem;color:rgba(255,255,255,0.25);line-height:1.6;margin-bottom:14px;font-style:italic;}
+
+/* Tone badge */
+.tone-banner{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:14px;font-size:0.68rem;font-weight:800;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;transition:all 0.3s;}
+.tone-strict    {background:rgba(248,113,113,0.15);color:var(--rose);border:1px solid rgba(248,113,113,0.25);}
+.tone-normal    {background:rgba(0,212,184,0.12);color:var(--teal);border:1px solid rgba(0,212,184,0.2);}
+.tone-emphasis  {background:rgba(245,200,66,0.15);color:var(--gold);border:1px solid rgba(245,200,66,0.25);}
+.tone-question  {background:rgba(96,165,250,0.15);color:var(--blue);border:1px solid rgba(96,165,250,0.25);}
+.tone-command   {background:rgba(167,139,250,0.15);color:var(--violet);border:1px solid rgba(167,139,250,0.25);}
+
+/* ── INTERACTION OVERLAYS ── */
+/* Write this down banner */
+.write-banner{position:absolute;top:0;left:0;right:0;background:linear-gradient(135deg,rgba(167,139,250,0.2),rgba(167,139,250,0.1));border-bottom:2px solid var(--violet);padding:10px 18px;font-size:0.82rem;font-weight:700;color:var(--violet);display:none;align-items:center;gap:8px;z-index:10;animation:slideDown 0.3s ease;}
+@keyframes slideDown{from{transform:translateY(-100%)}to{transform:translateY(0)}}
+.write-banner.show{display:flex;}
+
+/* Question pop-up */
+.question-pop{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:linear-gradient(135deg,rgba(96,165,250,0.15),rgba(96,165,250,0.08));border:1.5px solid rgba(96,165,250,0.35);border-radius:14px;padding:14px 20px;max-width:90%;text-align:center;display:none;z-index:10;animation:popIn 0.3s ease;}
+@keyframes popIn{from{opacity:0;transform:translateX(-50%) scale(0.9)}to{opacity:1;transform:translateX(-50%) scale(1)}}
+.question-pop.show{display:block;}
+.q-pop-label{font-size:0.62rem;font-weight:800;color:var(--blue);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;}
+.q-pop-text{font-family:'Lora',serif;font-size:0.95rem;color:rgba(255,255,255,0.92);}
+.q-pop-hint{font-size:0.72rem;color:var(--dim);margin-top:5px;font-style:italic;}
+
+/* Important word flash */
+.important-flash{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(245,200,66,0.1);border:2px solid var(--gold);border-radius:12px;padding:12px 24px;font-size:1.1rem;font-weight:800;color:var(--gold);display:none;z-index:20;pointer-events:none;text-transform:uppercase;letter-spacing:2px;}
+.important-flash.show{display:block;animation:flash 0.5s ease;}
+@keyframes flash{0%{opacity:0;transform:translate(-50%,-50%) scale(0.8)}50%{opacity:1;transform:translate(-50%,-50%) scale(1.05)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+
+/* ── TEACHER SIDE ── */
+.teacher-side{background:linear-gradient(180deg,#0d1117,#06080d);border-left:1px solid rgba(245,200,66,0.1);display:flex;flex-direction:column;align-items:center;padding:20px 14px;gap:16px;overflow-y:auto;}
+
+/* Avatar */
+.avatar-wrap{position:relative;width:110px;height:110px;flex-shrink:0;}
+.av-ring{position:absolute;inset:-6px;border-radius:50%;border:3px solid var(--gold);opacity:0;animation:none;}
+.av-ring.speaking{animation:ringPulse 1.2s infinite;}
+@keyframes ringPulse{0%,100%{opacity:0.2;transform:scale(1)}50%{opacity:0.8;transform:scale(1.06)}}
+.av-ring2{position:absolute;inset:-14px;border-radius:50%;border:2px solid rgba(245,200,66,0.3);opacity:0;}
+.av-ring2.speaking{animation:ringPulse 1.2s 0.3s infinite;}
+.av-photo{width:100%;height:100%;border-radius:50%;object-fit:cover;object-position:top;border:3px solid var(--gold);box-shadow:0 6px 20px rgba(245,200,66,0.25);}
+.av-name{font-size:0.82rem;font-weight:800;color:var(--gold);text-align:center;}
+.av-status{font-size:0.65rem;color:var(--dim);text-align:center;margin-top:2px;display:flex;align-items:center;justify-content:center;gap:4px;}
+.status-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);}
+.status-dot.idle{background:rgba(255,255,255,0.2);box-shadow:none;}
+
+/* Tone indicator */
+.tone-indicator{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:10px;text-align:center;}
+.tone-ind-label{font-size:0.6rem;font-weight:800;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;}
+.tone-ind-val{font-size:0.85rem;font-weight:700;display:flex;align-items:center;justify-content:center;gap:5px;}
+
+/* Controls */
+.controls{width:100%;display:flex;flex-direction:column;gap:8px;}
+.ctrl-row{display:flex;gap:6px;justify-content:center;}
+.ctrl-btn{flex:1;padding:9px;border:none;border-radius:10px;font-family:'Lexend',sans-serif;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.2s;display:flex;align-items:center;justify-content:center;gap:5px;}
+.ctrl-play{background:linear-gradient(135deg,var(--gold),#e8a820);color:#06080d;}
+.ctrl-play:hover{transform:translateY(-1px);}
+.ctrl-pause{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:var(--white);}
+.ctrl-stop{background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.25);color:var(--rose);}
+.ctrl-prev{background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--dim);}
+.ctrl-next{background:rgba(0,212,184,0.08);border:1px solid rgba(0,212,184,0.2);color:var(--teal);}
+
+/* Speed control */
+.speed-row{display:flex;align-items:center;gap:5px;width:100%;}
+.speed-lbl{font-size:0.65rem;color:var(--dim);font-weight:700;white-space:nowrap;}
+input[type=range]{flex:1;accent-color:var(--gold);height:4px;cursor:pointer;}
+.speed-val{font-size:0.65rem;color:var(--gold);font-weight:700;min-width:24px;text-align:right;}
+
+/* Script sidebar */
+.script-sidebar{width:100%;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:10px;overflow-y:auto;max-height:200px;padding:6px;}
+.script-sidebar::-webkit-scrollbar{width:2px;}
+.script-sidebar::-webkit-scrollbar-thumb{background:rgba(245,200,66,0.2);}
+.script-item{padding:5px 7px;border-radius:6px;font-size:0.7rem;color:rgba(255,255,255,0.4);cursor:pointer;transition:all 0.15s;line-height:1.4;margin-bottom:2px;}
+.script-item:hover{background:rgba(255,255,255,0.05);}
+.script-item.active{background:rgba(245,200,66,0.1);color:var(--gold);border-left:2px solid var(--gold);padding-left:5px;}
+.script-item.done{color:rgba(255,255,255,0.2);}
+
+/* ── SETUP SCREEN ── */
+.setup-screen{min-height:calc(100vh - 60px);display:flex;align-items:center;justify-content:center;padding:20px;}
+.setup-card{background:var(--card);border:1px solid rgba(245,200,66,0.2);border-radius:18px;padding:28px;max-width:560px;width:100%;}
+.setup-title{font-size:1.2rem;font-weight:800;color:var(--gold);margin-bottom:6px;}
+.setup-sub{font-size:0.82rem;color:var(--dim);margin-bottom:20px;line-height:1.6;}
+label{display:block;font-size:0.72rem;font-weight:700;color:var(--dim);margin-bottom:4px;margin-top:12px;}
+select,input,textarea{width:100%;padding:10px 13px;font-size:0.9rem;border:1px solid var(--border);border-radius:9px;background:rgba(255,255,255,0.06);color:var(--white);font-family:'Lexend',sans-serif;outline:none;transition:border 0.2s;}
+select:focus,input:focus,textarea:focus{border-color:var(--gold);}
+select option{background:#0d1117;}
+textarea{min-height:110px;resize:vertical;line-height:1.65;}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 20px;font-size:0.88rem;font-weight:700;font-family:'Lexend',sans-serif;border:none;border-radius:11px;cursor:pointer;transition:all 0.2s;}
+.btn-gold{background:linear-gradient(135deg,var(--gold),#e8a820);color:#06080d;width:100%;}
+.btn-gold:hover{transform:translateY(-2px);}
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+@media(max-width:500px){.g2{grid-template-columns:1fr;}}
+
+/* ── LOADING ── */
+.loading-screen{display:none;position:fixed;inset:0;background:rgba(6,8,13,0.95);z-index:500;flex-direction:column;align-items:center;justify-content:center;gap:16px;}
+.loading-screen.show{display:flex;}
+.big-spin{width:56px;height:56px;border:4px solid rgba(245,200,66,0.15);border-top-color:var(--gold);border-radius:50%;animation:spin 0.8s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.load-text{font-size:1rem;font-weight:700;color:var(--gold);}
+.load-sub{font-size:0.8rem;color:var(--dim);}
+.load-dots span{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--gold);margin:0 3px;animation:bop 0.8s infinite;}
+.load-dots span:nth-child(2){animation-delay:0.15s;}
+.load-dots span:nth-child(3){animation-delay:0.3s;}
+@keyframes bop{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+
+/* Mobile: teacher panel at bottom */
+@media(max-width:700px){
+  .teacher-side{flex-direction:row;flex-wrap:wrap;padding:12px;border-left:none;border-top:1px solid rgba(245,200,66,0.1);}
+  .avatar-wrap{width:70px;height:70px;}
+  .script-sidebar{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<div class="hdr">
+  <div class="hdr-icon">🎓</div>
+  <div>
+    <div class="hdr-title">Teaching Mode</div>
+    <div class="hdr-sub" id="hdr-sub">AI Classroom • Real Teacher • Tamil + English</div>
+  </div>
+  <div class="hdr-right">
+    <span class="subj-badge" id="subj-badge">Loading...</span>
+    <a href="learnbot.html" class="back-btn">← Back</a>
+  </div>
+</div>
+
+<!-- ── LOADING OVERLAY ── -->
+<div class="loading-screen" id="loading-screen">
+  <div class="big-spin"></div>
+  <div class="load-text" id="load-text">Malar Mam is preparing the lesson...</div>
+  <div class="load-sub" id="load-sub">Generating classroom teaching script</div>
+  <div class="load-dots"><span></span><span></span><span></span></div>
+</div>
+
+<!-- ── SETUP SCREEN (shown when no lesson data) ── -->
+<div class="setup-screen" id="setup-screen">
+  <div class="setup-card">
+    <div class="setup-title">🎓 Start a Teaching Mode Class</div>
+    <div class="setup-sub">Enter the lesson topic. Malar Mam will generate a complete classroom teaching script — strict but caring, Tamil+English mixed, with questions and key points.</div>
+
+    <div class="g2">
+      <div>
+        <label>Subject</label>
+        <select id="setup-subject">
+          <option value="Maths">📐 Maths</option>
+          <option value="Science">🔬 Science</option>
+          <option value="Social Science">🗺️ Social Science</option>
+          <option value="English">📖 English</option>
+          <option value="Tamil">அ Tamil</option>
+          <option value="EVS">🌿 EVS</option>
+        </select>
+      </div>
+      <div>
+        <label>Class</label>
+        <select id="setup-class">
+          <option>Class 6</option><option>Class 7</option><option>Class 8</option>
+          <option selected>Class 9</option><option>Class 10</option>
+        </select>
+      </div>
+    </div>
+
+    <label>Chapter / Topic</label>
+    <input type="text" id="setup-topic" placeholder="e.g. Fractions, Photosynthesis, French Revolution, Tenses..."/>
+
+    <label>Lesson Content (optional — paste textbook text for better teaching)</label>
+    <textarea id="setup-lesson" placeholder="Paste lesson text from textbook here... AI will teach from this content."></textarea>
+
+    <label>Teaching Language</label>
+    <div style="display:flex;gap:6px;margin-top:4px;">
+      <button class="btn" style="flex:1;background:rgba(167,139,250,0.1);border:1.5px solid rgba(167,139,250,0.25);color:var(--violet);font-size:0.78rem;" id="lang-mixed" onclick="setTeachLang('mixed',this)">🔀 Tamil + English (Mixed)</button>
+      <button class="btn" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--dim);font-size:0.78rem;" id="lang-tamil" onclick="setTeachLang('tamil',this)">🇮🇳 Tamil</button>
+      <button class="btn" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--dim);font-size:0.78rem;" id="lang-english" onclick="setTeachLang('english',this)">🇬🇧 English</button>
+    </div>
+
+    <div style="margin-top:16px;">
+      <button class="btn btn-gold" onclick="startTeachingMode()">🎓 Begin Class with Malar Mam</button>
+    </div>
+
+    <!-- Quick examples -->
+    <div style="margin-top:16px;border-top:1px solid var(--border);padding-top:14px;">
+      <div style="font-size:0.65rem;font-weight:800;color:var(--dim);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Quick Start</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;">
+        <div onclick="quickStart('Maths','Fractions')" style="padding:5px 11px;border-radius:12px;background:rgba(245,200,66,0.1);border:1px solid rgba(245,200,66,0.2);color:var(--gold);font-size:0.72rem;cursor:pointer;">📐 Fractions</div>
+        <div onclick="quickStart('Science','Photosynthesis')" style="padding:5px 11px;border-radius:12px;background:rgba(74,222,128,0.1);border:1px solid rgba(74,222,128,0.2);color:var(--green);font-size:0.72rem;cursor:pointer;">🌿 Photosynthesis</div>
+        <div onclick="quickStart('Social Science','French Revolution')" style="padding:5px 11px;border-radius:12px;background:rgba(251,146,60,0.1);border:1px solid rgba(251,146,60,0.2);color:var(--orange);font-size:0.72rem;cursor:pointer;">🎬 French Revolution</div>
+        <div onclick="quickStart('English','Tenses')" style="padding:5px 11px;border-radius:12px;background:rgba(96,165,250,0.1);border:1px solid rgba(96,165,250,0.2);color:var(--blue);font-size:0.72rem;cursor:pointer;">📖 Tenses</div>
+        <div onclick="quickStart('Science','Newton Laws')" style="padding:5px 11px;border-radius:12px;background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.2);color:var(--rose);font-size:0.72rem;cursor:pointer;">⚡ Newton Laws</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── CLASSROOM SCREEN ── -->
+<div class="classroom" id="classroom-screen" style="display:none;">
+
+  <!-- LEFT: BLACKBOARD -->
+  <div class="board-side">
+    <div class="lesson-progress"><div class="lesson-bar" id="lesson-bar"></div></div>
+
+    <div class="chapter-strip">
+      <div>
+        <div class="chapter-tag" id="chapter-subject">Subject</div>
+        <div class="chapter-name" id="chapter-name">Loading...</div>
+      </div>
+      <div class="chapter-class" id="chapter-class">Class</div>
+    </div>
+
+    <!-- Board text area -->
+    <div class="board-text" id="board-text">
+
+      <!-- Overlays -->
+      <div class="write-banner" id="write-banner">📝 Write this down in your notebook!</div>
+      <div class="question-pop" id="question-pop">
+        <div class="q-pop-label">🤔 Think about this...</div>
+        <div class="q-pop-text" id="q-pop-text"></div>
+        <div class="q-pop-hint">Think for a moment before we continue</div>
+      </div>
+      <div class="important-flash" id="important-flash"></div>
+
+      <!-- Tone badge -->
+      <div class="tone-banner tone-normal" id="tone-banner">📚 Teaching</div>
+
+      <!-- Previous sentence (faded) -->
+      <div class="prev-sentence" id="prev-sentence"></div>
+
+      <!-- Current sentence — main display -->
+      <div class="current-sentence" id="current-sentence">
+        <span style="color:rgba(255,255,255,0.3);font-style:italic;font-size:0.9rem;">Class is ready to begin. Press Play to start...</span>
+      </div>
+
+    </div><!-- board-text -->
+  </div><!-- board-side -->
+
+  <!-- RIGHT: TEACHER PANEL -->
+  <div class="teacher-side">
+
+    <!-- Avatar -->
+    <div class="avatar-wrap">
+      <div class="av-ring" id="av-ring"></div>
+      <div class="av-ring2" id="av-ring2"></div>
+      <img class="av-photo" id="av-photo" src="" alt="Teacher"/>
+    </div>
+    <div class="av-name" id="av-name">Malar Mam</div>
+    <div class="av-status">
+      <div class="status-dot idle" id="status-dot"></div>
+      <span id="status-text" style="font-size:0.65rem;color:var(--dim);">Ready</span>
+    </div>
+
+    <!-- Tone indicator -->
+    <div class="tone-indicator">
+      <div class="tone-ind-label">Current Tone</div>
+      <div class="tone-ind-val" id="tone-val"><span>📚</span><span>Teaching</span></div>
+    </div>
+
+    <!-- Progress text -->
+    <div style="font-size:0.68rem;color:var(--dim);text-align:center;width:100%;">
+      <span id="seg-count">0 / 0</span> segments &nbsp;•&nbsp; <span id="pct-text">0%</span>
+    </div>
+
+    <!-- Controls -->
+    <div class="controls">
+      <div class="ctrl-row">
+        <button class="ctrl-btn ctrl-prev" onclick="prevSegment()" title="Previous">⏮</button>
+        <button class="ctrl-btn ctrl-play" id="play-btn" onclick="togglePlay()">▶ Play</button>
+        <button class="ctrl-btn ctrl-next" onclick="nextSegment()" title="Next">⏭</button>
+      </div>
+      <div class="ctrl-row">
+        <button class="ctrl-btn ctrl-pause" onclick="replaySegment()" title="Replay">↩ Replay</button>
+        <button class="ctrl-btn ctrl-stop"  onclick="stopClass()">⏹ Stop</button>
+      </div>
+
+      <!-- Speed -->
+      <div class="speed-row">
+        <span class="speed-lbl">Speed</span>
+        <input type="range" id="speed-slider" min="0.6" max="1.1" step="0.05" value="0.85" oninput="updateSpeed(this.value)"/>
+        <span class="speed-val" id="speed-val">0.85×</span>
+      </div>
+
+      <!-- Voice selector -->
+      <select id="voice-sel" style="font-size:0.7rem;padding:6px 8px;"></select>
+    </div>
+
+    <!-- Script mini-list -->
+    <div class="script-sidebar" id="script-sidebar"></div>
+
+  </div><!-- teacher-side -->
+
+</div><!-- classroom -->
+
+<script>
+// ══════════════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════════════
+var teachScript   = [];   // [{text,tone,pause,language,type,math_converted}]
+var currentIdx    = -1;
+var isPlaying     = false;
+var isPaused      = false;
+var playTimeout   = null;
+var currentUtterance = null;
+var speechSpeed   = 0.85;
+var teachLang     = 'mixed';
+var voices        = [];
+var subjectName   = 'Science';
+var className     = 'Class 9';
+var topicName     = '';
+const API = '/api/ai';
+
+// ── TONE CONFIG ──
+const TONE_CONFIG = {
+  strict: {
+    rate: 0.78, pitch: 0.95,
+    label: '⚡ Strict', css: 'tone-strict',
+    icon: '⚡', name: 'Strict',
+    stability: 0.4    // ElevenLabs
+  },
+  normal: {
+    rate: 0.85, pitch: 1.0,
+    label: '📚 Teaching', css: 'tone-normal',
+    icon: '📚', name: 'Teaching',
+    stability: 0.7
+  },
+  emphasis: {
+    rate: 0.78, pitch: 1.02,
+    label: '🔑 Emphasis', css: 'tone-emphasis',
+    icon: '🔑', name: 'Emphasis',
+    stability: 0.3
+  },
+  question: {
+    rate: 0.88, pitch: 1.05,
+    label: '🤔 Question', css: 'tone-question',
+    icon: '🤔', name: 'Question',
+    stability: 0.5
+  },
+  command: {
+    rate: 0.82, pitch: 0.98,
+    label: '📝 Command', css: 'tone-command',
+    icon: '📝', name: 'Command',
+    stability: 0.6
+  }
+};
+
+// ══════════════════════════════════════════════════
+// SETUP SCREEN
+// ══════════════════════════════════════════════════
+function setTeachLang(l, btn){
+  teachLang = l;
+  ['lang-mixed','lang-tamil','lang-english'].forEach(id => {
+    var el = document.getElementById(id);
+    el.style.background = 'rgba(255,255,255,0.05)';
+    el.style.borderColor = 'rgba(255,255,255,0.09)';
+    el.style.color = 'rgba(255,255,255,0.4)';
+  });
+  btn.style.background = 'rgba(167,139,250,0.15)';
+  btn.style.borderColor = 'rgba(167,139,250,0.4)';
+  btn.style.color = 'var(--violet)';
+}
+
+function quickStart(subj, topic){
+  document.getElementById('setup-subject').value = subj;
+  document.getElementById('setup-topic').value   = topic;
+  startTeachingMode();
+}
+
+async function startTeachingMode(){
+  var subj    = document.getElementById('setup-subject').value;
+  var cls     = document.getElementById('setup-class').value;
+  var topic   = document.getElementById('setup-topic').value.trim();
+  var lesson  = document.getElementById('setup-lesson').value.trim();
+  if (!topic){ alert('Please enter a topic!'); return; }
+
+  subjectName = subj;
+  className   = cls;
+  topicName   = topic;
+
+  // Show loading
+  showLoading('Malar Mam is preparing the class...',
+    'Generating classroom teaching script for ' + topic);
+
+  try{
+    await generateTeachingScript(subj, cls, topic, lesson);
+    hideLoading();
+    showClassroom();
+  }catch(e){
+    hideLoading();
+    alert('Error generating lesson: ' + e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════
+// CLAUDE — TEACHING SCRIPT GENERATION
+// ══════════════════════════════════════════════════
+async function generateTeachingScript(subj, cls, topic, lessonText){
+
+  var langInstr =
+    teachLang === 'tamil'   ? 'Teach ONLY in Tamil.' :
+    teachLang === 'english' ? 'Teach ONLY in English.' :
+    `Teach in natural Tamil+English code-switch style.
+DO NOT translate. Mix languages as a real Tamil Nadu teacher would.
+Example: "Students, இன்று நாம் fractions பற்றி கற்போம். Now, fractions என்பது என்ன?"
+Tamil words should use Tamil script. English stays in English.`;
+
+  var mathInstr = subj === 'Maths' || subj === 'Science' ?
+    `For all mathematical symbols and equations:
+- Convert to spoken form: "+" → "plus", "=" → "equals", "x²" → "x squared"
+- Example: "2x + 3 = 7" → "two x plus three equals seven"
+- DO NOT leave symbols unspoken.` : '';
+
+  var subjectStyle = {
+    'Maths':          'Use step-by-step explanation. Read all symbols as words. Write formulas on the "board" by saying them clearly. Give numeric examples.',
+    'Science':        'Explain concepts with analogies. Ask students to imagine. Relate to daily life in Tamil Nadu.',
+    'Social Science': 'Tell like a story. Give dates and names. Ask cause-effect questions.',
+    'English':        'Give examples. Correct common mistakes. Use Tamil to clarify English concepts.',
+    'Tamil':          'Teach using examples. Explain grammar with sentences. Use known words.',
+    'EVS':            'Relate to environment around them. Ask observation questions.'
+  }[subj] || 'Explain clearly with examples.';
+
+  var prompt = `You are Malar Mam, a real experienced school teacher in Tamil Nadu.
+Subject: ${subj} | Class: ${cls} | Topic: "${topic}"
+${lessonText ? 'Lesson Content:\n' + lessonText.substring(0, 1500) : ''}
+
+${langInstr}
+
+${mathInstr}
+
+Subject Style: ${subjectStyle}
+
+CLASSROOM RULES — follow STRICTLY:
+1. Address students directly: "Students,", "Children,", "நண்பர்களே,"
+2. Be slightly strict but caring — like a real classroom teacher
+3. Use emphasis words: "NOTE THIS", "IMPORTANT", "REMEMBER"
+4. Ask engagement questions every 3-4 segments: "What do you think?", "Can anyone tell me?"
+5. Give commands: "Write this down.", "எழுதிக்கோங்க."
+6. Vary tone — start strict, explain calmly, emphasise key points, ask questions
+7. Lesson must have: Opening → Core explanation (4-6 points) → Key formula/fact → Closing question
+8. 10-14 total segments for a complete micro-lesson
+9. Each segment: 1-3 sentences max. Natural speaking length.
+
+TONE VALUES (use exactly these):
+- "strict" → firm, attention-grabbing opening or command
+- "normal" → calm explanation
+- "emphasis" → key concept, must-remember fact  
+- "question" → engaging students, asking a question
+- "command" → write this down, pay attention
+
+TYPE VALUES:
+- "open" → opening/attention grab
+- "explain" → content explanation
+- "example" → giving an example
+- "emphasis" → key point to remember
+- "question" → asking students
+- "command" → instructing students
+- "close" → closing summary
+
+Return ONLY a valid JSON array:
+[
+  {
+    "text": "Students, settle down. Today we are going to study something very important.",
+    "tone": "strict",
+    "pause": 1.5,
+    "language": "mixed",
+    "type": "open"
+  }
+]`;
+
+  var res = await fetch(API, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({payload:{
+      model: 'claude-sonnet-4-5',
+      max_tokens: 2500,
+      messages: [{role:'user', content: prompt}]
+    }})
+  });
+  var data = await res.json();
+  var raw = data.content[0].text;
+
+  // Parse JSON
+  var parsed = null;
+  try { parsed = JSON.parse(raw.replace(/```json|```/g,'').trim()); }
+  catch(e){
+    var s = raw.indexOf('['), e2 = raw.lastIndexOf(']');
+    if(s>=0 && e2>s) try{ parsed = JSON.parse(raw.substring(s,e2+1)); }catch(e3){}
+  }
+  if(!parsed || !Array.isArray(parsed)) throw new Error('Could not parse teaching script');
+
+  // Post-process: apply math conversion
+  parsed = parsed.map(seg => {
+    var converted = typeof DSVoice !== 'undefined'
+      ? DSVoice.Math.convert(seg.text)
+      : seg.text;
+    return Object.assign({}, seg, {
+      math_converted: converted,
+      _orig: seg.text
+    });
+  });
+
+  teachScript = parsed;
+}
+
+// ══════════════════════════════════════════════════
+// SHOW CLASSROOM
+// ══════════════════════════════════════════════════
+function showClassroom(){
+  document.getElementById('setup-screen').style.display = 'none';
+  document.getElementById('classroom-screen').style.display = 'grid';
+  document.getElementById('subj-badge').textContent = subjectName;
+  document.getElementById('hdr-sub').textContent = className + ' • ' + topicName;
+  document.getElementById('chapter-subject').textContent = subjectName.toUpperCase();
+  document.getElementById('chapter-name').textContent = topicName;
+  document.getElementById('chapter-class').textContent = className;
+
+  // Set avatar (use teacher image from localStorage or default emoji avatar)
+  setTeacherAvatar();
+
+  // Populate voice selector
+  populateVoices();
+
+  // Build script sidebar
+  buildScriptSidebar();
+
+  // Reset
+  currentIdx = -1;
+  isPlaying  = false;
+  updateControls();
+}
+
+function setTeacherAvatar(){
+  var photo = document.getElementById('av-photo');
+  // Try to get stored teacher preference
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    var teacher = localStorage.getItem('dss_teacher') || 'malar';
+    if(teacher === 'kumar'){
+      document.getElementById('av-name').textContent = 'Kumar Sir';
+    } else {
+      document.getElementById('av-name').textContent = 'Malar Mam';
+    }
+  }catch(e){}
+  // Emoji avatar fallback
+  photo.style.display = 'none';
+  photo.parentElement.innerHTML += '<div id="av-emoji" style="width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,var(--maroon),#8B1A2A);border:3px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:2.8rem;box-shadow:0 6px 20px rgba(245,200,66,0.25);">👩‍🏫</div>';
+}
+
+// ══════════════════════════════════════════════════
+// VOICE SETUP
+// ══════════════════════════════════════════════════
+speechSynthesis.onvoiceschanged = () => { voices = speechSynthesis.getVoices(); populateVoices(); };
+setTimeout(() => { voices = speechSynthesis.getVoices(); populateVoices(); }, 600);
+
+function populateVoices(){
+  var sel = document.getElementById('voice-sel');
+  if(!sel || !voices.length) return;
+  sel.innerHTML = '';
+
+  var msNatIN = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang==='en-IN');
+  var msNat   = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang.startsWith('en') && !msNatIN.includes(v));
+  var msTA    = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang.startsWith('ta'));
+  var google  = voices.filter(v => v.name.startsWith('Google') && v.lang.startsWith('en'));
+  var ta      = voices.filter(v => v.lang && v.lang.startsWith('ta') && !msTA.includes(v));
+  var enIN    = voices.filter(v => v.lang==='en-IN' && !msNatIN.includes(v));
+
+  function addG(lbl, arr, def){
+    if(!arr.length) return;
+    var g = document.createElement('optgroup'); g.label = lbl;
+    arr.forEach((v,i) => {
+      var o = document.createElement('option');
+      o.value = voices.indexOf(v);
+      var star = v.name.includes('Natural')||v.name.includes('Neural') ? '⭐ ' : '';
+      o.textContent = star + v.name;
+      if(def && i===0) o.selected = true;
+      g.appendChild(o);
+    });
+    sel.appendChild(g);
+  }
+
+  if(msNatIN.length)  addG('🏆 Microsoft Neural Indian EN', msNatIN, true);
+  else if(msNat.length) addG('🏆 Microsoft Neural EN', msNat, true);
+  if(google.length) addG('🥈 Google English', google, !msNatIN.length&&!msNat.length);
+  if(msTA.length)   addG('🏆 Microsoft Tamil Neural', msTA, false);
+  if(ta.length)     addG('🇮🇳 Tamil', ta, false);
+  addG('🇮🇳 Indian English', enIN, false);
+  if(sel.options.length===0) sel.innerHTML='<option>No voices — use Edge browser</option>';
+}
+
+function getBestVoice(lang){
+  var isTamil = lang === 'tamil';
+  if(isTamil){
+    return voices.find(v => v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
+        || voices.find(v => v.lang.startsWith('ta'))
+        || null;
+  }
+  // English — Indian preferred
+  var sel = document.getElementById('voice-sel');
+  if(sel && voices[parseInt(sel.value)]) return voices[parseInt(sel.value)];
+  return voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
+      || voices.find(v => v.lang==='en-IN')
+      || voices.find(v => v.lang.startsWith('en'))
+      || voices[0]
+      || null;
+}
+
+// ══════════════════════════════════════════════════
+// PLAYBACK ENGINE
+// ══════════════════════════════════════════════════
+function togglePlay(){
+  if(isPlaying){
+    pauseClass();
+  } else {
+    playClass();
+  }
+}
+
+function playClass(){
+  if(currentIdx < 0) currentIdx = 0;
+  isPlaying = true; isPaused = false;
+  updateControls();
+  playSegment(currentIdx);
+}
+
+function pauseClass(){
+  isPlaying = false; isPaused = true;
+  speechSynthesis.cancel();
+  clearTimeout(playTimeout);
+  setSpeaking(false);
+  document.getElementById('play-btn').textContent = '▶ Resume';
+}
+
+function stopClass(){
+  isPlaying = false; isPaused = false;
+  speechSynthesis.cancel();
+  clearTimeout(playTimeout);
+  currentIdx = -1;
+  setSpeaking(false);
+  document.getElementById('current-sentence').innerHTML = '<span style="color:rgba(255,255,255,0.3);font-style:italic;font-size:0.9rem;">Class stopped. Press Play to restart.</span>';
+  document.getElementById('prev-sentence').textContent = '';
+  updateProgress(0);
+  updateControls();
+  hideOverlays();
+}
+
+function prevSegment(){
+  if(currentIdx > 0){
+    currentIdx--;
+    if(isPlaying){ speechSynthesis.cancel(); clearTimeout(playTimeout); playSegment(currentIdx); }
+    else { renderSegmentText(teachScript[currentIdx]); updateScriptHighlight(currentIdx); }
+  }
+}
+
+function nextSegment(){
+  if(currentIdx < teachScript.length - 1){
+    currentIdx++;
+    if(isPlaying){ speechSynthesis.cancel(); clearTimeout(playTimeout); playSegment(currentIdx); }
+    else { renderSegmentText(teachScript[currentIdx]); updateScriptHighlight(currentIdx); }
+  }
+}
+
+function replaySegment(){
+  if(currentIdx >= 0 && currentIdx < teachScript.length){
+    speechSynthesis.cancel();
+    clearTimeout(playTimeout);
+    if(!isPlaying){ isPlaying = true; updateControls(); }
+    playSegment(currentIdx);
+  }
+}
+
+function updateSpeed(val){
+  speechSpeed = parseFloat(val);
+  document.getElementById('speed-val').textContent = val + '×';
+}
+
+// ── CORE: play one segment ──
+function playSegment(idx){
+  if(idx >= teachScript.length){
+    finishClass();
+    return;
+  }
+
+  currentIdx = idx;
+  var seg = teachScript[idx];
+  updateProgress(idx);
+  updateScriptHighlight(idx);
+
+  // Show overlays based on type
+  hideOverlays();
+  if(seg.type === 'command') showWriteBanner();
+  if(seg.type === 'question') showQuestionPop(seg.text);
+  if(seg.type === 'emphasis') showImportantFlash(extractKeyWord(seg.text));
+
+  // Render text with word highlighting
+  renderSegmentText(seg);
+
+  // Update tone UI
+  updateToneUI(seg.tone || 'normal');
+  setSpeaking(true);
+
+  // Speak the segment
+  speakSegment(seg, function(){
+    setSpeaking(false);
+    hideOverlays();
+
+    if(!isPlaying) return; // paused
+
+    // Wait pause duration then advance
+    var pauseMs = (seg.pause || 1.0) * 1000;
+    playTimeout = setTimeout(function(){
+      if(!isPlaying) return;
+      playSegment(idx + 1);
+    }, pauseMs);
+  });
+}
+
+function speakSegment(seg, onEnd){
+  speechSynthesis.cancel();
+
+  var text = seg.math_converted || seg.text;
+  var tone = TONE_CONFIG[seg.tone] || TONE_CONFIG.normal;
+  var rate = tone.rate * speechSpeed;
+
+  // Detect segment language
+  var segLang = seg.language || 'english';
+  if(segLang === 'mixed'){
+    speakMixed(text, rate, tone, onEnd);
+    return;
+  }
+
+  var utt = new SpeechSynthesisUtterance(text);
+  var v = getBestVoice(segLang === 'tamil' ? 'tamil' : 'english');
+  if(v) utt.voice = v;
+  utt.rate  = Math.max(0.5, Math.min(2.0, rate));
+  utt.pitch = tone.pitch;
+  utt.lang  = segLang === 'tamil' ? 'ta-IN' : 'en-IN';
+
+  // Word boundary for highlighting
+  utt.onboundary = function(e){
+    if(e.name === 'word') highlightWord(e.charIndex, text);
+  };
+  utt.onend = onEnd || function(){};
+  utt.onerror = function(){ if(onEnd) onEnd(); };
+  speechSynthesis.speak(utt);
+}
+
+function speakMixed(text, rate, tone, onEnd){
+  // Split Tamil vs English segments
+  var segs = splitLangSegments(text);
+  var i = 0;
+
+  function next(){
+    if(i >= segs.length){ if(onEnd) onEnd(); return; }
+    var s = segs[i]; i++;
+    var utt = new SpeechSynthesisUtterance(s.text);
+    var v = getBestVoice(s.lang);
+    if(v) utt.voice = v;
+    utt.rate  = Math.max(0.5, Math.min(2.0, rate));
+    utt.pitch = tone.pitch;
+    utt.lang  = s.lang === 'tamil' ? 'ta-IN' : 'en-IN';
+    utt.onend = () => setTimeout(next, 80);
+    utt.onerror = () => next();
+    speechSynthesis.speak(utt);
+  }
+  next();
+}
+
+function splitLangSegments(text){
+  var TAMIL = /[\u0B80-\u0BFF]/;
+  var segs = [], cur = '', curLang = null;
+  for(var i=0; i<text.length; i++){
+    var ch = text[i];
+    var isTa = TAMIL.test(ch);
+    var isEn = /[a-zA-Z0-9]/.test(ch);
+    var cLang = isTa ? 'tamil' : isEn ? 'english' : (curLang || 'english');
+    if(cLang !== curLang && cur.trim() && curLang){
+      segs.push({text: cur.trim(), lang: curLang});
+      cur = ch;
+    } else { cur += ch; }
+    curLang = cLang;
+  }
+  if(cur.trim()) segs.push({text: cur.trim(), lang: curLang || 'english'});
+  return segs;
+}
+
+function finishClass(){
+  isPlaying = false;
+  setSpeaking(false);
+  updateProgress(teachScript.length);
+  document.getElementById('current-sentence').innerHTML =
+    '<span style="color:var(--green);font-size:1rem;font-weight:700;">🎓 Class complete! Great work today, students.</span>';
+  document.getElementById('tone-banner').textContent = '🎓 Lesson Complete';
+  document.getElementById('tone-banner').className = 'tone-banner tone-normal';
+  document.getElementById('play-btn').textContent = '↺ Restart';
+  spkFeedback('Class is complete. Well done, students!');
+}
+
+function spkFeedback(text){
+  setTimeout(function(){
+    var utt = new SpeechSynthesisUtterance(text);
+    var v = getBestVoice('english');
+    if(v) utt.voice = v;
+    utt.rate = 0.85; utt.lang = 'en-IN';
+    speechSynthesis.speak(utt);
+  }, 600);
+}
+
+// ══════════════════════════════════════════════════
+// RENDERING
+// ══════════════════════════════════════════════════
+function renderSegmentText(seg){
+  var el = document.getElementById('current-sentence');
+  var text = seg._orig || seg.text;
+
+  // Save previous text to prev-sentence
+  var prev = el.textContent.trim();
+  if(prev && !prev.includes('Begin') && !prev.includes('stopped')){
+    document.getElementById('prev-sentence').textContent = prev;
+  }
+
+  // Split into words and wrap each in span
+  var words = text.split(/(\s+)/);
+  var html = '';
+  var wordIdx = 0;
+  words.forEach(function(w){
+    if(/\s+/.test(w)){ html += w; return; }
+    var cls = 'word';
+    // Detect Tamil word
+    if(/[\u0B80-\u0BFF]/.test(w)) cls += ' tamil';
+    // Detect emphasis words
+    if(/^(IMPORTANT|NOTE|REMEMBER|CRITICAL|KEY|LISTEN|STUDENTS|Children)$/i.test(w)) cls += ' emphasis';
+    html += '<span class="' + cls + '" data-wi="' + wordIdx + '">' + escH(w) + '</span>';
+    wordIdx++;
+  });
+
+  el.innerHTML = html;
+  el.style.opacity = '0';
+  setTimeout(() => { el.style.opacity = '1'; }, 50);
+}
+
+function highlightWord(charIdx, text){
+  // Find which word the charIdx falls on
+  var words = document.getElementById('current-sentence').querySelectorAll('.word');
+  var pos = 0;
+  words.forEach((w, i) => {
+    var wText = w.textContent;
+    if(charIdx >= pos && charIdx < pos + wText.length + 1){
+      words.forEach(x => x.classList.remove('active'));
+      w.classList.add('active');
+      // Mark previous as done
+      for(var j=0; j<i; j++) words[j].classList.add('done');
+    }
+    pos += wText.length + 1;
+  });
+}
+
+function updateToneUI(tone){
+  var cfg = TONE_CONFIG[tone] || TONE_CONFIG.normal;
+  var banner = document.getElementById('tone-banner');
+  banner.className = 'tone-banner ' + cfg.css;
+  banner.textContent = cfg.label;
+  document.getElementById('tone-val').innerHTML = '<span>' + cfg.icon + '</span><span>' + cfg.name + '</span>';
+}
+
+function updateProgress(idx){
+  var pct = teachScript.length > 0 ? Math.round(idx / teachScript.length * 100) : 0;
+  document.getElementById('lesson-bar').style.width = pct + '%';
+  document.getElementById('seg-count').textContent = idx + ' / ' + teachScript.length;
+  document.getElementById('pct-text').textContent = pct + '%';
+}
+
+function updateControls(){
+  var btn = document.getElementById('play-btn');
+  if(isPlaying)   btn.textContent = '⏸ Pause';
+  else if(isPaused) btn.textContent = '▶ Resume';
+  else              btn.textContent = '▶ Play';
+}
+
+function setSpeaking(on){
+  document.getElementById('av-ring').classList.toggle('speaking', on);
+  document.getElementById('av-ring2').classList.toggle('speaking', on);
+  var dot = document.getElementById('status-dot');
+  dot.className = 'status-dot ' + (on ? '' : 'idle');
+  document.getElementById('status-text').textContent = on ? 'Speaking...' : (isPaused ? 'Paused' : 'Ready');
+}
+
+function updateScriptHighlight(idx){
+  document.querySelectorAll('.script-item').forEach((el, i) => {
+    el.className = 'script-item ' + (i < idx ? 'done' : i === idx ? 'active' : '');
+  });
+  // Auto-scroll sidebar to active
+  var active = document.querySelector('.script-item.active');
+  if(active) active.scrollIntoView({block:'nearest', behavior:'smooth'});
+}
+
+// ══════════════════════════════════════════════════
+// OVERLAYS
+// ══════════════════════════════════════════════════
+function hideOverlays(){
+  document.getElementById('write-banner').classList.remove('show');
+  document.getElementById('question-pop').classList.remove('show');
+  document.getElementById('important-flash').classList.remove('show');
+}
+
+function showWriteBanner(){
+  document.getElementById('write-banner').classList.add('show');
+  setTimeout(() => document.getElementById('write-banner').classList.remove('show'), 4000);
+}
+
+function showQuestionPop(text){
+  document.getElementById('q-pop-text').textContent = text;
+  document.getElementById('question-pop').classList.add('show');
+  setTimeout(() => document.getElementById('question-pop').classList.remove('show'), 6000);
+}
+
+function showImportantFlash(word){
+  if(!word) return;
+  var el = document.getElementById('important-flash');
+  el.textContent = word;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2000);
+}
+
+function extractKeyWord(text){
+  var emphasisWords = ['IMPORTANT', 'NOTE', 'REMEMBER', 'KEY', 'CRITICAL'];
+  for(var w of emphasisWords){
+    if(text.toUpperCase().includes(w)) return w;
+  }
+  // Extract first capitalised word
+  var match = text.match(/\b([A-Z]{4,})\b/);
+  return match ? match[1] : null;
+}
+
+// ══════════════════════════════════════════════════
+// SCRIPT SIDEBAR
+// ══════════════════════════════════════════════════
+function buildScriptSidebar(){
+  var sb = document.getElementById('script-sidebar');
+  sb.innerHTML = teachScript.map(function(seg, i){
+    var icon = {open:'▶',explain:'📖',example:'💡',emphasis:'⭐',question:'🤔',command:'📝',close:'🏁'}[seg.type]||'•';
+    var shortText = (seg._orig || seg.text).substring(0,45);
+    return '<div class="script-item" onclick="jumpToSegment(' + i + ')">' +
+      icon + ' ' + escH(shortText) + (shortText.length < (seg._orig||seg.text).length ? '...' : '') +
+    '</div>';
+  }).join('');
+}
+
+function jumpToSegment(idx){
+  speechSynthesis.cancel();
+  clearTimeout(playTimeout);
+  currentIdx = idx;
+  if(isPlaying) playSegment(idx);
+  else{ renderSegmentText(teachScript[idx]); updateScriptHighlight(idx); updateProgress(idx); updateToneUI(teachScript[idx].tone||'normal'); }
+}
+
+// ══════════════════════════════════════════════════
+// LOADING HELPERS
+// ══════════════════════════════════════════════════
+function showLoading(title, sub){
+  document.getElementById('load-text').textContent = title;
+  document.getElementById('load-sub').textContent = sub;
+  document.getElementById('loading-screen').classList.add('show');
+}
+function hideLoading(){ document.getElementById('loading-screen').classList.remove('show'); }
+
+// ══════════════════════════════════════════════════
+// URL PARAMS — allow subject pages to open teaching mode directly
+// ══════════════════════════════════════════════════
+function loadFromURLParams(){
+  var params = new URLSearchParams(window.location.search);
+  var subj    = params.get('subject');
+  var cls     = params.get('class');
+  var topic   = params.get('topic');
+  var lesson  = params.get('lesson');
+  var lang    = params.get('lang');
+
+  if(subj && topic){
+    if(subj) document.getElementById('setup-subject').value = subj;
+    if(cls)  document.getElementById('setup-class').value   = cls;
+    if(topic) document.getElementById('setup-topic').value  = topic;
+    if(lesson) document.getElementById('setup-lesson').value = lesson;
+    if(lang){ teachLang = lang; }
+    // Auto-start
+    startTeachingMode();
+  }
+}
+
+// ══════════════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════════════
+function escH(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+// ══════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════
+window.addEventListener('load', function(){
+  // Load voices
+  setTimeout(() => { voices = speechSynthesis.getVoices(); populateVoices(); }, 800);
+  // Check URL params
+  loadFromURLParams();
+  // Default language button style
+  setTeachLang('mixed', document.getElementById('lang-mixed'));
+});
+</script>
+</body>
+</html>
