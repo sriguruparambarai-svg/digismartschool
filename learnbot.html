@@ -166,7 +166,17 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 .hint-box{background:#FFF3CD;border-radius:8px;padding:10px 14px;font-size:0.9rem;color:#856404;margin-top:8px;display:none;}
 .maths-loading{text-align:center;padding:30px;color:#6B0F1A;font-weight:700;}
 
-/* ── DIAGRAM MODE ── */
+/* ── CHALK BLACKBOARD STYLES ── */
+.chalk-step-label{color:#A07830;font-size:0.72rem;font-weight:800;text-transform:uppercase;letter-spacing:2px;margin:12px 0 4px;font-family:Nunito,sans-serif;}
+.chalk-line{color:#e8e8d8;font-size:1rem;line-height:1.8;min-height:1.6em;white-space:pre-wrap;padding:2px 0;}
+.chalk-highlight{color:#FFD700;font-size:1.05rem;font-weight:bold;}
+.chalk-answer{color:#a0ffa0;font-size:1.1rem;font-weight:bold;margin-top:6px;border-top:1px dashed rgba(255,255,255,0.2);padding-top:6px;}
+.chalk-writing::after{content:'|';animation:blink 0.6s infinite;color:#fffde0;}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+.bb-step-dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--gold-dark);background:var(--white);color:var(--maroon);font-size:0.78rem;font-weight:800;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all 0.2s;font-family:Nunito,sans-serif;}
+.bb-step-dot.current{background:var(--maroon);color:var(--yellow);border-color:var(--gold);}
+.bb-step-dot.done{background:var(--sandal-dark);color:var(--maroon-dark);}
+
 .diagram-container{background:#0a1628;border-radius:16px;padding:20px;margin-bottom:14px;min-height:300px;display:flex;align-items:center;justify-content:center;}
 .diagram-container svg{max-width:100%;height:auto;}
 .diagram-label-box{background:var(--white);border-radius:12px;padding:14px;margin-bottom:10px;border-left:4px solid #C9A84C;}
@@ -552,26 +562,28 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 
       <!-- Blackboard Mode (new) -->
       <div id="maths-board-panel" style="display:none;">
-        <div style="font-size:0.88rem;color:var(--text-mid);margin-bottom:10px;">Watch Miss solve the problem step by step — like writing on a blackboard 🖊️</div>
+        <div style="font-size:0.88rem;color:var(--text-mid);margin-bottom:10px;">Miss writes on the board step by step — voice explains each line as it appears 🖊️</div>
 
-        <!-- Blackboard -->
-        <div id="bb-board" style="background:#1a3a1a;border-radius:14px;padding:24px 28px;min-height:320px;border:4px solid #5a3a1a;box-shadow:inset 0 2px 12px rgba(0,0,0,0.5),0 4px 20px rgba(0,0,0,0.4);font-family:'Courier New',monospace;position:relative;">
-          <!-- Chalk dust effect top -->
-          <div style="position:absolute;top:6px;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);border-radius:2px;"></div>
-          <div id="bb-lines" style="min-height:260px;"></div>
-          <!-- Writing cursor -->
-          <span id="bb-cursor" style="display:inline-block;width:3px;height:1.2em;background:#fffde0;margin-left:2px;vertical-align:middle;animation:blink 0.7s infinite;"></span>
-          <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
+        <!-- Step progress dots -->
+        <div id="bb-step-track" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+
+        <!-- Status bar -->
+        <div id="bb-status" style="font-size:0.88rem;font-weight:700;color:var(--maroon);margin-bottom:8px;min-height:20px;"></div>
+
+        <!-- Green Blackboard -->
+        <div id="bb-board" style="background:#1a3a1a;border-radius:14px;padding:22px 26px;min-height:300px;border:4px solid #5a3a1a;box-shadow:inset 0 2px 12px rgba(0,0,0,0.5),0 4px 20px rgba(0,0,0,0.4);font-family:'Courier New',monospace;overflow-y:auto;max-height:420px;"></div>
+
+        <!-- Teacher explanation box -->
+        <div id="bb-explain-box" style="display:none;background:linear-gradient(135deg,#F5E6C8,#FFFDF5);border-radius:10px;padding:12px 16px;margin-top:10px;border-left:4px solid var(--gold);font-size:0.92rem;color:var(--text);">
+          <div style="font-size:0.75rem;font-weight:800;color:var(--gold-dark);text-transform:uppercase;margin-bottom:4px;">🗣️ Teacher is saying...</div>
+          <div id="bb-explain-text"></div>
         </div>
-
-        <!-- Voice status below board -->
-        <div id="bb-voice-status" style="text-align:center;margin-top:10px;font-size:0.9rem;color:var(--maroon);font-weight:700;min-height:22px;"></div>
 
         <!-- Controls -->
         <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
-          <button class="btn btn-gold" id="bb-start-btn" onclick="startBlackboard()">🖊️ Start Teaching</button>
+          <button class="btn btn-gold btn-sm" id="bb-start-btn" onclick="startBlackboard()">🖊️ Start Teaching</button>
           <button class="btn btn-outline btn-sm" id="bb-pause-btn" onclick="pauseBlackboard()" disabled>⏸ Pause</button>
-          <button class="btn btn-outline btn-sm" id="bb-restart-btn" onclick="restartBlackboard()" style="display:none;">🔄 Restart</button>
+          <button class="btn btn-outline btn-sm" id="bb-stop-btn" onclick="stopBlackboard()" disabled>⏹ Stop</button>
           <button class="btn btn-outline btn-sm" onclick="backToSetup()">← Back</button>
         </div>
       </div>
@@ -1525,10 +1537,10 @@ function showMathsStep(idx){
       allToSpeak.push('Step '+(i+1)+'. '+s);
     });
     allToSpeak.push((teachLang==='tamil'?'விடை: ':'Answer. ')+step.data.answer);
-    // Speak them in sequence
-    function speakSeq(arr, idx){
-      if(idx>=arr.length) return;
-      spk(arr[idx], function(){ setTimeout(function(){ speakSeq(arr,idx+1); }, 400); });
+    // Speak them in sequence — use 'si' not 'idx' to avoid closure conflict
+    function speakSeq(arr, si){
+      if(si>=arr.length) return;
+      spk(arr[si], function(){ setTimeout(function(){ speakSeq(arr, si+1); }, 400); });
     }
     speakSeq(allToSpeak, 0);
   }
@@ -1549,162 +1561,6 @@ function nextMathsStep(){
   showMathsStep(mathsIdx+1);
 }
 
-// ════════════════════════════════
-// BLACKBOARD MODE
-// ════════════════════════════════
-var bbLines=[], bbLineIdx=0, bbCharIdx=0, bbPaused=false, bbTimer=null, bbSpeaking=false;
-
-function switchMathsTab(tab){
-  var steps=document.getElementById('maths-step-panel');
-  var board=document.getElementById('maths-board-panel');
-  var btnS=document.getElementById('mtab-steps');
-  var btnB=document.getElementById('mtab-board');
-  if(tab==='steps'){
-    steps.style.display='block'; board.style.display='none';
-    btnS.style.background='linear-gradient(135deg,var(--maroon),var(--maroon-mid))'; btnS.style.color='var(--gold-light)';
-    btnB.style.background='white'; btnB.style.color='var(--maroon)';
-  } else {
-    steps.style.display='none'; board.style.display='block';
-    btnB.style.background='linear-gradient(135deg,var(--maroon),var(--maroon-mid))'; btnB.style.color='var(--gold-light)';
-    btnS.style.background='white'; btnS.style.color='var(--maroon)';
-    prepareBBLines();
-  }
-}
-
-function prepareBBLines(){
-  // Build blackboard lines from mathsSteps data
-  bbLines=[];
-  mathsSteps.forEach(function(step){
-    if(step.type==='formula'){
-      bbLines.push({text:'📐 Formula: '+step.data.formula, speak:'Formula: '+step.data.formula, style:'title', pause:2000});
-      bbLines.push({text:'   → '+step.data.formula_explained, speak:step.data.formula_explained, style:'explain', pause:1500});
-    } else if(step.type==='step'){
-      bbLines.push({text:'Step '+step.data.num+': '+step.data.title, speak:'Step '+step.data.num+'. '+step.data.title, style:'step', pause:1200});
-      bbLines.push({text:'   '+step.data.content, speak:step.data.content, style:'content', pause:1500});
-      if(step.data.working) bbLines.push({text:'   ∴ '+step.data.working, speak:cleanMaths(step.data.working), style:'working', pause:2000});
-    } else if(step.type==='example'){
-      bbLines.push({text:'─────────────────────────', speak:'', style:'divider', pause:400});
-      bbLines.push({text:'📝 Example: '+step.data.problem, speak:'Example. '+step.data.problem, style:'title', pause:2000});
-      step.data.solution_steps.forEach(function(s,i){
-        bbLines.push({text:'  Step '+(i+1)+': '+s, speak:'Step '+(i+1)+'. '+s, style:'solution', pause:1800});
-      });
-      bbLines.push({text:'  ✅ Answer: '+step.data.answer, speak:'Answer. '+step.data.answer, style:'answer', pause:2000});
-    } else if(step.type==='reallife'){
-      bbLines.push({text:'─────────────────────────', speak:'', style:'divider', pause:400});
-      bbLines.push({text:'🌍 Real Life: '+step.data.real_life, speak:'Real life example. '+step.data.real_life, style:'reallife', pause:2000});
-    }
-  });
-  document.getElementById('bb-lines').innerHTML='';
-  document.getElementById('bb-cursor').style.display='none';
-  document.getElementById('bb-voice-status').textContent='Press "Start Teaching" to begin 🖊️';
-  document.getElementById('bb-start-btn').style.display='inline-flex';
-  document.getElementById('bb-restart-btn').style.display='none';
-  document.getElementById('bb-pause-btn').disabled=true;
-  bbLineIdx=0; bbCharIdx=0; bbPaused=false;
-}
-
-function startBlackboard(){
-  if(bbLines.length===0){ alert('Please wait for lesson to load first.'); return; }
-  document.getElementById('bb-start-btn').style.display='none';
-  document.getElementById('bb-pause-btn').disabled=false;
-  document.getElementById('bb-cursor').style.display='inline-block';
-  bbPaused=false; bbLineIdx=0; bbCharIdx=0;
-  document.getElementById('bb-lines').innerHTML='';
-  bbWriteNextLine();
-}
-
-function pauseBlackboard(){
-  bbPaused=!bbPaused;
-  document.getElementById('bb-pause-btn').textContent=bbPaused?'▶ Resume':'⏸ Pause';
-  if(!bbPaused) bbWriteNextLine();
-  else { clearTimeout(bbTimer); speechSynthesis.pause(); }
-}
-
-function restartBlackboard(){
-  clearTimeout(bbTimer); speechSynthesis.cancel();
-  bbPaused=false; bbLineIdx=0; bbCharIdx=0;
-  document.getElementById('bb-lines').innerHTML='';
-  document.getElementById('bb-pause-btn').textContent='⏸ Pause';
-  document.getElementById('bb-pause-btn').disabled=false;
-  document.getElementById('bb-cursor').style.display='inline-block';
-  document.getElementById('bb-restart-btn').style.display='none';
-  document.getElementById('bb-start-btn').style.display='none';
-  document.getElementById('bb-voice-status').textContent='';
-  bbWriteNextLine();
-}
-
-var BB_STYLES={
-  title: 'color:#FFD700;font-size:1.1rem;font-weight:bold;margin-bottom:4px;',
-  explain: 'color:#F5E6C8;font-size:0.95rem;margin-bottom:8px;',
-  step: 'color:#E8C96A;font-size:1rem;font-weight:bold;margin-top:10px;margin-bottom:2px;',
-  content: 'color:#e0ffe0;font-size:0.95rem;margin-bottom:4px;',
-  working: 'color:#a0ff80;font-size:1.05rem;letter-spacing:1px;padding:4px 0;',
-  solution: 'color:#cfffcf;font-size:0.95rem;margin-bottom:4px;',
-  answer: 'color:#a0ffa0;font-size:1.1rem;font-weight:bold;margin-top:6px;',
-  divider: 'color:rgba(255,255,255,0.2);font-size:0.8rem;margin:8px 0;',
-  reallife: 'color:#ffe0a0;font-size:0.95rem;margin-top:6px;'
-};
-
-var BB_SPEED=28; // ms per character
-
-function bbWriteNextLine(){
-  if(bbPaused||bbLineIdx>=bbLines.length){
-    if(bbLineIdx>=bbLines.length){
-      // Done
-      document.getElementById('bb-cursor').style.display='none';
-      document.getElementById('bb-voice-status').textContent='✅ Lesson complete! Well done!';
-      document.getElementById('bb-pause-btn').disabled=true;
-      document.getElementById('bb-restart-btn').style.display='inline-flex';
-    }
-    return;
-  }
-
-  var line=bbLines[bbLineIdx];
-
-  // Create new line element
-  var div=document.createElement('div');
-  div.style.cssText=(BB_STYLES[line.style]||'color:white;')+' min-height:1.4em; white-space:pre-wrap;';
-  document.getElementById('bb-lines').appendChild(div);
-
-  // Move cursor to new line
-  var cursor=document.getElementById('bb-cursor');
-  div.appendChild(cursor);
-
-  // Scroll board to bottom
-  var board=document.getElementById('bb-board');
-  board.scrollTop=board.scrollHeight;
-
-  // Speak this line (non-blocking — voice runs parallel to writing)
-  if(line.speak && tvOn){
-    document.getElementById('bb-voice-status').textContent='🗣️ '+line.speak.substring(0,60)+(line.speak.length>60?'...':'');
-    var utt=new SpeechSynthesisUtterance(cleanMaths(clean(line.speak)));
-    var sel=document.getElementById('m-voice');
-    var vs_=speechSynthesis.getVoices();
-    if(sel&&vs_[parseInt(sel.value)])utt.voice=vs_[parseInt(sel.value)];
-    utt.rate=parseFloat((document.getElementById('m-spd')||{value:'0.85'}).value)||0.85;
-    if(teachLang==='tamil')utt.lang='ta-IN'; else utt.lang='en-IN';
-    utt.onend=function(){ document.getElementById('bb-voice-status').textContent=''; };
-    speechSynthesis.speak(utt);
-  }
-
-  // Typewriter effect — write characters one by one
-  var text=line.text; var ci=0;
-  function typeChar(){
-    if(bbPaused){bbTimer=setTimeout(typeChar,50);return;}
-    if(ci<text.length){
-      var t=document.createTextNode(text[ci]);
-      div.insertBefore(t,cursor);
-      ci++;
-      board.scrollTop=board.scrollHeight;
-      bbTimer=setTimeout(typeChar, line.style==='divider'?8:BB_SPEED);
-    } else {
-      // Line done — pause before next line (let voice finish)
-      bbLineIdx++;
-      bbTimer=setTimeout(bbWriteNextLine, line.pause||1000);
-    }
-  }
-  typeChar();
-}
 
 // ════════════════════════════════
 // BLACKBOARD MODE
@@ -1771,6 +1627,7 @@ function startBlackboard(){
   if(bbSteps.length===0){ alert('Please load a Maths lesson first.'); return; }
   bbPaused=false; bbRunning=true; bbIdx=0;
   document.getElementById('bb-pause-btn').disabled=false;
+  document.getElementById('bb-stop-btn').disabled=false;
   document.getElementById('bb-start-btn').disabled=true;
   window._spkMaths=true;
   runBBStep(0);
@@ -1799,8 +1656,9 @@ function stopBlackboard(){
   window._spkMaths=false;
   document.getElementById('bb-start-btn').disabled=false;
   document.getElementById('bb-pause-btn').disabled=true;
+  document.getElementById('bb-stop-btn').disabled=true;
   document.getElementById('bb-pause-btn').textContent='⏸ Pause';
-  document.getElementById('bb-status').textContent='Stopped';
+  document.getElementById('bb-status').textContent='Stopped — click Start Teaching to restart';
 }
 
 function jumpBBStep(idx){
@@ -1923,101 +1781,231 @@ function checkMathsAns(i){
 function showHint(i){ document.getElementById('hint-'+i).style.display='block'; }
 
 // ════════════════════════════════
-// DIAGRAM MODE
+// DIAGRAM MODE — Animated SVG
 // ════════════════════════════════
 var diagramParts=[], diagramPartIdx=0;
 
 async function genDiagram(){
   var info=window.AL||{};
   var ch=info.ch||'';
-  document.getElementById('diagram-title').textContent='🔬 '+ch+' — Diagram';
-  var li=teachLang==='tamil'?'Explain labels in Tamil.':'Explain labels in English.';
-  var prompt='You are a Science teacher for Tamil Nadu school students.\nCreate a detailed labeled diagram lesson for: "'+ch+'"\n\n'+li+'\n\nReturn ONLY JSON:\n{\n"has_diagram": true,\n"diagram_type": "e.g. cross-section, flow chart, cycle",\n"svg_description": "Brief description of what the diagram shows",\n"parts": [\n{"label":"Part name","color":"#hexcolor","description":"What this part does","x":50,"y":50}\n],\n"process": ["Step 1 description","Step 2 description","Step 3 description"],\n"youtube_search": "exact YouTube search query for this diagram",\n"key_facts": ["Fact 1","Fact 2","Fact 3"]\n}\n\nLesson:\n'+lessonTxt.substring(0,2000);
+  var sub=info.sub||'Science';
+  document.getElementById('diagram-title').textContent='🔬 '+ch;
+  var li=teachLang==='tamil'?'Label and explain in Tamil.':'Label and explain in English.';
+
+  // Detect diagram type from chapter name
+  var chLow=ch.toLowerCase();
+  var diagType='process';
+  if(chLow.includes('cycle')||chLow.includes('water')||chLow.includes('carbon')||chLow.includes('nitrogen')||chLow.includes('rock'))diagType='cycle';
+  else if(chLow.includes('heart')||chLow.includes('blood')||chLow.includes('lung')||chLow.includes('cell')||chLow.includes('plant')||chLow.includes('leaf')||chLow.includes('flower')||chLow.includes('root')||chLow.includes('seed'))diagType='biology';
+  else if(chLow.includes('circuit')||chLow.includes('electric')||chLow.includes('magnet')||chLow.includes('light')||chLow.includes('sound')||chLow.includes('wave'))diagType='physics';
+  else if(chLow.includes('map')||chLow.includes('india')||chLow.includes('river')||chLow.includes('mountain')||chLow.includes('state')||chLow.includes('continent'))diagType='geography';
+  else if(chLow.includes('atom')||chLow.includes('molecule')||chLow.includes('bond')||chLow.includes('reaction')||chLow.includes('acid'))diagType='chemistry';
+
+  var prompt=`You are an expert science/social science teacher creating an ANIMATED SVG diagram for ${cls} students.
+Topic: "${ch}" | Subject: ${sub}
+${li}
+
+Create a complete animated educational SVG diagram. Return ONLY valid JSON:
+{
+  "title": "Diagram title",
+  "diagram_type": "${diagType}",
+  "svg": "<svg viewBox='0 0 700 420' xmlns='http://www.w3.org/2000/svg'><!-- Your complete animated SVG here --></svg>",
+  "parts": [{"label":"Part name","description":"What it does","color":"#hex"}],
+  "process": ["Step 1","Step 2","Step 3"],
+  "key_facts": ["Fact 1","Fact 2","Fact 3"],
+  "youtube_search": "YouTube search query"
+}
+
+SVG REQUIREMENTS — Make it visually rich and animated:
+- Dark background (#0a1628 or similar)
+- Use bright colors (#FFD700, #4fc3f7, #81c784, #ff7043, #ce93d8 etc)
+- Add SVG animations using <animateTransform>, <animate>, <animateMotion> for:
+  * Cycles: arrows that move along paths, rotating elements
+  * Biology: pulsing organs, flowing liquids, growing plants
+  * Physics: moving electrons, light rays, sound waves
+  * Chemistry: rotating atoms, reacting molecules
+  * Geography: highlighted regions, flowing rivers
+- Label ALL parts clearly with <text> elements in white/yellow
+- Add directional arrows showing flow/movement
+- Make it look like a real textbook diagram but animated
+- Size: 700x420 viewBox
+- Include at least 3-4 animated elements
+
+Lesson content:
+${lessonTxt.substring(0,2000)}`;
+
+  document.getElementById('diagram-svg-area').innerHTML=
+    '<div class="diagram-loading"><div class="spinner" style="width:44px;height:44px;border-color:rgba(201,168,76,0.2);border-top-color:#C9A84C;margin:0 auto 14px;"></div>'+
+    '<div style="color:#C9A84C;font-weight:700;font-size:1rem;">🎨 Drawing animated diagram...</div>'+
+    '<div style="color:#A07830;font-size:0.82rem;margin-top:6px;">This may take a few seconds</div></div>';
 
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1200,messages:[{role:'user',content:prompt}]});
+    var cls2=document.getElementById('s-class').value;
+    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:3000,messages:[{role:'user',content:prompt.replace('${cls}',cls2)}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
-    // Fix common JSON issues - replace unescaped quotes in values
     var data;
-    try { data=JSON.parse(raw); }
+    try{ data=JSON.parse(raw); }
     catch(e2){
-      // Try to fix by extracting just the JSON object
-      var jsonStart=raw.indexOf('{'); var jsonEnd=raw.lastIndexOf('}');
-      if(jsonStart>=0&&jsonEnd>jsonStart){
-        try{ data=JSON.parse(raw.substring(jsonStart,jsonEnd+1)); }
-        catch(e3){
-          // Fallback: create simple data from lesson
-          data={has_diagram:true,diagram_type:'labeled diagram',svg_description:'Topic: '+ch,
-            parts:[{label:ch,color:'#C9A84C',description:'Main concept of this topic',x:50,y:50}],
-            process:['Step 1: Understand the structure','Step 2: Learn the functions','Step 3: Connect the concepts'],
-            youtube_search:ch+' diagram explanation India',key_facts:['Key concept from lesson']};
-        }
-      } else { throw e2; }
-    }
-    diagramParts=data.parts||[];
-    diagramPartIdx=0;
-
-    // Build SVG diagram
-    buildDiagramSVG(data);
-
-    // Build labels
-    var labelsHtml='<div style="font-family:Cinzel,serif;color:#6B0F1A;font-size:0.9rem;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #EDD9A3;">📋 Parts & Functions</div>';
-    data.parts.forEach(function(p,i){
-      labelsHtml+='<div class="diagram-label-box" style="border-left-color:'+p.color+';">'+
-        '<div class="diagram-label-title">'+p.label+'</div>'+
-        '<div class="diagram-label-desc">'+p.description+'</div>'+
-      '</div>';
-    });
-
-    // Process steps
-    if(data.process&&data.process.length){
-      labelsHtml+='<div style="font-family:Cinzel,serif;color:#6B0F1A;font-size:0.9rem;margin:14px 0 10px;padding-bottom:6px;border-bottom:2px solid #EDD9A3;">⚙️ How It Works</div>';
-      data.process.forEach(function(p,i){
-        labelsHtml+='<div class="step-box"><div class="step-num">Step '+(i+1)+'</div><div class="step-content">'+p+'</div></div>';
-      });
+      var s0=raw.indexOf('{'), e0=raw.lastIndexOf('}');
+      if(s0>=0&&e0>s0){ try{ data=JSON.parse(raw.substring(s0,e0+1)); }catch(e3){ data=null; } }
     }
 
-    document.getElementById('diagram-labels').innerHTML=labelsHtml;
-    window._diagramData=data;
+    if(data && data.svg){
+      // Render animated SVG
+      document.getElementById('diagram-svg-area').innerHTML=
+        '<div style="border-radius:14px;overflow:hidden;border:2px solid #C9A84C;">'+data.svg+'</div>';
+      diagramParts=data.parts||[];
+      diagramPartIdx=0;
+    } else {
+      // Fallback: build animated SVG ourselves
+      buildAnimatedSVG(ch, diagType, data);
+    }
 
-    // Auto explain
-    if(data.parts.length>0) explainDiagramPart();
+    // Labels panel
+    buildDiagramLabels(data, ch);
+    window._diagramData=data||{youtube_search:ch+' diagram animation'};
+
+    // Auto-explain first part with voice
+    if(diagramParts.length>0){
+      setTimeout(function(){ explainDiagramPart(); }, 1000);
+    }
 
   }catch(e){
-    document.getElementById('diagram-svg-area').innerHTML='<p style="color:#ff6b6b;text-align:center;padding:20px;">Error: '+e.message+'</p>';
+    document.getElementById('diagram-svg-area').innerHTML=
+      '<p style="color:#ff6b6b;text-align:center;padding:24px;font-weight:700;">❌ Error: '+e.message+'<br/><span style="font-size:0.85rem;color:#aaa;">Please try again</span></p>';
   }
 }
 
-function buildDiagramSVG(data){
-  // Create a visual representation with labeled circles/boxes
-  var parts=data.parts;
-  var w=600, h=350;
-  var svg='<svg viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;max-height:350px;">';
-  svg+='<rect width="'+w+'" height="'+h+'" fill="#0a1628" rx="12"/>';
-  svg+='<text x="'+(w/2)+'" y="30" fill="#C9A84C" text-anchor="middle" font-family="Cinzel,serif" font-size="16" font-weight="700">'+data.svg_description+'</text>';
+function buildAnimatedSVG(ch, diagType, data){
+  // Fallback animated SVG builder when AI doesn't return SVG
+  var parts = (data&&data.parts)||[];
+  var w=700, h=420;
+  var svg='<svg viewBox="0 0 '+w+' '+h+'" xmlns="http://www.w3.org/2000/svg" style="width:100%;">';
+  svg+='<defs>';
+  svg+='<radialGradient id="bg" cx="50%" cy="50%" r="70%"><stop offset="0%" stop-color="#0d1f3c"/><stop offset="100%" stop-color="#060e1c"/></radialGradient>';
+  svg+='<marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L0,6 L8,3 z" fill="#FFD700"/></marker>';
+  svg+='</defs>';
+  svg+='<rect width="'+w+'" height="'+h+'" fill="url(#bg)"/>';
 
-  // Draw parts as labeled shapes distributed across SVG
-  var cols=Math.ceil(Math.sqrt(parts.length));
-  var rows=Math.ceil(parts.length/cols);
-  var cellW=w/cols, cellH=(h-50)/rows;
+  // Title
+  svg+='<text x="350" y="32" fill="#C9A84C" text-anchor="middle" font-family="Cinzel,serif" font-size="17" font-weight="700">'+ch+'</text>';
 
-  parts.forEach(function(p,i){
-    var col=i%cols, row=Math.floor(i/cols);
-    var cx=col*cellW+cellW/2, cy=50+row*cellH+cellH/2;
-    var r=Math.min(cellW,cellH)*0.28;
-    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="'+r+'" fill="'+p.color+'" opacity="0.85" stroke="#C9A84C" stroke-width="2"/>';
-    // Label
-    var words=p.label.split(' ');
-    words.forEach(function(w,wi){
-      svg+='<text x="'+cx+'" y="'+(cy+(wi-words.length/2+0.7)*16)+'" fill="white" text-anchor="middle" font-family="Nunito,sans-serif" font-size="12" font-weight="700">'+w+'</text>';
+  if(diagType==='cycle' || parts.length===0){
+    // Draw animated cycle
+    var cx=350, cy=220, cr=140;
+    var n=Math.max(parts.length,4);
+    var colors=['#4fc3f7','#81c784','#ffb74d','#f06292','#ce93d8','#80cbc4'];
+    // Dashed rotating ring
+    svg+='<circle cx="'+cx+'" cy="'+cy+'" r="'+cr+'" fill="none" stroke="#C9A84C" stroke-width="2" stroke-dasharray="12,6" opacity="0.4">';
+    svg+='<animateTransform attributeName="transform" type="rotate" from="0 '+cx+' '+cy+'" to="360 '+cx+' '+cy+'" dur="20s" repeatCount="indefinite"/>';
+    svg+='</circle>';
+    for(var i=0;i<n;i++){
+      var angle=(i/n)*2*Math.PI - Math.PI/2;
+      var nx=cx+cr*Math.cos(angle), ny=cy+cr*Math.sin(angle);
+      var col=colors[i%colors.length];
+      var label=parts[i]?parts[i].label:'Stage '+(i+1);
+      // Pulsing circle
+      svg+='<circle cx="'+nx.toFixed(1)+'" cy="'+ny.toFixed(1)+'" r="34" fill="'+col+'" opacity="0.9" stroke="white" stroke-width="2">';
+      svg+='<animate attributeName="r" values="34;38;34" dur="'+(2+i*0.4)+'s" repeatCount="indefinite"/>';
+      svg+='<animate attributeName="opacity" values="0.9;1;0.9" dur="'+(2+i*0.4)+'s" repeatCount="indefinite"/>';
+      svg+='</circle>';
+      // Arrow to next
+      var na=(((i+1)%n)/n)*2*Math.PI - Math.PI/2;
+      var ax=cx+(cr-46)*Math.cos(angle+0.42), ay=cy+(cr-46)*Math.sin(angle+0.42);
+      svg+='<circle r="5" fill="#FFD700" opacity="0.9">';
+      svg+='<animateMotion dur="'+(3+(i*0.5))+'s" repeatCount="indefinite" begin="'+(i*0.6)+'s">'+
+           '<mpath href="#cycle-path-'+i+'"/></animateMotion>';
+      svg+='</circle>';
+      // Label
+      var words=label.split(' ');
+      words.forEach(function(ww,wi){
+        svg+='<text x="'+nx.toFixed(1)+'" y="'+(ny+(wi-words.length/2+0.6)*13).toFixed(1)+'" fill="white" text-anchor="middle" font-family="Nunito,sans-serif" font-size="11" font-weight="700">'+ww+'</text>';
+      });
+    }
+    // Curved arrows between stages
+    for(var j=0;j<n;j++){
+      var a1=(j/n)*2*Math.PI-Math.PI/2;
+      var a2=((j+1)%n/n)*2*Math.PI-Math.PI/2;
+      var x1=(cx+cr*Math.cos(a1)).toFixed(1), y1=(cy+cr*Math.sin(a1)).toFixed(1);
+      var x2=(cx+cr*Math.cos(a2)).toFixed(1), y2=(cy+cr*Math.sin(a2)).toFixed(1);
+      var mx=(cx+cr*1.18*Math.cos((a1+a2)/2)).toFixed(1), my=(cy+cr*1.18*Math.sin((a1+a2)/2)).toFixed(1);
+      svg+='<path id="cycle-path-'+j+'" d="M'+x1+','+y1+' Q'+mx+','+my+' '+x2+','+y2+'" fill="none" stroke="#FFD700" stroke-width="2" marker-end="url(#arr)" opacity="0.7"/>';
+    }
+  } else {
+    // Flow diagram for non-cycle topics
+    var cols2=Math.min(parts.length,4), rows2=Math.ceil(parts.length/cols2);
+    var bw=140,bh=70,hgap=(w-cols2*bw)/(cols2+1),vgap=(h-70-rows2*bh)/(rows2+1);
+    var colors2=['#4fc3f7','#81c784','#ffb74d','#f06292','#ce93d8','#80cbc4','#ff8a65','#a5d6a7'];
+    parts.forEach(function(p,i){
+      var col=i%cols2, row=Math.floor(i/cols2);
+      var bx=hgap+(col*(bw+hgap)), by=70+vgap+(row*(bh+vgap));
+      var col2=colors2[i%colors2.length];
+      // Animated box
+      svg+='<rect x="'+bx.toFixed(1)+'" y="'+by.toFixed(1)+'" width="'+bw+'" height="'+bh+'" rx="12" fill="'+col2+'" opacity="0.85" stroke="white" stroke-width="1.5">';
+      svg+='<animate attributeName="opacity" values="0.85;1;0.85" dur="'+(2.5+i*0.3)+'s" repeatCount="indefinite"/>';
+      svg+='</rect>';
+      // Label
+      var words=p.label.split(' ');
+      words.forEach(function(ww,wi){
+        svg+='<text x="'+(bx+bw/2).toFixed(1)+'" y="'+(by+bh/2+(wi-words.length/2+0.7)*14).toFixed(1)+'" fill="white" text-anchor="middle" font-family="Nunito,sans-serif" font-size="12" font-weight="700">'+ww+'</text>';
+      });
+      // Connecting arrow to next
+      if(i<parts.length-1 && (i+1)%cols2!==0){
+        var nx2=bx+bw+2, ny2=by+bh/2;
+        svg+='<line x1="'+nx2+'" y1="'+ny2+'" x2="'+(nx2+hgap-4)+'" y2="'+ny2+'" stroke="#FFD700" stroke-width="2" marker-end="url(#arr)"/>';
+        // Moving dot along arrow
+        svg+='<circle r="4" fill="#FFD700">';
+        svg+='<animateMotion dur="2s" repeatCount="indefinite" begin="'+(i*0.5)+'s"><mpath href="#arr-path-'+i+'"/></animateMotion>';
+        svg+='</circle>';
+        svg+='<path id="arr-path-'+i+'" d="M'+nx2+','+ny2+' L'+(nx2+hgap-4)+','+ny2+'" fill="none"/>';
+      }
     });
-    // Number badge
-    svg+='<circle cx="'+(cx+r*0.7)+'" cy="'+(cy-r*0.7)+'" r="12" fill="#FFD700"/>';
-    svg+='<text x="'+(cx+r*0.7)+'" y="'+(cy-r*0.7+5)+'" fill="#4A0A12" text-anchor="middle" font-family="Cinzel,serif" font-size="11" font-weight="700">'+(i+1)+'</text>';
-  });
-
+  }
   svg+='</svg>';
-  document.getElementById('diagram-svg-area').innerHTML=svg;
+  document.getElementById('diagram-svg-area').innerHTML='<div style="border-radius:14px;overflow:hidden;border:2px solid #C9A84C;">'+svg+'</div>';
+}
+
+function buildDiagramLabels(data, ch){
+  if(!data){
+    document.getElementById('diagram-labels').innerHTML='';
+    return;
+  }
+  var parts=data.parts||[];
+  var process=data.process||[];
+  var facts=data.key_facts||[];
+
+  var html='';
+
+  if(parts.length){
+    html+='<div style="font-family:Cinzel,serif;color:#6B0F1A;font-size:0.9rem;margin-bottom:10px;padding-bottom:6px;border-bottom:2px solid #EDD9A3;">📋 Parts & Functions</div>';
+    parts.forEach(function(p){
+      html+='<div class="diagram-label-box" style="border-left:4px solid '+(p.color||'#C9A84C')+';background:var(--white);border-radius:10px;padding:10px 14px;margin-bottom:8px;">'+
+        '<div style="font-weight:800;color:#6B0F1A;margin-bottom:3px;">'+p.label+'</div>'+
+        '<div style="font-size:0.9rem;color:#5A2030;line-height:1.6;">'+p.description+'</div>'+
+      '</div>';
+    });
+  }
+
+  if(process.length){
+    html+='<div style="font-family:Cinzel,serif;color:#6B0F1A;font-size:0.9rem;margin:14px 0 10px;padding-bottom:6px;border-bottom:2px solid #EDD9A3;">⚙️ How It Works — Step by Step</div>';
+    process.forEach(function(p,i){
+      html+='<div class="step-box" style="display:flex;gap:10px;align-items:flex-start;margin-bottom:8px;">'+
+        '<div style="background:#6B0F1A;color:#FFD700;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:0.8rem;flex-shrink:0;">'+(i+1)+'</div>'+
+        '<div style="font-size:0.92rem;color:var(--text);line-height:1.6;flex:1;">'+p+'</div>'+
+      '</div>';
+    });
+  }
+
+  if(facts.length){
+    html+='<div style="font-family:Cinzel,serif;color:#6B0F1A;font-size:0.9rem;margin:14px 0 10px;padding-bottom:6px;border-bottom:2px solid #EDD9A3;">💡 Key Facts</div>';
+    html+='<div style="display:flex;flex-direction:column;gap:6px;">';
+    facts.forEach(function(f){
+      html+='<div style="background:linear-gradient(135deg,#FFF8E7,#FFFDF5);border:1px solid #EDD9A3;border-radius:8px;padding:8px 12px;font-size:0.88rem;color:var(--text);">⭐ '+f+'</div>';
+    });
+    html+='</div>';
+  }
+
+  document.getElementById('diagram-labels').innerHTML=html;
 }
 
 function explainDiagramPart(){
@@ -2030,11 +2018,10 @@ function explainDiagramPart(){
 
 function fetchYouTubeForDiagram(){
   if(!window._diagramData) return;
-  var q=encodeURIComponent(window._diagramData.youtube_search||window.AL.ch+' diagram explanation');
+  var q=encodeURIComponent(window._diagramData.youtube_search||((window.AL&&window.AL.ch)||'science')+' diagram animation');
   document.getElementById('diagram-youtube').innerHTML=
     '<div style="font-family:Cinzel,serif;color:#6B0F1A;margin-bottom:8px;font-size:0.9rem;">📹 Related Video</div>'+
-    '<iframe class="yt-embed" src="https://www.youtube-nocookie.com/embed?listType=search&list='+q+'&autoplay=0" allowfullscreen allow="accelerometer; encrypted-media; gyroscope"></iframe>'+
-    '<div style="font-size:0.78rem;color:var(--sub);text-align:center;margin-top:4px;">Search: '+decodeURIComponent(q)+'</div>';
+    '<a href="https://www.youtube.com/results?search_query='+q+'" target="_blank" class="yt-btn" style="text-decoration:none;">▶ Search YouTube: '+decodeURIComponent(q)+'</a>';
 }
 
 // ════════════════════════════════
