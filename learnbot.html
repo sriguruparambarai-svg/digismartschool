@@ -273,11 +273,36 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div><h1>TeachBot</h1><p>AI Smart Teacher — Understands, Teaches, Inspires</p></div>
   <div class="header-right"><span class="ai-badge">✨ AI Powered</span></div>
 </div>
-<div class="tabs">
+
+<!-- SUBJECT TABS (top level) -->
+<div style="background:var(--maroon-dark);border-bottom:3px solid var(--gold);overflow-x:auto;display:flex;scrollbar-width:none;">
+  <button class="tab-btn active" id="subj-maths-btn" onclick="showSubject('maths',this)" style="min-width:100px;">📐 Maths</button>
+  <button class="tab-btn" id="subj-science-btn" onclick="showSubject('science',this)" style="min-width:100px;">🔬 Science</button>
+  <button class="tab-btn" id="subj-social-btn" onclick="showSubject('social',this)" style="min-width:120px;">🗺️ Social Science</button>
+  <button class="tab-btn" id="subj-english-btn" onclick="showSubject('english',this)" style="min-width:100px;">📖 English</button>
+  <button class="tab-btn" id="subj-tamil-btn" onclick="showSubject('tamil',this)" style="min-width:100px;">அ Tamil</button>
+  <button class="tab-btn" id="subj-general-btn" onclick="showSubject('general',this)" style="min-width:100px;">📚 All</button>
+</div>
+
+<!-- ROLE TABS (second level — same for all subjects) -->
+<div class="tabs" id="role-tabs">
   <button class="tab-btn active" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
   <button class="tab-btn" onclick="showTab('student',this)">🎓 Student TeachBot</button>
   <button class="tab-btn" onclick="showTab('notes',this)">📋 Class Notes</button>
 </div>
+
+<!-- Subject context banner -->
+<div id="subject-banner" style="background:linear-gradient(135deg,rgba(201,168,76,0.15),rgba(201,168,76,0.05));border-bottom:1px solid rgba(201,168,76,0.2);padding:8px 22px;display:flex;align-items:center;gap:10px;">
+  <span id="subject-icon" style="font-size:1.3rem;">📐</span>
+  <div>
+    <div style="font-weight:800;color:var(--gold);font-size:0.9rem;" id="subject-label">Maths</div>
+    <div style="font-size:0.75rem;color:var(--sandal);opacity:0.8;" id="subject-hint">Formula + Steps + Blackboard + Practice</div>
+  </div>
+  <div id="subject-tools" style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;">
+    <!-- Tool quick-links per subject, filled by JS -->
+  </div>
+</div>
+
 <div class="main">
 
 <div id="tab-teacher" class="panel active">
@@ -330,12 +355,12 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     <label>Subject</label>
     <select id="s-subject"><option value="">Select</option><option>English</option><option>Tamil</option><option>Maths</option><option>Science</option><option>Social Science</option><option>EVS</option><option>Computer Science</option><option>Hindi</option></select>
     <label style="margin-top:16px;">Choose Mode</label>
-    <div class="mode-grid">
+    <div class="mode-grid" id="mode-grid-area">
       <div class="mode-card" onclick="selMode('teaching',this)"><div class="mode-icon">🎬</div><div class="mode-title">Teaching Mode</div><div class="mode-desc">Step-by-step AI class</div></div>
       <div class="mode-card" onclick="selMode('video',this)"><div class="mode-icon">📹</div><div class="mode-title">Video Mode</div><div class="mode-desc">Animated lesson video</div></div>
-      <div class="mode-card" onclick="selMode('maths',this)"><div class="mode-icon">📐</div><div class="mode-title">Maths Mode</div><div class="mode-desc">Formula + Steps + Practice</div></div>
-      <div class="mode-card" onclick="selMode('diagram',this)"><div class="mode-icon">🔬</div><div class="mode-title">Diagram Mode</div><div class="mode-desc">Visual Science diagrams</div></div>
-      <div class="mode-card" onclick="selMode('map',this)"><div class="mode-icon">🗺️</div><div class="mode-title">Map Mode</div><div class="mode-desc">Social Science maps</div></div>
+      <div class="mode-card" id="mode-maths-card" onclick="selMode('maths',this)"><div class="mode-icon">📐</div><div class="mode-title">Maths Mode</div><div class="mode-desc">Formula + Steps + Practice</div></div>
+      <div class="mode-card" id="mode-diagram-card" onclick="selMode('diagram',this)"><div class="mode-icon">🔬</div><div class="mode-title">Diagram Mode</div><div class="mode-desc">Visual Science diagrams</div></div>
+      <div class="mode-card" id="mode-map-card" onclick="selMode('map',this)"><div class="mode-icon">🗺️</div><div class="mode-title">Map Mode</div><div class="mode-desc">Social Science maps</div></div>
       <div class="mode-card" onclick="selMode('chat',this)"><div class="mode-icon">💬</div><div class="mode-title">Doubt Mode</div><div class="mode-desc">Ask anything anytime</div></div>
       <div class="mode-card" onclick="selMode('quiz',this)"><div class="mode-icon">🧪</div><div class="mode-title">Quiz Mode</div><div class="mode-desc">Test yourself</div></div>
       <div class="mode-card" onclick="selMode('exam',this)"><div class="mode-icon">🏆</div><div class="mode-title">Exam Prep</div><div class="mode-desc">Competitive exam questions</div></div>
@@ -811,7 +836,64 @@ let pts=[],curPt=0,paused=false,speaking=false,tvOn=true,cvOn=true;
 let chatHist=[],quizQs=[],qIdx=0,qSc=0,qOk=0,qWr=0;
 let mouthT=null,curUtt=null;
 
-function showTab(n,b){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelectorAll('.tab-btn').forEach(x=>x.classList.remove('active'));document.getElementById('tab-'+n).classList.add('active');if(b)b.classList.add('active');}
+function showTab(n,b){
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  // Only remove active from role tab buttons (not subject buttons)
+  document.querySelectorAll('#role-tabs .tab-btn').forEach(x=>x.classList.remove('active'));
+  document.getElementById('tab-'+n).classList.add('active');
+  if(b)b.classList.add('active');
+}
+
+// Subject info config
+var SUBJECTS = {
+  maths:   {icon:'📐', label:'Maths',         hint:'Formula + Steps + Blackboard + Doubt Solver', subject:'Maths',        modes:['teaching','video','maths','chat','quiz']},
+  science: {icon:'🔬', label:'Science',       hint:'Diagram Mode + Animated visuals + Teaching',  subject:'Science',      modes:['teaching','video','diagram','chat','quiz']},
+  social:  {icon:'🗺️', label:'Social Science', hint:'Map Mode + Timeline + Teaching',             subject:'Social Science',modes:['teaching','video','map','chat','quiz']},
+  english: {icon:'📖', label:'English',        hint:'LSRW + Reading + Speaking + Writing',        subject:'English',      modes:['teaching','video','english','chat','quiz']},
+  tamil:   {icon:'அ',  label:'Tamil',          hint:'Tamil medium teaching + Doubt solving',      subject:'Tamil',        modes:['teaching','chat','quiz']},
+  general: {icon:'📚', label:'All Subjects',   hint:'All modes available',                        subject:'',             modes:['teaching','video','maths','diagram','map','chat','quiz','english']}
+};
+
+var currentSubject = 'maths';
+
+function showSubject(subj, btn){
+  currentSubject = subj;
+  // Update subject tab buttons
+  document.querySelectorAll('[id^="subj-"]').forEach(b=>b.classList.remove('active'));
+  if(btn) btn.classList.add('active');
+
+  var cfg = SUBJECTS[subj] || SUBJECTS.general;
+
+  // Update banner
+  document.getElementById('subject-icon').textContent  = cfg.icon;
+  document.getElementById('subject-label').textContent = cfg.label;
+  document.getElementById('subject-hint').textContent  = cfg.hint;
+
+  // Auto-select subject in teacher and student dropdowns
+  if(cfg.subject){
+    var tSub = document.getElementById('t-subject');
+    var sSub = document.getElementById('s-subject');
+    if(tSub) tSub.value = cfg.subject;
+    if(sSub) sSub.value = cfg.subject;
+  }
+
+  // Show/hide mode cards based on subject
+  var allModes = ['maths','diagram','map','english'];
+  allModes.forEach(function(m){
+    var card = document.getElementById('mode-'+m+'-card');
+    if(!card) return;
+    if(cfg.modes.includes(m)) card.style.display='';
+    else card.style.display='none';
+  });
+
+  // Subject quick tools in banner
+  var tools = document.getElementById('subject-tools');
+  if(subj==='maths'){
+    tools.innerHTML = '<a href="doubtsolver.html" target="_blank" style="background:rgba(201,168,76,0.2);border:1px solid rgba(201,168,76,0.4);color:var(--gold);padding:5px 12px;border-radius:8px;font-size:0.75rem;font-weight:700;text-decoration:none;">💡 Doubt Solver ↗</a>';
+  } else {
+    tools.innerHTML = '';
+  }
+}
 function S(id){const e=document.getElementById(id);if(e)e.style.display='block';}
 function H(id){const e=document.getElementById(id);if(e)e.style.display='none';}
 
@@ -1010,49 +1092,45 @@ function loadVoices(){
 }
 
 function cleanMaths(t){
-  return t
-    // Remove markdown
-    .replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'')
-    // Fractions like 3/4 → 3 over 4
-    .replace(/(\d+)\/(\d+)/g,'$1 over $2')
-    // Square root with bracket √(x+y) → square root of x plus y
-    .replace(/√\(([^)]+)\)/g, function(_,e){ return 'square root of ' + e; })
-    // Square root of single number √16 → square root of 16
-    .replace(/√(\d+)/g,'square root of $1')
-    // Any remaining √
-    .replace(/√/g,'square root of ')
-    // Powers: x^2 → x squared, x^3 → x cubed, x^n → x to the power n
-    .replace(/(\w)\^2/g,'$1 squared')
-    .replace(/(\w)\^3/g,'$1 cubed')
-    .replace(/\^(\d+)/g,' to the power $1')
-    // Superscripts
-    .replace(/²/g,' squared').replace(/³/g,' cubed')
-    // Subscripts like a_n → a n
-    .replace(/_\{([^}]+)\}/g,' $1').replace(/_(\w)/g,' $1')
-    // Brackets in expressions — say "open bracket" / "close bracket"
-    // (just remove them so voice flows better)
-    .replace(/\(/g,' ').replace(/\)/g,' ')
-    // Greek letters
-    .replace(/π/g,' pi ').replace(/θ/g,' theta ').replace(/α/g,' alpha ')
-    .replace(/β/g,' beta ').replace(/Δ/g,' delta ')
-    // Symbols
-    .replace(/°/g,' degrees ')
-    .replace(/±/g,' plus or minus ')
-    .replace(/×/g,' multiplied by ').replace(/÷/g,' divided by ')
-    .replace(/≠/g,' is not equal to ')
-    .replace(/≤/g,' less than or equal to ').replace(/≥/g,' greater than or equal to ')
-    .replace(/</g,' less than ').replace(/>/g,' greater than ')
-    .replace(/=/g,' equals ')
-    // Minus sign — only when between terms (not in words)
-    .replace(/(\s|^)-(\s*)(\d|\w)/g,' $1minus $3')
-    .replace(/(\d)\s*-\s*(\d)/g,'$1 minus $2')
-    // Plus
-    .replace(/(\d)\s*\+\s*(\d)/g,'$1 plus $2')
-    // therefore symbol
-    .replace(/∴/g,' therefore ')
-    // Remove leftover symbols
-    .replace(/[{}[\]|\\]/g,' ')
-    .replace(/\s+/g,' ').trim();
+  var s = String(t||'');
+  s = s.replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'');
+  // number(-number) in brackets → "multiplied by negative"  e.g. 20(-4) → 20 multiplied by negative 4
+  s = s.replace(/(\d)\s*\(\s*-\s*(\d+\.?\d*)\s*\)/g, function(_,n,i){ return n+' multiplied by negative '+i; });
+  // (a)(b) → multiplied by
+  s = s.replace(/\(([^)]+)\)\s*\(([^)]+)\)/g, function(_,a,b){ return a+' multiplied by '+b; });
+  // number(expression) → multiplied by
+  s = s.replace(/(\d)\s*\(([^)]+)\)/g, function(_,n,i){ return n+' multiplied by '+i; });
+  // Square roots
+  s = s.replace(/√\(([^)]+)\)/g,'square root of $1');
+  s = s.replace(/√(\d+\.?\d*)/g,'square root of $1');
+  s = s.replace(/√/g,'square root of ');
+  // Powers
+  s = s.replace(/\^2/g,' squared').replace(/\^3/g,' cubed');
+  s = s.replace(/\^(\d+)/g,' to the power $1');
+  s = s.replace(/²/g,' squared').replace(/³/g,' cubed');
+  // Subscripts
+  s = s.replace(/\_\{([^}]+)\}/g,' $1').replace(/\_([a-zA-Z0-9])/g,' $1');
+  // Fractions — Indian style "by"  e.g. 27/2 → 27 by 2
+  s = s.replace(/(\d+)\s*\/\s*(\d+)/g,'$1 by $2');
+  // Greek
+  s = s.replace(/π/g,' pi ').replace(/θ/g,' theta ').replace(/α/g,' alpha ');
+  s = s.replace(/β/g,' beta ').replace(/Δ/g,' delta ').replace(/°/g,' degrees ');
+  // Operators
+  s = s.replace(/±/g,' plus or minus ').replace(/×/g,' multiplied by ').replace(/÷/g,' divided by ');
+  s = s.replace(/≠/g,' not equal to ').replace(/≤/g,' less than or equal to ').replace(/≥/g,' greater than or equal to ');
+  s = s.replace(/∴/g,' therefore ');
+  // Equals before minus
+  s = s.replace(/=/g,' equals ');
+  // Minus — negative number after operator/space
+  s = s.replace(/(^|[\s(,=+×÷])\s*[-−–]\s*(\d)/g, function(_,pre,d){ return pre+' negative '+d; });
+  s = s.replace(/([a-zA-Z0-9])\s*[-−–]\s*([a-zA-Z0-9])/g,'$1 minus $2');
+  s = s.replace(/\s*[-−–]\s*/g,' minus ');
+  // Plus
+  s = s.replace(/([a-zA-Z0-9])\s*\+\s*([a-zA-Z0-9])/g,'$1 plus $2');
+  // Cleanup
+  s = s.replace(/[{}\[\]|\\<>#@$%^&]/g,' ');
+  s = s.replace(/\s+/g,' ').trim();
+  return s;
 }
 
 function clean(t){
@@ -2588,6 +2666,8 @@ async function callAI(payload){
 }
 
 document.getElementById('n-date').valueAsDate=new Date();
+// Init subject tab on load
+showSubject('maths', document.getElementById('subj-maths-btn'));
 </script>
 </body>
 </html>
