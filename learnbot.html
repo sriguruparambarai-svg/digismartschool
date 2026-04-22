@@ -522,6 +522,17 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     <div class="card">
       <div class="card-title" id="maths-chapter-title">📐 Mathematics</div>
 
+      <!-- Shared Voice Bar for Maths -->
+      <div class="voice-bar" style="margin-bottom:14px;">
+        <div class="tog on" id="m-tog" onclick="tvOn=!tvOn;this.classList.toggle('on',tvOn);if(!tvOn)stopSpk();"></div>
+        <span class="v-label">🔊 Voice</span>
+        <div class="v-sel">
+          <select id="m-voice" style="min-width:160px;"></select>
+          <select id="m-spd"><option value="0.7">Slow</option><option value="0.85" selected>Normal</option><option value="1.1">Fast</option></select>
+        </div>
+        <button class="btn btn-sm btn-outline" onclick="stopSpk()" style="margin-left:6px;">⏹ Stop</button>
+      </div>
+
       <!-- Maths Sub-tabs -->
       <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:2px solid var(--sandal-dark);padding-bottom:10px;">
         <button id="mtab-steps" onclick="switchMathsTab('steps')" style="padding:8px 18px;border-radius:20px;border:2px solid var(--gold-dark);background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);font-weight:800;font-family:Nunito,sans-serif;cursor:pointer;font-size:0.9rem;">📚 Step Mode</button>
@@ -926,130 +937,110 @@ function backToSetup(){stopSpk();vStop();S('student-setup');H('lang-choice');H('
 
 function loadVoices(){
   function pop(){
-    const vs=speechSynthesis.getVoices();
-    const sel=document.getElementById('t-voice');
-    if(!sel)return; sel.innerHTML='';
+    const vs = speechSynthesis.getVoices();
+    // Populate both teaching-mode selector and maths-mode selector
+    ['t-voice','m-voice'].forEach(function(selId){
+      const sel = document.getElementById(selId);
+      if(!sel) return;
+      sel.innerHTML = '';
 
-    // Categorise voices
-    const ta   = vs.filter(v=>v.lang&&v.lang.startsWith('ta'));
-    const enIN = vs.filter(v=>v.lang&&(v.lang==='en-IN'));
-    const enGB = vs.filter(v=>v.lang&&v.lang==='en-GB');
-    const enUS = vs.filter(v=>v.lang&&v.lang==='en-US');
-    const hiIN = vs.filter(v=>v.lang&&v.lang==='hi-IN');
-    const used = [...ta,...enIN,...enGB,...enUS,...hiIN].map(v=>v.name);
-    const oth  = vs.filter(v=>!used.includes(v.name));
+      const ta   = vs.filter(v=>v.lang&&v.lang.startsWith('ta'));
+      const enIN = vs.filter(v=>v.lang&&v.lang==='en-IN');
+      const enGB = vs.filter(v=>v.lang&&v.lang==='en-GB');
+      const enUS = vs.filter(v=>v.lang&&v.lang==='en-US');
+      const hiIN = vs.filter(v=>v.lang&&v.lang==='hi-IN');
+      const used = [...ta,...enIN,...enGB,...enUS,...hiIN].map(v=>v.name);
+      const oth  = vs.filter(v=>!used.includes(v.name));
 
-    // Quality indicator — prefer female/natural sounding voices
-    function quality(v){
-      var n=v.name.toLowerCase();
-      if(n.includes('natural')||n.includes('neural')||n.includes('wavenet'))return '⭐⭐⭐ ';
-      if(n.includes('enhanced')||n.includes('premium'))return '⭐⭐ ';
-      return '';
-    }
+      function quality(v){
+        var n=v.name.toLowerCase();
+        if(n.includes('natural')||n.includes('neural')||n.includes('wavenet'))return '⭐⭐⭐ ';
+        if(n.includes('enhanced')||n.includes('premium'))return '⭐⭐ ';
+        return '';
+      }
+      function genderIcon(v){
+        var n=v.name.toLowerCase();
+        return (n.includes('female')||n.includes('lekha')||n.includes('veena')||n.includes('heera')||n.includes('zira')||n.includes('hazel')||n.includes('susan')||n.includes('karen'))? '👩 ':'👨 ';
+      }
 
-    if(ta.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🇮🇳 Tamil Voices — Best for Tamil Teaching';
-      ta.forEach((v,i)=>{
-        const o=document.createElement('option');
-        o.value=vs.indexOf(v);
-        o.textContent=quality(v)+(v.name.includes('Female')||v.name.toLowerCase().includes('female')||v.name.includes('Lekha')||v.name.includes('Veena')?'👩 ':'👨 ')+v.name;
-        if(teachLang==='tamil'&&i===0)o.selected=true;
-        g.appendChild(o);
-      });
-      sel.appendChild(g);
-    } else {
-      const g0=document.createElement('optgroup');
-      g0.label='⚠️ No Tamil Voice — Install Tamil Voice';
-      const n=document.createElement('option'); n.disabled=true;
-      n.textContent='Go to Settings → Time & Language → Speech → Add voices → Tamil';
-      g0.appendChild(n); sel.appendChild(g0);
-    }
+      function addGroup(label, voices, defaultLang){
+        if(!voices.length) return;
+        const g = document.createElement('optgroup');
+        g.label = label;
+        voices.forEach((v,i)=>{
+          const o = document.createElement('option');
+          o.value = vs.indexOf(v);
+          o.textContent = quality(v)+genderIcon(v)+v.name;
+          if(defaultLang && i===0) o.selected = true;
+          g.appendChild(o);
+        });
+        sel.appendChild(g);
+      }
 
-    if(enIN.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🇮🇳 Indian English — Good for English Teaching';
-      enIN.forEach(v=>{
-        const o=document.createElement('option');
-        o.value=vs.indexOf(v);
-        o.textContent=quality(v)+(v.name.toLowerCase().includes('female')||v.name.includes('Ravi')||v.name.includes('Heera')?'👩 ':'👨 ')+v.name;
-        if(teachLang==='english'&&enIN.indexOf(v)===0)o.selected=true;
-        g.appendChild(o);
-      });
-      sel.appendChild(g);
-    }
-
-    if(enGB.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🇬🇧 British English — Clear Pronunciation';
-      enGB.forEach(v=>{
-        const o=document.createElement('option');
-        o.value=vs.indexOf(v);
-        o.textContent=quality(v)+v.name;
-        g.appendChild(o);
-      });
-      sel.appendChild(g);
-    }
-
-    if(enUS.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🇺🇸 American English';
-      enUS.forEach(v=>{
-        const o=document.createElement('option');
-        o.value=vs.indexOf(v);
-        o.textContent=quality(v)+v.name;
-        g.appendChild(o);
-      });
-      sel.appendChild(g);
-    }
-
-    if(hiIN.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🇮🇳 Hindi Indian';
-      hiIN.forEach(v=>{
-        const o=document.createElement('option'); o.value=vs.indexOf(v); o.textContent=v.name; g.appendChild(o);
-      });
-      sel.appendChild(g);
-    }
-
-    if(oth.length>0){
-      const g=document.createElement('optgroup');
-      g.label='🌐 Other Available Voices';
-      oth.forEach(v=>{
-        const o=document.createElement('option'); o.value=vs.indexOf(v); o.textContent=v.name+' ('+v.lang+')'; g.appendChild(o);
-      });
-      sel.appendChild(g);
-    }
-
-    if(vs.length===0)sel.innerHTML='<option>No voices available on this device</option>';
+      if(ta.length>0) addGroup('🇮🇳 Tamil Voices — Best for Tamil', ta, teachLang==='tamil');
+      else {
+        const g0=document.createElement('optgroup');
+        g0.label='⚠️ No Tamil Voice — Go to Settings > Speech > Add Tamil';
+        const n=document.createElement('option'); n.disabled=true;
+        n.textContent='Install Tamil: Settings → Time & Language → Speech → Add voices';
+        g0.appendChild(n); sel.appendChild(g0);
+      }
+      addGroup('🇮🇳 Indian English — Good for Maths & English', enIN, teachLang==='english');
+      addGroup('🇬🇧 British English — Clear & Crisp', enGB, false);
+      addGroup('🇺🇸 American English', enUS, false);
+      addGroup('🇮🇳 Hindi', hiIN, false);
+      if(oth.length) addGroup('🌐 Other Voices', oth, false);
+      if(vs.length===0) sel.innerHTML='<option>No voices on this device</option>';
+    });
   }
-  if(speechSynthesis.getVoices().length>0)pop();
-  else speechSynthesis.onvoiceschanged=pop;
+  if(speechSynthesis.getVoices().length>0) pop();
+  else speechSynthesis.onvoiceschanged = pop;
 }
 
 function cleanMaths(t){
   return t
-    .replace(/√(\d+)/g,'square root of $1')
-    .replace(/√\(([^)]+)\)/g,'square root of $1')
-    .replace(/√/g,'square root of ')
-    .replace(/(\d+)\^2/g,'$1 squared')
-    .replace(/(\d+)\^3/g,'$1 cubed')
-    .replace(/\^(\d+)/g,' to the power $1')
+    // Remove markdown
+    .replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'')
+    // Fractions like 3/4 → 3 over 4
     .replace(/(\d+)\/(\d+)/g,'$1 over $2')
-    .replace(/π/g,'pi')
-    .replace(/°/g,' degrees')
+    // Square root with bracket √(x+y) → square root of x plus y
+    .replace(/√\(([^)]+)\)/g, function(_,e){ return 'square root of ' + e; })
+    // Square root of single number √16 → square root of 16
+    .replace(/√(\d+)/g,'square root of $1')
+    // Any remaining √
+    .replace(/√/g,'square root of ')
+    // Powers: x^2 → x squared, x^3 → x cubed, x^n → x to the power n
+    .replace(/(\w)\^2/g,'$1 squared')
+    .replace(/(\w)\^3/g,'$1 cubed')
+    .replace(/\^(\d+)/g,' to the power $1')
+    // Superscripts
+    .replace(/²/g,' squared').replace(/³/g,' cubed')
+    // Subscripts like a_n → a n
+    .replace(/_\{([^}]+)\}/g,' $1').replace(/_(\w)/g,' $1')
+    // Brackets in expressions — say "open bracket" / "close bracket"
+    // (just remove them so voice flows better)
+    .replace(/\(/g,' ').replace(/\)/g,' ')
+    // Greek letters
+    .replace(/π/g,' pi ').replace(/θ/g,' theta ').replace(/α/g,' alpha ')
+    .replace(/β/g,' beta ').replace(/Δ/g,' delta ')
+    // Symbols
+    .replace(/°/g,' degrees ')
     .replace(/±/g,' plus or minus ')
-    .replace(/×/g,' multiplied by ')
-    .replace(/÷/g,' divided by ')
+    .replace(/×/g,' multiplied by ').replace(/÷/g,' divided by ')
+    .replace(/≠/g,' is not equal to ')
+    .replace(/≤/g,' less than or equal to ').replace(/≥/g,' greater than or equal to ')
+    .replace(/</g,' less than ').replace(/>/g,' greater than ')
     .replace(/=/g,' equals ')
-    .replace(/≠/g,' not equal to ')
-    .replace(/≤/g,' less than or equal to ')
-    .replace(/≥/g,' greater than or equal to ')
-    .replace(/²/g,' squared')
-    .replace(/³/g,' cubed')
-    .replace(/\s*-\s*(?=[a-zA-Z0-9(√])/g,' minus ')
-    .replace(/\s*\+\s*/g,' plus ')
-    .replace(/_([a-zA-Z0-9]+)/g,' sub $1');
+    // Minus sign — only when between terms (not in words)
+    .replace(/(\s|^)-(\s*)(\d|\w)/g,' $1minus $3')
+    .replace(/(\d)\s*-\s*(\d)/g,'$1 minus $2')
+    // Plus
+    .replace(/(\d)\s*\+\s*(\d)/g,'$1 plus $2')
+    // therefore symbol
+    .replace(/∴/g,' therefore ')
+    // Remove leftover symbols
+    .replace(/[{}[\]|\\]/g,' ')
+    .replace(/\s+/g,' ').trim();
 }
 
 function clean(t){
@@ -1063,24 +1054,30 @@ function clean(t){
     .replace(/\s+/g,' ').trim();
 }
 
-function spk(txt,done){
-  stopSpk();if(!tvOn){done&&done();return;}
-  var hasTamil=/[஀-௿]/.test(txt);
-  // Apply maths cleaning if in maths mode, else regular clean
-  var isMaths=(selectedMode==='maths'||document.getElementById('maths-mode').style.display!=='none');
-  var speakText = isMaths ? cleanMaths(clean(txt)) : clean(txt);
-  const utt=new SpeechSynthesisUtterance(speakText);
-  const sel=document.getElementById('t-voice');
-  const vs=speechSynthesis.getVoices();
-  if(sel&&vs[parseInt(sel.value)])utt.voice=vs[parseInt(sel.value)];
-  const spd=document.getElementById('t-spd');
-  utt.rate=spd?parseFloat(spd.value):0.9;
-  if(teachLang==='tamil')utt.lang='ta-IN';
-  else if(teachLang==='english')utt.lang='en-IN';
-  utt.onstart=()=>{speaking=true;setSpkUI(true);};
-  utt.onend=()=>{speaking=false;setSpkUI(false);done&&done();};
-  utt.onerror=()=>{speaking=false;setSpkUI(false);done&&done();};
-  curUtt=utt;speechSynthesis.speak(utt);
+function spk(txt, done){
+  stopSpk(); if(!tvOn){done&&done(); return;}
+
+  // Pick voice selector — use maths selector if maths mode visible
+  var mathsVisible = document.getElementById('maths-mode').style.display !== 'none';
+  var voiceSelId = mathsVisible ? 'm-voice' : 't-voice';
+  var spdSelId   = mathsVisible ? 'm-spd'   : 't-spd';
+
+  // Convert maths symbols to speakable words
+  var speakText = mathsVisible ? cleanMaths(clean(txt)) : clean(txt);
+
+  const utt = new SpeechSynthesisUtterance(speakText);
+  const sel = document.getElementById(voiceSelId);
+  const vs  = speechSynthesis.getVoices();
+  if(sel && vs[parseInt(sel.value)]) utt.voice = vs[parseInt(sel.value)];
+  const spd = document.getElementById(spdSelId);
+  utt.rate = spd ? parseFloat(spd.value) : 0.85;
+  if(teachLang==='tamil') utt.lang='ta-IN';
+  else utt.lang='en-IN';
+  utt.onstart = ()=>{ speaking=true; setSpkUI(true); };
+  utt.onend   = ()=>{ speaking=false; setSpkUI(false); done&&done(); };
+  utt.onerror = ()=>{ speaking=false; setSpkUI(false); done&&done(); };
+  curUtt = utt;
+  speechSynthesis.speak(utt);
 }
 
 function spkChat(txt,done){
@@ -1437,6 +1434,7 @@ function vNext(){speechSynthesis.cancel();vPlaying=false;var pb=document.getElem
 var mathsSteps=[], mathsIdx=0, mathsPractice=[];
 
 async function genMathsLesson(){
+  loadVoices(); // populate voice selector for maths mode
   var info=window.AL||{};
   var ch=info.ch||''; var sub=info.sub||''; var cls=document.getElementById('s-class').value;
   document.getElementById('maths-chapter-title').textContent='📐 '+ch;
@@ -1512,14 +1510,27 @@ function showMathsStep(idx){
     spk(step.data.content);
   }
   else if(step.type==='example'){
-    var solHtml=step.data.solution_steps.map(function(s,i){return '<div class="step-box"><div class="step-num">Solution Step '+(i+1)+'</div><div class="step-content">'+s+'</div></div>';}).join('');
+    var solHtml=step.data.solution_steps.map(function(s,i){
+      return '<div class="step-box"><div class="step-num">Solution Step '+(i+1)+'</div><div class="step-content">'+s+'</div></div>';
+    }).join('');
     html='<div style="background:linear-gradient(135deg,#F5E6C8,white);border-radius:14px;padding:16px;border:2px solid #C9A84C;margin-bottom:10px;">'+
       '<div style="font-family:Cinzel,serif;color:#6B0F1A;margin-bottom:10px;">📝 Worked Example</div>'+
       '<div style="font-size:1.05rem;font-weight:700;margin-bottom:12px;">'+step.data.problem+'</div>'+
       solHtml+
       '<div style="background:#d4edda;border-radius:8px;padding:10px;font-weight:800;color:#155724;margin-top:8px;">✅ Answer: '+step.data.answer+'</div>'+
     '</div>';
-    spk((teachLang==='tamil'?'உதாரணம்: ':'Example: ')+step.data.problem+'. '+step.data.solution_steps.join('. ')+'. Answer: '+step.data.answer);
+    // Speak: problem first, then each solution step with a short gap
+    var allToSpeak = [(teachLang==='tamil'?'உதாரணம்: ':'Example problem. ')+step.data.problem];
+    step.data.solution_steps.forEach(function(s,i){
+      allToSpeak.push('Step '+(i+1)+'. '+s);
+    });
+    allToSpeak.push((teachLang==='tamil'?'விடை: ':'Answer. ')+step.data.answer);
+    // Speak them in sequence
+    function speakSeq(arr, idx){
+      if(idx>=arr.length) return;
+      spk(arr[idx], function(){ setTimeout(function(){ speakSeq(arr,idx+1); }, 400); });
+    }
+    speakSeq(allToSpeak, 0);
   }
   else if(step.type==='reallife'){
     html='<div style="background:linear-gradient(135deg,#1a0a0f,#2d0f1a);border-radius:14px;padding:18px;color:#F5E6C8;border:2px solid #C9A84C;">'+
@@ -1667,10 +1678,10 @@ function bbWriteNextLine(){
   if(line.speak && tvOn){
     document.getElementById('bb-voice-status').textContent='🗣️ '+line.speak.substring(0,60)+(line.speak.length>60?'...':'');
     var utt=new SpeechSynthesisUtterance(cleanMaths(clean(line.speak)));
-    var sel=document.getElementById('t-voice');
+    var sel=document.getElementById('m-voice');
     var vs_=speechSynthesis.getVoices();
     if(sel&&vs_[parseInt(sel.value)])utt.voice=vs_[parseInt(sel.value)];
-    utt.rate=parseFloat((document.getElementById('t-spd')||{value:'0.85'}).value)||0.85;
+    utt.rate=parseFloat((document.getElementById('m-spd')||{value:'0.85'}).value)||0.85;
     if(teachLang==='tamil')utt.lang='ta-IN'; else utt.lang='en-IN';
     utt.onend=function(){ document.getElementById('bb-voice-status').textContent=''; };
     speechSynthesis.speak(utt);
