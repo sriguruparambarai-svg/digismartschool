@@ -233,12 +233,19 @@ body{font-family:'Lexend',sans-serif;background:linear-gradient(160deg,var(--ink
         <div class="av">👩‍🏫</div>
         <div class="bubble">
           <div class="sol-greet">வணக்கம்! Hello, dear student! 🙏</div>
-          <div style="font-size:0.84rem;color:rgba(255,255,255,0.75);line-height:1.85;">
+          <div style="font-size:0.84rem;color:rgba(255,255,255,0.75);line-height:1.9;">
             I am <strong style="color:var(--gold3);">Malar Mam</strong> — your AI doubt solver.<br/>
-            I explain every step clearly, like a real teacher! 📝<br/><br/>
-            👈 Choose <strong>Subject + Method + Language</strong> on the left<br/>
-            📝 <strong>Type</strong> any question below<br/>
-            📷 <strong>Upload a photo</strong> of your sum or textbook
+            I explain every step clearly, like a real teacher! 📝
+          </div>
+          <div style="margin-top:12px;display:flex;flex-direction:column;gap:7px;">
+            <div style="background:rgba(0,168,150,0.12);border:1px solid rgba(0,168,150,0.25);border-radius:10px;padding:10px 13px;">
+              <div style="font-size:0.75rem;font-weight:800;color:var(--teal2);margin-bottom:3px;">📷 PHOTO DOUBT SOLVING — NEW!</div>
+              <div style="font-size:0.78rem;color:rgba(255,255,255,0.7);line-height:1.6;">Click the 📷 camera button below → take a photo or upload an image of your question from textbook or notebook → I will <strong style="color:var(--white);">read it, extract the question, and solve every step</strong>!</div>
+            </div>
+            <div style="background:rgba(201,168,76,0.08);border:1px solid rgba(201,168,76,0.15);border-radius:10px;padding:10px 13px;">
+              <div style="font-size:0.75rem;font-weight:800;color:var(--gold);margin-bottom:3px;">📝 TYPE YOUR DOUBT</div>
+              <div style="font-size:0.78rem;color:rgba(255,255,255,0.7);line-height:1.6;">Type any question below. Choose <strong style="color:var(--white);">Subject + Method + Language</strong> on the left for best results.</div>
+            </div>
           </div>
         </div>
       </div>
@@ -248,12 +255,16 @@ body{font-family:'Lexend',sans-serif;background:linear-gradient(160deg,var(--ink
       <div class="chips-bar" id="chip-bar"></div>
       <div class="photo-strip" id="photo-strip">
         <img id="photo-thumb" src="" alt=""/>
-        <div style="flex:1;"><div style="font-size:0.76rem;font-weight:700;color:var(--teal2);">📸 Photo ready</div><div style="font-size:0.68rem;color:rgba(255,255,255,0.4);">Type a question or just Send ➤</div></div>
+        <div style="flex:1;">
+          <div style="font-size:0.76rem;font-weight:700;color:var(--teal2);">📸 Photo ready — AI will read &amp; solve it</div>
+          <div style="font-size:0.68rem;color:rgba(255,255,255,0.4);margin-top:2px;">Add a hint below (optional) then press ➤</div>
+        </div>
+        <button onclick="sendQ()" style="background:linear-gradient(135deg,var(--gold),var(--gold2));color:var(--maroon2);border:none;border-radius:8px;padding:6px 12px;font-family:Lexend,sans-serif;font-size:0.75rem;font-weight:700;cursor:pointer;margin-right:6px;">➤ Solve</button>
         <button class="rm" onclick="removePhoto()">✕</button>
       </div>
       <div class="inp-row">
         <textarea class="q-ta" id="q-in" rows="1"
-          placeholder="Type your doubt or question... (Enter to send)"
+          placeholder="Type your doubt... OR click 📷 to upload a photo of your question"
           onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQ();}"></textarea>
         <button class="cam-btn" onclick="document.getElementById('photo-in').click()" title="Upload photo">📷</button>
         <button class="send-btn" onclick="sendQ()">➤</button>
@@ -355,26 +366,154 @@ function handlePhoto(input){
   var file=input.files[0];if(!file)return;
   var reader=new FileReader();
   reader.onload=function(e){
-    photoData={data:e.target.result.split(',')[1],type:file.type};
+    photoData={data:e.target.result.split(',')[1],type:file.type,src:e.target.result};
     document.getElementById('photo-thumb').src=e.target.result;
     document.getElementById('photo-strip').style.display='flex';
+    // Show photo preview in chat immediately
+    showPhotoInChat(e.target.result);
   };
   reader.readAsDataURL(file);
 }
-function removePhoto(){photoData=null;document.getElementById('photo-strip').style.display='none';document.getElementById('photo-in').value='';}
+
+function showPhotoInChat(src){
+  var box=document.getElementById('chat-box');
+  var d=document.createElement('div');
+  d.className='msg student';
+  d.innerHTML='<div class="av">🎓</div>'+
+    '<div class="bubble" style="padding:8px;">'+
+      '<img src="'+src+'" style="max-width:100%;max-height:220px;border-radius:10px;display:block;border:2px solid rgba(201,168,76,0.3);"/>'+
+      '<div style="font-size:0.72rem;color:rgba(245,230,200,0.6);margin-top:5px;">📷 Photo uploaded — click Send ➤ to solve</div>'+
+    '</div>';
+  box.appendChild(d);box.scrollTop=box.scrollHeight;
+}
+
+function removePhoto(){
+  photoData=null;
+  document.getElementById('photo-strip').style.display='none';
+  document.getElementById('photo-in').value='';
+}
 
 // ── SEND ──
 function useChip(el){document.getElementById('q-in').value=el.textContent;sendQ();}
+
 function sendQ(){
   var inp=document.getElementById('q-in');
   var q=inp.value.trim();
   if(!q&&!photoData)return;
   inp.value='';inp.style.height='auto';
-  addMsg('student',q||(photoData?'📷 Photo question':''));
-  chatHist.push({role:'user',content:q||'Please solve this problem from the photo step by step.'});
+
+  // If photo present, use two-step flow: read → solve
+  if(photoData){
+    var hint=q||'';
+    var capturedPhoto=photoData;
+    photoData=null;
+    document.getElementById('photo-strip').style.display='none';
+    document.getElementById('photo-in').value='';
+    if(q) addMsg('student',q);
+    var thinkEl=showThinking('📷 Reading your photo...');
+    readPhotoThenSolve(capturedPhoto, hint, thinkEl);
+    return;
+  }
+
+  // Text question
+  addMsg('student',q);
+  chatHist.push({role:'user',content:q});
   if(q){histItems.unshift({q:q.substring(0,44)+(q.length>44?'…':''),subj:subject});renderHist();}
-  var thinkEl=showThinking();
+  var thinkEl=showThinking('Malar Mam is thinking...');
   callAI(q,thinkEl);
+}
+
+// ── TWO-STEP PHOTO FLOW ──
+async function readPhotoThenSolve(photo, hint, thinkEl){
+  // STEP 1: Read the photo — extract the question
+  var readSys=`You are an expert at reading student question photos from Indian schools.
+The photo may contain: handwritten maths, printed textbook questions, Tamil or English text, diagrams.
+
+Your job: Read the photo CAREFULLY and extract the exact question.
+
+Return ONLY valid JSON:
+{
+  "subject_detected": "Maths / Science / English / Tamil / Social Science",
+  "question_text": "The EXACT question as written — preserve all numbers, symbols, equations exactly",
+  "question_type": "e.g. Solve equation / Find area / Grammar / Fill blank / Diagram question",
+  "class_estimate": "e.g. Class 7 or Class 9",
+  "image_quality": "clear / moderate / unclear",
+  "extra_note": "Any extra context visible in the photo (e.g. chapter name, Q.No, diagram present)"
+}
+
+If image is unclear, still try your best and note it in image_quality.`;
+
+  try{
+    var readPayload={
+      model:'claude-sonnet-4-5',max_tokens:600,system:readSys,
+      messages:[{role:'user',content:[
+        {type:'image',source:{type:'base64',media_type:photo.type,data:photo.data}},
+        {type:'text',text:'Read this question photo carefully. '+(hint?'Student note: '+hint:'')}
+      ]}]
+    };
+    var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:readPayload})});
+    var data=await res.json();
+    var raw=data.content[0].text;
+
+    var readResult=null;
+    try{readResult=JSON.parse(raw.replace(/```json|```/g,'').trim());}
+    catch(e){var s=raw.indexOf('{'),e2=raw.lastIndexOf('}');if(s>=0&&e2>s)try{readResult=JSON.parse(raw.substring(s,e2+1));}catch(e3){}}
+
+    if(thinkEl&&thinkEl.parentNode)thinkEl.remove();
+
+    if(!readResult){
+      // Fallback: treat raw text as question
+      var fallbackQ=raw.substring(0,300);
+      addMsg('ai','',readConfirmHTML('Could not fully read photo','',fallbackQ,'moderate'));
+      chatHist.push({role:'user',content:fallbackQ});
+      var th2=showThinking('Solving...');
+      callAI(fallbackQ,th2,photo);
+      return;
+    }
+
+    // Auto-update subject if detected
+    if(readResult.subject_detected&&readResult.subject_detected!==subject){
+      subject=readResult.subject_detected;
+      document.querySelectorAll('.subj-btn').forEach(b=>b.classList.remove('on'));
+      var subMap={'Maths':'📐 Maths','Science':'🔬 Science','Social Science':'🗺️ Social','English':'📖 English','Tamil':'அ Tamil'};
+      document.querySelectorAll('.subj-btn').forEach(b=>{
+        if(b.textContent.trim()===subMap[subject])b.classList.add('on');
+      });
+      updateChips();
+    }
+
+    // Show the extracted question for student to see
+    var qText=readResult.question_text||'(Could not read clearly)';
+    addMsg('ai','',readConfirmHTML(readResult.question_type||'Question detected',readResult.extra_note||'',qText,readResult.image_quality||'clear'));
+
+    // Add to history
+    var fullQ=(hint?hint+'\n':'')+qText;
+    chatHist.push({role:'user',content:fullQ});
+    histItems.unshift({q:qText.substring(0,44)+(qText.length>44?'…':''),subj:subject});
+    renderHist();
+
+    // STEP 2: Now solve it
+    var th2=showThinking('Solving step by step...');
+    callAI(fullQ,th2,null);
+
+  }catch(err){
+    if(thinkEl&&thinkEl.parentNode)thinkEl.remove();
+    addMsg('ai','❌ Could not read photo: '+err.message+'. Please try again with a clearer image.');
+  }
+}
+
+function readConfirmHTML(qType, extra, qText, quality){
+  var qualColor=quality==='clear'?'var(--green)':quality==='unclear'?'var(--rose)':'var(--gold)';
+  var qualIcon=quality==='clear'?'✅':quality==='unclear'?'⚠️':'🔍';
+  return '<div style="font-size:0.7rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">📷 Photo Read Complete</div>'+
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">'+
+      (qType?'<span style="background:rgba(201,168,76,0.15);color:var(--gold);font-size:0.68rem;font-weight:700;padding:3px 9px;border-radius:6px;">'+escH(qType)+'</span>':'')+
+      '<span style="background:rgba(255,255,255,0.06);color:'+qualColor+';font-size:0.68rem;font-weight:700;padding:3px 9px;border-radius:6px;">'+qualIcon+' Image: '+escH(quality)+'</span>'+
+      (extra?'<span style="background:rgba(255,255,255,0.06);color:var(--dim);font-size:0.68rem;padding:3px 9px;border-radius:6px;">'+escH(extra)+'</span>':'')+
+    '</div>'+
+    '<div style="font-size:0.72rem;color:var(--dim);margin-bottom:5px;font-weight:700;">📝 Question I read from your photo:</div>'+
+    '<div style="font-family:\'JetBrains Mono\',monospace;font-size:0.92rem;color:var(--white);background:rgba(0,0,0,0.35);padding:10px 14px;border-radius:9px;border-left:3px solid var(--gold);line-height:1.7;white-space:pre-wrap;">'+escH(qText)+'</div>'+
+    '<div style="font-size:0.72rem;color:rgba(255,255,255,0.35);margin-top:6px;">Solving now... ⏳</div>';
 }
 
 function addMsg(role,txt,html){
@@ -386,14 +525,15 @@ function addMsg(role,txt,html){
   else d.innerHTML='<div class="av">'+av+'</div><div class="bubble">'+escH(txt).replace(/\n/g,'<br/>')+'</div>';
   box.appendChild(d);box.scrollTop=box.scrollHeight;
 }
-function showThinking(){
+
+function showThinking(msg){
   var box=document.getElementById('chat-box');
   var d=document.createElement('div');d.className='msg ai';
-  d.innerHTML='<div class="av">👩‍🏫</div><div class="think-bbl"><div class="dots"><span></span><span></span><span></span></div>Malar Mam is thinking...</div>';
+  d.innerHTML='<div class="av">👩‍🏫</div><div class="think-bbl"><div class="dots"><span></span><span></span><span></span></div>'+(msg||'Malar Mam is thinking...')+'</div>';
   box.appendChild(d);box.scrollTop=box.scrollHeight;return d;
 }
 
-// ── AI ──
+// ── AI SOLVE ──
 async function callAI(question,thinkEl){
   var langI=lang==='tamil'?'Respond ONLY in Tamil language. Every step, explanation and answer must be in Tamil script.':
             lang==='both' ?'Explain each step in English. Immediately below each step, add தமிழ்: followed by the Tamil translation of that step\'s explanation.':
@@ -402,6 +542,7 @@ async function callAI(question,thinkEl){
             method==='shortcut'?'Show the fastest shortcut method. Then explain why the shortcut works.':
             method==='visual'  ?'First describe a diagram the student can draw. Then solve step by step referring to the diagram.':
                                 'Solve using THREE separate methods: Method 1 (Standard step-by-step), Method 2 (Shortcut), Method 3 (Visual). Each fully worked out.';
+
   var sys=`You are Malar Mam, a passionate school teacher in Tamil Nadu.
 Subject: ${subject} | Level: ${difficulty}
 ${langI}
@@ -412,6 +553,7 @@ CRITICAL RULES:
 - Use simple language a confused student can understand
 - Use Tamil Nadu real-life examples (auto-rickshaw, paddy field, cricket, Cauvery river etc.)
 - Be warm, encouraging, and patient like a real teacher
+- If the question was read from a photo, acknowledge it naturally
 
 Return STRICTLY ONLY valid JSON (no text outside JSON):
 {
@@ -435,14 +577,7 @@ Return STRICTLY ONLY valid JSON (no text outside JSON):
   try{
     var msgs=[...chatHist];
     var payload={model:'claude-sonnet-4-5',max_tokens:2000,system:sys,messages:msgs};
-    if(photoData){
-      var last=msgs[msgs.length-1];
-      payload.messages=[...msgs.slice(0,-1),{role:'user',content:[
-        {type:'image',source:{type:'base64',media_type:photoData.type,data:photoData.data}},
-        {type:'text',text:last.content}
-      ]}];
-      removePhoto();
-    }
+
     var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload})});
     var data=await res.json();
     var raw=data.content[0].text;
