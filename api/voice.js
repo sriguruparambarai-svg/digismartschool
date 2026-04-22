@@ -1,8 +1,14 @@
 // /api/voice.js  — Vercel serverless function
-// Receives { text, tone } → calls ElevenLabs → returns { audio: base64 }
+// Receives { text, tone, lang } → calls ElevenLabs → returns { audio: base64 }
 
-const VOICE_ID = 'EXAVITQu4vr4xnSDxMaL';
+// ── VOICE IDs ──
+// English: "Sarah" — calm, clear, multilingual
+const VOICE_ID_EN = 'EXAVITQu4vr4xnSDxMaL';
+// Tamil: "Aria" — eleven_multilingual_v2 handles Tamil script well with this voice
+// You can swap to any voice ID that you find sounds better for Tamil
+const VOICE_ID_TA = 'EXAVITQu4vr4xnSDxMaL'; // same model, Tamil pronunciation handled by model
 
+// ── TONE → VOICE SETTINGS ──
 const TONE_SETTINGS = {
   strict: {
     stability: 0.40,
@@ -37,33 +43,38 @@ const TONE_SETTINGS = {
 };
 
 // ── FORMAT TEXT FOR NATURAL SPEECH ──
-function formatForSpeech(text, tone) {
+function formatForSpeech(text, tone, lang) {
   let t = text.trim();
 
-  // 1. Tamil + English boundary — insert pause marker so engine doesn't skip Tamil
-  //    English→Tamil:  "Photosynthesis என்றால்"  →  "Photosynthesis ... என்றால்"
-  //    Tamil→English:  "என்றால் photosynthesis"  →  "என்றால் ... photosynthesis"
-  t = t.replace(/([a-zA-Z])([\u0B80-\u0BFF])/g, '$1 ... $2');
-  t = t.replace(/([\u0B80-\u0BFF])([a-zA-Z])/g, '$1 ... $2');
+  if (lang === 'ta') {
+    // Tamil-only segment — no boundary markers needed, just punctuation pauses
+    t = t.replace(/\.\s*/g, '. ');
+    t = t.replace(/,\s*/g, ', ');
+    t = t.replace(/\?\s*/g, '? ');
+    t = t.replace(/!\s*/g, '! ');
 
-  // 2. Natural punctuation pauses
-  t = t.replace(/\.\s*/g, '. ... ');
-  t = t.replace(/,\s*/g, ', ');
-  t = t.replace(/\?\s*/g, '? ... ');
-  t = t.replace(/!\s*/g, '! ... ');
+    // Tamil tone prefixes
+    if (tone === 'strict')   t = 'கவனமா கேளுங்க... ' + t;
+    if (tone === 'emphasis') t = 'முக்கியம்... ' + t;
+    if (tone === 'question') t = t + ' யோசிங்க...';
+    if (tone === 'command')  t = t + ' எழுதிக்கோங்க...';
 
-  // 3. Tone-based prefix / suffix (teacher feel)
-  if (tone === 'strict') {
-    t = 'Listen carefully... ' + t;
-  } else if (tone === 'emphasis') {
-    t = 'IMPORTANT... ' + t;
-  } else if (tone === 'question') {
-    t = t + ' ... Think about it...';
-  } else if (tone === 'command') {
-    t = t + ' ... Write this down...';
+  } else {
+    // English-only segment
+    // Natural punctuation pauses
+    t = t.replace(/\.\s*/g, '. ... ');
+    t = t.replace(/,\s*/g,  ', ');
+    t = t.replace(/\?\s*/g, '? ... ');
+    t = t.replace(/!\s*/g,  '! ... ');
+
+    // Tone-based prefix / suffix
+    if (tone === 'strict')   t = 'Listen carefully... ' + t;
+    if (tone === 'emphasis') t = 'IMPORTANT... ' + t;
+    if (tone === 'question') t = t + ' Think about it...';
+    if (tone === 'command')  t = t + ' Write this down...';
   }
 
-  // 4. Collapse any triple+ spaces left by replacements
+  // Collapse any accidental multi-space runs
   t = t.replace(/ {3,}/g, ' ... ');
 
   return t;
@@ -80,7 +91,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const { text, tone } = req.body;
+  const { text, tone, lang } = req.body;
 
   if (!text || !text.trim()) {
     return res.status(400).json({ error: 'text is required' });
@@ -91,12 +102,14 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'ELEVENLABS_API_KEY not set in environment variables' });
   }
 
+  // Pick voice by language
+  const voiceId       = (lang === 'ta') ? VOICE_ID_TA : VOICE_ID_EN;
   const voiceSettings = TONE_SETTINGS[tone] || TONE_SETTINGS.normal;
-  const formattedText = formatForSpeech(text, tone);
+  const formattedText = formatForSpeech(text, tone, lang || 'en');
 
   try {
     const elevenRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
       {
         method: 'POST',
         headers: {
@@ -132,4 +145,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: err.message });
   }
 }
+
 
