@@ -1068,15 +1068,16 @@ function clean(t){
 
 function spk(txt, done){
   stopSpk(); if(!tvOn){done&&done(); return;}
+  _spkOne(txt, done);
+}
 
-  // Pick voice selector — use maths selector if maths mode visible
+// Internal speaker — does NOT cancel first, used for sequences
+function _spkOne(txt, done){
+  if(!tvOn){done&&done(); return;}
   var mathsVisible = document.getElementById('maths-mode').style.display !== 'none';
   var voiceSelId = mathsVisible ? 'm-voice' : 't-voice';
   var spdSelId   = mathsVisible ? 'm-spd'   : 't-spd';
-
-  // Convert maths symbols to speakable words
-  var speakText = mathsVisible ? cleanMaths(clean(txt)) : clean(txt);
-
+  var speakText  = mathsVisible ? cleanMaths(clean(txt)) : clean(txt);
   const utt = new SpeechSynthesisUtterance(speakText);
   const sel = document.getElementById(voiceSelId);
   const vs  = speechSynthesis.getVoices();
@@ -1087,9 +1088,18 @@ function spk(txt, done){
   else utt.lang='en-IN';
   utt.onstart = ()=>{ speaking=true; setSpkUI(true); };
   utt.onend   = ()=>{ speaking=false; setSpkUI(false); done&&done(); };
-  utt.onerror = ()=>{ speaking=false; setSpkUI(false); done&&done(); };
+  utt.onerror = (e)=>{ speaking=false; setSpkUI(false); done&&done(); };
   curUtt = utt;
   speechSynthesis.speak(utt);
+}
+
+// Speak a sequence of sentences one after another without cancelling between them
+function spkSequence(arr, idx){
+  if(!tvOn) return;
+  if(idx >= arr.length) return;
+  _spkOne(arr[idx], function(){
+    setTimeout(function(){ spkSequence(arr, idx+1); }, 350);
+  });
 }
 
 function spkChat(txt,done){
@@ -1237,11 +1247,11 @@ function startTeach(){
 }
 
 function spkContinue(i){
-  if(i>=pts.length||paused)return;
+  if(i>=pts.length||paused) return;
   showPt(i);
-  spk(pts[i],()=>{
-    if(!paused&&i+1<pts.length)setTimeout(()=>spkContinue(i+1),700);
-    else if(i+1>=pts.length){const s=document.getElementById('t-status');if(s)s.textContent='✅ Class complete! Well done!';}
+  _spkOne(pts[i], function(){
+    if(!paused && i+1<pts.length) setTimeout(()=>spkContinue(i+1), 700);
+    else if(i+1>=pts.length){ const s=document.getElementById('t-status'); if(s) s.textContent='✅ Class complete! Well done!'; }
   });
 }
 
@@ -1510,7 +1520,8 @@ function showMathsStep(idx){
       '<div class="formula-sub">'+step.data.formula_explained+'</div>'+
     '</div>'+
     '<div style="font-size:0.85rem;color:var(--sub);text-align:center;margin-bottom:10px;">Step '+(idx+1)+' of '+mathsSteps.length+' — Click Next Step to continue</div>';
-    spk((teachLang==='tamil'?'சூத்திரம்: ':'Formula: ')+step.data.formula+'. '+step.data.formula_explained);
+    stopSpk();
+    spkSequence([(teachLang==='tamil'?'சூத்திரம்: ':'Formula. ')+step.data.formula, step.data.formula_explained], 0);
   }
   else if(step.type==='step'){
     html='<div class="step-box">'+
@@ -1519,7 +1530,10 @@ function showMathsStep(idx){
       (step.data.working?'<div class="step-workings">'+step.data.working+'</div>':'')+
     '</div>'+
     '<div style="font-size:0.85rem;color:var(--sub);text-align:center;">Step '+(idx+1)+' of '+mathsSteps.length+'</div>';
-    spk(step.data.content);
+    stopSpk();
+    var toSay = [step.data.content];
+    if(step.data.working) toSay.push('Working: '+step.data.working);
+    spkSequence(toSay, 0);
   }
   else if(step.type==='example'){
     var solHtml=step.data.solution_steps.map(function(s,i){
@@ -1531,18 +1545,14 @@ function showMathsStep(idx){
       solHtml+
       '<div style="background:#d4edda;border-radius:8px;padding:10px;font-weight:800;color:#155724;margin-top:8px;">✅ Answer: '+step.data.answer+'</div>'+
     '</div>';
-    // Speak: problem first, then each solution step with a short gap
+    // Speak problem + all steps + answer in sequence without cancelling between them
+    stopSpk();
     var allToSpeak = [(teachLang==='tamil'?'உதாரணம்: ':'Example problem. ')+step.data.problem];
     step.data.solution_steps.forEach(function(s,i){
       allToSpeak.push('Step '+(i+1)+'. '+s);
     });
-    allToSpeak.push((teachLang==='tamil'?'விடை: ':'Answer. ')+step.data.answer);
-    // Speak them in sequence — use 'si' not 'idx' to avoid closure conflict
-    function speakSeq(arr, si){
-      if(si>=arr.length) return;
-      spk(arr[si], function(){ setTimeout(function(){ speakSeq(arr, si+1); }, 400); });
-    }
-    speakSeq(allToSpeak, 0);
+    allToSpeak.push((teachLang==='tamil'?'விடை: ':'The answer is. ')+step.data.answer);
+    setTimeout(function(){ spkSequence(allToSpeak, 0); }, 300);
   }
   else if(step.type==='reallife'){
     html='<div style="background:linear-gradient(135deg,#1a0a0f,#2d0f1a);border-radius:14px;padding:18px;color:#F5E6C8;border:2px solid #C9A84C;">'+
@@ -1702,7 +1712,7 @@ function runBBStep(idx){
     if(bbPaused) return;
     if(lineIdx>=step.lines.length){
       // All lines written — speak explanation then move to next step
-      spk(step.speak, function(){
+      _spkOne(step.speak, function(){
         if(!bbPaused){
           bbTimeout=setTimeout(function(){ runBBStep(idx+1); }, 1200);
         }
