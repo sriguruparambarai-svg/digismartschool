@@ -521,17 +521,54 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div id="maths-mode" style="display:none;">
     <div class="card">
       <div class="card-title" id="maths-chapter-title">📐 Mathematics</div>
-      <div id="maths-content">
-        <div class="maths-loading"><div class="spinner" style="width:36px;height:36px;margin:0 auto 12px;"></div>TeachBot is preparing your Maths lesson...</div>
+
+      <!-- Maths Sub-tabs -->
+      <div style="display:flex;gap:6px;margin-bottom:16px;border-bottom:2px solid var(--sandal-dark);padding-bottom:10px;">
+        <button id="mtab-steps" onclick="switchMathsTab('steps')" style="padding:8px 18px;border-radius:20px;border:2px solid var(--gold-dark);background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);font-weight:800;font-family:Nunito,sans-serif;cursor:pointer;font-size:0.9rem;">📚 Step Mode</button>
+        <button id="mtab-board" onclick="switchMathsTab('board')" style="padding:8px 18px;border-radius:20px;border:2px solid var(--gold-dark);background:white;color:var(--maroon);font-weight:800;font-family:Nunito,sans-serif;cursor:pointer;font-size:0.9rem;">🖊️ Blackboard Mode</button>
       </div>
+
+      <!-- Step Mode (existing) -->
+      <div id="maths-step-panel">
+        <div id="maths-content">
+          <div class="maths-loading"><div class="spinner" style="width:36px;height:36px;margin:0 auto 12px;"></div>TeachBot is preparing your Maths lesson...</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:12px;">
+          <button class="btn btn-gold" onclick="nextMathsStep()">▶ Next Step</button>
+          <button class="btn btn-outline btn-sm" onclick="backToSetup()">← Back</button>
+        </div>
+      </div>
+
+      <!-- Blackboard Mode (new) -->
+      <div id="maths-board-panel" style="display:none;">
+        <div style="font-size:0.88rem;color:var(--text-mid);margin-bottom:10px;">Watch Miss solve the problem step by step — like writing on a blackboard 🖊️</div>
+
+        <!-- Blackboard -->
+        <div id="bb-board" style="background:#1a3a1a;border-radius:14px;padding:24px 28px;min-height:320px;border:4px solid #5a3a1a;box-shadow:inset 0 2px 12px rgba(0,0,0,0.5),0 4px 20px rgba(0,0,0,0.4);font-family:'Courier New',monospace;position:relative;">
+          <!-- Chalk dust effect top -->
+          <div style="position:absolute;top:6px;left:0;right:0;height:3px;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent);border-radius:2px;"></div>
+          <div id="bb-lines" style="min-height:260px;"></div>
+          <!-- Writing cursor -->
+          <span id="bb-cursor" style="display:inline-block;width:3px;height:1.2em;background:#fffde0;margin-left:2px;vertical-align:middle;animation:blink 0.7s infinite;"></span>
+          <style>@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}</style>
+        </div>
+
+        <!-- Voice status below board -->
+        <div id="bb-voice-status" style="text-align:center;margin-top:10px;font-size:0.9rem;color:var(--maroon);font-weight:700;min-height:22px;"></div>
+
+        <!-- Controls -->
+        <div style="display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;">
+          <button class="btn btn-gold" id="bb-start-btn" onclick="startBlackboard()">🖊️ Start Teaching</button>
+          <button class="btn btn-outline btn-sm" id="bb-pause-btn" onclick="pauseBlackboard()" disabled>⏸ Pause</button>
+          <button class="btn btn-outline btn-sm" id="bb-restart-btn" onclick="restartBlackboard()" style="display:none;">🔄 Restart</button>
+          <button class="btn btn-outline btn-sm" onclick="backToSetup()">← Back</button>
+        </div>
+      </div>
+
     </div>
     <div class="card" id="maths-practice-card" style="display:none;">
       <div class="card-title">✏️ Practice Problems</div>
       <div id="maths-practice"></div>
-    </div>
-    <div style="display:flex;gap:10px;margin-top:4px;">
-      <button class="btn btn-gold" onclick="nextMathsStep()">▶ Next Step</button>
-      <button class="btn btn-outline btn-sm" onclick="backToSetup()">← Back</button>
     </div>
   </div>
 
@@ -891,30 +928,148 @@ function loadVoices(){
   function pop(){
     const vs=speechSynthesis.getVoices();
     const sel=document.getElementById('t-voice');
-    if(!sel)return;sel.innerHTML='';
-    const ta=vs.filter(v=>v.lang&&v.lang.startsWith('ta'));
-    const in_=vs.filter(v=>v.lang&&(v.lang==='en-IN'||v.lang==='hi-IN'));
-    const oth=vs.filter(v=>!ta.includes(v)&&!in_.includes(v));
-    if(ta.length>0){const g=document.createElement('optgroup');g.label='🇮🇳 Tamil Voices (தமிழ்)';ta.forEach((v,i)=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name;if(teachLang==='tamil'&&i===0)o.selected=true;g.appendChild(o);});sel.appendChild(g);}
-    else{const g0=document.createElement('optgroup');g0.label='⚠️ No Tamil Voice Found';
-      const n=document.createElement('option');n.disabled=true;
-      n.textContent='Install Tamil voice: Settings > Time & Language > Speech > Add voices > Tamil';
-      g0.appendChild(n);sel.appendChild(g0);}
-    if(in_.length>0){const g2=document.createElement('optgroup');g2.label='🇮🇳 Indian English';in_.forEach(v=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name;g2.appendChild(o);});sel.appendChild(g2);}
-    if(oth.length>0){const g3=document.createElement('optgroup');g3.label='🌐 Other Voices';oth.forEach(v=>{const o=document.createElement('option');o.value=vs.indexOf(v);o.textContent=v.name+' ('+v.lang+')';g3.appendChild(o);});sel.appendChild(g3);}
-    if(vs.length===0)sel.innerHTML='<option>No voices available</option>';
+    if(!sel)return; sel.innerHTML='';
+
+    // Categorise voices
+    const ta   = vs.filter(v=>v.lang&&v.lang.startsWith('ta'));
+    const enIN = vs.filter(v=>v.lang&&(v.lang==='en-IN'));
+    const enGB = vs.filter(v=>v.lang&&v.lang==='en-GB');
+    const enUS = vs.filter(v=>v.lang&&v.lang==='en-US');
+    const hiIN = vs.filter(v=>v.lang&&v.lang==='hi-IN');
+    const used = [...ta,...enIN,...enGB,...enUS,...hiIN].map(v=>v.name);
+    const oth  = vs.filter(v=>!used.includes(v.name));
+
+    // Quality indicator — prefer female/natural sounding voices
+    function quality(v){
+      var n=v.name.toLowerCase();
+      if(n.includes('natural')||n.includes('neural')||n.includes('wavenet'))return '⭐⭐⭐ ';
+      if(n.includes('enhanced')||n.includes('premium'))return '⭐⭐ ';
+      return '';
+    }
+
+    if(ta.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🇮🇳 Tamil Voices — Best for Tamil Teaching';
+      ta.forEach((v,i)=>{
+        const o=document.createElement('option');
+        o.value=vs.indexOf(v);
+        o.textContent=quality(v)+(v.name.includes('Female')||v.name.toLowerCase().includes('female')||v.name.includes('Lekha')||v.name.includes('Veena')?'👩 ':'👨 ')+v.name;
+        if(teachLang==='tamil'&&i===0)o.selected=true;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    } else {
+      const g0=document.createElement('optgroup');
+      g0.label='⚠️ No Tamil Voice — Install Tamil Voice';
+      const n=document.createElement('option'); n.disabled=true;
+      n.textContent='Go to Settings → Time & Language → Speech → Add voices → Tamil';
+      g0.appendChild(n); sel.appendChild(g0);
+    }
+
+    if(enIN.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🇮🇳 Indian English — Good for English Teaching';
+      enIN.forEach(v=>{
+        const o=document.createElement('option');
+        o.value=vs.indexOf(v);
+        o.textContent=quality(v)+(v.name.toLowerCase().includes('female')||v.name.includes('Ravi')||v.name.includes('Heera')?'👩 ':'👨 ')+v.name;
+        if(teachLang==='english'&&enIN.indexOf(v)===0)o.selected=true;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+
+    if(enGB.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🇬🇧 British English — Clear Pronunciation';
+      enGB.forEach(v=>{
+        const o=document.createElement('option');
+        o.value=vs.indexOf(v);
+        o.textContent=quality(v)+v.name;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+
+    if(enUS.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🇺🇸 American English';
+      enUS.forEach(v=>{
+        const o=document.createElement('option');
+        o.value=vs.indexOf(v);
+        o.textContent=quality(v)+v.name;
+        g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+
+    if(hiIN.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🇮🇳 Hindi Indian';
+      hiIN.forEach(v=>{
+        const o=document.createElement('option'); o.value=vs.indexOf(v); o.textContent=v.name; g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+
+    if(oth.length>0){
+      const g=document.createElement('optgroup');
+      g.label='🌐 Other Available Voices';
+      oth.forEach(v=>{
+        const o=document.createElement('option'); o.value=vs.indexOf(v); o.textContent=v.name+' ('+v.lang+')'; g.appendChild(o);
+      });
+      sel.appendChild(g);
+    }
+
+    if(vs.length===0)sel.innerHTML='<option>No voices available on this device</option>';
   }
-  if(speechSynthesis.getVoices().length>0)pop();else speechSynthesis.onvoiceschanged=pop;
+  if(speechSynthesis.getVoices().length>0)pop();
+  else speechSynthesis.onvoiceschanged=pop;
 }
 
-function clean(t){return t.replace(/[\u{1F300}-\u{1FAFF}]/gu,'').replace(/[\u{2600}-\u{27BF}]/gu,'').replace(/#{1,6}\s/g,'').replace(/\*\*/g,'').replace(/\*/g,'').replace(/`/g,'').replace(/>/g,'').replace(/^[-•*]\s/gm,'').replace(/\s+/g,' ').trim();}
+function cleanMaths(t){
+  return t
+    .replace(/√(\d+)/g,'square root of $1')
+    .replace(/√\(([^)]+)\)/g,'square root of $1')
+    .replace(/√/g,'square root of ')
+    .replace(/(\d+)\^2/g,'$1 squared')
+    .replace(/(\d+)\^3/g,'$1 cubed')
+    .replace(/\^(\d+)/g,' to the power $1')
+    .replace(/(\d+)\/(\d+)/g,'$1 over $2')
+    .replace(/π/g,'pi')
+    .replace(/°/g,' degrees')
+    .replace(/±/g,' plus or minus ')
+    .replace(/×/g,' multiplied by ')
+    .replace(/÷/g,' divided by ')
+    .replace(/=/g,' equals ')
+    .replace(/≠/g,' not equal to ')
+    .replace(/≤/g,' less than or equal to ')
+    .replace(/≥/g,' greater than or equal to ')
+    .replace(/²/g,' squared')
+    .replace(/³/g,' cubed')
+    .replace(/\s*-\s*(?=[a-zA-Z0-9(√])/g,' minus ')
+    .replace(/\s*\+\s*/g,' plus ')
+    .replace(/_([a-zA-Z0-9]+)/g,' sub $1');
+}
+
+function clean(t){
+  return t
+    .replace(/[\u{1F300}-\u{1FAFF}]/gu,'')
+    .replace(/[\u{2600}-\u{27BF}]/gu,'')
+    .replace(/#{1,6}\s/g,'')
+    .replace(/\*\*/g,'').replace(/\*/g,'')
+    .replace(/`/g,'').replace(/>/g,'')
+    .replace(/^[-•*]\s/gm,'')
+    .replace(/\s+/g,' ').trim();
+}
 
 function spk(txt,done){
   stopSpk();if(!tvOn){done&&done();return;}
-  // Auto-detect if text has Tamil script - use Tamil voice
   var hasTamil=/[஀-௿]/.test(txt);
-  var hasEnglish=/[a-zA-Z]/.test(txt);
-  const utt=new SpeechSynthesisUtterance(clean(txt));
+  // Apply maths cleaning if in maths mode, else regular clean
+  var isMaths=(selectedMode==='maths'||document.getElementById('maths-mode').style.display!=='none');
+  var speakText = isMaths ? cleanMaths(clean(txt)) : clean(txt);
+  const utt=new SpeechSynthesisUtterance(speakText);
   const sel=document.getElementById('t-voice');
   const vs=speechSynthesis.getVoices();
   if(sel&&vs[parseInt(sel.value)])utt.voice=vs[parseInt(sel.value)];
@@ -1364,7 +1519,7 @@ function showMathsStep(idx){
       solHtml+
       '<div style="background:#d4edda;border-radius:8px;padding:10px;font-weight:800;color:#155724;margin-top:8px;">✅ Answer: '+step.data.answer+'</div>'+
     '</div>';
-    spk((teachLang==='tamil'?'உதாரணம்: ':'Example: ')+step.data.problem);
+    spk((teachLang==='tamil'?'உதாரணம்: ':'Example: ')+step.data.problem+'. '+step.data.solution_steps.join('. ')+'. Answer: '+step.data.answer);
   }
   else if(step.type==='reallife'){
     html='<div style="background:linear-gradient(135deg,#1a0a0f,#2d0f1a);border-radius:14px;padding:18px;color:#F5E6C8;border:2px solid #C9A84C;">'+
@@ -1381,6 +1536,347 @@ function showMathsStep(idx){
 function nextMathsStep(){
   stopSpk();
   showMathsStep(mathsIdx+1);
+}
+
+// ════════════════════════════════
+// BLACKBOARD MODE
+// ════════════════════════════════
+var bbLines=[], bbLineIdx=0, bbCharIdx=0, bbPaused=false, bbTimer=null, bbSpeaking=false;
+
+function switchMathsTab(tab){
+  var steps=document.getElementById('maths-step-panel');
+  var board=document.getElementById('maths-board-panel');
+  var btnS=document.getElementById('mtab-steps');
+  var btnB=document.getElementById('mtab-board');
+  if(tab==='steps'){
+    steps.style.display='block'; board.style.display='none';
+    btnS.style.background='linear-gradient(135deg,var(--maroon),var(--maroon-mid))'; btnS.style.color='var(--gold-light)';
+    btnB.style.background='white'; btnB.style.color='var(--maroon)';
+  } else {
+    steps.style.display='none'; board.style.display='block';
+    btnB.style.background='linear-gradient(135deg,var(--maroon),var(--maroon-mid))'; btnB.style.color='var(--gold-light)';
+    btnS.style.background='white'; btnS.style.color='var(--maroon)';
+    prepareBBLines();
+  }
+}
+
+function prepareBBLines(){
+  // Build blackboard lines from mathsSteps data
+  bbLines=[];
+  mathsSteps.forEach(function(step){
+    if(step.type==='formula'){
+      bbLines.push({text:'📐 Formula: '+step.data.formula, speak:'Formula: '+step.data.formula, style:'title', pause:2000});
+      bbLines.push({text:'   → '+step.data.formula_explained, speak:step.data.formula_explained, style:'explain', pause:1500});
+    } else if(step.type==='step'){
+      bbLines.push({text:'Step '+step.data.num+': '+step.data.title, speak:'Step '+step.data.num+'. '+step.data.title, style:'step', pause:1200});
+      bbLines.push({text:'   '+step.data.content, speak:step.data.content, style:'content', pause:1500});
+      if(step.data.working) bbLines.push({text:'   ∴ '+step.data.working, speak:cleanMaths(step.data.working), style:'working', pause:2000});
+    } else if(step.type==='example'){
+      bbLines.push({text:'─────────────────────────', speak:'', style:'divider', pause:400});
+      bbLines.push({text:'📝 Example: '+step.data.problem, speak:'Example. '+step.data.problem, style:'title', pause:2000});
+      step.data.solution_steps.forEach(function(s,i){
+        bbLines.push({text:'  Step '+(i+1)+': '+s, speak:'Step '+(i+1)+'. '+s, style:'solution', pause:1800});
+      });
+      bbLines.push({text:'  ✅ Answer: '+step.data.answer, speak:'Answer. '+step.data.answer, style:'answer', pause:2000});
+    } else if(step.type==='reallife'){
+      bbLines.push({text:'─────────────────────────', speak:'', style:'divider', pause:400});
+      bbLines.push({text:'🌍 Real Life: '+step.data.real_life, speak:'Real life example. '+step.data.real_life, style:'reallife', pause:2000});
+    }
+  });
+  document.getElementById('bb-lines').innerHTML='';
+  document.getElementById('bb-cursor').style.display='none';
+  document.getElementById('bb-voice-status').textContent='Press "Start Teaching" to begin 🖊️';
+  document.getElementById('bb-start-btn').style.display='inline-flex';
+  document.getElementById('bb-restart-btn').style.display='none';
+  document.getElementById('bb-pause-btn').disabled=true;
+  bbLineIdx=0; bbCharIdx=0; bbPaused=false;
+}
+
+function startBlackboard(){
+  if(bbLines.length===0){ alert('Please wait for lesson to load first.'); return; }
+  document.getElementById('bb-start-btn').style.display='none';
+  document.getElementById('bb-pause-btn').disabled=false;
+  document.getElementById('bb-cursor').style.display='inline-block';
+  bbPaused=false; bbLineIdx=0; bbCharIdx=0;
+  document.getElementById('bb-lines').innerHTML='';
+  bbWriteNextLine();
+}
+
+function pauseBlackboard(){
+  bbPaused=!bbPaused;
+  document.getElementById('bb-pause-btn').textContent=bbPaused?'▶ Resume':'⏸ Pause';
+  if(!bbPaused) bbWriteNextLine();
+  else { clearTimeout(bbTimer); speechSynthesis.pause(); }
+}
+
+function restartBlackboard(){
+  clearTimeout(bbTimer); speechSynthesis.cancel();
+  bbPaused=false; bbLineIdx=0; bbCharIdx=0;
+  document.getElementById('bb-lines').innerHTML='';
+  document.getElementById('bb-pause-btn').textContent='⏸ Pause';
+  document.getElementById('bb-pause-btn').disabled=false;
+  document.getElementById('bb-cursor').style.display='inline-block';
+  document.getElementById('bb-restart-btn').style.display='none';
+  document.getElementById('bb-start-btn').style.display='none';
+  document.getElementById('bb-voice-status').textContent='';
+  bbWriteNextLine();
+}
+
+var BB_STYLES={
+  title: 'color:#FFD700;font-size:1.1rem;font-weight:bold;margin-bottom:4px;',
+  explain: 'color:#F5E6C8;font-size:0.95rem;margin-bottom:8px;',
+  step: 'color:#E8C96A;font-size:1rem;font-weight:bold;margin-top:10px;margin-bottom:2px;',
+  content: 'color:#e0ffe0;font-size:0.95rem;margin-bottom:4px;',
+  working: 'color:#a0ff80;font-size:1.05rem;letter-spacing:1px;padding:4px 0;',
+  solution: 'color:#cfffcf;font-size:0.95rem;margin-bottom:4px;',
+  answer: 'color:#a0ffa0;font-size:1.1rem;font-weight:bold;margin-top:6px;',
+  divider: 'color:rgba(255,255,255,0.2);font-size:0.8rem;margin:8px 0;',
+  reallife: 'color:#ffe0a0;font-size:0.95rem;margin-top:6px;'
+};
+
+var BB_SPEED=28; // ms per character
+
+function bbWriteNextLine(){
+  if(bbPaused||bbLineIdx>=bbLines.length){
+    if(bbLineIdx>=bbLines.length){
+      // Done
+      document.getElementById('bb-cursor').style.display='none';
+      document.getElementById('bb-voice-status').textContent='✅ Lesson complete! Well done!';
+      document.getElementById('bb-pause-btn').disabled=true;
+      document.getElementById('bb-restart-btn').style.display='inline-flex';
+    }
+    return;
+  }
+
+  var line=bbLines[bbLineIdx];
+
+  // Create new line element
+  var div=document.createElement('div');
+  div.style.cssText=(BB_STYLES[line.style]||'color:white;')+' min-height:1.4em; white-space:pre-wrap;';
+  document.getElementById('bb-lines').appendChild(div);
+
+  // Move cursor to new line
+  var cursor=document.getElementById('bb-cursor');
+  div.appendChild(cursor);
+
+  // Scroll board to bottom
+  var board=document.getElementById('bb-board');
+  board.scrollTop=board.scrollHeight;
+
+  // Speak this line (non-blocking — voice runs parallel to writing)
+  if(line.speak && tvOn){
+    document.getElementById('bb-voice-status').textContent='🗣️ '+line.speak.substring(0,60)+(line.speak.length>60?'...':'');
+    var utt=new SpeechSynthesisUtterance(cleanMaths(clean(line.speak)));
+    var sel=document.getElementById('t-voice');
+    var vs_=speechSynthesis.getVoices();
+    if(sel&&vs_[parseInt(sel.value)])utt.voice=vs_[parseInt(sel.value)];
+    utt.rate=parseFloat((document.getElementById('t-spd')||{value:'0.85'}).value)||0.85;
+    if(teachLang==='tamil')utt.lang='ta-IN'; else utt.lang='en-IN';
+    utt.onend=function(){ document.getElementById('bb-voice-status').textContent=''; };
+    speechSynthesis.speak(utt);
+  }
+
+  // Typewriter effect — write characters one by one
+  var text=line.text; var ci=0;
+  function typeChar(){
+    if(bbPaused){bbTimer=setTimeout(typeChar,50);return;}
+    if(ci<text.length){
+      var t=document.createTextNode(text[ci]);
+      div.insertBefore(t,cursor);
+      ci++;
+      board.scrollTop=board.scrollHeight;
+      bbTimer=setTimeout(typeChar, line.style==='divider'?8:BB_SPEED);
+    } else {
+      // Line done — pause before next line (let voice finish)
+      bbLineIdx++;
+      bbTimer=setTimeout(bbWriteNextLine, line.pause||1000);
+    }
+  }
+  typeChar();
+}
+
+// ════════════════════════════════
+// BLACKBOARD MODE
+// ════════════════════════════════
+var bbSteps=[], bbIdx=0, bbPaused=false, bbRunning=false, bbTimeout=null;
+
+function switchMathsTab(tab, el){
+  document.getElementById('maths-tab-steps').style.display = tab==='steps' ? 'block' : 'none';
+  document.getElementById('maths-tab-board').style.display = tab==='board' ? 'block' : 'none';
+  document.getElementById('mtab-steps').style.background = tab==='steps' ? 'linear-gradient(135deg,#6B0F1A,#8B1A2A)' : '#FFFDF5';
+  document.getElementById('mtab-steps').style.color = tab==='steps' ? '#E8C96A' : '#6B0F1A';
+  document.getElementById('mtab-board').style.background = tab==='board' ? 'linear-gradient(135deg,#6B0F1A,#8B1A2A)' : '#FFFDF5';
+  document.getElementById('mtab-board').style.color = tab==='board' ? '#E8C96A' : '#6B0F1A';
+  if(tab==='board' && mathsSteps.length>0) buildBBSteps();
+}
+
+function buildBBSteps(){
+  // Convert mathsSteps into blackboard-friendly chunks
+  bbSteps=[];
+  mathsSteps.forEach(function(s){
+    if(s.type==='formula'){
+      bbSteps.push({
+        label:'Formula',
+        lines: ['Formula: '+s.data.formula, s.data.formula_explained],
+        speak: 'Now I am writing the formula. '+s.data.formula+'. '+s.data.formula_explained
+      });
+    } else if(s.type==='step'){
+      var lines = [s.data.num+'. '+s.data.title, s.data.content];
+      if(s.data.working) lines.push(s.data.working);
+      bbSteps.push({
+        label:'Step '+s.data.num,
+        lines: lines,
+        speak: 'Step '+s.data.num+'. '+s.data.title+'. '+s.data.content+(s.data.working?'. Working: '+s.data.working:'')
+      });
+    } else if(s.type==='example'){
+      var lines=['Example: '+s.data.problem];
+      s.data.solution_steps.forEach(function(ss,i){ lines.push('Step '+(i+1)+': '+ss); });
+      lines.push('✓ Answer: '+s.data.answer);
+      bbSteps.push({
+        label:'Example',
+        lines: lines,
+        speak: 'Now let me solve an example. '+s.data.problem+'. '+s.data.solution_steps.join('. ')+'. The answer is '+s.data.answer
+      });
+    } else if(s.type==='reallife'){
+      bbSteps.push({
+        label:'Real Life',
+        lines: ['Real Life: '+s.data.real_life],
+        speak: 'Now let me tell you how this connects to real life. '+s.data.real_life
+      });
+    }
+  });
+  // Build step tracker dots
+  var dotsHtml='';
+  bbSteps.forEach(function(s,i){
+    dotsHtml+='<div class="bb-step-dot" id="bb-dot-'+i+'" onclick="jumpBBStep('+i+')">'+
+      (i+1)+'</div>';
+  });
+  var el=document.getElementById('bb-step-track');
+  if(el) el.innerHTML=dotsHtml;
+}
+
+function startBlackboard(){
+  if(bbSteps.length===0){ buildBBSteps(); }
+  if(bbSteps.length===0){ alert('Please load a Maths lesson first.'); return; }
+  bbPaused=false; bbRunning=true; bbIdx=0;
+  document.getElementById('bb-pause-btn').disabled=false;
+  document.getElementById('bb-start-btn').disabled=true;
+  window._spkMaths=true;
+  runBBStep(0);
+}
+
+function pauseBlackboard(){
+  if(!bbRunning) return;
+  if(bbPaused){
+    bbPaused=false;
+    document.getElementById('bb-pause-btn').textContent='⏸ Pause';
+    document.getElementById('bb-status').textContent='Teaching...';
+    speechSynthesis.resume();
+    runBBStep(bbIdx);
+  } else {
+    bbPaused=true;
+    document.getElementById('bb-pause-btn').textContent='▶ Resume';
+    document.getElementById('bb-status').textContent='Paused';
+    speechSynthesis.pause();
+    clearTimeout(bbTimeout);
+  }
+}
+
+function stopBlackboard(){
+  bbRunning=false; bbPaused=false;
+  clearTimeout(bbTimeout); stopSpk();
+  window._spkMaths=false;
+  document.getElementById('bb-start-btn').disabled=false;
+  document.getElementById('bb-pause-btn').disabled=true;
+  document.getElementById('bb-pause-btn').textContent='⏸ Pause';
+  document.getElementById('bb-status').textContent='Stopped';
+}
+
+function jumpBBStep(idx){
+  clearTimeout(bbTimeout); stopSpk();
+  bbIdx=idx; runBBStep(idx);
+}
+
+function runBBStep(idx){
+  if(idx>=bbSteps.length){
+    document.getElementById('bb-status').textContent='✅ Lesson complete!';
+    document.getElementById('bb-start-btn').disabled=false;
+    document.getElementById('bb-pause-btn').disabled=true;
+    window._spkMaths=false;
+    return;
+  }
+  if(bbPaused) return;
+  bbIdx=idx;
+
+  // Update step dots
+  document.querySelectorAll('.bb-step-dot').forEach(function(d,i){
+    d.classList.remove('current','done');
+    if(i<idx) d.classList.add('done');
+    else if(i===idx) d.classList.add('current');
+  });
+
+  var step=bbSteps[idx];
+  document.getElementById('bb-status').textContent='Teaching: '+step.label+' ('+(idx+1)+'/'+bbSteps.length+')';
+
+  // Show explanation box
+  var expBox=document.getElementById('bb-explain-box');
+  var expText=document.getElementById('bb-explain-text');
+  if(expBox) expBox.style.display='block';
+  if(expText) expText.textContent=step.speak;
+
+  // Animate writing on blackboard line by line
+  var board=document.getElementById('bb-board');
+  board.innerHTML='';
+  var lineIdx=0;
+
+  function writeNextLine(){
+    if(bbPaused) return;
+    if(lineIdx>=step.lines.length){
+      // All lines written — speak explanation then move to next step
+      spk(step.speak, function(){
+        if(!bbPaused){
+          bbTimeout=setTimeout(function(){ runBBStep(idx+1); }, 1200);
+        }
+      });
+      return;
+    }
+    var line=step.lines[lineIdx];
+    var isAnswer=line.startsWith('✓');
+    var isStep=lineIdx===0;
+
+    // Label above first line
+    if(lineIdx===0){
+      var lbl=document.createElement('div');
+      lbl.className='chalk-step-label';
+      lbl.textContent=step.label;
+      board.appendChild(lbl);
+    }
+
+    var div=document.createElement('div');
+    div.className='chalk-line chalk-writing';
+    if(isAnswer) div.className+=' chalk-answer';
+    else if(isStep) div.className+=' chalk-highlight';
+    board.appendChild(div);
+
+    // Type out char by char like writing on board
+    var charIdx=0;
+    var cleanLine=line.replace(/\*/g,'');
+    var typeInterval=setInterval(function(){
+      if(bbPaused){ clearInterval(typeInterval); return; }
+      if(charIdx<cleanLine.length){
+        div.textContent+=cleanLine[charIdx];
+        charIdx++;
+      } else {
+        clearInterval(typeInterval);
+        div.classList.remove('chalk-writing');
+        lineIdx++;
+        // Small pause between lines — like a real teacher writing and pausing
+        bbTimeout=setTimeout(writeNextLine, 600);
+      }
+    }, 45); // typing speed per character
+  }
+
+  writeNextLine();
 }
 
 function showMathsPractice(){
