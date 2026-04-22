@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Graph Plotter — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<style>
+:root{
+  --bg:#0a0f1e;--bg2:#111827;--bg3:#1e2a3a;
+  --gold:#f5c842;--gold2:#fde68a;--gold3:#a07820;
+  --teal:#00d4b8;--teal2:#00a896;--teal3:#7fffd4;
+  --violet:#a78bfa;--rose:#f87171;--green:#4ade80;
+  --blue:#60a5fa;--orange:#fb923c;
+  --white:#f8faff;--dim:rgba(248,250,255,0.55);
+  --card:rgba(255,255,255,0.06);--border:rgba(255,255,255,0.1);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Lexend',sans-serif;background:var(--bg);color:var(--white);min-height:100vh;overflow-x:hidden;}
+
+.hdr{background:linear-gradient(135deg,#0a0f1e,#111827);border-bottom:2px solid rgba(245,200,66,0.3);padding:12px 22px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:99;}
+.hdr-icon{width:42px;height:42px;background:linear-gradient(135deg,var(--gold),#e8a820);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;}
+.hdr-title{font-size:1.2rem;font-weight:800;color:var(--gold);}
+.hdr-sub{font-size:0.72rem;color:var(--dim);margin-top:1px;}
+.hdr-right{margin-left:auto;display:flex;gap:8px;}
+.back-btn{background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);color:var(--dim);padding:6px 14px;border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.78rem;font-weight:600;cursor:pointer;text-decoration:none;}
+
+/* LAYOUT — sidebar + main */
+.layout{display:flex;max-width:1200px;margin:0 auto;height:calc(100vh - 68px);}
+
+/* SIDEBAR */
+.sidebar{width:280px;flex-shrink:0;background:rgba(255,255,255,0.03);border-right:1px solid rgba(245,200,66,0.1);padding:14px;overflow-y:auto;display:flex;flex-direction:column;gap:14px;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sidebar::-webkit-scrollbar-thumb{background:rgba(245,200,66,0.2);border-radius:2px;}
+.s-sec{font-size:0.65rem;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;}
+
+/* Input box */
+.expr-input{width:100%;padding:10px 13px;font-family:'JetBrains Mono',monospace;font-size:0.92rem;font-weight:700;border:2px solid rgba(245,200,66,0.2);border-radius:10px;background:rgba(255,255,255,0.07);color:var(--gold);outline:none;transition:border 0.2s;}
+.expr-input:focus{border-color:var(--gold);}
+.expr-input::placeholder{color:rgba(245,200,66,0.3);font-size:0.82rem;}
+
+/* Preset chips */
+.preset-grid{display:grid;grid-template-columns:1fr 1fr;gap:5px;}
+.preset{padding:7px 8px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);cursor:pointer;transition:all 0.18s;text-align:center;}
+.preset:hover,.preset.active{border-color:var(--gold);background:rgba(245,200,66,0.1);}
+.preset .p-expr{font-family:'JetBrains Mono',monospace;font-size:0.78rem;font-weight:700;color:var(--gold);display:block;margin-bottom:2px;}
+.preset .p-name{font-size:0.65rem;color:var(--dim);}
+
+/* Category tabs */
+.cat-row{display:flex;gap:4px;flex-wrap:wrap;}
+.cat-btn{padding:5px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.5);font-family:'Lexend',sans-serif;font-size:0.7rem;font-weight:600;cursor:pointer;transition:all 0.18s;}
+.cat-btn.on{border-color:var(--teal);background:rgba(0,212,184,0.12);color:var(--teal);}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:9px 16px;font-size:0.82rem;font-weight:700;font-family:'Lexend',sans-serif;border:none;border-radius:10px;cursor:pointer;transition:all 0.2s;}
+.btn-gold{background:linear-gradient(135deg,var(--gold),#e8a820);color:#0a0f1e;}
+.btn-gold:hover{transform:translateY(-1px);}
+.btn-outline{background:rgba(255,255,255,0.05);border:1.5px solid rgba(245,200,66,0.25);color:var(--gold);}
+.btn-outline:hover{background:rgba(245,200,66,0.08);}
+.btn-teal{background:linear-gradient(135deg,var(--teal),var(--teal2));color:#0a0f1e;}
+.btn-violet{background:linear-gradient(135deg,var(--violet),#6d28d9);color:white;}
+.btn-rose{background:linear-gradient(135deg,var(--rose),#dc2626);color:white;}
+.btn-sm{padding:6px 11px;font-size:0.75rem;}
+.btn-full{width:100%;}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;}
+
+/* Voice settings */
+.tog{position:relative;width:40px;height:22px;background:rgba(255,255,255,0.15);border-radius:11px;cursor:pointer;flex-shrink:0;transition:background 0.2s;}
+.tog.on{background:var(--teal);}
+.tog::after{content:'';position:absolute;left:3px;top:2px;width:18px;height:18px;background:white;border-radius:50%;transition:left 0.2s;}
+.tog.on::after{left:19px;}
+.voice-row{display:flex;align-items:center;gap:7px;margin-bottom:5px;}
+.v-sel{width:100%;padding:5px 8px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:7px;color:rgba(255,255,255,0.8);font-family:'Lexend',sans-serif;font-size:0.7rem;outline:none;margin-top:3px;}
+.v-sel option{background:#1e1535;}
+
+/* Language tabs */
+.lang-row{display:flex;gap:4px;}
+.lang-btn{flex:1;padding:6px 4px;border-radius:8px;border:1px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.5);font-family:'Lexend',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;transition:all 0.18s;text-align:center;}
+.lang-btn.on{border-color:var(--violet);background:rgba(167,139,250,0.12);color:#c4b5fd;}
+
+/* MAIN graph area */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden;}
+
+/* Graph container */
+.graph-wrap{flex:1;position:relative;background:#fff;min-height:400px;}
+#desmos-container{width:100%;height:100%;}
+
+/* Bottom panel */
+.bottom-panel{background:rgba(255,255,255,0.03);border-top:1px solid rgba(245,200,66,0.1);padding:12px 16px;display:flex;flex-direction:column;gap:10px;max-height:260px;overflow-y:auto;}
+.bottom-panel::-webkit-scrollbar{width:3px;}
+.bottom-panel::-webkit-scrollbar-thumb{background:rgba(245,200,66,0.2);border-radius:2px;}
+
+/* AI explanation card */
+.ai-card{background:rgba(245,200,66,0.06);border:1px solid rgba(245,200,66,0.15);border-radius:12px;padding:12px 16px;}
+.ai-card-title{font-size:0.68rem;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:1px;margin-bottom:7px;display:flex;align-items:center;gap:7px;}
+.ai-text{font-size:0.85rem;color:rgba(255,255,255,0.85);line-height:1.8;}
+.tamil-block{background:rgba(167,139,250,0.08);border:1px solid rgba(167,139,250,0.2);border-radius:8px;padding:8px 12px;margin-top:8px;font-size:0.82rem;color:#c4b5fd;line-height:1.7;}
+.tamil-lbl{font-size:0.62rem;font-weight:800;color:#c4b5fd;text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+
+.spin{width:18px;height:18px;border:2px solid rgba(245,200,66,0.2);border-top-color:var(--gold);border-radius:50%;animation:spin 0.7s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-row{display:flex;align-items:center;gap:8px;color:var(--dim);font-size:0.82rem;}
+
+/* Graph facts strip */
+.facts-strip{display:flex;gap:8px;flex-wrap:wrap;}
+.fact{background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.08);border-radius:8px;padding:6px 12px;font-size:0.75rem;color:var(--dim);}
+.fact strong{color:var(--white);}
+
+@media(max-width:700px){
+  .sidebar{display:none;}
+  .bottom-panel{max-height:220px;}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div class="hdr-icon">📊</div>
+  <div>
+    <div class="hdr-title">Graph Plotter</div>
+    <div class="hdr-sub">Desmos Powered • AI Explanation • Tamil &amp; English • Class 6–10</div>
+  </div>
+  <div class="hdr-right">
+    <a href="learnbot.html" class="back-btn">← TeachBot</a>
+  </div>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- Custom expression input -->
+    <div>
+      <div class="s-sec">✏️ Plot Your Own Graph</div>
+      <input type="text" class="expr-input" id="custom-expr" placeholder="e.g. y = x^2" value="y = x^2"
+        onkeydown="if(event.key==='Enter')plotCustom()"/>
+      <div class="btn-row">
+        <button class="btn btn-gold btn-full" onclick="plotCustom()">📊 Plot</button>
+        <button class="btn btn-outline btn-sm" onclick="clearAll()">✕ Clear</button>
+      </div>
+      <div style="font-size:0.68rem;color:rgba(255,255,255,0.3);margin-top:6px;">
+        Use: ^ for power, sqrt() for root, sin/cos/tan, abs(), log()
+      </div>
+    </div>
+
+    <!-- Categories -->
+    <div>
+      <div class="s-sec">📂 Category</div>
+      <div class="cat-row" id="cat-row">
+        <button class="cat-btn on" onclick="setCategory('all',this)">All</button>
+        <button class="cat-btn" onclick="setCategory('linear',this)">Linear</button>
+        <button class="cat-btn" onclick="setCategory('quadratic',this)">Quadratic</button>
+        <button class="cat-btn" onclick="setCategory('trig',this)">Trig</button>
+        <button class="cat-btn" onclick="setCategory('other',this)">Other</button>
+      </div>
+    </div>
+
+    <!-- Preset graphs -->
+    <div>
+      <div class="s-sec">🚀 Preset Graphs</div>
+      <div class="preset-grid" id="preset-grid"></div>
+    </div>
+
+    <!-- Add multiple expressions -->
+    <div>
+      <div class="s-sec">➕ Add to Graph</div>
+      <div style="font-size:0.72rem;color:var(--dim);margin-bottom:6px;">Plot multiple functions at once:</div>
+      <input type="text" class="expr-input" id="add-expr" placeholder="e.g. y = 2x + 1" style="margin-bottom:6px;"/>
+      <button class="btn btn-teal btn-full btn-sm" onclick="addExpression()">➕ Add Line</button>
+    </div>
+
+    <!-- Voice settings -->
+    <div>
+      <div class="s-sec">🔊 Voice</div>
+      <div class="voice-row">
+        <div class="tog on" id="v-tog" onclick="voiceOn=!voiceOn;this.classList.toggle('on',voiceOn);if(!voiceOn)stopSpk();"></div>
+        <span style="font-size:0.72rem;color:var(--dim);">Auto-speak explanation</span>
+      </div>
+      <select class="v-sel" id="v-voice"></select>
+      <select class="v-sel" id="v-speed" style="margin-top:4px;">
+        <option value="0.75">Slow</option>
+        <option value="0.88" selected>Normal</option>
+        <option value="1.0">Fast</option>
+      </select>
+    </div>
+
+    <!-- Language -->
+    <div>
+      <div class="s-sec">🌐 Explanation Language</div>
+      <div class="lang-row">
+        <button class="lang-btn on" onclick="setLang('english',this)">English</button>
+        <button class="lang-btn"    onclick="setLang('tamil',this)">தமிழ்</button>
+        <button class="lang-btn"    onclick="setLang('both',this)">Both</button>
+      </div>
+    </div>
+
+  </div><!-- sidebar -->
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- Desmos graph -->
+    <div class="graph-wrap">
+      <div id="desmos-container"></div>
+      <div id="canvas-mode-banner" style="display:none;position:absolute;top:8px;right:10px;background:rgba(251,146,60,0.2);border:1px solid rgba(251,146,60,0.4);border-radius:8px;padding:4px 10px;font-size:0.68rem;font-weight:700;color:#fb923c;font-family:Lexend,sans-serif;z-index:10;">
+        📊 Canvas mode (Desmos unavailable)
+      </div>
+    </div>
+
+    <!-- Bottom AI explanation panel -->
+    <div class="bottom-panel">
+
+      <!-- Facts strip -->
+      <div class="facts-strip" id="facts-strip">
+        <div class="fact">📊 <strong>Desmos</strong> graph plotter loaded</div>
+        <div class="fact">Type an expression above or click a preset</div>
+      </div>
+
+      <!-- AI explanation -->
+      <div id="ai-area" style="display:none;">
+        <div class="ai-card">
+          <div class="ai-card-title">
+            <span>✨</span>
+            <span id="ai-title">AI Explanation</span>
+            <button class="btn btn-sm btn-outline" style="margin-left:auto;" onclick="speakAI()" id="spk-btn">🔊 Read</button>
+          </div>
+          <div id="ai-content" class="ai-text"></div>
+          <div id="tamil-area" style="display:none;">
+            <div class="tamil-block">
+              <div class="tamil-lbl">தமிழ் விளக்கம்</div>
+              <div id="tamil-content"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action buttons -->
+      <div class="btn-row">
+        <button class="btn btn-gold btn-sm" onclick="explainGraph()">✨ AI Explain This Graph</button>
+        <button class="btn btn-violet btn-sm" onclick="explainGraph(true)">அ Tamil Explain</button>
+        <button class="btn btn-teal btn-sm" onclick="showRealWorld()">🌍 Real Life Use</button>
+        <button class="btn btn-sm btn-outline" onclick="stopSpk()">⏹ Stop Voice</button>
+      </div>
+
+    </div>
+
+  </div><!-- main -->
+
+</div><!-- layout -->
+
+<script>
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+var voiceOn=true, lang='english';
+var voices=[], currentExpr='y = x^2', activeCategory='all';
+var calculator=null;
+var aiCache={};
+const API='/api/ai';
+var lastAIText='', lastTamilText='';
+
+// ══════════════════════════════════════════
+// PRESET GRAPH DATABASE
+// ══════════════════════════════════════════
+var PRESETS=[
+  // LINEAR
+  {cat:'linear', expr:'y = x',         name:'y = x',           desc:'Straight line through origin',     class:'Class 6', color:'#60a5fa'},
+  {cat:'linear', expr:'y = 2x + 1',    name:'y = 2x+1',        desc:'Line: slope 2, intercept 1',      class:'Class 7', color:'#4ade80'},
+  {cat:'linear', expr:'y = -x + 3',    name:'y = -x+3',        desc:'Negative slope line',              class:'Class 7', color:'#fb923c'},
+  {cat:'linear', expr:'y = 3',         name:'y = 3',           desc:'Horizontal line',                  class:'Class 6', color:'#f87171'},
+  {cat:'linear', expr:'x = 2',         name:'x = 2',           desc:'Vertical line',                    class:'Class 6', color:'#a78bfa'},
+  // QUADRATIC
+  {cat:'quadratic', expr:'y = x^2',    name:'y = x²',          desc:'Basic parabola (U-shape)',         class:'Class 8', color:'#f5c842'},
+  {cat:'quadratic', expr:'y = -x^2',   name:'y = -x²',         desc:'Inverted parabola',                class:'Class 8', color:'#f87171'},
+  {cat:'quadratic', expr:'y = x^2 - 4',name:'y = x²-4',       desc:'Parabola shifted down',            class:'Class 9', color:'#00d4b8'},
+  {cat:'quadratic', expr:'y = (x-2)^2',name:'y = (x-2)²',     desc:'Parabola shifted right',           class:'Class 9', color:'#a78bfa'},
+  {cat:'quadratic', expr:'y = x^2 + x - 6',name:'y=x²+x-6',   desc:'Quadratic with two roots',         class:'Class 10',color:'#fb923c'},
+  {cat:'quadratic', expr:'y = 2x^2 - 3x + 1',name:'y=2x²-3x+1',desc:'Quadratic: a=2,b=-3,c=1',       class:'Class 10',color:'#4ade80'},
+  // TRIG
+  {cat:'trig', expr:'y = sin(x)',       name:'y = sin(x)',      desc:'Sine wave — oscillating',          class:'Class 10',color:'#60a5fa'},
+  {cat:'trig', expr:'y = cos(x)',       name:'y = cos(x)',      desc:'Cosine wave — starts at 1',        class:'Class 10',color:'#f5c842'},
+  {cat:'trig', expr:'y = tan(x)',       name:'y = tan(x)',      desc:'Tangent — repeating with gaps',    class:'Class 10',color:'#f87171'},
+  {cat:'trig', expr:'y = 2sin(x)',      name:'y = 2sin(x)',     desc:'Sine with amplitude 2',            class:'Class 10',color:'#00d4b8'},
+  {cat:'trig', expr:'y = sin(2x)',      name:'y = sin(2x)',     desc:'Sine with frequency 2',            class:'Class 10',color:'#a78bfa'},
+  // OTHER
+  {cat:'other', expr:'y = sqrt(x)',     name:'y = √x',          desc:'Square root curve',                class:'Class 8', color:'#4ade80'},
+  {cat:'other', expr:'y = abs(x)',      name:'y = |x|',         desc:'Absolute value V-shape',           class:'Class 7', color:'#fb923c'},
+  {cat:'other', expr:'y = 1/x',        name:'y = 1/x',         desc:'Hyperbola (reciprocal)',            class:'Class 9', color:'#f5c842'},
+  {cat:'other', expr:'y = x^3',        name:'y = x³',          desc:'Cubic — S-shaped curve',           class:'Class 9', color:'#60a5fa'},
+  {cat:'other', expr:'y = e^x',        name:'y = eˣ',          desc:'Exponential growth',               class:'Class 10',color:'#f87171'},
+  {cat:'other', expr:'y = log(x)',      name:'y = log(x)',      desc:'Logarithmic curve',                class:'Class 10',color:'#a78bfa'},
+];
+
+// ══════════════════════════════════════════
+// VOICE SETUP — BEST QUALITY SELECTION
+// ══════════════════════════════════════════
+speechSynthesis.onvoiceschanged=()=>{voices=speechSynthesis.getVoices();populateVoices();};
+setTimeout(()=>{voices=speechSynthesis.getVoices();populateVoices();},600);
+
+function populateVoices(){
+  var sel=document.getElementById('v-voice');
+  if(!sel||!voices.length)return;
+  sel.innerHTML='';
+
+  // Priority order — most human-like first
+  // 1. Microsoft Online Natural (Edge — best quality)
+  // 2. Google voices (Chrome — good quality, online)
+  // 3. Tamil voices
+  // 4. Other English voices
+
+  var msNatural = voices.filter(v=>v.name.includes('Microsoft')&&v.name.includes('Online (Natural)')&&v.lang.startsWith('en'));
+  var msNaturalIN = voices.filter(v=>v.name.includes('Microsoft')&&v.name.includes('Online (Natural)')&&v.lang==='en-IN');
+  var googleEn = voices.filter(v=>v.name.startsWith('Google')&&v.lang.startsWith('en'));
+  var ta = voices.filter(v=>v.lang&&v.lang.startsWith('ta'));
+  var msNaturalTA = voices.filter(v=>v.name.includes('Microsoft')&&v.name.includes('Online (Natural)')&&v.lang.startsWith('ta'));
+  var enIN = voices.filter(v=>v.lang==='en-IN'&&!v.name.includes('Microsoft Online'));
+  var enGB = voices.filter(v=>v.lang==='en-GB');
+  var enUS = voices.filter(v=>v.lang.startsWith('en-US')&&!v.name.startsWith('Google'));
+
+  function star(v){return v.name.includes('Natural')||v.name.includes('Neural')?'⭐ Neural — ':'';}
+
+  function addGrp(lbl,arr,def){
+    if(!arr.length)return;
+    var g=document.createElement('optgroup');g.label=lbl;
+    arr.forEach((v,i)=>{
+      var o=document.createElement('option');
+      o.value=voices.indexOf(v);
+      o.textContent=star(v)+v.name;
+      if(def&&i===0)o.selected=true;
+      g.appendChild(o);
+    });
+    sel.appendChild(g);
+  }
+
+  // Best order — Neural/Natural voices first
+  if(msNaturalIN.length) addGrp('🏆 Best Quality — Microsoft Neural Indian',msNaturalIN,lang==='english');
+  else if(msNatural.length) addGrp('🏆 Best Quality — Microsoft Neural English',msNatural,lang==='english');
+
+  if(googleEn.length) addGrp('🥈 Google English (Online)',googleEn,!msNatural.length&&lang==='english');
+
+  if(msNaturalTA.length) addGrp('🏆 Best Tamil — Microsoft Neural',msNaturalTA,lang==='tamil');
+  if(ta.length) addGrp('🇮🇳 Tamil Voices',ta.filter(v=>!msNaturalTA.includes(v)),lang==='tamil'&&!msNaturalTA.length);
+
+  addGrp('🇮🇳 Indian English',enIN,false);
+  addGrp('🇬🇧 British English',enGB,false);
+  addGrp('🇺🇸 American English',enUS,false);
+
+  if(sel.options.length===0) sel.innerHTML='<option>No voices — check browser settings</option>';
+
+  // Add tip
+  var tip=document.createElement('option');
+  tip.disabled=true;
+  tip.textContent='── For best quality use Microsoft Edge ──';
+  // sel.appendChild(tip); // only show if no good voices
+}
+
+function cleanSpk(t){
+  return String(t||'')
+    .replace(/\^2/g,' squared').replace(/\^3/g,' cubed').replace(/\^(\d)/g,' to the power $1')
+    .replace(/sqrt\(([^)]+)\)/g,'square root of $1')
+    .replace(/abs\(([^)]+)\)/g,'absolute value of $1')
+    .replace(/sin\(/g,'sine of ').replace(/cos\(/g,'cosine of ').replace(/tan\(/g,'tangent of ')
+    .replace(/log\(/g,'log of ').replace(/\)/g,' ').replace(/\(/g,' ')
+    .replace(/\*/g,' times ').replace(/\+/g,' plus ').replace(/−/g,' minus ')
+    .replace(/=/g,' equals ').replace(/y/g,' y ').replace(/x/g,' x ')
+    .replace(/\s+/g,' ').trim();
+}
+
+function spk(txt,rate){
+  if(!voiceOn||!txt)return;
+  speechSynthesis.cancel();
+  var utt=new SpeechSynthesisUtterance(cleanSpk(txt));
+  var sel=document.getElementById('v-voice');
+  if(sel&&voices[parseInt(sel.value)])utt.voice=voices[parseInt(sel.value)];
+  var spd=document.getElementById('v-speed');
+  utt.rate=rate||( spd?parseFloat(spd.value):0.88);
+  utt.lang=lang==='tamil'?'ta-IN':'en-IN';
+  speechSynthesis.speak(utt);
+}
+function spkSeq(arr,i){
+  if(i>=arr.length)return;
+  var utt=new SpeechSynthesisUtterance(cleanSpk(arr[i]));
+  var sel=document.getElementById('v-voice');
+  if(sel&&voices[parseInt(sel.value)])utt.voice=voices[parseInt(sel.value)];
+  var spd=document.getElementById('v-speed');
+  utt.rate=spd?parseFloat(spd.value):0.88;
+  utt.lang=lang==='tamil'?'ta-IN':'en-IN';
+  utt.onend=()=>setTimeout(()=>spkSeq(arr,i+1),300);
+  speechSynthesis.speak(utt);
+}
+function stopSpk(){speechSynthesis.cancel();}
+function speakAI(){if(lastAIText)spk(lastAIText);}
+
+// ══════════════════════════════════════════
+// DESMOS INIT
+// ══════════════════════════════════════════
+function initDesmos(){
+  var elt=document.getElementById('desmos-container');
+  calculator=Desmos.GraphingCalculator(elt,{
+    expressionList:true,
+    settingsMenu:true,
+    zoomButtons:true,
+    border:false,
+    backgroundColor:'#111827',
+    textColor:'#f8faff',
+    axisNumbers:true,
+    expressions:true,
+    pointsOfInterest:true,
+    trace:true,
+  });
+  // Set dark theme colours
+  calculator.updateSettings({
+    backgroundColor:'#111827',
+  });
+  // Plot default y=x^2
+  plotExpression('y = x^2','#f5c842');
+}
+
+// ══════════════════════════════════════════
+// PLOT FUNCTIONS
+// ══════════════════════════════════════════
+function plotExpression(expr, color){
+  if(!calculator)return;
+  calculator.setExpression({id:'main',latex:expr,color:color||'#f5c842'});
+  currentExpr=expr;
+  updateFactsStrip(expr);
+}
+
+function plotCustom(){
+  var expr=document.getElementById('custom-expr').value.trim();
+  if(!expr)return;
+  // Convert common notation
+  expr=expr.replace(/y\s*=/,'y =').replace(/Y\s*=/,'y =');
+  plotExpression(expr,'#f5c842');
+  document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active'));
+  // Auto-explain
+  if(aiCache[expr]) showCachedAI(expr);
+  else explainGraph();
+}
+
+function addExpression(){
+  if(!calculator&&!canvasMode)return;
+  var expr=document.getElementById('add-expr').value.trim();
+  if(!expr)return;
+  if(canvasMode){ addExpressionToCanvas(expr); document.getElementById('add-expr').value=''; return; }
+  var colors=['#f87171','#4ade80','#60a5fa','#a78bfa','#fb923c','#00d4b8'];
+  var idx=calculator.getExpressions().length;
+  calculator.setExpression({id:'extra'+idx,latex:expr,color:colors[idx%colors.length]});
+  document.getElementById('add-expr').value='';
+}
+
+function clearAll(){
+  if(canvasMode){ canvasExpressions=[]; drawCanvas(); }
+  else if(calculator){ calculator.setBlank(); }
+  document.getElementById('custom-expr').value='y = x^2';
+  document.querySelectorAll('.preset').forEach(p=>p.classList.remove('active'));
+  document.getElementById('ai-area').style.display='none';
+  updateFactsStrip('');
+}
+
+function setPreset(p, btn){
+  plotExpression(p.expr, p.color);
+  document.getElementById('custom-expr').value=p.expr;
+  document.querySelectorAll('.preset').forEach(x=>x.classList.remove('active'));
+  btn.classList.add('active');
+  // Auto-explain
+  if(aiCache[p.expr]) showCachedAI(p.expr);
+  else explainGraph();
+}
+
+// ══════════════════════════════════════════
+// PRESETS RENDER
+// ══════════════════════════════════════════
+function setCategory(cat,btn){
+  activeCategory=cat;
+  document.querySelectorAll('.cat-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  renderPresets();
+}
+
+function renderPresets(){
+  var filtered=activeCategory==='all'?PRESETS:PRESETS.filter(p=>p.cat===activeCategory);
+  var el=document.getElementById('preset-grid');
+  el.innerHTML=filtered.map((p,i)=>
+    '<div class="preset" onclick="setPreset(PRESETS.find(x=>x.expr===\''+escAttr(p.expr)+'\'),this)">'+
+      '<span class="p-expr" style="color:'+p.color+'">'+escH(p.name)+'</span>'+
+      '<span class="p-name">'+escH(p.desc.substring(0,22))+'</span>'+
+    '</div>'
+  ).join('');
+}
+
+// ══════════════════════════════════════════
+// FACTS STRIP
+// ══════════════════════════════════════════
+function updateFactsStrip(expr){
+  if(!expr){document.getElementById('facts-strip').innerHTML='<div class="fact">Enter an expression to plot</div>';return;}
+  var facts=analyseExpr(expr);
+  document.getElementById('facts-strip').innerHTML=facts.map(f=>'<div class="fact">'+f+'</div>').join('');
+}
+
+function analyseExpr(expr){
+  var facts=[];
+  var e=expr.toLowerCase().replace(/\s/g,'');
+  if(e.includes('sin(')||e.includes('cos(')||e.includes('tan('))facts.push('📐 <strong>Trigonometric</strong> function — wave pattern');
+  if(e.match(/x\^2/)||e.includes('x²'))facts.push('📊 <strong>Quadratic</strong> — parabola shape');
+  if(e.match(/x\^3/))facts.push('〽️ <strong>Cubic</strong> — S-shape curve');
+  if(e.includes('sqrt('))facts.push('√ <strong>Square root</strong> — only for x ≥ 0');
+  if(e.includes('1/x')||e.includes('x^-1'))facts.push('⚠️ <strong>Rational</strong> — undefined at x=0');
+  if(e.includes('log('))facts.push('📈 <strong>Logarithm</strong> — only for x > 0');
+  if(e.includes('e^')||e.includes('exp('))facts.push('📈 <strong>Exponential</strong> — rapid growth');
+  if(e.includes('abs('))facts.push('◀▶ <strong>Absolute value</strong> — V-shape');
+  if(!facts.length&&(e.match(/y\s*=\s*[^x]*x[^x2^]/)&&!e.includes('^')))facts.push('📏 <strong>Linear</strong> — straight line');
+  facts.push('✏️ <strong>Expression:</strong> '+expr);
+  return facts;
+}
+
+// ══════════════════════════════════════════
+// AI EXPLANATION
+// ══════════════════════════════════════════
+var aiTamilMode=false;
+
+function setLang(l,btn){
+  lang=l;
+  document.querySelectorAll('.lang-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  populateVoices();
+}
+
+async function explainGraph(tamilOnly){
+  var expr=currentExpr||document.getElementById('custom-expr').value.trim();
+  if(!expr)return;
+  if(tamilOnly)lang='tamil';
+
+  var area=document.getElementById('ai-area');
+  var content=document.getElementById('ai-content');
+  var tamilArea=document.getElementById('tamil-area');
+  area.style.display='block';
+  content.innerHTML='<div class="loading-row"><div class="spin"></div>AI is explaining this graph...</div>';
+  tamilArea.style.display='none';
+  document.getElementById('ai-title').textContent='✨ Explaining: '+expr;
+
+  var langInstr=lang==='tamil'?'Respond ONLY in Tamil.':
+                lang==='both' ?'Explain in English. Then add a Tamil translation at the end labelled TAMIL:':
+                               'Respond in clear English for a school student.';
+
+  var p=`You are an expert Maths teacher explaining the graph of "${expr}" to a Tamil Nadu school student.
+${langInstr}
+
+Explain in this order:
+1. What type of graph this is (linear/quadratic/trig/etc.)
+2. What it looks like (shape, direction)
+3. Key features (where it crosses axes, vertex if any, max/min, asymptotes if any)
+4. One specific real-life Tamil Nadu example where this graph/function appears
+5. One helpful tip for students
+
+Keep it warm, encouraging, and clear. Not too long — 4-5 sentences per point.`;
+
+  try{
+    var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:800,messages:[{role:'user',content:p}]}})});
+    var data=await res.json();
+    var txt=data.content[0].text;
+
+    // Split English and Tamil if both
+    var enText=txt, tText='';
+    if(lang==='both'){
+      var tIdx=txt.indexOf('TAMIL:');
+      if(tIdx>-1){enText=txt.substring(0,tIdx).trim();tText=txt.substring(tIdx+6).trim();}
+    }
+
+    aiCache[expr]={en:enText,ta:tText};
+    lastAIText=enText||txt;
+    lastTamilText=tText;
+
+    content.innerHTML=formatAIText(lang==='tamil'?txt:enText);
+    if(tText){
+      tamilArea.style.display='block';
+      document.getElementById('tamil-content').textContent=tText;
+    } else if(lang==='tamil'){
+      tamilArea.style.display='none';
+    }
+
+    if(voiceOn){
+      if(lang==='both') spkSeq([enText, tText].filter(Boolean),0);
+      else spk(lang==='tamil'?txt:enText);
+    }
+
+  }catch(err){
+    content.innerHTML='<div style="color:var(--rose);font-size:0.82rem;">Error: '+err.message+'</div>';
+  }
+}
+
+function showCachedAI(expr){
+  var c=aiCache[expr];if(!c)return;
+  var area=document.getElementById('ai-area');
+  var content=document.getElementById('ai-content');
+  var tamilArea=document.getElementById('tamil-area');
+  area.style.display='block';
+  content.innerHTML=formatAIText(c.en);
+  document.getElementById('ai-title').textContent='✨ Explaining: '+expr;
+  lastAIText=c.en; lastTamilText=c.ta;
+  if(c.ta){
+    tamilArea.style.display='block';
+    document.getElementById('tamil-content').textContent=c.ta;
+  }
+  if(voiceOn)spk(c.en);
+}
+
+function formatAIText(txt){
+  return txt
+    .replace(/\n\n/g,'</p><p style="margin-top:8px;">')
+    .replace(/\n/g,'<br/>')
+    .replace(/\*\*(.*?)\*\*/g,'<strong style="color:var(--gold);">$1</strong>')
+    .replace(/\*(.*?)\*/g,'<em style="color:var(--teal2);">$1</em>');
+}
+
+async function showRealWorld(){
+  var expr=currentExpr;
+  if(!expr)return;
+  var area=document.getElementById('ai-area');
+  var content=document.getElementById('ai-content');
+  area.style.display='block';
+  content.innerHTML='<div class="loading-row"><div class="spin"></div>Finding real-life examples...</div>';
+  document.getElementById('ai-title').textContent='🌍 Real Life Uses of '+expr;
+  document.getElementById('tamil-area').style.display='none';
+
+  var langI=lang==='tamil'?'Respond in Tamil.':lang==='both'?'Explain in English, then Tamil translation labelled TAMIL:':'Respond in English.';
+  var p='Give 3 specific real-life Tamil Nadu examples where the graph of "'+expr+'" appears or is used. For each: give the context (Chennai, Cauvery river, cricket ground, paddy field, auto-rickshaw etc.), explain what x and y mean in that context, and why this shape/pattern appears. Make it vivid and specific. '+langI;
+
+  try{
+    var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:700,messages:[{role:'user',content:p}]}})});
+    var data=await res.json();
+    var txt=data.content[0].text;
+    var enText=txt, tText='';
+    if(lang==='both'){var ti=txt.indexOf('TAMIL:');if(ti>-1){enText=txt.substring(0,ti).trim();tText=txt.substring(ti+6).trim();}}
+    lastAIText=enText||txt; lastTamilText=tText;
+    content.innerHTML=formatAIText(lang==='tamil'?txt:enText);
+    if(tText){document.getElementById('tamil-area').style.display='block';document.getElementById('tamil-content').textContent=tText;}
+    if(voiceOn)spk(lang==='tamil'?txt:enText);
+  }catch(err){content.innerHTML='<div style="color:var(--rose);">Error: '+err.message+'</div>';}
+}
+
+// ══════════════════════════════════════════
+// UTILS
+// ══════════════════════════════════════════
+function escH(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function escAttr(t){return String(t||'').replace(/'/g,"\\'").replace(/\n/g,' ');}
+
+// ══════════════════════════════════════════
+// INIT — load Desmos dynamically, fallback to canvas
+// ══════════════════════════════════════════
+var desmosLoaded = false;
+
+function startApp(){
+  renderPresets();
+  updateFactsStrip('y = x^2');
+  setTimeout(()=>explainGraph(), 2200);
+}
+
+function showLoadingState(msg){
+  document.getElementById('desmos-container').innerHTML =
+    '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;background:#111827;color:rgba(255,255,255,0.5);font-family:Lexend,sans-serif;gap:14px;">'+
+    '<div style="width:40px;height:40px;border:3px solid rgba(245,200,66,0.2);border-top-color:#f5c842;border-radius:50%;animation:spin 0.8s linear infinite;"></div>'+
+    '<div style="font-size:0.9rem;">'+msg+'</div></div>';
+}
+
+function loadDesmos(){
+  showLoadingState('Loading Desmos graph calculator...');
+  var script = document.createElement('script');
+  script.src = 'https://www.desmos.com/api/v1.9/calculator.js?apiKey=dcb31709b452b1cf9dc26972add0fda6';
+  script.onload = function(){
+    desmosLoaded = true;
+    document.getElementById('desmos-container').innerHTML = '';
+    initDesmos();
+    startApp();
+  };
+  script.onerror = function(){
+    console.warn('Desmos failed to load — using canvas fallback');
+    initCanvasFallback();
+    startApp();
+  };
+  // Timeout fallback — if Desmos doesn't respond in 5 seconds
+  var timeout = setTimeout(function(){
+    if(!desmosLoaded){
+      console.warn('Desmos timeout — using canvas fallback');
+      initCanvasFallback();
+      startApp();
+    }
+  }, 5000);
+  script.addEventListener('load', ()=>clearTimeout(timeout));
+  document.head.appendChild(script);
+}
+
+// ══════════════════════════════════════════
+// CANVAS FALLBACK — built-in graph plotter
+// using mathjs (loaded from CDN)
+// ══════════════════════════════════════════
+var mathEngine = null;
+var canvasMode = false;
+var canvasExpressions = [];
+
+function initCanvasFallback(){
+  canvasMode = true;
+  desmosLoaded = false;
+  document.getElementById('canvas-mode-banner').style.display='block';
+  var container = document.getElementById('desmos-container');
+  container.innerHTML =
+    '<canvas id="fallback-canvas" style="width:100%;height:100%;background:#111827;display:block;"></canvas>';
+
+  // Load mathjs for expression evaluation
+  var ms = document.createElement('script');
+  ms.src = 'https://cdnjs.cloudflare.com/ajax/libs/mathjs/12.4.2/math.min.js';
+  ms.onload = function(){
+    mathEngine = window.math;
+    plotExpression('y = x^2','#f5c842');
+  };
+  ms.onerror = function(){
+    container.innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;height:100%;background:#111827;flex-direction:column;gap:12px;padding:20px;text-align:center;">'+
+      '<div style="font-size:2rem;">📊</div>'+
+      '<div style="color:var(--gold);font-weight:700;font-family:Lexend,sans-serif;">Graph Plotter needs internet</div>'+
+      '<div style="color:rgba(255,255,255,0.5);font-size:0.82rem;font-family:Lexend,sans-serif;">Please check your internet connection and refresh the page.<br/>The Desmos graph engine requires a live connection.</div>'+
+      '<button onclick="location.reload()" style="background:var(--gold);color:#0a0f1e;border:none;border-radius:10px;padding:9px 18px;font-weight:700;cursor:pointer;font-family:Lexend,sans-serif;">🔄 Retry</button>'+
+      '</div>';
+  };
+  document.head.appendChild(ms);
+  window.addEventListener('resize', ()=>{ if(canvasMode)redrawCanvas(); });
+}
+
+function drawCanvas(){
+  var canvas = document.getElementById('fallback-canvas');
+  if(!canvas||!mathEngine)return;
+  var W = canvas.clientWidth; var H = canvas.clientHeight;
+  canvas.width = W; canvas.height = H;
+  var ctx = canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  ctx.fillStyle='#111827'; ctx.fillRect(0,0,W,H);
+
+  var cx=W/2, cy=H/2, scale=40;
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.05)'; ctx.lineWidth=1;
+  for(var gx=cx%scale; gx<=W; gx+=scale){ ctx.beginPath();ctx.moveTo(gx,0);ctx.lineTo(gx,H);ctx.stroke(); }
+  for(var gy=cy%scale; gy<=H; gy+=scale){ ctx.beginPath();ctx.moveTo(0,gy);ctx.lineTo(W,gy);ctx.stroke(); }
+
+  // Axes
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1.5;
+  ctx.beginPath();ctx.moveTo(0,cy);ctx.lineTo(W,cy);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(cx,0);ctx.lineTo(cx,H);ctx.stroke();
+
+  // Axis labels
+  ctx.fillStyle='rgba(255,255,255,0.3)';ctx.font='10px Lexend,sans-serif';ctx.textAlign='center';
+  for(var i=-10;i<=10;i+=2){
+    if(i===0)continue;
+    ctx.fillText(i, cx+i*scale, cy+14);
+    ctx.textAlign='right';
+    ctx.fillText(-i, cx-7, cy+i*scale+4);
+    ctx.textAlign='center';
+  }
+
+  // Plot each expression
+  var colors=['#f5c842','#f87171','#4ade80','#60a5fa','#a78bfa','#fb923c'];
+  canvasExpressions.forEach(function(item,idx){
+    try{
+      var compiled = mathEngine.compile(item.expr.replace(/y\s*=\s*/,''));
+      ctx.strokeStyle = item.color||colors[idx%colors.length];
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      var started=false;
+      for(var px=0;px<W;px++){
+        var x=(px-cx)/scale;
+        try{
+          var y=compiled.evaluate({x});
+          if(!isFinite(y)||Math.abs(y)>1000){started=false;continue;}
+          var py=cy-y*scale;
+          if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);
+        }catch(e){started=false;}
+      }
+      ctx.stroke();
+      // Label
+      ctx.fillStyle=item.color||colors[idx%colors.length];
+      ctx.font='bold 12px JetBrains Mono,monospace';
+      ctx.textAlign='left';
+      ctx.fillText(item.expr, 10, 20+idx*18);
+    }catch(e){}
+  });
+}
+
+function redrawCanvas(){
+  if(canvasMode) drawCanvas();
+}
+
+// Override plotExpression for canvas mode
+var _origPlotExpression = null;
+
+function plotExpression(expr, color){
+  currentExpr = expr;
+  updateFactsStrip(expr);
+
+  if(canvasMode){
+    // Canvas fallback mode
+    canvasExpressions = [{expr, color:color||'#f5c842'}];
+    if(mathEngine) drawCanvas();
+    return;
+  }
+
+  // Desmos mode
+  if(!calculator) return;
+  try{
+    calculator.setExpression({id:'main', latex:expr, color:color||'#f5c842'});
+  }catch(e){
+    console.warn('Desmos setExpression error:', e);
+  }
+}
+
+// Override addExpression for canvas mode
+var _origAddExpression = null;
+function addExpressionToCanvas(expr){
+  canvasExpressions.push({expr, color:['#f87171','#4ade80','#60a5fa','#a78bfa'][canvasExpressions.length%4]});
+  if(mathEngine) drawCanvas();
+}
+
+// Start loading
+loadDesmos();
+</script>
+</body>
+</html>
