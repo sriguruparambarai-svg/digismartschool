@@ -460,20 +460,53 @@ async function generateTeachingScript(subj, cls, topic, lessonText){
   var langInstr =
     teachLang === 'tamil'
     ? `LANGUAGE: Teach ONLY in Tamil. Use pure Tamil script.
-Example: "மாணவர்களே... கவனமா கேளுங்க. இன்னைக்கு நாம் ஒரு முக்கியமான topic பார்க்கப் போறோம்."`
+Each segment lang field must be "ta".
+Example segment: {"text":"மாணவர்களே... கவனமா கேளுங்க.", "tone":"strict", "pause":1.5, "lang":"ta", "type":"open"}`
     : teachLang === 'english'
     ? `LANGUAGE: Teach ONLY in English. Clear Indian school English.
-Example: "Students... listen carefully. Today we are going to learn something very important."`
-    : `LANGUAGE: Tamil + English MIXED naturally. This is CRITICAL.
-Rules:
-- DO NOT translate. DO NOT do English line then Tamil line.
-- Mix in the SAME sentence as a real Tamil Nadu teacher speaks:
-  ✅ CORRECT: "Photosynthesis என்றால் என்னனா... plants sunlight use பண்ணி food தயாரிக்கும் process."
-  ✅ CORRECT: "Students, இந்த formula மனசுல வச்சுக்கோங்க — very important for exam."
-  ❌ WRONG: Saying a line in English, then repeating same meaning in Tamil.
-  ❌ WRONG: Formal translation tone.
-- Tamil words in Tamil script. English words in English.
-- Natural switching mid-sentence is correct and expected.`;
+Each segment lang field must be "en".
+Example segment: {"text":"Students... listen carefully.", "tone":"strict", "pause":1.5, "lang":"en", "type":"open"}`
+    : `LANGUAGE MODE: Tamil + English — SPLIT INTO SEPARATE SEGMENTS.
+
+THIS IS THE MOST CRITICAL RULE IN THIS ENTIRE PROMPT.
+
+❌ NEVER put Tamil and English words in the SAME segment text.
+✅ ALWAYS split into separate segments by language.
+
+WHY: The voice engine speaks each segment with a dedicated voice. If Tamil and English
+are mixed in one segment, the Tamil words get SKIPPED entirely.
+
+SPLITTING RULE:
+When a thought naturally mixes Tamil and English, split it across consecutive segments:
+
+WRONG (do not do this):
+{"text": "Photosynthesis என்றால் என்னனா plants sunlight use பண்ணி food தயாரிக்கும் process.", "lang": "mixed"}
+
+CORRECT (do this):
+{"text": "Photosynthesis.", "lang": "en", "tone": "normal", "pause": 0.5, "type": "explain"},
+{"text": "என்றால் என்னனா...", "lang": "ta", "tone": "normal", "pause": 0.6, "type": "explain"},
+{"text": "Plants use sunlight to make food.", "lang": "en", "tone": "normal", "pause": 0.8, "type": "explain"},
+{"text": "இதுதான் photosynthesis.", "lang": "ta", "tone": "normal", "pause": 1.0, "type": "explain"}
+
+MORE EXAMPLES OF CORRECT SPLITTING:
+
+Input idea: "Students, இன்று நாம் fractions பற்றி கற்போம்."
+Split into:
+{"text": "Students...", "lang": "en", "pause": 0.5},
+{"text": "இன்று நாம் fractions பற்றி கற்போம்.", "lang": "ta", "pause": 1.0}
+
+Input idea: "REMEMBER THIS — ஒளிச்சேர்க்கை என்பது very important."
+Split into:
+{"text": "REMEMBER THIS.", "lang": "en", "pause": 0.6},
+{"text": "ஒளிச்சேர்க்கை என்பது மிக முக்கியமான ஒன்று.", "lang": "ta", "pause": 1.5}
+
+VALID lang values: "en" (English only), "ta" (Tamil only)
+DO NOT use "mixed". Every segment must be purely one language.
+
+Classroom address phrases by language:
+- English segments: "Students...", "Children...", "Now class...", "Listen carefully..."
+- Tamil segments: "மாணவர்களே...", "கவனமா கேளுங்க...", "நண்பர்களே...", "சரியா கேளுங்க..."`;
+
 
   // ── SUBJECT-SPECIFIC RULES ──
   var subjectRules = {
@@ -565,24 +598,26 @@ RULE 4 — PAUSES (CRITICAL FOR NATURAL FEEL)
 - After a question → 2.5 to 3.0 seconds (give students time to think)
 - Between steps in Maths/Science → 1.5 seconds
 
-RULE 5 — BILINGUAL NATURAL MIX
-${teachLang === 'mixed' ? `Mix Tamil+English naturally mid-sentence. See language rules above.
-NEVER do: Tamil sentence → same meaning in English (that is translation, not mixing).
-DO: "Okay class... இந்த concept very important. Carefully கேளுங்க."` : 'See language rules above.'}
+RULE 5 — LANGUAGE SPLITTING (CRITICAL — NEVER BREAK THIS)
+${teachLang === 'mixed' ? `NEVER put Tamil and English in the same segment text.
+Split every mixed idea into consecutive single-language segments.
+Each segment must be PURELY Tamil ("lang":"ta") OR PURELY English ("lang":"en").
+The voice engine uses a different voice per segment — mixing causes Tamil to be skipped.` : 'See language rules above.'}
 
 RULE 6 — STEP-BY-STEP (DO NOT DUMP ALL AT ONCE)
 - Introduce concept first. Then explain. Then example. Then key point. Then question.
 - Think of it as: Hook → Explain → Show → Confirm → Move forward.
 
-RULE 7 — LESSON STRUCTURE (12–15 SEGMENTS)
+RULE 7 — LESSON STRUCTURE (12–20 SEGMENTS)
+Note: splitting Tamil/English means more segments — this is expected and correct.
 Segment 1–2:   Opening / attention grab (strict tone)
-Segment 3–5:   Core concept introduction (normal tone)
-Segment 6–7:   First key point + example (normal + emphasis)
-Segment 8–9:   Second key point + real-life connection (normal)
-Segment 10–11: Key formula / definition (emphasis + command to write)
-Segment 12:    Student question (question tone)
-Segment 13–14: Summary + closing (normal + emphasis)
-Segment 15:    Motivational close (normal, warm)
+Segment 3–6:   Core concept introduction (normal tone, split by language)
+Segment 7–9:   First key point + example (normal + emphasis, split by language)
+Segment 10–12: Second key point + real-life connection (normal, split by language)
+Segment 13–14: Key formula / definition (emphasis + command to write)
+Segment 15:    Student question (question tone)
+Segment 16–18: Summary + closing (normal + emphasis, split by language)
+Segment 19–20: Motivational close (normal, warm)
 
 RULE 8 — SUBJECT RULES
 ${subjectRules}
@@ -597,6 +632,8 @@ DO NOT DO THESE (STRICTLY FORBIDDEN):
 ❌ Do NOT forget to address students directly
 ❌ Do NOT use symbols in Maths (write them as spoken words)
 ❌ Do NOT generate more than 2 sentences per segment
+❌ Do NOT use lang:"mixed" — EVERY segment must be "en" or "ta" only
+❌ Do NOT put Tamil script and English letters in the same segment text
 
 ═══════════════════════════════════════════
 OUTPUT FORMAT — STRICT JSON ONLY
@@ -606,24 +643,45 @@ Each object must have EXACTLY these fields:
 
 [
   {
-    "text": "Students... settle down. Today we have something very important.",
+    "text": "Students... settle down.",
     "tone": "strict",
     "pause": 1.5,
-    "language": "mixed",
+    "lang": "en",
     "type": "open"
   },
   {
-    "text": "Photosynthesis என்றால் என்னனா... plants sunlight use பண்ணி food தயாரிக்கும் process.",
+    "text": "இன்று நாம் ஒரு முக்கியமான பாடம் படிக்கப் போறோம்.",
+    "tone": "strict",
+    "pause": 1.2,
+    "lang": "ta",
+    "type": "open"
+  },
+  {
+    "text": "Photosynthesis.",
+    "tone": "normal",
+    "pause": 0.5,
+    "lang": "en",
+    "type": "explain"
+  },
+  {
+    "text": "என்றால் என்னனா...",
+    "tone": "normal",
+    "pause": 0.6,
+    "lang": "ta",
+    "type": "explain"
+  },
+  {
+    "text": "Plants use sunlight to make their own food.",
     "tone": "normal",
     "pause": 1.0,
-    "language": "mixed",
+    "lang": "en",
     "type": "explain"
   }
 ]
 
 VALID tone values: "strict", "normal", "emphasis", "question", "command"
 VALID type values: "open", "explain", "example", "emphasis", "question", "command", "close"
-VALID language values: "mixed", "tamil", "english"
+VALID lang values: "en", "ta"   ← ONLY these two. NEVER "mixed".
 
 RETURN ONLY THE JSON ARRAY. START WITH [ AND END WITH ].`;
 
@@ -661,18 +719,31 @@ RETURN ONLY THE JSON ARRAY. START WITH [ AND END WITH ].`;
   parsed = parsed.map(function(seg, i){
     var validTones = ['strict','normal','emphasis','question','command'];
     var validTypes = ['open','explain','example','emphasis','question','command','close'];
+
+    // Accept both new ("lang":"en"/"ta") and legacy ("language":"english"/"tamil"/"mixed")
+    var rawLang = seg.lang || seg.language || '';
+    var lang = 'en'; // default
+    if(rawLang === 'ta' || rawLang === 'tamil') lang = 'ta';
+    else if(rawLang === 'en' || rawLang === 'english') lang = 'en';
+    else {
+      // Auto-detect from text: if majority chars are Tamil script → 'ta'
+      var tamilCount = (String(seg.text||'').match(/[\u0B80-\u0BFF]/g)||[]).length;
+      var engCount   = (String(seg.text||'').match(/[a-zA-Z]/g)||[]).length;
+      lang = tamilCount > engCount ? 'ta' : 'en';
+    }
+
     return {
       text:           String(seg.text || '').trim(),
       tone:           validTones.includes(seg.tone) ? seg.tone : 'normal',
-      pause:          typeof seg.pause === 'number' ? Math.max(0.5, Math.min(4.0, seg.pause)) : 1.0,
-      language:       ['mixed','tamil','english'].includes(seg.language) ? seg.language : teachLang,
+      pause:          typeof seg.pause === 'number' ? Math.max(0.3, Math.min(4.0, seg.pause)) : 1.0,
+      lang:           lang,         // "en" or "ta"
+      language:       lang,         // keep legacy field in sync for any existing code
       type:           validTypes.includes(seg.type) ? seg.type : 'explain',
-      // Math symbol conversion via voice-engine.js
       math_converted: typeof DSVoice !== 'undefined' ? DSVoice.Math.convert(seg.text || '') : (seg.text || ''),
       _orig:          String(seg.text || '').trim(),
       _idx:           i
     };
-  }).filter(seg => seg.text.length > 0); // remove empty segments
+  }).filter(seg => seg.text.length > 0);
 
   teachScript = parsed;
 }
@@ -865,7 +936,7 @@ async function speakSegment(seg, onEnd){
       var res = await fetch('/api/voice', {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ text: text, tone: tone })
+        body: JSON.stringify({ text: text, tone: tone, lang: seg.lang || 'en' })
       });
       if(!res.ok) throw new Error('API ' + res.status);
       var data = await res.json();
