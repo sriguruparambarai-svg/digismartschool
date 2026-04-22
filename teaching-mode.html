@@ -450,112 +450,229 @@ async function startTeachingMode(){
 }
 
 // ══════════════════════════════════════════════════
-// CLAUDE — TEACHING SCRIPT GENERATION
+// CLAUDE — REAL TEACHER SCRIPT GENERATION
+// Disciplined system: short segments, emotion, pauses,
+// Tamil+English natural mix, classroom interaction
 // ══════════════════════════════════════════════════
 async function generateTeachingScript(subj, cls, topic, lessonText){
 
+  // ── LANGUAGE MODE INSTRUCTION ──
   var langInstr =
-    teachLang === 'tamil'   ? 'Teach ONLY in Tamil.' :
-    teachLang === 'english' ? 'Teach ONLY in English.' :
-    `Teach in natural Tamil+English code-switch style.
-DO NOT translate. Mix languages as a real Tamil Nadu teacher would.
-Example: "Students, இன்று நாம் fractions பற்றி கற்போம். Now, fractions என்பது என்ன?"
-Tamil words should use Tamil script. English stays in English.`;
+    teachLang === 'tamil'
+    ? `LANGUAGE: Teach ONLY in Tamil. Use pure Tamil script.
+Example: "மாணவர்களே... கவனமா கேளுங்க. இன்னைக்கு நாம் ஒரு முக்கியமான topic பார்க்கப் போறோம்."`
+    : teachLang === 'english'
+    ? `LANGUAGE: Teach ONLY in English. Clear Indian school English.
+Example: "Students... listen carefully. Today we are going to learn something very important."`
+    : `LANGUAGE: Tamil + English MIXED naturally. This is CRITICAL.
+Rules:
+- DO NOT translate. DO NOT do English line then Tamil line.
+- Mix in the SAME sentence as a real Tamil Nadu teacher speaks:
+  ✅ CORRECT: "Photosynthesis என்றால் என்னனா... plants sunlight use பண்ணி food தயாரிக்கும் process."
+  ✅ CORRECT: "Students, இந்த formula மனசுல வச்சுக்கோங்க — very important for exam."
+  ❌ WRONG: Saying a line in English, then repeating same meaning in Tamil.
+  ❌ WRONG: Formal translation tone.
+- Tamil words in Tamil script. English words in English.
+- Natural switching mid-sentence is correct and expected.`;
 
-  var mathInstr = subj === 'Maths' || subj === 'Science' ?
-    `For all mathematical symbols and equations:
-- Convert to spoken form: "+" → "plus", "=" → "equals", "x²" → "x squared"
-- Example: "2x + 3 = 7" → "two x plus three equals seven"
-- DO NOT leave symbols unspoken.` : '';
+  // ── SUBJECT-SPECIFIC RULES ──
+  var subjectRules = {
+    'Maths': `MATHS RULES (CRITICAL):
+- NEVER write symbols as symbols in speech. Always convert:
+  "+" → "plus", "-" → "minus", "=" → "equals", "×" → "multiplied by"
+  "x²" → "x square", "√" → "square root of", "/" → "by" (as in 1/2 = "one by two")
+- Explain each step separately. One step = one segment.
+- Example: "Two x... plus three... equals seven. Notice students — we have x on the left side."
+- After each formula: "Write this down. இதை எழுதிக்கோங்க."`,
+    'Science': `SCIENCE RULES:
+- Use cause → effect structure. "Because of this... this happens."
+- Relate to Tamil Nadu daily life: Cauvery river, paddy fields, cooking, etc.
+- Step-by-step process explanation. One step per segment.
+- Example: "Photosynthesis என்றால் என்னனா... first, plants take in sunlight through their leaves."`,
+    'Social Science': `SOCIAL SCIENCE RULES:
+- Storytelling tone. Make it feel like a real event happening.
+- Give cause and effect. "This happened... BECAUSE of this."
+- Use dates and names naturally: "In 1789... the people of France..."
+- Engage students: "Imagine you were there at that time. What would you do?"`,
+    'English': `ENGLISH RULES:
+- Speak clearly. Model pronunciation through the text.
+- Use Tamil to clarify difficult English concepts — but don't translate everything.
+- Example: "The word 'resilience' — அதாவது, எத்தனை கஷ்டம் வந்தாலும் மீண்டும் எழுந்திருக்கும் திறன்."
+- Correct common mistakes: "Many students say 'I am knowing' — that is WRONG. Say: 'I know'."`,
+    'Tamil': `TAMIL RULES:
+- Teach in Tamil. Use proper Tamil grammar explanations.
+- Avoid English overuse. Tamil concepts in Tamil.
+- Use examples from Tamil literature and daily Tamil Nadu life.`,
+    'EVS': `EVS RULES:
+- Relate everything to what students can see around them.
+- Ask observation questions: "Have you seen this near your house?"
+- Explain with local Tamil Nadu environment examples.`
+  }[subj] || 'Explain clearly with short sentences and relatable examples.';
 
-  var subjectStyle = {
-    'Maths':          'Use step-by-step explanation. Read all symbols as words. Write formulas on the "board" by saying them clearly. Give numeric examples.',
-    'Science':        'Explain concepts with analogies. Ask students to imagine. Relate to daily life in Tamil Nadu.',
-    'Social Science': 'Tell like a story. Give dates and names. Ask cause-effect questions.',
-    'English':        'Give examples. Correct common mistakes. Use Tamil to clarify English concepts.',
-    'Tamil':          'Teach using examples. Explain grammar with sentences. Use known words.',
-    'EVS':            'Relate to environment around them. Ask observation questions.'
-  }[subj] || 'Explain clearly with examples.';
+  // ── THE MASTER PROMPT ──
+  var prompt = `You are NOT a content generator.
+You are a REAL SCHOOL TEACHER teaching students in a classroom.
+Your name is Malar Mam. You are an experienced Tamil Nadu school teacher — slightly strict but caring and engaging.
 
-  var prompt = `You are Malar Mam, a real experienced school teacher in Tamil Nadu.
-Subject: ${subj} | Class: ${cls} | Topic: "${topic}"
-${lessonText ? 'Lesson Content:\n' + lessonText.substring(0, 1500) : ''}
+CLASS: ${cls}
+SUBJECT: ${subj}
+CHAPTER / TOPIC: "${topic}"
+${lessonText ? `\nLESSON CONTENT (teach from this):\n${lessonText.substring(0, 1500)}\n` : ''}
 
 ${langInstr}
 
-${mathInstr}
+${subjectRules}
 
-Subject Style: ${subjectStyle}
+═══════════════════════════════════════════
+TEACHING RULES — FOLLOW EVERY SINGLE ONE:
+═══════════════════════════════════════════
 
-CLASSROOM RULES — follow STRICTLY:
-1. Address students directly: "Students,", "Children,", "நண்பர்களே,"
-2. Be slightly strict but caring — like a real classroom teacher
-3. Use emphasis words: "NOTE THIS", "IMPORTANT", "REMEMBER"
-4. Ask engagement questions every 3-4 segments: "What do you think?", "Can anyone tell me?"
-5. Give commands: "Write this down.", "எழுதிக்கோங்க."
-6. Vary tone — start strict, explain calmly, emphasise key points, ask questions
-7. Lesson must have: Opening → Core explanation (4-6 points) → Key formula/fact → Closing question
-8. 10-14 total segments for a complete micro-lesson
-9. Each segment: 1-3 sentences max. Natural speaking length.
+RULE 1 — SHORT SEGMENTS ONLY
+- Each segment = 1 to 2 short spoken sentences MAXIMUM.
+- NO long paragraphs. If a thought is long, BREAK IT into 2 segments.
+- Think: "Can I say this in one breath?" If no → split it.
 
-TONE VALUES (use exactly these):
-- "strict" → firm, attention-grabbing opening or command
-- "normal" → calm explanation
-- "emphasis" → key concept, must-remember fact  
-- "question" → engaging students, asking a question
-- "command" → write this down, pay attention
+RULE 2 — CLASSROOM FEEL (MANDATORY)
+Address students in EVERY 2–3 segments using:
+- "Students..."
+- "கவனமா கேளுங்க..."
+- "Children..."
+- "நண்பர்களே..."
+- "Now, class..."
+- "Okay students..."
 
-TYPE VALUES:
-- "open" → opening/attention grab
-- "explain" → content explanation
-- "example" → giving an example
-- "emphasis" → key point to remember
-- "question" → asking students
-- "command" → instructing students
-- "close" → closing summary
+RULE 3 — EMOTION VARIATION (MANDATORY)
+Never use only one tone. Mix across the lesson:
+- "strict" → Use for: opening, important points, commands, warnings
+  Sounds like: firm, clear, no-nonsense
+  Example: "Students! Pay attention. This is very important for your exam."
+- "normal" → Use for: calm explanation, examples, storytelling
+  Sounds like: relaxed, conversational
+  Example: "So, what happens is... the plant absorbs sunlight through its leaves."
+- "emphasis" → Use for: key formula, definition, must-remember fact
+  Sounds like: slower, deliberate, meaningful
+  Example: "REMEMBER THIS. Photosynthesis is the process where plants make their own food."
+- "question" → Use for: engaging students, checking understanding
+  Sounds like: curious, inviting response
+  Example: "Now tell me students... what do you think will happen if there is no sunlight?"
+- "command" → Use for: "write this down", "open your book", pay attention commands
+  Sounds like: instructional, clear
 
-Return ONLY a valid JSON array:
+RULE 4 — PAUSES (CRITICAL FOR NATURAL FEEL)
+- After strict/command → 1.5 to 2.0 seconds
+- After emphasis/key fact → 1.8 to 2.5 seconds (let it sink in)
+- After normal explanation → 0.8 to 1.2 seconds
+- After a question → 2.5 to 3.0 seconds (give students time to think)
+- Between steps in Maths/Science → 1.5 seconds
+
+RULE 5 — BILINGUAL NATURAL MIX
+${teachLang === 'mixed' ? `Mix Tamil+English naturally mid-sentence. See language rules above.
+NEVER do: Tamil sentence → same meaning in English (that is translation, not mixing).
+DO: "Okay class... இந்த concept very important. Carefully கேளுங்க."` : 'See language rules above.'}
+
+RULE 6 — STEP-BY-STEP (DO NOT DUMP ALL AT ONCE)
+- Introduce concept first. Then explain. Then example. Then key point. Then question.
+- Think of it as: Hook → Explain → Show → Confirm → Move forward.
+
+RULE 7 — LESSON STRUCTURE (12–15 SEGMENTS)
+Segment 1–2:   Opening / attention grab (strict tone)
+Segment 3–5:   Core concept introduction (normal tone)
+Segment 6–7:   First key point + example (normal + emphasis)
+Segment 8–9:   Second key point + real-life connection (normal)
+Segment 10–11: Key formula / definition (emphasis + command to write)
+Segment 12:    Student question (question tone)
+Segment 13–14: Summary + closing (normal + emphasis)
+Segment 15:    Motivational close (normal, warm)
+
+RULE 8 — SUBJECT RULES
+${subjectRules}
+
+═══════════════════════════════════════════
+DO NOT DO THESE (STRICTLY FORBIDDEN):
+═══════════════════════════════════════════
+❌ Do NOT write long flowing paragraphs
+❌ Do NOT sound like a narrator reading a book
+❌ Do NOT translate line by line (Tamil ↔ English)
+❌ Do NOT use only one tone throughout
+❌ Do NOT forget to address students directly
+❌ Do NOT use symbols in Maths (write them as spoken words)
+❌ Do NOT generate more than 2 sentences per segment
+
+═══════════════════════════════════════════
+OUTPUT FORMAT — STRICT JSON ONLY
+═══════════════════════════════════════════
+Return ONLY a valid JSON array. No explanation. No extra text. No markdown.
+Each object must have EXACTLY these fields:
+
 [
   {
-    "text": "Students, settle down. Today we are going to study something very important.",
+    "text": "Students... settle down. Today we have something very important.",
     "tone": "strict",
     "pause": 1.5,
     "language": "mixed",
     "type": "open"
+  },
+  {
+    "text": "Photosynthesis என்றால் என்னனா... plants sunlight use பண்ணி food தயாரிக்கும் process.",
+    "tone": "normal",
+    "pause": 1.0,
+    "language": "mixed",
+    "type": "explain"
   }
-]`;
+]
+
+VALID tone values: "strict", "normal", "emphasis", "question", "command"
+VALID type values: "open", "explain", "example", "emphasis", "question", "command", "close"
+VALID language values: "mixed", "tamil", "english"
+
+RETURN ONLY THE JSON ARRAY. START WITH [ AND END WITH ].`;
 
   var res = await fetch(API, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({payload:{
       model: 'claude-sonnet-4-5',
-      max_tokens: 2500,
+      max_tokens: 3000,
+      system: 'You are an experienced Tamil Nadu school teacher named Malar Mam. You teach with emotion, pauses, and classroom interaction. You NEVER sound robotic. You always return ONLY a valid JSON array — no extra text.',
       messages: [{role:'user', content: prompt}]
     }})
   });
   var data = await res.json();
-  var raw = data.content[0].text;
+  var raw = data.content[0].text.trim();
 
-  // Parse JSON
+  // ── PARSE JSON — robust ──
   var parsed = null;
-  try { parsed = JSON.parse(raw.replace(/```json|```/g,'').trim()); }
-  catch(e){
+  // Strip any accidental markdown fences
+  raw = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/\s*```$/,'').trim();
+  try {
+    parsed = JSON.parse(raw);
+  } catch(e1){
+    // Try extracting array
     var s = raw.indexOf('['), e2 = raw.lastIndexOf(']');
-    if(s>=0 && e2>s) try{ parsed = JSON.parse(raw.substring(s,e2+1)); }catch(e3){}
+    if(s >= 0 && e2 > s){
+      try { parsed = JSON.parse(raw.substring(s, e2+1)); } catch(e3){}
+    }
   }
-  if(!parsed || !Array.isArray(parsed)) throw new Error('Could not parse teaching script');
+  if(!parsed || !Array.isArray(parsed) || parsed.length === 0){
+    throw new Error('Teaching script could not be generated. Please try again.');
+  }
 
-  // Post-process: apply math conversion
-  parsed = parsed.map(seg => {
-    var converted = typeof DSVoice !== 'undefined'
-      ? DSVoice.Math.convert(seg.text)
-      : seg.text;
-    return Object.assign({}, seg, {
-      math_converted: converted,
-      _orig: seg.text
-    });
-  });
+  // ── VALIDATE & SANITISE each segment ──
+  parsed = parsed.map(function(seg, i){
+    var validTones = ['strict','normal','emphasis','question','command'];
+    var validTypes = ['open','explain','example','emphasis','question','command','close'];
+    return {
+      text:           String(seg.text || '').trim(),
+      tone:           validTones.includes(seg.tone) ? seg.tone : 'normal',
+      pause:          typeof seg.pause === 'number' ? Math.max(0.5, Math.min(4.0, seg.pause)) : 1.0,
+      language:       ['mixed','tamil','english'].includes(seg.language) ? seg.language : teachLang,
+      type:           validTypes.includes(seg.type) ? seg.type : 'explain',
+      // Math symbol conversion via voice-engine.js
+      math_converted: typeof DSVoice !== 'undefined' ? DSVoice.Math.convert(seg.text || '') : (seg.text || ''),
+      _orig:          String(seg.text || '').trim(),
+      _idx:           i
+    };
+  }).filter(seg => seg.text.length > 0); // remove empty segments
 
   teachScript = parsed;
 }
@@ -605,61 +722,23 @@ function setTeacherAvatar(){
 }
 
 // ══════════════════════════════════════════════════
-// VOICE SETUP
+// VOICE SETUP — ElevenLabs
 // ══════════════════════════════════════════════════
-speechSynthesis.onvoiceschanged = () => { voices = speechSynthesis.getVoices(); populateVoices(); };
-setTimeout(() => { voices = speechSynthesis.getVoices(); populateVoices(); }, 600);
+var currentAudio = null;   // active Audio element
 
-function populateVoices(){
-  var sel = document.getElementById('voice-sel');
-  if(!sel || !voices.length) return;
-  sel.innerHTML = '';
-
-  var msNatIN = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang==='en-IN');
-  var msNat   = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang.startsWith('en') && !msNatIN.includes(v));
-  var msTA    = voices.filter(v => v.name.includes('Microsoft') && v.name.includes('Online (Natural)') && v.lang.startsWith('ta'));
-  var google  = voices.filter(v => v.name.startsWith('Google') && v.lang.startsWith('en'));
-  var ta      = voices.filter(v => v.lang && v.lang.startsWith('ta') && !msTA.includes(v));
-  var enIN    = voices.filter(v => v.lang==='en-IN' && !msNatIN.includes(v));
-
-  function addG(lbl, arr, def){
-    if(!arr.length) return;
-    var g = document.createElement('optgroup'); g.label = lbl;
-    arr.forEach((v,i) => {
-      var o = document.createElement('option');
-      o.value = voices.indexOf(v);
-      var star = v.name.includes('Natural')||v.name.includes('Neural') ? '⭐ ' : '';
-      o.textContent = star + v.name;
-      if(def && i===0) o.selected = true;
-      g.appendChild(o);
-    });
-    sel.appendChild(g);
+function stopCurrentAudio(){
+  if(currentAudio){
+    currentAudio.pause();
+    currentAudio.src = '';
+    currentAudio = null;
   }
-
-  if(msNatIN.length)  addG('🏆 Microsoft Neural Indian EN', msNatIN, true);
-  else if(msNat.length) addG('🏆 Microsoft Neural EN', msNat, true);
-  if(google.length) addG('🥈 Google English', google, !msNatIN.length&&!msNat.length);
-  if(msTA.length)   addG('🏆 Microsoft Tamil Neural', msTA, false);
-  if(ta.length)     addG('🇮🇳 Tamil', ta, false);
-  addG('🇮🇳 Indian English', enIN, false);
-  if(sel.options.length===0) sel.innerHTML='<option>No voices — use Edge browser</option>';
 }
 
-function getBestVoice(lang){
-  var isTamil = lang === 'tamil';
-  if(isTamil){
-    return voices.find(v => v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
-        || voices.find(v => v.lang.startsWith('ta'))
-        || null;
-  }
-  // English — Indian preferred
+// Voice selector now shows ElevenLabs mode status
+function populateVoices(){
   var sel = document.getElementById('voice-sel');
-  if(sel && voices[parseInt(sel.value)]) return voices[parseInt(sel.value)];
-  return voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
-      || voices.find(v => v.lang==='en-IN')
-      || voices.find(v => v.lang.startsWith('en'))
-      || voices[0]
-      || null;
+  if(!sel) return;
+  sel.innerHTML = '<option value="elevenlabs">⭐ ElevenLabs Neural (Active)</option><option value="browser">🔄 Browser Fallback</option>';
 }
 
 // ══════════════════════════════════════════════════
@@ -682,7 +761,7 @@ function playClass(){
 
 function pauseClass(){
   isPlaying = false; isPaused = true;
-  speechSynthesis.cancel();
+  stopCurrentAudio();
   clearTimeout(playTimeout);
   setSpeaking(false);
   document.getElementById('play-btn').textContent = '▶ Resume';
@@ -690,7 +769,7 @@ function pauseClass(){
 
 function stopClass(){
   isPlaying = false; isPaused = false;
-  speechSynthesis.cancel();
+  stopCurrentAudio();
   clearTimeout(playTimeout);
   currentIdx = -1;
   setSpeaking(false);
@@ -704,7 +783,7 @@ function stopClass(){
 function prevSegment(){
   if(currentIdx > 0){
     currentIdx--;
-    if(isPlaying){ speechSynthesis.cancel(); clearTimeout(playTimeout); playSegment(currentIdx); }
+    if(isPlaying){ stopCurrentAudio(); clearTimeout(playTimeout); playSegment(currentIdx); }
     else { renderSegmentText(teachScript[currentIdx]); updateScriptHighlight(currentIdx); }
   }
 }
@@ -712,14 +791,14 @@ function prevSegment(){
 function nextSegment(){
   if(currentIdx < teachScript.length - 1){
     currentIdx++;
-    if(isPlaying){ speechSynthesis.cancel(); clearTimeout(playTimeout); playSegment(currentIdx); }
+    if(isPlaying){ stopCurrentAudio(); clearTimeout(playTimeout); playSegment(currentIdx); }
     else { renderSegmentText(teachScript[currentIdx]); updateScriptHighlight(currentIdx); }
   }
 }
 
 function replaySegment(){
   if(currentIdx >= 0 && currentIdx < teachScript.length){
-    speechSynthesis.cancel();
+    stopCurrentAudio();
     clearTimeout(playTimeout);
     if(!isPlaying){ isPlaying = true; updateControls(); }
     playSegment(currentIdx);
@@ -772,55 +851,66 @@ function playSegment(idx){
   });
 }
 
-function speakSegment(seg, onEnd){
-  speechSynthesis.cancel();
+// ── speakSegment: ElevenLabs primary, browser fallback ──
+async function speakSegment(seg, onEnd){
+  stopCurrentAudio();
 
   var text = seg.math_converted || seg.text;
-  var tone = TONE_CONFIG[seg.tone] || TONE_CONFIG.normal;
-  var rate = tone.rate * speechSpeed;
+  var tone = seg.tone || 'normal';
+  var sel  = document.getElementById('voice-sel');
+  var useBrowser = sel && sel.value === 'browser';
 
-  // Detect segment language
-  var segLang = seg.language || 'english';
-  if(segLang === 'mixed'){
-    speakMixed(text, rate, tone, onEnd);
-    return;
+  if(!useBrowser){
+    try{
+      var res = await fetch('/api/voice', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ text: text, tone: tone })
+      });
+      if(!res.ok) throw new Error('API ' + res.status);
+      var data = await res.json();
+      if(!data.audio) throw new Error('No audio');
+
+      var audio = new Audio('data:audio/mpeg;base64,' + data.audio);
+      currentAudio = audio;
+      audio.playbackRate = Math.max(0.5, Math.min(2.0, speechSpeed));
+      audio.onended  = function(){ currentAudio = null; if(onEnd) onEnd(); };
+      audio.onerror  = function(){
+        currentAudio = null;
+        speakSegmentBrowser(text, tone, onEnd);   // fallback
+      };
+      audio.play();
+      return;
+    }catch(e){
+      console.warn('ElevenLabs failed, falling back to browser TTS:', e.message);
+    }
   }
 
-  var utt = new SpeechSynthesisUtterance(text);
-  var v = getBestVoice(segLang === 'tamil' ? 'tamil' : 'english');
-  if(v) utt.voice = v;
-  utt.rate  = Math.max(0.5, Math.min(2.0, rate));
-  utt.pitch = tone.pitch;
-  utt.lang  = segLang === 'tamil' ? 'ta-IN' : 'en-IN';
-
-  // Word boundary for highlighting
-  utt.onboundary = function(e){
-    if(e.name === 'word') highlightWord(e.charIndex, text);
-  };
-  utt.onend = onEnd || function(){};
-  utt.onerror = function(){ if(onEnd) onEnd(); };
-  speechSynthesis.speak(utt);
+  speakSegmentBrowser(text, tone, onEnd);
 }
 
-function speakMixed(text, rate, tone, onEnd){
-  // Split Tamil vs English segments
-  var segs = splitLangSegments(text);
-  var i = 0;
+// ── Browser TTS fallback (keeps classroom going if ElevenLabs is unavailable) ──
+function speakSegmentBrowser(text, tone, onEnd){
+  if(typeof speechSynthesis === 'undefined'){ if(onEnd) onEnd(); return; }
+  speechSynthesis.cancel();
 
-  function next(){
-    if(i >= segs.length){ if(onEnd) onEnd(); return; }
-    var s = segs[i]; i++;
-    var utt = new SpeechSynthesisUtterance(s.text);
-    var v = getBestVoice(s.lang);
-    if(v) utt.voice = v;
-    utt.rate  = Math.max(0.5, Math.min(2.0, rate));
-    utt.pitch = tone.pitch;
-    utt.lang  = s.lang === 'tamil' ? 'ta-IN' : 'en-IN';
-    utt.onend = () => setTimeout(next, 80);
-    utt.onerror = () => next();
-    speechSynthesis.speak(utt);
-  }
-  next();
+  var profile = TONE_CONFIG[tone] || TONE_CONFIG.normal;
+  var voices  = speechSynthesis.getVoices();
+
+  // For mixed text send as one utterance — browser handles it best-effort
+  var utt = new SpeechSynthesisUtterance(text);
+  var v = voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
+       || voices.find(v => v.lang==='en-IN')
+       || voices.find(v => v.lang.startsWith('en'))
+       || voices[0]
+       || null;
+  if(v) utt.voice = v;
+  utt.rate  = Math.max(0.5, Math.min(2.0, profile.rate * speechSpeed));
+  utt.pitch = profile.pitch;
+  utt.lang  = 'en-IN';
+  utt.onend   = onEnd || function(){};
+  utt.onerror = function(){ if(onEnd) onEnd(); };
+  speechSynthesis.speak(utt);
 }
 
 function splitLangSegments(text){
@@ -855,11 +945,7 @@ function finishClass(){
 
 function spkFeedback(text){
   setTimeout(function(){
-    var utt = new SpeechSynthesisUtterance(text);
-    var v = getBestVoice('english');
-    if(v) utt.voice = v;
-    utt.rate = 0.85; utt.lang = 'en-IN';
-    speechSynthesis.speak(utt);
+    speakSegmentBrowser(text, 'normal', function(){});
   }, 600);
 }
 
@@ -1004,7 +1090,7 @@ function buildScriptSidebar(){
 }
 
 function jumpToSegment(idx){
-  speechSynthesis.cancel();
+  stopCurrentAudio();
   clearTimeout(playTimeout);
   currentIdx = idx;
   if(isPlaying) playSegment(idx);
@@ -1052,11 +1138,8 @@ function escH(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // INIT
 // ══════════════════════════════════════════════════
 window.addEventListener('load', function(){
-  // Load voices
-  setTimeout(() => { voices = speechSynthesis.getVoices(); populateVoices(); }, 800);
-  // Check URL params
+  populateVoices();           // show ElevenLabs status in selector
   loadFromURLParams();
-  // Default language button style
   setTeachLang('mixed', document.getElementById('lang-mixed'));
 });
 </script>
