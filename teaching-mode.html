@@ -507,6 +507,29 @@ async function generateTeachingScript(subj, cls, topic, lessonText){
 
   var lessonSnippet = lessonText ? ('LESSON:\n' + lessonText.substring(0, 800)) : '';
 
+  // Example JSON changes based on mode — this is critical because Claude learns from examples
+  var exampleJSON = teachLang === 'ta'
+    ? '[{"text":"மாணவர்களே, கவனமா கேளுங்க.","tone":"strict","pause":1.5,"lang":"ta","type":"open"},\n'
+    + '{"text":"இன்று நாம் ஒரு முக்கியமான பாடம் படிக்கப் போறோம்.","tone":"strict","pause":1.2,"lang":"ta","type":"open"},\n'
+    + '{"text":"ஒளிச்சேர்க்கை என்றால் தாவரங்கள் சூரிய ஒளியை பயன்படுத்தி உணவு தயாரிக்கும் செயல்முறை.","tone":"normal","pause":1.0,"lang":"ta","type":"explain"}]'
+    : teachLang === 'en'
+    ? '[{"text":"Students, settle down and listen carefully.","tone":"strict","pause":1.5,"lang":"en","type":"open"},\n'
+    + '{"text":"Today we are going to study Photosynthesis.","tone":"normal","pause":0.8,"lang":"en","type":"open"},\n'
+    + '{"text":"Photosynthesis is the process by which plants make their own food using sunlight.","tone":"normal","pause":1.0,"lang":"en","type":"explain"},\n'
+    + '{"text":"REMEMBER THIS. Plants need three things: sunlight, water, and carbon dioxide.","tone":"emphasis","pause":1.8,"lang":"en","type":"emphasis"}]'
+    : /* bi */
+    '[{"text":"Students, settle down.","tone":"strict","pause":1.5,"lang":"en","type":"open"},\n'
+    + '{"text":"Today we study Photosynthesis.","tone":"normal","pause":0.8,"lang":"en","type":"explain"},\n'
+    + '{"text":"ஒளிச்சேர்க்கை என்றால்...","tone":"normal","pause":0.6,"lang":"ta","type":"explain"},\n'
+    + '{"text":"Plants use sunlight to make their own food.","tone":"normal","pause":1.0,"lang":"en","type":"explain"}]';
+
+  // Address phrases change based on mode
+  var addressPhrases = teachLang === 'ta'
+    ? '"மாணவர்களே...", "கவனமா கேளுங்க...", "நண்பர்களே...", "சரியா கேளுங்க..."'
+    : teachLang === 'en'
+    ? '"Students...", "Children...", "Now class...", "Listen carefully...", "Pay attention..."'
+    : '"Students...", "Children...", "மாணவர்களே...", "கவனமா கேளுங்க..."';
+
   var prompt = 'You are an experienced Tamil Nadu school teacher.\n'
     + 'CLASS: ' + cls + ' | SUBJECT: ' + subj + ' | TOPIC: "' + topic + '"\n'
     + lessonSnippet + '\n\n'
@@ -514,23 +537,22 @@ async function generateTeachingScript(subj, cls, topic, lessonText){
     + 'SUBJECT NOTE: ' + subjectHint + '\n\n'
     + 'RULES:\n'
     + '1. Each segment = 1-2 short spoken sentences only.\n'
-    + '2. Address students every 2-3 segments: "Students...", "Children...", "கவனமா கேளுங்க...", "மாணவர்களே..."\n'
+    + '2. Address students every 2-3 segments using ONLY these phrases: ' + addressPhrases + '\n'
     + '3. Vary tone: strict=opening/commands, normal=explanation, emphasis=key facts, question=engage, command=write this down.\n'
     + '4. Pauses: emphasis/strict=1.5-2s, normal=0.8-1.2s, question=2.5-3s.\n'
-    + '5. Split Tamil and English into separate segments. NEVER mix scripts in one segment text.\n'
+    + '5. NEVER mix Tamil script and English letters in the same segment text.\n'
     + '6. Convert all maths symbols to spoken words.\n'
-    + '7. Structure: opening (strict) -> explain -> examples -> key point (emphasis) -> question -> summary -> close. 12-18 total segments.\n\n'
+    + '7. Structure: opening (strict) -> explain -> examples -> key point (emphasis) -> question -> summary -> close. 12-18 total segments.\n'
+    + (teachLang === 'en' ? '8. ENGLISH ONLY MODE: Every single segment must have lang="en". Zero Tamil segments allowed.\n' : '')
+    + (teachLang === 'ta' ? '8. TAMIL ONLY MODE: Every single segment must have lang="ta". Zero English segments allowed.\n' : '')
+    + '\n'
     + 'Return ONLY a valid JSON array. No explanation. No markdown. Start [ end ].\n'
     + 'Fields: text, tone, pause, lang, type\n'
     + 'tone values: strict normal emphasis question command\n'
     + 'type values: open explain example emphasis question command close\n'
     + 'lang values: en ta\n\n'
-    + 'Example:\n'
-    + '[{"text":"Students, settle down.","tone":"strict","pause":1.5,"lang":"en","type":"open"},\n'
-    + '{"text":"இன்று நாம் ஒரு முக்கியமான பாடம் படிக்கப் போறோம்.","tone":"strict","pause":1.2,"lang":"ta","type":"open"},\n'
-    + '{"text":"Today we study Photosynthesis.","tone":"normal","pause":0.8,"lang":"en","type":"explain"},\n'
-    + '{"text":"ஒளிச்சேர்க்கை என்றால்...","tone":"normal","pause":0.6,"lang":"ta","type":"explain"},\n'
-    + '{"text":"Plants use sunlight to make their own food.","tone":"normal","pause":1.0,"lang":"en","type":"explain"}]';
+    + 'Example output for this mode:\n'
+    + exampleJSON;
 
   var res = await fetch(API, {
     method: 'POST',
