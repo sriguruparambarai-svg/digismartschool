@@ -229,11 +229,11 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
     <textarea id="setup-lesson" placeholder="Paste lesson text from textbook here... AI will teach from this content."></textarea>
 
     <label>Teaching Language</label>
-    <div style="display:flex;gap:6px;margin-top:4px;">
-      <button class="btn" style="flex:1;background:rgba(167,139,250,0.1);border:1.5px solid rgba(167,139,250,0.25);color:var(--violet);font-size:0.78rem;" id="lang-mixed" onclick="setTeachLang('mixed',this)">🔀 Tamil + English (Mixed)</button>
-      <button class="btn" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--dim);font-size:0.78rem;" id="lang-tamil" onclick="setTeachLang('tamil',this)">🇮🇳 Tamil</button>
-      <button class="btn" style="flex:1;background:rgba(255,255,255,0.05);border:1px solid var(--border);color:var(--dim);font-size:0.78rem;" id="lang-english" onclick="setTeachLang('english',this)">🇬🇧 English</button>
-    </div>
+    <select id="teach-lang-sel" style="margin-top:4px;" onchange="teachLang=this.value">
+      <option value="bi">🔀 Bilingual — English + Tamil meaning once</option>
+      <option value="en">🇬🇧 English Only</option>
+      <option value="ta">🇮🇳 Tamil Only</option>
+    </select>
 
     <div style="margin-top:16px;">
       <button class="btn btn-gold" onclick="startTeachingMode()">🎓 Begin Class with Malar Mam</button>
@@ -354,14 +354,14 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
 // ══════════════════════════════════════════════════
 // STATE
 // ══════════════════════════════════════════════════
-var teachScript   = [];   // [{text,tone,pause,language,type,math_converted}]
+var teachScript   = [];
 var currentIdx    = -1;
 var isPlaying     = false;
 var isPaused      = false;
 var playTimeout   = null;
 var currentUtterance = null;
 var speechSpeed   = 0.85;
-var teachLang     = 'mixed';
+var teachLang     = 'bi';   // 'en' | 'ta' | 'bi'
 var voices        = [];
 var subjectName   = 'Science';
 var className     = 'Class 9';
@@ -405,18 +405,7 @@ const TONE_CONFIG = {
 // ══════════════════════════════════════════════════
 // SETUP SCREEN
 // ══════════════════════════════════════════════════
-function setTeachLang(l, btn){
-  teachLang = l;
-  ['lang-mixed','lang-tamil','lang-english'].forEach(id => {
-    var el = document.getElementById(id);
-    el.style.background = 'rgba(255,255,255,0.05)';
-    el.style.borderColor = 'rgba(255,255,255,0.09)';
-    el.style.color = 'rgba(255,255,255,0.4)';
-  });
-  btn.style.background = 'rgba(167,139,250,0.15)';
-  btn.style.borderColor = 'rgba(167,139,250,0.4)';
-  btn.style.color = 'var(--violet)';
-}
+function setTeachLang(l){ teachLang = l; }  // kept for URL-param compat
 
 function quickStart(subj, topic){
   document.getElementById('setup-subject').value = subj;
@@ -429,15 +418,17 @@ async function startTeachingMode(){
   var cls     = document.getElementById('setup-class').value;
   var topic   = document.getElementById('setup-topic').value.trim();
   var lesson  = document.getElementById('setup-lesson').value.trim();
+  // read dropdown — fallback to existing teachLang if dropdown missing
+  var sel = document.getElementById('teach-lang-sel');
+  if(sel) teachLang = sel.value;
   if (!topic){ alert('Please enter a topic!'); return; }
 
   subjectName = subj;
   className   = cls;
   topicName   = topic;
 
-  // Show loading
-  showLoading('Malar Mam is preparing the class...',
-    'Generating classroom teaching script for ' + topic);
+  var modeLabel = {'en':'English Only','ta':'Tamil Only','bi':'Bilingual'}[teachLang] || 'Bilingual';
+  showLoading('Malar Mam is preparing the class...', modeLabel + ' lesson for ' + topic);
 
   try{
     await generateTeachingScript(subj, cls, topic, lesson);
@@ -456,11 +447,18 @@ async function startTeachingMode(){
 // ══════════════════════════════════════════════════
 async function generateTeachingScript(subj, cls, topic, lessonText){
 
-  var langInstr = teachLang === 'tamil'
-    ? 'Teach ONLY in Tamil. Every segment: lang="ta".'
-    : teachLang === 'english'
-    ? 'Teach ONLY in English. Every segment: lang="en".'
-    : 'LANGUAGE SPLIT RULE (CRITICAL): Never mix Tamil and English in the same segment. Split bilingual thoughts into consecutive single-language segments. lang="en" for English only. lang="ta" for Tamil only. Never "mixed".';
+  var langInstr = teachLang === 'ta'
+    ? 'Teach ONLY in Tamil. Every segment lang="ta". No English at all.'
+    : teachLang === 'en'
+    ? 'Teach ONLY in English. Every segment lang="en". No Tamil at all.'
+    : /* bi */ `BILINGUAL MODE RULES (CRITICAL):
+- Teach primarily in English. lang="en" for most segments.
+- For key concepts ONLY: give the Tamil meaning ONCE as a separate segment (lang="ta"), then continue in English.
+- Do NOT repeat Tamil for every sentence. Tamil appears maximum once per concept.
+- NEVER mix Tamil and English in the same segment text.
+- WRONG: {"text":"Photosynthesis என்பது food making process","lang":"mixed"}
+- RIGHT: {"text":"Photosynthesis is the process by which plants make food.","lang":"en"} then {"text":"ஒளிச்சேர்க்கை என்றால் தாவரங்கள் உணவு தயாரிக்கும் செயல்முறை.","lang":"ta"} then continue in English.
+- After giving Tamil meaning once, all further explanation stays in English only.`;
 
   var subjectHint = {
     'Maths':          'Convert ALL symbols to words: + = plus, - = minus, = = equals, x2 = x square, sqrt = square root of, / = by.',
@@ -732,7 +730,7 @@ function playSegment(idx){
 // ══════════════════════════════════════════════════
 // LANGUAGE DETECTION + TEXT CLEANING
 // ══════════════════════════════════════════════════
-var TAMIL_RE = /[\u0B80-\u0BFF]/;
+var TAMIL_RE  = /[\u0B80-\u0BFF]/;
 var ENGLISH_RE = /[a-zA-Z]/;
 
 function detectLang(text){
@@ -741,10 +739,9 @@ function detectLang(text){
   if(hasTa && !hasEn) return 'ta';
   if(hasEn && !hasTa) return 'en';
   if(hasTa && hasEn)  return 'mixed';
-  return 'en'; // numbers/punctuation only → treat as english
+  return 'en';
 }
 
-// Keep only Tamil script, Latin letters, digits, and safe punctuation
 function cleanText(text){
   return String(text || '')
     .replace(/[^\u0B80-\u0BFFa-zA-Z0-9\s.,!?;:'"()\-]/g, ' ')
@@ -752,56 +749,87 @@ function cleanText(text){
     .trim();
 }
 
-// Split a mixed string into [{text, lang}] where each chunk is purely ta or en
+// Split mixed text into pure-language chunks [{text, lang}]
 function splitByLang(text){
   var chunks = [], cur = '', curLang = null;
   for(var i = 0; i < text.length; i++){
     var ch = text[i];
     var cLang = TAMIL_RE.test(ch) ? 'ta' : ENGLISH_RE.test(ch) ? 'en' : null;
-    if(cLang === null){          // space / punctuation — attach to current
-      cur += ch;
-    } else if(cLang === curLang || curLang === null){
-      cur += ch;
-      curLang = cLang;
-    } else {                     // language changed
-      if(cur.trim()) chunks.push({ text: cur.trim(), lang: curLang });
-      cur = ch;
-      curLang = cLang;
-    }
+    if(cLang === null){ cur += ch; }
+    else if(cLang === curLang || curLang === null){ cur += ch; curLang = cLang; }
+    else { if(cur.trim()) chunks.push({text:cur.trim(), lang:curLang}); cur = ch; curLang = cLang; }
   }
-  if(cur.trim() && curLang) chunks.push({ text: cur.trim(), lang: curLang });
-  // merge tiny adjacent same-lang chunks (< 3 chars) to avoid choppy audio
+  if(cur.trim() && curLang) chunks.push({text:cur.trim(), lang:curLang});
+  // merge tiny same-lang adjacent chunks
   var merged = [];
-  for(var j = 0; j < chunks.length; j++){
-    var last = merged[merged.length - 1];
-    if(last && last.lang === chunks[j].lang){
-      last.text += ' ' + chunks[j].text;
-    } else {
-      merged.push({ text: chunks[j].text, lang: chunks[j].lang });
-    }
-  }
+  chunks.forEach(function(c){
+    var last = merged[merged.length-1];
+    if(last && last.lang === c.lang) last.text += ' ' + c.text;
+    else merged.push({text:c.text, lang:c.lang});
+  });
   return merged;
 }
 
+// ── PHONETIC TAMIL FALLBACK ──
+// Converts Tamil script to phonetic English so English TTS reads it clearly
+// Used when ElevenLabs Tamil voice is unavailable or poor quality
+var PHONETIC_MAP = [
+  // Vowels
+  [/அ/g,'a'],[/ஆ/g,'aa'],[/இ/g,'i'],[/ஈ/g,'ee'],
+  [/உ/g,'u'],[/ஊ/g,'oo'],[/எ/g,'e'],[/ஏ/g,'ae'],
+  [/ஐ/g,'ai'],[/ஒ/g,'o'],[/ஓ/g,'oh'],[/ஔ/g,'au'],
+  // Consonants (common)
+  [/க்/g,'k'],[/ங்/g,'ng'],[/ச்/g,'ch'],[/ஞ்/g,'nj'],
+  [/ட்/g,'t'],[/ண்/g,'n'],[/த்/g,'th'],[/ந்/g,'n'],
+  [/ப்/g,'p'],[/ம்/g,'m'],[/ய்/g,'y'],[/ர்/g,'r'],
+  [/ல்/g,'l'],[/வ்/g,'v'],[/ழ்/g,'zh'],[/ள்/g,'l'],
+  [/ற்/g,'r'],[/ன்/g,'n'],[/ஷ்/g,'sh'],[/ஸ்/g,'s'],
+  [/ஹ்/g,'h'],[/ஜ்/g,'j'],
+  // Common words (most frequent in teaching)
+  [/என்றால்/g,'endral'],[/என்பது/g,'enbadhu'],
+  [/தமிழ்நாடு/g,'Thamizh Nadu'],[/தமிழ்/g,'Thamizh'],
+  [/மாணவர்களே/g,'maanavarkalay'],[/கவனமா/g,'kavanama'],
+  [/கேளுங்க/g,'kaelungka'],[/முக்கியம்/g,'mukkiyam'],
+  [/நண்பர்களே/g,'nanbargalay'],[/இன்று/g,'indru'],
+  [/நாம்/g,'naam'],[/பாடம்/g,'paadam'],
+  [/படிக்கப்/g,'padikkap'],[/போறோம்/g,'porom'],
+  [/ஒளிச்சேர்க்கை/g,'oli cheerkkay'],[/தாவரங்கள்/g,'thaavarangal'],
+  [/உணவு/g,'unavu'],[/தயாரிக்கும்/g,'thayaarikum'],
+  [/செயல்முறை/g,'seyalmoray'],[/கடல்/g,'kadal'],
+  [/மலை/g,'malai'],[/நதி/g,'nadhi'],
+  [/மழை/g,'mazhai'],[/வானம்/g,'vaanam'],
+  [/சூரியன்/g,'sooryan'],[/சந்திரன்/g,'chandiran'],
+  [/பூமி/g,'bhoomi'],[/காற்று/g,'kaatru'],
+  [/தண்ணீர்/g,'thanneer'],[/நெல்/g,'nel'],
+  [/விவசாயம்/g,'vivasaayam'],[/மரம்/g,'maram'],
+  // Remove remaining Tamil characters (catch-all)
+  [/[\u0B80-\u0BFF]/g,' ']
+];
+
+function tamilToPhonetic(text){
+  var out = String(text);
+  PHONETIC_MAP.forEach(function(rule){ out = out.replace(rule[0], rule[1]); });
+  return out.replace(/\s{2,}/g,' ').trim();
+}
+
 // ══════════════════════════════════════════════════
-// ELEVENLABS API CALL (single chunk)
+// ELEVENLABS FETCH (single pure-language chunk)
 // ══════════════════════════════════════════════════
 async function fetchElevenLabs(text, tone, lang){
   var clean = cleanText(text);
-  if(!clean) throw new Error('empty text');
+  if(!clean) throw new Error('empty');
   console.log('SPEAKING:', clean, '| LANG:', lang, '| TONE:', tone);
   var res = await fetch('/api/voice', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ text: clean, tone: tone, lang: lang })
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text: clean, tone: tone, lang: lang})
   });
   if(!res.ok) throw new Error('API ' + res.status);
-  var data = await res.json();
-  if(!data.audio) throw new Error('no audio returned');
-  return data.audio; // base64 mp3
+  var d = await res.json();
+  if(!d.audio) throw new Error('no audio');
+  return d.audio;
 }
 
-// Play a base64 mp3, return promise that resolves on end
 function playBase64Audio(b64){
   return new Promise(function(resolve){
     stopCurrentAudio();
@@ -809,84 +837,93 @@ function playBase64Audio(b64){
     currentAudio = audio;
     audio.playbackRate = Math.max(0.5, Math.min(2.0, speechSpeed));
     audio.onended = function(){ currentAudio = null; resolve(); };
-    audio.onerror = function(){ currentAudio = null; resolve(); }; // resolve so chain continues
+    audio.onerror = function(){ currentAudio = null; resolve(); };
     audio.play().catch(function(){ currentAudio = null; resolve(); });
   });
 }
 
+// ── Speak one chunk: try ElevenLabs, fall back to phonetic English TTS ──
+async function speakChunk(text, tone, lang){
+  try{
+    var b64 = await fetchElevenLabs(text, tone, lang);
+    await playBase64Audio(b64);
+  }catch(e){
+    // For Tamil: convert to phonetic English and speak with EN voice
+    if(lang === 'ta'){
+      var phonetic = tamilToPhonetic(text);
+      console.log('PHONETIC FALLBACK:', phonetic);
+      try{
+        var b64p = await fetchElevenLabs(phonetic, tone, 'en');
+        await playBase64Audio(b64p);
+        return;
+      }catch(e2){}
+    }
+    // Final fallback: browser TTS
+    await new Promise(function(r){
+      speakSegmentBrowser(text, tone, r, lang);
+    });
+  }
+}
+
 // ══════════════════════════════════════════════════
-// speakSegment — main entry point
+// speakSegment — main entry point (called by playSegment)
 // ══════════════════════════════════════════════════
 async function speakSegment(seg, onEnd){
   stopCurrentAudio();
   var sel = document.getElementById('voice-sel');
   var useBrowser = sel && sel.value === 'browser';
 
-  var rawText = seg.math_converted || seg.text || '';
-  var tone    = seg.tone || 'normal';
-  var segLang = seg.lang || seg.language || detectLang(rawText);
+  var rawText  = seg.math_converted || seg.text || '';
+  var tone     = seg.tone || 'normal';
   var detected = detectLang(rawText);
 
-  // If the text itself is mixed, override whatever lang tag says
-  if(detected === 'mixed') segLang = 'mixed';
+  // Resolve final lang: trust detected over tag when they conflict
+  var finalLang = detected === 'mixed' ? 'mixed'
+    : (seg.lang === 'ta' || seg.lang === 'tamil')  ? 'ta'
+    : (seg.lang === 'en' || seg.lang === 'english') ? 'en'
+    : detected;
 
   if(!useBrowser){
     try{
-      if(segLang === 'mixed'){
-        // Split into pure-language chunks and play sequentially
+      if(finalLang === 'mixed'){
         var chunks = splitByLang(rawText);
         for(var i = 0; i < chunks.length; i++){
-          if(!isPlaying && isPaused) break; // respect pause
-          var chunk = chunks[i];
-          try{
-            var b64 = await fetchElevenLabs(chunk.text, tone, chunk.lang);
-            await playBase64Audio(b64);
-          }catch(ce){
-            console.warn('Chunk failed, using browser for:', chunk.text, ce.message);
-            await new Promise(function(r){
-              speakSegmentBrowser(chunk.text, tone, r, chunk.lang);
-            });
-          }
-          // small gap between chunks (150ms)
-          if(i < chunks.length - 1) await new Promise(r => setTimeout(r, 150));
+          if(!isPlaying && isPaused) break;
+          await speakChunk(chunks[i].text, tone, chunks[i].lang);
+          if(i < chunks.length - 1) await new Promise(r => setTimeout(r, 120));
         }
       } else {
-        // Pure single-language segment
-        var b64 = await fetchElevenLabs(rawText, tone, segLang);
-        await playBase64Audio(b64);
+        await speakChunk(rawText, tone, finalLang);
       }
       if(onEnd) onEnd();
       return;
     }catch(e){
-      console.warn('ElevenLabs failed, falling back:', e.message);
+      console.warn('speakSegment failed:', e.message);
     }
   }
 
-  // Browser TTS fallback
-  speakSegmentBrowser(rawText, tone, onEnd, segLang);
+  speakSegmentBrowser(rawText, tone, onEnd, finalLang);
 }
 
 // ── Browser TTS fallback ──
 function speakSegmentBrowser(text, tone, onEnd, lang){
   if(typeof speechSynthesis === 'undefined'){ if(onEnd) onEnd(); return; }
   speechSynthesis.cancel();
-  var profile = TONE_CONFIG[tone] || TONE_CONFIG.normal;
-  var voices  = speechSynthesis.getVoices();
-  var isTamil = (lang === 'ta' || lang === 'tamil');
-
+  var profile  = TONE_CONFIG[tone] || TONE_CONFIG.normal;
+  var bVoices  = speechSynthesis.getVoices();
+  var isTamil  = (lang === 'ta' || lang === 'tamil');
   var v;
   if(isTamil){
-    v = voices.find(v => v.lang && v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
-     || voices.find(v => v.lang && v.lang.startsWith('ta'))
+    v = bVoices.find(v => v.lang && v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
+     || bVoices.find(v => v.lang && v.lang.startsWith('ta'))
      || null;
   } else {
-    v = voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
-     || voices.find(v => v.lang==='en-IN')
-     || voices.find(v => v.lang && v.lang.startsWith('en'))
-     || voices[0] || null;
+    v = bVoices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
+     || bVoices.find(v => v.lang==='en-IN')
+     || bVoices.find(v => v.lang && v.lang.startsWith('en'))
+     || bVoices[0] || null;
   }
-
-  var utt = new SpeechSynthesisUtterance(text);
+  var utt = new SpeechSynthesisUtterance(isTamil ? tamilToPhonetic(text) : text);
   if(v) utt.voice = v;
   utt.rate  = Math.max(0.5, Math.min(2.0, profile.rate * speechSpeed));
   utt.pitch = profile.pitch;
@@ -896,10 +933,8 @@ function speakSegmentBrowser(text, tone, onEnd, lang){
   speechSynthesis.speak(utt);
 }
 
-// legacy alias — kept so nothing else breaks
-function splitLangSegments(text){
-  return splitByLang(text);
-}
+// legacy alias
+function splitLangSegments(text){ return splitByLang(text); }
 
 function finishClass(){
   isPlaying = false;
@@ -1082,19 +1117,24 @@ function hideLoading(){ document.getElementById('loading-screen').classList.remo
 // ══════════════════════════════════════════════════
 function loadFromURLParams(){
   var params = new URLSearchParams(window.location.search);
-  var subj    = params.get('subject');
-  var cls     = params.get('class');
-  var topic   = params.get('topic');
-  var lesson  = params.get('lesson');
-  var lang    = params.get('lang');
+  var subj   = params.get('subject');
+  var cls    = params.get('class');
+  var topic  = params.get('topic');
+  var lesson = params.get('lesson');
+  var lang   = params.get('lang');
 
   if(subj && topic){
-    if(subj) document.getElementById('setup-subject').value = subj;
-    if(cls)  document.getElementById('setup-class').value   = cls;
-    if(topic) document.getElementById('setup-topic').value  = topic;
-    if(lesson) document.getElementById('setup-lesson').value = lesson;
-    if(lang){ teachLang = lang; }
-    // Auto-start
+    if(subj)   document.getElementById('setup-subject').value = subj;
+    if(cls)    document.getElementById('setup-class').value   = cls;
+    if(topic)  document.getElementById('setup-topic').value   = topic;
+    if(lesson) document.getElementById('setup-lesson').value  = lesson;
+    if(lang){
+      // map old values to new
+      var mapped = lang === 'mixed' ? 'bi' : lang === 'tamil' ? 'ta' : lang === 'english' ? 'en' : lang;
+      teachLang = mapped;
+      var sel = document.getElementById('teach-lang-sel');
+      if(sel) sel.value = mapped;
+    }
     startTeachingMode();
   }
 }
@@ -1108,9 +1148,8 @@ function escH(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // INIT
 // ══════════════════════════════════════════════════
 window.addEventListener('load', function(){
-  populateVoices();           // show ElevenLabs status in selector
+  populateVoices();
   loadFromURLParams();
-  setTeachLang('mixed', document.getElementById('lang-mixed'));
 });
 </script>
 </body>
