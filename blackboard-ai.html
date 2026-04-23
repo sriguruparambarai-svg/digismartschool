@@ -822,17 +822,864 @@ body {
 </div>
 
 <script>
-// ===== STATE =====
-let lessonSteps = [];
-let currentStep = 0;
-let isPaused = false;
-let voiceOn = true;
-let writeSpeed = 1;
-let teachingMode = 'standard';
-let langCode = 'en';
-let isAnimating = false;
-let currentSpeech = null;
-let animTimeout = null;
+// ═══════════════════════════════════════════════════════════
+// BLACKBOARD AI — LIVE TEACHING ENGINE
+// Voice + chalk writing + live diagrams all in sync
+// ═══════════════════════════════════════════════════════════
+
+// ── STATE ──
+let lessonSteps    = [];
+let currentStep    = 0;
+let isPaused       = false;
+let voiceOn        = true;
+let writeSpeed     = 1;
+let teachingMode   = 'standard';
+let langCode       = 'en';
+let isAnimating    = false;
+let currentSpeech  = null;
+let chalkAbort     = null;   // AbortController for stopping chalk mid-write
+let animTimeout    = null;
+
+// ── CHALK CURSOR ──
+const CURSOR_HTML = '<span class="chalk-cursor" id="chalk-cursor">|</span>';
+
+// ── COLOR MAP ──
+const COLOR_MAP = {
+  yellow : 'var(--chalk-yellow)',
+  white  : 'var(--chalk)',
+  blue   : 'var(--chalk-blue)',
+  green  : 'var(--chalk-green)',
+  red    : 'var(--chalk-red)'
+};
+
+// ═══════════════════════════════════════════════════════════
+// MODE SELECT
+// ═══════════════════════════════════════════════════════════
+function selectMode(m) {
+  teachingMode = m;
+  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+  event.target.classList.add('active');
+  langCode = m === 'tamil' ? 'ta' : m === 'bilingual' ? 'bilingual' : 'en';
+}
+
+// ═══════════════════════════════════════════════════════════
+// START LESSON
+// ═══════════════════════════════════════════════════════════
+async function startLesson() {
+  const cls     = document.getElementById('sel-class').value;
+  const subject = document.getElementById('sel-subject').value;
+  const lesson  = document.getElementById('inp-lesson').value.trim();
+
+  if (!lesson) { alert('Please enter a lesson or topic name.'); return; }
+
+  document.getElementById('welcome-screen').style.opacity = '0';
+  setTimeout(() => {
+    document.getElementById('welcome-screen').style.display = 'none';
+    const cl = document.getElementById('classroom');
+    cl.style.display = 'flex';
+    cl.style.flexDirection = 'column';
+    document.getElementById('hdr-class').textContent = cls;
+    document.getElementById('hdr-title').textContent = `${subject} — ${lesson}`;
+  }, 700);
+
+  setTimeout(async () => {
+    showLoading('Asking Claude to prepare your lesson...');
+    try {
+      lessonSteps = await generateLessonSteps(cls, subject, lesson);
+      hideLoading();
+      buildSidebar();
+      buildProgressDots();
+      renderStep(0);
+    } catch(e) {
+      hideLoading();
+      showError(e.message);
+    }
+  }, 900);
+}
+
+// ═══════════════════════════════════════════════════════════
+// GENERATE LESSON
+// ═══════════════════════════════════════════════════════════
+async function generateLessonSteps(cls, subject, lesson) {
+  const langInstruction = teachingMode === 'tamil'
+    ? 'Respond in Tamil language only. Use simple Tamil words for school students.'
+    : teachingMode === 'bilingual'
+    ? 'Write each "write" field in both English and Tamil (Tamil in parentheses). Speech in English.'
+    : 'Respond in simple English suitable for Indian school students.';
+
+  const prompt = `You are a school teacher in Tamil Nadu, India, teaching ${subject} to ${cls} students (CBSE curriculum).
+The lesson is: "${lesson}"
+
+${langInstruction}
+
+Convert this lesson into 8–12 step-by-step teaching actions for a blackboard teaching session.
+
+IMPORTANT: Output ONLY valid JSON. No extra text, no markdown, no code blocks.
+
+Return a JSON array with objects in this exact format:
+[
+  {"type":"heading","speech":"Good morning students! Today we will learn about Environment.","write":"Our Environment","color":"yellow"},
+  {"type":"explain","speech":"Environment means everything that surrounds us.","write":"Environment = Everything around us","color":"white"},
+  {"type":"subheading","speech":"Now let us look at the components.","write":"Components of Environment","color":"yellow"},
+  {"type":"list","speech":"Environment has three main parts — air, water, and land.","write":["Air (வான்)","Water (நீர்)","Land (நிலம்)"],"color":"blue"},
+  {"type":"formula","speech":"Remember this formula for environment.","write":"Environment = Biotic + Abiotic","color":"green"},
+  {"type":"highlight","speech":"This is very important to remember.","write":"Key fact: Environment supports all life on Earth","color":"red"},
+  {"type":"diagram","speech":"Let me draw a diagram to show this.","write":"Diagram: Components of Environment","diagram":"circle_labels","labels":["Air","Water","Land","Soil"],"color":"green"}
+]
+
+Rules:
+- type must be one of: heading, subheading, explain, list, formula, highlight, diagram
+- For "list" type, "write" should be an array of 3-5 strings
+- For "diagram" type, "diagram" should be one of: circle_labels, boxes, tree, water_cycle, food_chain
+- Keep speech simple and student-friendly
+- One concept per step
+- color must be: yellow, white, blue, green, or red
+- Make it feel like a real classroom lesson
+- Add relatable Indian examples where possible`;
+
+  const response = await fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload: {
+      model: 'claude-sonnet-4-5',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }]
+    }})
+  });
+
+  if (!response.ok) {
+    const err = await response.json().catch(()=>({}));
+    throw new Error(err.error?.message || 'API request failed (' + response.status + ')');
+  }
+
+  const data = await response.json();
+  const text = data.content[0].text.trim();
+  const jsonStr = text.replace(/```json|```/g, '').trim();
+  return JSON.parse(jsonStr);
+}
+
+// ═══════════════════════════════════════════════════════════
+// BUILD UI
+// ═══════════════════════════════════════════════════════════
+function buildSidebar() {
+  const list = document.getElementById('steps-list');
+  list.innerHTML = '';
+  lessonSteps.forEach((step, i) => {
+    const div = document.createElement('div');
+    div.className = 'step-item';
+    div.id = `step-nav-${i}`;
+    div.onclick = () => jumpToStep(i);
+    const typeLabel = { heading:'📌', subheading:'📋', explain:'✏️', list:'📝', formula:'🔢', highlight:'⭐', diagram:'🖼️' }[step.type] || '•';
+    const preview = Array.isArray(step.write) ? step.write[0] : step.write;
+    div.innerHTML = `<div class="step-dot">${typeLabel}</div><div class="step-text">${preview.substring(0,40)}${preview.length>40?'...':''}</div>`;
+    list.appendChild(div);
+  });
+}
+
+function buildProgressDots() {
+  const dots = document.getElementById('progress-dots');
+  dots.innerHTML = '';
+  lessonSteps.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'progress-dot';
+    d.id = `dot-${i}`;
+    dots.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENDER STEP — entry point (sidebar, dots, nav, then teachStep)
+// ═══════════════════════════════════════════════════════════
+function renderStep(idx) {
+  if (idx < 0 || idx >= lessonSteps.length) return;
+
+  // Stop any in-progress chalk/speech
+  stopCurrentAnimation();
+
+  currentStep = idx;
+  const step = lessonSteps[idx];
+
+  // Sidebar + dots + counter
+  document.querySelectorAll('.step-item').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+    el.classList.toggle('done', i < idx);
+  });
+  document.querySelectorAll('.progress-dot').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+    el.classList.toggle('done', i < idx);
+  });
+  document.getElementById('step-counter').textContent = `Step ${idx + 1} / ${lessonSteps.length}`;
+  document.getElementById('status-speech').textContent = `"${step.speech}"`;
+  document.getElementById('btn-prev').disabled = idx === 0;
+  document.getElementById('btn-next').textContent = idx === lessonSteps.length - 1 ? '✅ Lesson Complete' : 'Next Concept →';
+
+  // Launch live teaching
+  teachStep(step);
+}
+
+// ═══════════════════════════════════════════════════════════
+// STOP CURRENT ANIMATION
+// ═══════════════════════════════════════════════════════════
+function stopCurrentAnimation() {
+  // Abort any chalk writing
+  if (chalkAbort) { chalkAbort.aborted = true; chalkAbort = null; }
+  // Cancel speech
+  if (currentSpeech) { window.speechSynthesis.cancel(); currentSpeech = null; }
+  // Clear pending timeouts
+  if (animTimeout) { clearTimeout(animTimeout); animTimeout = null; }
+  isAnimating = false;
+}
+
+// ═══════════════════════════════════════════════════════════
+// TEACH STEP — the live teaching engine core
+// ═══════════════════════════════════════════════════════════
+async function teachStep(step) {
+  isAnimating = true;
+
+  // ── 1. Clear board ──
+  const board = document.getElementById('board-content');
+  board.innerHTML = '';
+
+  const color = COLOR_MAP[step.color] || COLOR_MAP.white;
+
+  // ── 2. Start voice immediately (does not await) ──
+  if (voiceOn) speak(step.speech);
+
+  // ── 3. Build structure + write chalk in sync with voice ──
+  const abort = { aborted: false };
+  chalkAbort = abort;
+
+  switch (step.type) {
+
+    case 'heading': {
+      const h = document.createElement('div');
+      h.className = 'board-heading board-element';
+      h.style.color = color;
+      board.appendChild(h);
+      const ul = document.createElement('div');
+      ul.className = 'chalk-underline';
+      ul.style.opacity = '0';
+      board.appendChild(ul);
+      await writeChalk(h, step.write, abort, 38, 72);
+      if (!abort.aborted) {
+        ul.style.opacity = '1';
+        ul.style.transition = 'opacity 0.4s ease';
+      }
+      break;
+    }
+
+    case 'subheading': {
+      const h = document.createElement('div');
+      h.className = 'board-subheading board-element';
+      h.style.color = color;
+      board.appendChild(h);
+      await writeChalk(h, step.write, abort, 30, 60);
+      break;
+    }
+
+    case 'explain': {
+      const p = document.createElement('div');
+      p.className = 'board-text board-element';
+      p.style.color = color;
+      board.appendChild(p);
+      await writeChalk(p, step.write, abort, 22, 50);
+      break;
+    }
+
+    case 'list': {
+      const lbl = document.createElement('div');
+      lbl.className = 'board-text board-element';
+      lbl.style.color = 'var(--chalk-dim)';
+      lbl.style.marginBottom = '0.4rem';
+      board.appendChild(lbl);
+      await writeChalk(lbl, 'Key Points:', abort, 30, 55);
+
+      const items = Array.isArray(step.write) ? step.write : [step.write];
+      for (let i = 0; i < items.length; i++) {
+        if (abort.aborted) break;
+        // Brief pause between list items (teacher thinking)
+        await delay(280);
+        const li = document.createElement('div');
+        li.className = 'board-list-item board-element';
+        li.style.color = color;
+        li.style.animationDelay = `${i * 0.1}s`;
+        board.appendChild(li);
+        await writeChalk(li, '• ' + items[i], abort, 25, 55);
+      }
+      break;
+    }
+
+    case 'formula': {
+      const lbl = document.createElement('div');
+      lbl.className = 'board-text board-element';
+      lbl.style.color = 'var(--chalk-dim)';
+      board.appendChild(lbl);
+      await writeChalk(lbl, 'Remember this:', abort, 32, 58);
+      if (!abort.aborted) await delay(350);
+
+      const f = document.createElement('div');
+      f.className = 'board-formula board-element';
+      f.style.color = color;
+      board.appendChild(f);
+      await writeChalk(f, step.write, abort, 55, 95);
+      if (!abort.aborted) await delay(500);
+
+      // Write the speech explanation below the formula
+      const exp = document.createElement('div');
+      exp.className = 'board-text board-element';
+      exp.style.color = 'var(--chalk-dim)';
+      exp.style.fontSize = '1rem';
+      exp.style.marginTop = '0.8rem';
+      board.appendChild(exp);
+      await writeChalk(exp, step.speech, abort, 18, 38);
+      break;
+    }
+
+    case 'highlight': {
+      const p = document.createElement('div');
+      p.className = 'board-text board-element';
+      p.style.padding = '0.8rem 1.2rem';
+      p.style.border = `1px solid ${color}`;
+      p.style.borderRadius = '8px';
+      p.style.background = `${color}15`;
+      p.style.color = color;
+      p.style.fontSize = '1.3rem';
+      p.style.fontWeight = '600';
+      board.appendChild(p);
+      await writeChalk(p, '⭐ ' + step.write, abort, 35, 65);
+      break;
+    }
+
+    case 'diagram': {
+      // Write title first
+      const title = document.createElement('div');
+      title.className = 'board-text board-element';
+      title.style.color = 'var(--chalk-dim)';
+      title.style.marginBottom = '0.5rem';
+      board.appendChild(title);
+      await writeChalk(title, step.write, abort, 30, 55);
+
+      if (!abort.aborted) {
+        await delay(400);
+        // Create diagram container then draw it live
+        const canvas = document.createElement('div');
+        canvas.className = 'diagram-container board-element';
+        board.appendChild(canvas);
+        await drawDiagramLive(canvas, step, abort);
+      }
+      break;
+    }
+  }
+
+  // ── 4. After writing: thoughtful pause before teacher moves on ──
+  if (!abort.aborted) {
+    await delay(900 + Math.random() * 600);
+  }
+
+  isAnimating = false;
+  if (!abort.aborted) chalkAbort = null;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHALK WRITING ENGINE
+// Writes text character by character with natural variation
+// ═══════════════════════════════════════════════════════════
+function writeChalk(container, text, abort, minDelay, maxDelay) {
+  return new Promise(resolve => {
+    if (!container || !text) { resolve(); return; }
+    if (abort && abort.aborted) { resolve(); return; }
+
+    // Apply speed multiplier
+    const speedFactor = 1 / (writeSpeed || 1);
+    const mn = Math.round(minDelay * speedFactor);
+    const mx = Math.round(maxDelay * speedFactor);
+
+    // Add blinking cursor
+    container.innerHTML = '';
+    const cursor = document.createElement('span');
+    cursor.className = 'chalk-cursor';
+    cursor.textContent = '|';
+    container.appendChild(cursor);
+
+    let i = 0;
+    const textNode = document.createTextNode('');
+    container.insertBefore(textNode, cursor);
+
+    function typeNext() {
+      if (abort && abort.aborted) {
+        // Write remaining instantly on abort
+        textNode.textContent = text;
+        cursor.remove();
+        resolve();
+        return;
+      }
+      if (i >= text.length) {
+        // Remove cursor when done
+        cursor.remove();
+        resolve();
+        return;
+      }
+
+      textNode.textContent += text[i];
+      i++;
+
+      // Natural variation: slightly longer pauses after punctuation
+      let charDelay = mn + Math.random() * (mx - mn);
+      const ch = text[i - 1];
+      if (ch === '.' || ch === '!' || ch === '?') charDelay += 180 + Math.random() * 120;
+      else if (ch === ',' || ch === ';' || ch === ':') charDelay += 80 + Math.random() * 60;
+      else if (ch === ' ') charDelay *= 0.6; // spaces are faster
+
+      animTimeout = setTimeout(typeNext, charDelay);
+    }
+
+    typeNext();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE DIAGRAM DRAWING ENGINE
+// Draws SVG shapes progressively — lines, circles, labels
+// ═══════════════════════════════════════════════════════════
+async function drawDiagramLive(container, step, abort) {
+  const dtype = step.diagram || 'circle_labels';
+  const labels = step.labels || ['Item 1', 'Item 2', 'Item 3'];
+
+  // Build SVG element
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('viewBox', '0 0 520 260');
+  container.appendChild(svg);
+
+  if (dtype === 'circle_labels') {
+    await drawCircleLive(svg, labels, step.write, abort);
+  } else if (dtype === 'boxes') {
+    await drawBoxesLive(svg, labels, step.write, abort);
+  } else if (dtype === 'tree') {
+    await drawTreeLive(svg, labels, step.write, abort);
+  } else if (dtype === 'water_cycle') {
+    await drawWaterCycleLive(svg, abort);
+  } else if (dtype === 'food_chain') {
+    await drawFoodChainLive(svg, labels, abort);
+  } else {
+    await drawCircleLive(svg, labels, step.write, abort);
+  }
+}
+
+// ── helper: animate SVG element in after a delay ──
+function svgAppear(parent, el, delayMs, abort) {
+  return new Promise(resolve => {
+    if (abort && abort.aborted) { resolve(); return; }
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.35s ease';
+    parent.appendChild(el);
+    animTimeout = setTimeout(() => {
+      if (abort && abort.aborted) { resolve(); return; }
+      el.style.opacity = '1';
+      setTimeout(resolve, 360);
+    }, delayMs);
+  });
+}
+
+// ── helper: animate SVG path stroke ──
+function svgStrokeAnimate(parent, el, durationMs, delayMs, abort) {
+  return new Promise(resolve => {
+    if (abort && abort.aborted) { resolve(); return; }
+    const length = 600; // generous estimate
+    el.style.strokeDasharray = length;
+    el.style.strokeDashoffset = length;
+    el.style.transition = `stroke-dashoffset ${durationMs}ms ease, opacity 0.2s`;
+    el.style.opacity = '0';
+    parent.appendChild(el);
+    animTimeout = setTimeout(() => {
+      if (abort && abort.aborted) { resolve(); return; }
+      el.style.opacity = '1';
+      el.style.strokeDashoffset = '0';
+      setTimeout(resolve, durationMs + 80);
+    }, delayMs);
+  });
+}
+
+// ── helper: make SVG element ──
+function svgEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE CIRCLE DIAGRAM
+// ═══════════════════════════════════════════════════════════
+async function drawCircleLive(svg, labels, title, abort) {
+  const colors = ['#f5e87a','#a8d8f0','#a8e6a8','#f4a0a0','#d4a0f0'];
+  const cx = 260, cy = 120, r = 82, lr = 46;
+  const n = labels.length;
+
+  // Centre circle
+  const centre = svgEl('circle', { cx, cy, r:30, fill:'rgba(240,237,232,0.1)', stroke:'var(--chalk)', 'stroke-width':'1.5' });
+  await svgAppear(svg, centre, 0, abort);
+  if (abort.aborted) return;
+
+  const ctxt = svgEl('text', { x:cx, y:cy, 'text-anchor':'middle', 'dominant-baseline':'central', fill:'var(--chalk)', 'font-family':'Caveat, cursive', 'font-size':'11' });
+  ctxt.textContent = title.split(' ')[0];
+  await svgAppear(svg, ctxt, 120, abort);
+  if (abort.aborted) return;
+
+  // Each outer circle + connecting line + label, one by one
+  for (let i = 0; i < n; i++) {
+    if (abort.aborted) return;
+    const angle = (i / n) * 2 * Math.PI - Math.PI / 2;
+    const x = cx + r * Math.cos(angle);
+    const y = cy + r * Math.sin(angle);
+    const c = colors[i % colors.length];
+
+    // Line from centre to circle
+    const line = svgEl('line', {
+      x1: cx, y1: cy,
+      x2: x - lr * 0.5 * Math.cos(angle),
+      y2: y - lr * 0.5 * Math.sin(angle),
+      stroke: c, 'stroke-width':'1.5',
+      'stroke-dasharray':'4 3', opacity:'0.7'
+    });
+    await svgStrokeAnimate(svg, line, 280, 0, abort);
+    if (abort.aborted) return;
+
+    // Outer circle
+    const circle = svgEl('circle', { cx:x, cy:y, r:lr, fill:`${c}22`, stroke:c, 'stroke-width':'1.5' });
+    await svgStrokeAnimate(svg, circle, 320, 60, abort);
+    if (abort.aborted) return;
+
+    // Label
+    const txt = svgEl('text', { x, y, 'text-anchor':'middle', 'dominant-baseline':'central', fill:c, 'font-family':'Caveat, cursive', 'font-size':'13', 'font-weight':'600' });
+    txt.textContent = labels[i];
+    await svgAppear(svg, txt, 200, abort);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE BOXES DIAGRAM
+// ═══════════════════════════════════════════════════════════
+async function drawBoxesLive(svg, labels, title, abort) {
+  const colors = ['#f5e87a','#a8d8f0','#a8e6a8','#f4a0a0','#d4a0f0'];
+  const bw = 100, bh = 50, gap = 20;
+  const total = labels.length * bw + (labels.length - 1) * gap;
+  const sx = (520 - total) / 2;
+
+  const ttxt = svgEl('text', { x:260, y:38, 'text-anchor':'middle', fill:'var(--chalk-dim)', 'font-family':'Caveat, cursive', 'font-size':'13' });
+  ttxt.textContent = title;
+  await svgAppear(svg, ttxt, 0, abort);
+  if (abort.aborted) return;
+
+  for (let i = 0; i < labels.length; i++) {
+    if (abort.aborted) return;
+    const x = sx + i * (bw + gap);
+    const c = colors[i % colors.length];
+
+    const rect = svgEl('rect', { x, y:75, width:bw, height:bh, rx:8, fill:`${c}22`, stroke:c, 'stroke-width':'1.5' });
+    await svgStrokeAnimate(svg, rect, 300, 0, abort);
+    if (abort.aborted) return;
+
+    const txt = svgEl('text', { x:x + bw/2, y:100, 'text-anchor':'middle', 'dominant-baseline':'central', fill:c, 'font-family':'Caveat, cursive', 'font-size':'13', 'font-weight':'600' });
+    txt.textContent = labels[i];
+    await svgAppear(svg, txt, 160, abort);
+    if (abort.aborted) return;
+
+    if (i < labels.length - 1) {
+      const arr = svgEl('text', { x:x + bw + gap/2, y:100, 'text-anchor':'middle', 'dominant-baseline':'central', fill:'var(--chalk-dim)', 'font-size':'18' });
+      arr.textContent = '→';
+      await svgAppear(svg, arr, 80, abort);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE TREE DIAGRAM
+// ═══════════════════════════════════════════════════════════
+async function drawTreeLive(svg, labels, title, abort) {
+  const colors = ['#f5e87a','#a8d8f0','#a8e6a8','#f4a0a0','#d4a0f0'];
+  const n = labels.length;
+  const spacing = 520 / (n + 1);
+
+  // Root box
+  const rootRect = svgEl('rect', { x:185, y:28, width:150, height:44, rx:8, fill:'rgba(245,232,122,0.15)', stroke:'var(--chalk-yellow)', 'stroke-width':'1.5' });
+  await svgStrokeAnimate(svg, rootRect, 340, 0, abort);
+  if (abort.aborted) return;
+  const rootTxt = svgEl('text', { x:260, y:50, 'text-anchor':'middle', 'dominant-baseline':'central', fill:'var(--chalk-yellow)', 'font-family':'Caveat, cursive', 'font-size':'13', 'font-weight':'700' });
+  rootTxt.textContent = title.substring(0, 16);
+  await svgAppear(svg, rootTxt, 200, abort);
+  if (abort.aborted) return;
+
+  await delay(200);
+
+  for (let i = 0; i < n; i++) {
+    if (abort.aborted) return;
+    const x = spacing * (i + 1);
+    const c = colors[i % colors.length];
+
+    const line = svgEl('line', { x1:260, y1:72, x2:x, y2:125, stroke:c, 'stroke-width':'1.5', 'stroke-dasharray':'5 3', opacity:'0.7' });
+    await svgStrokeAnimate(svg, line, 260, 0, abort);
+    if (abort.aborted) return;
+
+    const rect = svgEl('rect', { x:x - 55, y:125, width:110, height:40, rx:6, fill:`${c}22`, stroke:c, 'stroke-width':'1.5' });
+    await svgStrokeAnimate(svg, rect, 280, 80, abort);
+    if (abort.aborted) return;
+
+    const txt = svgEl('text', { x, y:145, 'text-anchor':'middle', 'dominant-baseline':'central', fill:c, 'font-family':'Caveat, cursive', 'font-size':'12' });
+    txt.textContent = labels[i];
+    await svgAppear(svg, txt, 160, abort);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE WATER CYCLE
+// ═══════════════════════════════════════════════════════════
+async function drawWaterCycleLive(svg, abort) {
+  svg.setAttribute('viewBox', '0 0 520 220');
+  const steps = [
+    () => { const t = svgEl('text',{x:75,y:178,fill:'#a8d8f0','font-family':'Caveat, cursive','font-size':'13'}); t.textContent='🌊 Ocean'; return t; },
+    () => { const p = svgEl('path',{d:'M100 160 Q130 100 200 80',fill:'none',stroke:'#a8d8f0','stroke-width':'2','stroke-dasharray':'6 3'}); return p; },
+    () => { const t = svgEl('text',{x:168,y:58,fill:'#f0ede8','font-family':'Caveat, cursive','font-size':'12'}); t.textContent='Evaporation ↑'; return t; },
+    () => { const e = svgEl('ellipse',{cx:280,cy:48,rx:80,ry:28,fill:'rgba(168,216,240,0.2)',stroke:'#a8d8f0','stroke-width':'1.5'}); return e; },
+    () => { const t = svgEl('text',{x:280,y:52,'text-anchor':'middle',fill:'#a8d8f0','font-family':'Caveat, cursive','font-size':'13'}); t.textContent='☁️ Clouds'; return t; },
+    () => { const p = svgEl('path',{d:'M340 76 Q380 118 380 158',fill:'none',stroke:'#a8d8f0','stroke-width':'2','stroke-dasharray':'4 4'}); return p; },
+    () => { const t = svgEl('text',{x:390,y:128,fill:'#a8e6a8','font-family':'Caveat, cursive','font-size':'12'}); t.textContent='🌧 Rain'; return t; },
+    () => { const p = svgEl('path',{d:'M380 162 Q320 198 200 198 Q150 198 100 174',fill:'none',stroke:'#a8d8f0','stroke-width':'1.5','stroke-dasharray':'5 3'}); return p; },
+    () => { const t = svgEl('text',{x:240,y:216,'text-anchor':'middle',fill:'#a8d8f0','font-family':'Caveat, cursive','font-size':'11',opacity:'0.7'}); t.textContent='Runoff → back to ocean'; return t; },
+  ];
+
+  for (const fn of steps) {
+    if (abort.aborted) return;
+    const el = fn();
+    const tag = el.tagName;
+    if (tag === 'path' || tag === 'ellipse') {
+      await svgStrokeAnimate(svg, el, 400, 0, abort);
+    } else {
+      await svgAppear(svg, el, 0, abort);
+    }
+    await delay(180);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// LIVE FOOD CHAIN
+// ═══════════════════════════════════════════════════════════
+async function drawFoodChainLive(svg, labels, abort) {
+  const colors = ['#a8e6a8','#f5e87a','#f4a0a0','#d4a0f0'];
+  const items = labels.length > 0 ? labels : ['Plants','Herbivores','Carnivores'];
+  const spacing = 520 / (items.length + 1);
+
+  const ttxt = svgEl('text',{x:260,y:28,'text-anchor':'middle',fill:'var(--chalk-dim)','font-family':'Caveat, cursive','font-size':'13'});
+  ttxt.textContent = 'Food Chain';
+  await svgAppear(svg, ttxt, 0, abort);
+
+  for (let i = 0; i < items.length; i++) {
+    if (abort.aborted) return;
+    const x = spacing * (i + 1);
+    const c = colors[i % colors.length];
+
+    const circle = svgEl('circle', { cx:x, cy:100, r:42, fill:`${c}22`, stroke:c, 'stroke-width':'2' });
+    await svgStrokeAnimate(svg, circle, 330, 0, abort);
+    if (abort.aborted) return;
+
+    const txt = svgEl('text', { x, y:100, 'text-anchor':'middle', 'dominant-baseline':'central', fill:c, 'font-family':'Caveat, cursive', 'font-size':'13', 'font-weight':'600' });
+    txt.textContent = items[i];
+    await svgAppear(svg, txt, 180, abort);
+    if (abort.aborted) return;
+
+    if (i < items.length - 1) {
+      const arr = svgEl('text', { x:x + spacing/2, y:100, 'text-anchor':'middle', 'dominant-baseline':'central', fill:'var(--chalk-yellow)', 'font-size':'22' });
+      arr.textContent = '→';
+      await svgAppear(svg, arr, 120, abort);
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// VOICE ENGINE
+// ═══════════════════════════════════════════════════════════
+function speak(text) {
+  if (!voiceOn || !('speechSynthesis' in window)) return;
+  if (currentSpeech) window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang   = teachingMode === 'tamil' ? 'ta-IN' : 'en-IN';
+  utt.rate   = parseFloat(document.getElementById('speed-sel').value) || 0.9;
+  utt.pitch  = 1.05;
+  currentSpeech = utt;
+  window.speechSynthesis.speak(utt);
+}
+
+function toggleVoice() {
+  voiceOn = !voiceOn;
+  const btn = document.getElementById('voice-toggle');
+  btn.classList.toggle('active', voiceOn);
+  btn.textContent = voiceOn ? '🔊 Voice' : '🔇 Muted';
+  if (!voiceOn) window.speechSynthesis.cancel();
+}
+
+// ═══════════════════════════════════════════════════════════
+// NAVIGATION — sidebar, prev/next, pause
+// ═══════════════════════════════════════════════════════════
+function nextStep() {
+  if (currentStep < lessonSteps.length - 1) {
+    renderStep(currentStep + 1);
+  } else {
+    showLessonComplete();
+  }
+}
+
+function prevStep() {
+  if (currentStep > 0) renderStep(currentStep - 1);
+}
+
+function jumpToStep(idx) {
+  renderStep(idx);
+}
+
+function togglePause() {
+  isPaused = !isPaused;
+  const btn = document.getElementById('play-pause-btn');
+  btn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+  if (isPaused) window.speechSynthesis.pause();
+  else window.speechSynthesis.resume();
+}
+
+function changeSpeed(v) {
+  writeSpeed = parseFloat(v);
+  // Also update live speech rate
+  if (currentSpeech) currentSpeech.rate = writeSpeed;
+}
+
+// ═══════════════════════════════════════════════════════════
+// UTILITY
+// ═══════════════════════════════════════════════════════════
+function delay(ms) {
+  return new Promise(resolve => { animTimeout = setTimeout(resolve, ms); });
+}
+
+function highlightKeyTerms(text) {
+  return text
+    .replace(/=\s*(.+)/g, '= <span class="board-highlight">$1</span>')
+    .replace(/:\s*([A-Z][a-z]+(?:\s+[a-z]+)*)/g, ': <span class="board-keyterm">$1</span>');
+}
+
+// ═══════════════════════════════════════════════════════════
+// LESSON COMPLETE
+// ═══════════════════════════════════════════════════════════
+function showLessonComplete() {
+  stopCurrentAnimation();
+  const board = document.getElementById('board-content');
+  board.innerHTML = `
+    <div style="text-align:center;padding:2rem">
+      <div style="font-family:Caveat,cursive;font-size:3rem;color:var(--chalk-yellow);margin-bottom:1rem">🎉 Lesson Complete!</div>
+      <div style="font-family:Caveat,cursive;font-size:1.5rem;color:var(--chalk);margin-bottom:2rem">Well done, students! Today we learned about this lesson.</div>
+      <div style="font-family:Caveat,cursive;font-size:1.2rem;color:var(--chalk-dim)">You covered ${lessonSteps.length} concepts today.</div>
+      <div style="margin-top:2rem">
+        <button onclick="goBack()" style="background:var(--gold);color:var(--maroon);border:none;border-radius:10px;padding:0.8rem 2rem;font-family:Caveat,cursive;font-size:1.3rem;font-weight:700;cursor:pointer">← Start Another Lesson</button>
+      </div>
+    </div>
+  `;
+  speak('Excellent! You have completed the lesson. Well done students!');
+}
+
+// ═══════════════════════════════════════════════════════════
+// LOADING / ERROR
+// ═══════════════════════════════════════════════════════════
+function showLoading(msg) {
+  const ol = document.getElementById('loading-overlay');
+  ol.style.display = 'flex';
+  document.getElementById('loading-msg').textContent = msg;
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').style.display = 'none';
+}
+function showError(msg) {
+  const board = document.getElementById('board-content');
+  board.innerHTML = `
+    <div style="color:var(--chalk-red);font-family:Caveat,cursive;font-size:1.4rem;padding:2rem;text-align:center">
+      ⚠️ Error: ${msg}<br><br>
+      <div style="font-size:1rem;color:var(--chalk-dim)">Please try again.</div>
+    </div>
+  `;
+}
+
+// ═══════════════════════════════════════════════════════════
+// GO BACK
+// ═══════════════════════════════════════════════════════════
+function goBack() {
+  stopCurrentAnimation();
+  document.getElementById('classroom').style.display = 'none';
+  document.getElementById('welcome-screen').style.display = 'flex';
+  document.getElementById('welcome-screen').style.opacity = '1';
+  lessonSteps = []; currentStep = 0;
+}
+
+// ═══════════════════════════════════════════════════════════
+// CHALK CURSOR CSS — inject into document
+// ═══════════════════════════════════════════════════════════
+(function injectChalkCursorCSS() {
+  const style = document.createElement('style');
+  style.textContent = `
+    .chalk-cursor {
+      display: inline-block;
+      width: 2px;
+      background: var(--chalk, #f0ede8);
+      color: transparent;
+      animation: chalkBlink 0.55s step-start infinite;
+      margin-left: 1px;
+      vertical-align: text-bottom;
+      height: 1.1em;
+    }
+    @keyframes chalkBlink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0; }
+    }
+    .board-list-item {
+      font-family: 'Caveat', cursive;
+      font-size: 1.25rem;
+      line-height: 1.9;
+      padding-left: 0.3rem;
+    }
+  `;
+  document.head.appendChild(style);
+})();
+
+// ── Init voice button ──
+document.getElementById('voice-toggle').classList.add('active');
+
+// ── Auto-fill class & subject from URL params ──
+(function() {
+  var params = new URLSearchParams(window.location.search);
+  var cls  = params.get('class');
+  var subj = params.get('subject');
+  if (cls) {
+    var sel = document.getElementById('sel-class');
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === cls || sel.options[i].text === cls) { sel.selectedIndex = i; break; }
+    }
+  }
+  if (subj) {
+    var sel2 = document.getElementById('sel-subject');
+    for (var i = 0; i < sel2.options.length; i++) {
+      if (sel2.options[i].value === subj || sel2.options[i].text === subj) { sel2.selectedIndex = i; break; }
+    }
+  }
+})();
+
+// ── Show school name from session ──
+(function() {
+  const schoolName =
+    (typeof window !== 'undefined' && window.SCHOOL_NAME) ||
+    localStorage.getItem('dss_school_name') ||
+    sessionStorage.getItem('dss_school_name') || null;
+  if (schoolName) {
+    document.getElementById('welcome-sub').textContent = schoolName;
+    document.title = 'Blackboard AI — ' + schoolName;
+  }
+})();
+</script>
+</body>
+</html>
 
 // ===== MODE SELECT =====
 function selectMode(m) {
