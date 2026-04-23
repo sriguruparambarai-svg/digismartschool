@@ -729,84 +729,176 @@ function playSegment(idx){
   });
 }
 
-// ── speakSegment: ElevenLabs primary, browser fallback ──
+// ══════════════════════════════════════════════════
+// LANGUAGE DETECTION + TEXT CLEANING
+// ══════════════════════════════════════════════════
+var TAMIL_RE = /[\u0B80-\u0BFF]/;
+var ENGLISH_RE = /[a-zA-Z]/;
+
+function detectLang(text){
+  var hasTa = TAMIL_RE.test(text);
+  var hasEn = ENGLISH_RE.test(text);
+  if(hasTa && !hasEn) return 'ta';
+  if(hasEn && !hasTa) return 'en';
+  if(hasTa && hasEn)  return 'mixed';
+  return 'en'; // numbers/punctuation only → treat as english
+}
+
+// Keep only Tamil script, Latin letters, digits, and safe punctuation
+function cleanText(text){
+  return String(text || '')
+    .replace(/[^\u0B80-\u0BFFa-zA-Z0-9\s.,!?;:'"()\-]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// Split a mixed string into [{text, lang}] where each chunk is purely ta or en
+function splitByLang(text){
+  var chunks = [], cur = '', curLang = null;
+  for(var i = 0; i < text.length; i++){
+    var ch = text[i];
+    var cLang = TAMIL_RE.test(ch) ? 'ta' : ENGLISH_RE.test(ch) ? 'en' : null;
+    if(cLang === null){          // space / punctuation — attach to current
+      cur += ch;
+    } else if(cLang === curLang || curLang === null){
+      cur += ch;
+      curLang = cLang;
+    } else {                     // language changed
+      if(cur.trim()) chunks.push({ text: cur.trim(), lang: curLang });
+      cur = ch;
+      curLang = cLang;
+    }
+  }
+  if(cur.trim() && curLang) chunks.push({ text: cur.trim(), lang: curLang });
+  // merge tiny adjacent same-lang chunks (< 3 chars) to avoid choppy audio
+  var merged = [];
+  for(var j = 0; j < chunks.length; j++){
+    var last = merged[merged.length - 1];
+    if(last && last.lang === chunks[j].lang){
+      last.text += ' ' + chunks[j].text;
+    } else {
+      merged.push({ text: chunks[j].text, lang: chunks[j].lang });
+    }
+  }
+  return merged;
+}
+
+// ══════════════════════════════════════════════════
+// ELEVENLABS API CALL (single chunk)
+// ══════════════════════════════════════════════════
+async function fetchElevenLabs(text, tone, lang){
+  var clean = cleanText(text);
+  if(!clean) throw new Error('empty text');
+  console.log('SPEAKING:', clean, '| LANG:', lang, '| TONE:', tone);
+  var res = await fetch('/api/voice', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ text: clean, tone: tone, lang: lang })
+  });
+  if(!res.ok) throw new Error('API ' + res.status);
+  var data = await res.json();
+  if(!data.audio) throw new Error('no audio returned');
+  return data.audio; // base64 mp3
+}
+
+// Play a base64 mp3, return promise that resolves on end
+function playBase64Audio(b64){
+  return new Promise(function(resolve){
+    stopCurrentAudio();
+    var audio = new Audio('data:audio/mpeg;base64,' + b64);
+    currentAudio = audio;
+    audio.playbackRate = Math.max(0.5, Math.min(2.0, speechSpeed));
+    audio.onended = function(){ currentAudio = null; resolve(); };
+    audio.onerror = function(){ currentAudio = null; resolve(); }; // resolve so chain continues
+    audio.play().catch(function(){ currentAudio = null; resolve(); });
+  });
+}
+
+// ══════════════════════════════════════════════════
+// speakSegment — main entry point
+// ══════════════════════════════════════════════════
 async function speakSegment(seg, onEnd){
   stopCurrentAudio();
-
-  var text = seg.math_converted || seg.text;
-  var tone = seg.tone || 'normal';
-  var sel  = document.getElementById('voice-sel');
+  var sel = document.getElementById('voice-sel');
   var useBrowser = sel && sel.value === 'browser';
+
+  var rawText = seg.math_converted || seg.text || '';
+  var tone    = seg.tone || 'normal';
+  var segLang = seg.lang || seg.language || detectLang(rawText);
+  var detected = detectLang(rawText);
+
+  // If the text itself is mixed, override whatever lang tag says
+  if(detected === 'mixed') segLang = 'mixed';
 
   if(!useBrowser){
     try{
-      var res = await fetch('/api/voice', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({ text: text, tone: tone, lang: seg.lang || 'en' })
-      });
-      if(!res.ok) throw new Error('API ' + res.status);
-      var data = await res.json();
-      if(!data.audio) throw new Error('No audio');
-
-      var audio = new Audio('data:audio/mpeg;base64,' + data.audio);
-      currentAudio = audio;
-      audio.playbackRate = Math.max(0.5, Math.min(2.0, speechSpeed));
-      audio.onended  = function(){ currentAudio = null; if(onEnd) onEnd(); };
-      audio.onerror  = function(){
-        currentAudio = null;
-        speakSegmentBrowser(text, tone, onEnd);   // fallback
-      };
-      audio.play();
+      if(segLang === 'mixed'){
+        // Split into pure-language chunks and play sequentially
+        var chunks = splitByLang(rawText);
+        for(var i = 0; i < chunks.length; i++){
+          if(!isPlaying && isPaused) break; // respect pause
+          var chunk = chunks[i];
+          try{
+            var b64 = await fetchElevenLabs(chunk.text, tone, chunk.lang);
+            await playBase64Audio(b64);
+          }catch(ce){
+            console.warn('Chunk failed, using browser for:', chunk.text, ce.message);
+            await new Promise(function(r){
+              speakSegmentBrowser(chunk.text, tone, r, chunk.lang);
+            });
+          }
+          // small gap between chunks (150ms)
+          if(i < chunks.length - 1) await new Promise(r => setTimeout(r, 150));
+        }
+      } else {
+        // Pure single-language segment
+        var b64 = await fetchElevenLabs(rawText, tone, segLang);
+        await playBase64Audio(b64);
+      }
+      if(onEnd) onEnd();
       return;
     }catch(e){
-      console.warn('ElevenLabs failed, falling back to browser TTS:', e.message);
+      console.warn('ElevenLabs failed, falling back:', e.message);
     }
   }
 
-  speakSegmentBrowser(text, tone, onEnd);
+  // Browser TTS fallback
+  speakSegmentBrowser(rawText, tone, onEnd, segLang);
 }
 
-// ── Browser TTS fallback (keeps classroom going if ElevenLabs is unavailable) ──
-function speakSegmentBrowser(text, tone, onEnd){
+// ── Browser TTS fallback ──
+function speakSegmentBrowser(text, tone, onEnd, lang){
   if(typeof speechSynthesis === 'undefined'){ if(onEnd) onEnd(); return; }
   speechSynthesis.cancel();
-
   var profile = TONE_CONFIG[tone] || TONE_CONFIG.normal;
   var voices  = speechSynthesis.getVoices();
+  var isTamil = (lang === 'ta' || lang === 'tamil');
 
-  // For mixed text send as one utterance — browser handles it best-effort
+  var v;
+  if(isTamil){
+    v = voices.find(v => v.lang && v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
+     || voices.find(v => v.lang && v.lang.startsWith('ta'))
+     || null;
+  } else {
+    v = voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
+     || voices.find(v => v.lang==='en-IN')
+     || voices.find(v => v.lang && v.lang.startsWith('en'))
+     || voices[0] || null;
+  }
+
   var utt = new SpeechSynthesisUtterance(text);
-  var v = voices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
-       || voices.find(v => v.lang==='en-IN')
-       || voices.find(v => v.lang.startsWith('en'))
-       || voices[0]
-       || null;
   if(v) utt.voice = v;
   utt.rate  = Math.max(0.5, Math.min(2.0, profile.rate * speechSpeed));
   utt.pitch = profile.pitch;
-  utt.lang  = 'en-IN';
+  utt.lang  = isTamil ? 'ta-IN' : 'en-IN';
   utt.onend   = onEnd || function(){};
   utt.onerror = function(){ if(onEnd) onEnd(); };
   speechSynthesis.speak(utt);
 }
 
+// legacy alias — kept so nothing else breaks
 function splitLangSegments(text){
-  var TAMIL = /[\u0B80-\u0BFF]/;
-  var segs = [], cur = '', curLang = null;
-  for(var i=0; i<text.length; i++){
-    var ch = text[i];
-    var isTa = TAMIL.test(ch);
-    var isEn = /[a-zA-Z0-9]/.test(ch);
-    var cLang = isTa ? 'tamil' : isEn ? 'english' : (curLang || 'english');
-    if(cLang !== curLang && cur.trim() && curLang){
-      segs.push({text: cur.trim(), lang: curLang});
-      cur = ch;
-    } else { cur += ch; }
-    curLang = cLang;
-  }
-  if(cur.trim()) segs.push({text: cur.trim(), lang: curLang || 'english'});
-  return segs;
+  return splitByLang(text);
 }
 
 function finishClass(){
