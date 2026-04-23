@@ -229,11 +229,20 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
     <textarea id="setup-lesson" placeholder="Paste lesson text from textbook here... AI will teach from this content."></textarea>
 
     <label>Teaching Language</label>
-    <select id="teach-lang-sel" style="margin-top:4px;" onchange="teachLang=this.value">
-      <option value="bi">🔀 Bilingual — English + Tamil meaning once</option>
-      <option value="en">🇬🇧 English Only</option>
-      <option value="ta">🇮🇳 Tamil Only</option>
-    </select>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:4px;" id="lang-tab-row">
+      <button id="ltab-bi" onclick="setLangTab('bi')"
+        style="padding:10px 6px;border-radius:10px;border:2px solid rgba(167,139,250,0.5);background:rgba(167,139,250,0.15);color:var(--violet);font-family:Lexend,sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;transition:all 0.2s;">
+        🔀 Bilingual<br/><span style="font-size:0.6rem;opacity:0.7;">EN + Tamil meaning</span>
+      </button>
+      <button id="ltab-en" onclick="setLangTab('en')"
+        style="padding:10px 6px;border-radius:10px;border:1.5px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-family:Lexend,sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;transition:all 0.2s;">
+        🇬🇧 English Only<br/><span style="font-size:0.6rem;opacity:0.7;">Full English</span>
+      </button>
+      <button id="ltab-ta" onclick="setLangTab('ta')"
+        style="padding:10px 6px;border-radius:10px;border:1.5px solid rgba(255,255,255,0.1);background:rgba(255,255,255,0.04);color:rgba(255,255,255,0.45);font-family:Lexend,sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;transition:all 0.2s;">
+        🇮🇳 Tamil Only<br/><span style="font-size:0.6rem;opacity:0.7;">Full Tamil</span>
+      </button>
+    </div>
 
     <div style="margin-top:16px;">
       <button class="btn btn-gold" onclick="startTeachingMode()">🎓 Begin Class with Malar Mam</button>
@@ -405,7 +414,24 @@ const TONE_CONFIG = {
 // ══════════════════════════════════════════════════
 // SETUP SCREEN
 // ══════════════════════════════════════════════════
-function setTeachLang(l){ teachLang = l; }  // kept for URL-param compat
+function setLangTab(mode){
+  teachLang = mode;
+  ['bi','en','ta'].forEach(function(m){
+    var btn = document.getElementById('ltab-' + m);
+    if(!btn) return;
+    if(m === mode){
+      btn.style.borderColor = 'rgba(167,139,250,0.5)';
+      btn.style.background  = 'rgba(167,139,250,0.15)';
+      btn.style.color       = 'var(--violet)';
+    } else {
+      btn.style.borderColor = 'rgba(255,255,255,0.1)';
+      btn.style.background  = 'rgba(255,255,255,0.04)';
+      btn.style.color       = 'rgba(255,255,255,0.45)';
+    }
+  });
+}
+// legacy compat
+function setTeachLang(l){ setLangTab(l === 'mixed' ? 'bi' : l === 'english' ? 'en' : l === 'tamil' ? 'ta' : l); }
 
 function quickStart(subj, topic){
   document.getElementById('setup-subject').value = subj;
@@ -414,14 +440,11 @@ function quickStart(subj, topic){
 }
 
 async function startTeachingMode(){
-  var subj    = document.getElementById('setup-subject').value;
-  var cls     = document.getElementById('setup-class').value;
-  var topic   = document.getElementById('setup-topic').value.trim();
-  var lesson  = document.getElementById('setup-lesson').value.trim();
-  // read dropdown — fallback to existing teachLang if dropdown missing
-  var sel = document.getElementById('teach-lang-sel');
-  if(sel) teachLang = sel.value;
-  if (!topic){ alert('Please enter a topic!'); return; }
+  var subj   = document.getElementById('setup-subject').value;
+  var cls    = document.getElementById('setup-class').value;
+  var topic  = document.getElementById('setup-topic').value.trim();
+  var lesson = document.getElementById('setup-lesson').value.trim();
+  if(!topic){ alert('Please enter a topic!'); return; }
 
   subjectName = subj;
   className   = cls;
@@ -610,11 +633,12 @@ function stopCurrentAudio(){
   }
 }
 
-// Voice selector now shows ElevenLabs mode status
+// Voice selector — Browser TTS is default (works without API key)
 function populateVoices(){
   var sel = document.getElementById('voice-sel');
   if(!sel) return;
-  sel.innerHTML = '<option value="elevenlabs">⭐ ElevenLabs Neural (Active)</option><option value="browser">🔄 Browser Fallback</option>';
+  sel.innerHTML = '<option value="browser">🔊 Browser TTS (default)</option>'
+                + '<option value="elevenlabs">⭐ ElevenLabs (needs API key)</option>';
 }
 
 // ══════════════════════════════════════════════════
@@ -847,22 +871,26 @@ async function speakChunk(text, tone, lang){
   try{
     var b64 = await fetchElevenLabs(text, tone, lang);
     await playBase64Audio(b64);
+    return;
   }catch(e){
-    // For Tamil: convert to phonetic English and speak with EN voice
-    if(lang === 'ta'){
+    console.warn('ElevenLabs chunk failed (' + lang + '):', e.message);
+  }
+  // Tamil phonetic retry via English voice
+  if(lang === 'ta'){
+    try{
       var phonetic = tamilToPhonetic(text);
       console.log('PHONETIC FALLBACK:', phonetic);
-      try{
-        var b64p = await fetchElevenLabs(phonetic, tone, 'en');
-        await playBase64Audio(b64p);
-        return;
-      }catch(e2){}
+      var b64p = await fetchElevenLabs(phonetic, tone, 'en');
+      await playBase64Audio(b64p);
+      return;
+    }catch(e2){
+      console.warn('Phonetic ElevenLabs failed:', e2.message);
     }
-    // Final fallback: browser TTS
-    await new Promise(function(r){
-      speakSegmentBrowser(text, tone, r, lang);
-    });
   }
+  // Final fallback: browser TTS (always succeeds)
+  await new Promise(function(r){
+    speakSegmentBrowser(text, tone, r, lang);
+  });
 }
 
 // ══════════════════════════════════════════════════
@@ -877,14 +905,13 @@ async function speakSegment(seg, onEnd){
   var tone     = seg.tone || 'normal';
   var detected = detectLang(rawText);
 
-  // Resolve final lang: trust detected over tag when they conflict
   var finalLang = detected === 'mixed' ? 'mixed'
     : (seg.lang === 'ta' || seg.lang === 'tamil')  ? 'ta'
     : (seg.lang === 'en' || seg.lang === 'english') ? 'en'
     : detected;
 
-  if(!useBrowser){
-    try{
+  try{
+    if(!useBrowser){
       if(finalLang === 'mixed'){
         var chunks = splitByLang(rawText);
         for(var i = 0; i < chunks.length; i++){
@@ -895,14 +922,22 @@ async function speakSegment(seg, onEnd){
       } else {
         await speakChunk(rawText, tone, finalLang);
       }
-      if(onEnd) onEnd();
-      return;
-    }catch(e){
-      console.warn('speakSegment failed:', e.message);
+    } else {
+      // Browser mode selected in dropdown
+      await new Promise(function(r){
+        speakSegmentBrowser(rawText, tone, r, finalLang);
+      });
     }
+  }catch(e){
+    // Safety net — should never reach here but ensures lesson never freezes
+    console.warn('speakSegment unexpected error:', e.message);
+    try{
+      await new Promise(function(r){ speakSegmentBrowser(rawText, tone, r, finalLang); });
+    }catch(e2){}
   }
 
-  speakSegmentBrowser(rawText, tone, onEnd, finalLang);
+  // onEnd is ALWAYS called
+  if(onEnd) onEnd();
 }
 
 // ── Browser TTS fallback ──
@@ -1129,11 +1164,8 @@ function loadFromURLParams(){
     if(topic)  document.getElementById('setup-topic').value   = topic;
     if(lesson) document.getElementById('setup-lesson').value  = lesson;
     if(lang){
-      // map old values to new
       var mapped = lang === 'mixed' ? 'bi' : lang === 'tamil' ? 'ta' : lang === 'english' ? 'en' : lang;
-      teachLang = mapped;
-      var sel = document.getElementById('teach-lang-sel');
-      if(sel) sel.value = mapped;
+      setLangTab(mapped);
     }
     startTeachingMode();
   }
@@ -1149,6 +1181,7 @@ function escH(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;'
 // ══════════════════════════════════════════════════
 window.addEventListener('load', function(){
   populateVoices();
+  setLangTab('bi');   // default: Bilingual, tab highlighted
   loadFromURLParams();
 });
 </script>
