@@ -190,7 +190,7 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
 <!-- ── LOADING OVERLAY ── -->
 <div class="loading-screen" id="loading-screen">
   <div class="big-spin"></div>
-  <div class="load-text" id="load-text">Malar Mam is preparing the lesson...</div>
+  <div class="load-text" id="load-text">AI Teacher is preparing the lesson...</div>
   <div class="load-sub" id="load-sub">Generating classroom teaching script</div>
   <div class="load-dots"><span></span><span></span><span></span></div>
 </div>
@@ -199,7 +199,7 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
 <div class="setup-screen" id="setup-screen">
   <div class="setup-card">
     <div class="setup-title">🎓 Start a Teaching Mode Class</div>
-    <div class="setup-sub">Choose your teaching language below, then click Begin Class. Malar Mam will teach the lesson with classroom interaction, pauses and questions.</div>
+    <div class="setup-sub">Choose your teaching language below, then click Begin Class. The AI Teacher will take the lesson with classroom interaction, pauses and questions.</div>
 
     <div class="g2">
       <div>
@@ -245,7 +245,7 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
     </div>
 
     <div style="margin-top:16px;">
-      <button class="btn btn-gold" onclick="startTeachingMode()">🎓 Begin Class with Malar Mam</button>
+      <button class="btn btn-gold" onclick="startTeachingMode()">🎓 Begin Class</button>
     </div>
 
     <!-- Quick examples -->
@@ -310,9 +310,9 @@ textarea{min-height:110px;resize:vertical;line-height:1.65;}
     <div class="avatar-wrap">
       <div class="av-ring" id="av-ring"></div>
       <div class="av-ring2" id="av-ring2"></div>
-      <img class="av-photo" id="av-photo" src="" alt="Teacher"/>
+      <div id="av-emoji" style="width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,#1a3a2a,#0d2a1a);border:3px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:2.6rem;box-shadow:0 6px 20px rgba(245,200,66,0.25);">🤖</div>
     </div>
-    <div class="av-name" id="av-name">Malar Mam</div>
+    <div class="av-name" id="av-name">AI Teacher</div>
     <div class="av-status">
       <div class="status-dot idle" id="status-dot"></div>
       <span id="status-text" style="font-size:0.65rem;color:var(--dim);">Ready</span>
@@ -464,7 +464,7 @@ async function startTeachingMode(){
   topicName   = topic;
 
   var modeLabel = {'en':'English Only','ta':'Tamil Only','bi':'Bilingual'}[teachLang] || 'Bilingual';
-  showLoading('Malar Mam is preparing the class...', modeLabel + ' lesson for ' + topic);
+  showLoading('AI Teacher is preparing the class...', modeLabel + ' lesson for ' + topic);
 
   try{
     await generateTeachingScript(subj, cls, topic, lesson);
@@ -507,7 +507,7 @@ async function generateTeachingScript(subj, cls, topic, lessonText){
 
   var lessonSnippet = lessonText ? ('LESSON:\n' + lessonText.substring(0, 800)) : '';
 
-  var prompt = 'You are Malar Mam, a real Tamil Nadu school teacher. Slightly strict but caring.\n'
+  var prompt = 'You are an experienced Tamil Nadu school teacher.\n'
     + 'CLASS: ' + cls + ' | SUBJECT: ' + subj + ' | TOPIC: "' + topic + '"\n'
     + lessonSnippet + '\n\n'
     + langInstr + '\n\n'
@@ -538,7 +538,7 @@ async function generateTeachingScript(subj, cls, topic, lessonText){
     body: JSON.stringify({payload:{
       model: 'claude-sonnet-4-5',
       max_tokens: 4000,
-      system: 'You are Malar Mam, a Tamil Nadu school teacher. Return ONLY a valid JSON array. Start with [ and end with ]. No explanation, no markdown.',
+      system: 'You are an experienced Tamil Nadu school teacher. Return ONLY a valid JSON array. Start with [ and end with ]. No explanation, no markdown.',
       messages: [{role:'user', content: prompt}]
     }})
   });
@@ -617,20 +617,8 @@ function showClassroom(){
 }
 
 function setTeacherAvatar(){
-  var photo = document.getElementById('av-photo');
-  // Try to get stored teacher preference
-  try {
-    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
-    var teacher = localStorage.getItem('dss_teacher') || 'malar';
-    if(teacher === 'kumar'){
-      document.getElementById('av-name').textContent = 'Kumar Sir';
-    } else {
-      document.getElementById('av-name').textContent = 'Malar Mam';
-    }
-  }catch(e){}
-  // Emoji avatar fallback
-  photo.style.display = 'none';
-  photo.parentElement.innerHTML += '<div id="av-emoji" style="width:100%;height:100%;border-radius:50%;background:linear-gradient(135deg,var(--maroon),#8B1A2A);border:3px solid var(--gold);display:flex;align-items:center;justify-content:center;font-size:2.8rem;box-shadow:0 6px 20px rgba(245,200,66,0.25);">👩‍🏫</div>';
+  // Nothing to do — avatar is now a static emoji in HTML
+  // Kept as empty function so existing calls don't break
 }
 
 // ══════════════════════════════════════════════════
@@ -646,12 +634,11 @@ function stopCurrentAudio(){
   }
 }
 
-// Voice selector — Browser TTS is default (works without API key)
+// Voice selector — Browser TTS only (no API key needed)
 function populateVoices(){
   var sel = document.getElementById('voice-sel');
   if(!sel) return;
-  sel.innerHTML = '<option value="browser">🔊 Browser TTS (default)</option>'
-                + '<option value="elevenlabs">⭐ ElevenLabs (needs API key)</option>';
+  sel.innerHTML = '<option value="browser">🔊 Browser TTS</option>';
 }
 
 // ══════════════════════════════════════════════════
@@ -960,24 +947,47 @@ function speakSegmentBrowser(text, tone, onEnd, lang){
   var profile  = TONE_CONFIG[tone] || TONE_CONFIG.normal;
   var bVoices  = speechSynthesis.getVoices();
   var isTamil  = (lang === 'ta' || lang === 'tamil');
-  var v;
+
+  var v = null;
+  var spokenText = text;
+
   if(isTamil){
+    // Try to find a Tamil voice
     v = bVoices.find(v => v.lang && v.lang.startsWith('ta') && (v.name.includes('Natural')||v.name.includes('Neural')))
      || bVoices.find(v => v.lang && v.lang.startsWith('ta'))
      || null;
+
+    if(v){
+      // Tamil voice found — speak Tamil script directly
+      spokenText = text;
+    } else {
+      // No Tamil voice — convert to phonetic English and use English voice
+      spokenText = tamilToPhonetic(text);
+      v = bVoices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
+       || bVoices.find(v => v.lang==='en-IN')
+       || bVoices.find(v => v.lang && v.lang.startsWith('en'))
+       || bVoices[0] || null;
+    }
   } else {
     v = bVoices.find(v => v.lang==='en-IN' && (v.name.includes('Natural')||v.name.includes('Neural')))
      || bVoices.find(v => v.lang==='en-IN')
      || bVoices.find(v => v.lang && v.lang.startsWith('en'))
      || bVoices[0] || null;
   }
-  var utt = new SpeechSynthesisUtterance(isTamil ? tamilToPhonetic(text) : text);
+
+  if(!spokenText || !spokenText.trim()){ if(onEnd) onEnd(); return; }
+
+  var utt = new SpeechSynthesisUtterance(spokenText);
   if(v) utt.voice = v;
   utt.rate  = Math.max(0.5, Math.min(2.0, profile.rate * speechSpeed));
   utt.pitch = profile.pitch;
-  utt.lang  = isTamil ? 'ta-IN' : 'en-IN';
+  // Only set Tamil lang code if we actually have a Tamil voice
+  utt.lang  = (isTamil && v && v.lang && v.lang.startsWith('ta')) ? 'ta-IN' : 'en-IN';
   utt.onend   = onEnd || function(){};
-  utt.onerror = function(){ if(onEnd) onEnd(); };
+  utt.onerror = function(e){
+    console.warn('TTS error:', e.error, '| text:', spokenText.substring(0,40));
+    if(onEnd) onEnd();
+  };
   speechSynthesis.speak(utt);
 }
 
@@ -993,7 +1003,7 @@ function finishClass(){
   document.getElementById('tone-banner').textContent = '🎓 Lesson Complete';
   document.getElementById('tone-banner').className = 'tone-banner tone-normal';
   document.getElementById('play-btn').textContent = '↺ Restart';
-  spkFeedback('Class is complete. Well done, students!');
+  spkFeedback('Class is complete. Well done students!');
 }
 
 function spkFeedback(text){
