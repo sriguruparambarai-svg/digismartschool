@@ -629,6 +629,10 @@ body {
           <option>Class 6</option>
           <option value="Class 7" selected>Class 7</option>
           <option>Class 8</option>
+          <option>Class 9</option>
+          <option>Class 10</option>
+          <option>Class 11</option>
+          <option>Class 12</option>
         </select>
       </div>
       <div class="config-group">
@@ -700,6 +704,11 @@ body {
         <div id="loading-overlay">
           <div class="chalk-spinner"></div>
           <div class="loading-text" id="loading-msg">Preparing lesson...</div>
+        </div>
+
+        <!-- Background loading bar (thin strip at top, shown during bg API call) -->
+        <div id="loading-bar-wrap" style="position:absolute;top:0;left:0;right:0;height:3px;z-index:50;display:none;">
+          <div id="loading-bar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--gold),#f5e87a);transition:width 0.4s ease;border-radius:0 2px 2px 0;"></div>
         </div>
 
         <!-- Greet overlay -->
@@ -792,39 +801,140 @@ function toggleSidebar() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// START LESSON
+// CACHE HELPERS
+// ═══════════════════════════════════════════════════════════
+function lessonCacheKey(cls, subject, lesson, mode) {
+  return `bb_lesson__${cls}__${subject}__${lesson.substring(0,40)}__${mode}`.replace(/\s+/g,'_');
+}
+
+function cacheLesson(key, steps) {
+  try { localStorage.setItem(key, JSON.stringify({ ts: Date.now(), steps })); } catch(e) {}
+}
+
+function getCachedLesson(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const obj = JSON.parse(raw);
+    // Cache valid for 7 days
+    if (Date.now() - obj.ts > 7 * 24 * 60 * 60 * 1000) { localStorage.removeItem(key); return null; }
+    return obj.steps;
+  } catch(e) { return null; }
+}
+
+// ═══════════════════════════════════════════════════════════
+// ANIMATED LOADING MESSAGES
+// ═══════════════════════════════════════════════════════════
+const LOADING_MSGS = [
+  '📖 Reading lesson...',
+  '🧠 Understanding concepts...',
+  '✏️ Preparing explanation...',
+  '🎓 Almost ready...',
+  '🖋️ Setting up the board...',
+];
+let loadingMsgInterval = null;
+
+function startLoadingMessages() {
+  let i = 0;
+  const el = document.getElementById('loading-msg');
+  if (el) el.textContent = LOADING_MSGS[0];
+  loadingMsgInterval = setInterval(() => {
+    i = (i + 1) % LOADING_MSGS.length;
+    if (el) el.textContent = LOADING_MSGS[i];
+  }, 700);
+}
+
+function stopLoadingMessages() {
+  if (loadingMsgInterval) { clearInterval(loadingMsgInterval); loadingMsgInterval = null; }
+}
+
+// ═══════════════════════════════════════════════════════════
+// START LESSON — fast start with cache + offline support
 // ═══════════════════════════════════════════════════════════
 async function startLesson() {
   const cls     = document.getElementById('sel-class').value;
   const subject = document.getElementById('sel-subject').value;
-  const lesson  = document.getElementById('inp-lesson').value.trim();
+  // Trim input — keep only first 2000 chars for API efficiency
+  const lessonRaw = document.getElementById('inp-lesson').value.trim();
+  const lesson    = lessonRaw.slice(0, 2000);
   if (!lesson) { alert('Please enter a lesson or topic name.'); return; }
 
+  const cacheKey = lessonCacheKey(cls, subject, lesson, teachingMode);
+
+  // ── Transition to classroom instantly ──
   document.getElementById('welcome-screen').style.opacity = '0';
   setTimeout(() => {
     document.getElementById('welcome-screen').style.display = 'none';
     const cl = document.getElementById('classroom');
     cl.style.display = 'flex';
     cl.style.flexDirection = 'column';
-    document.getElementById('hdr-class').textContent  = cls;
-    document.getElementById('hdr-title').textContent  = `${subject} — ${lesson}`;
-  }, 700);
+    document.getElementById('hdr-class').textContent = cls;
+    document.getElementById('hdr-title').textContent = `${subject} — ${lesson}`;
+  }, 500);
 
   setTimeout(async () => {
-    showLoading('Preparing your lesson, please wait...');
     initDustCanvas();
-    try {
-      lessonSteps = await generateLessonSteps(cls, subject, lesson);
-      hideLoading();
+
+    // ── CHECK CACHE FIRST ──
+    const cached = getCachedLesson(cacheKey);
+    if (cached) {
+      lessonSteps = cached;
       buildSidebar();
       buildProgressDots();
-      await greetStudents();   // teacher greeting before first step
+      await greetStudents();
       renderStep(0);
-    } catch(e) {
-      hideLoading();
-      showError(e.message);
+      return;
     }
-  }, 900);
+
+    // ── CHECK OFFLINE ──
+    if (!navigator.onLine) {
+      showError('⚠️ No internet connection.\nPlease connect once to load this lesson.\nOnce loaded, it will work offline.');
+      return;
+    }
+
+    // ── FAST START: show placeholder step immediately ──
+    lessonSteps = [{
+      type:   'explain',
+      speech: `Let us begin today's lesson on ${lesson}.`,
+      write:  `${subject}: ${lesson}`,
+      color:  'yellow',
+      _placeholder: true
+    }];
+    buildSidebar();
+    buildProgressDots();
+    await greetStudents();
+    renderStep(0);   // starts teaching with placeholder while API loads
+
+    // ── Load real steps in background ──
+    showLoadingBar();
+    startLoadingMessages();
+    try {
+      const steps = await generateLessonSteps(cls, subject, lesson);
+      stopLoadingMessages();
+      hideLoadingBar();
+
+      // Replace placeholder with real steps
+      lessonSteps = steps;
+      cacheLesson(cacheKey, steps);   // save for offline
+
+      // Rebuild navigation
+      buildSidebar();
+      buildProgressDots();
+
+      // If still on step 0 (placeholder), move to real step 1
+      if (currentStep === 0) {
+        renderStep(1);
+      }
+    } catch(e) {
+      stopLoadingMessages();
+      hideLoadingBar();
+      // Keep teaching with placeholder — don't break the experience
+      console.warn('Lesson generation failed:', e.message);
+      if (lessonSteps.length === 1 && lessonSteps[0]._placeholder) {
+        showError(e.message);
+      }
+    }
+  }, 650);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2015,13 +2125,40 @@ function showLoading(msg) {
 function hideLoading() {
   document.getElementById('loading-overlay').style.display = 'none';
 }
+
+// Thin gold progress bar at top of board during background API call
+let loadBarTimer = null;
+function showLoadingBar() {
+  const wrap = document.getElementById('loading-bar-wrap');
+  const bar  = document.getElementById('loading-bar');
+  if (!wrap || !bar) return;
+  wrap.style.display = 'block';
+  bar.style.width = '0%';
+  let pct = 0;
+  loadBarTimer = setInterval(() => {
+    pct += (85 - pct) * 0.04;
+    bar.style.width = Math.min(pct, 85) + '%';
+  }, 300);
+}
+function hideLoadingBar() {
+  if (loadBarTimer) { clearInterval(loadBarTimer); loadBarTimer = null; }
+  const bar  = document.getElementById('loading-bar');
+  const wrap = document.getElementById('loading-bar-wrap');
+  if (bar) bar.style.width = '100%';
+  setTimeout(() => { if (wrap) wrap.style.display = 'none'; if (bar) bar.style.width = '0%'; }, 500);
+}
+
 function showError(msg) {
   document.getElementById('board-content').innerHTML = `
-    <div style="color:var(--chalk-red);font-family:Caveat,cursive;font-size:1.4rem;padding:2rem;text-align:center">
-      ⚠️ Error: ${msg}<br><br>
+    <div style="color:var(--chalk-red);font-family:Kalam,cursive;font-size:1.4rem;padding:2rem;text-align:center;white-space:pre-line">
+      ⚠️ ${msg}<br><br>
       <div style="font-size:1rem;color:var(--chalk-dim)">Please try again or contact your teacher.</div>
     </div>`;
 }
+
+// Online / offline notification
+window.addEventListener('offline', () => showCallout('📶 No internet connection', 4000));
+window.addEventListener('online',  () => showCallout('✅ Back online!', 2500));
 function goBack() {
   stopCurrentAnimation();
   document.getElementById('classroom').style.display = 'none';
