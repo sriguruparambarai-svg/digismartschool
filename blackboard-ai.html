@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Blackboard AI — DigiSmartSchool</title>
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=Noto+Sans+Tamil:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --maroon: #6B1A1A;
@@ -872,26 +872,41 @@ Convert this lesson into 8–12 step-by-step teaching actions for a blackboard t
 
 IMPORTANT: Output ONLY valid JSON. No extra text, no markdown, no code blocks.
 
-Return a JSON array with objects in this exact format:
-[
-  {"type":"heading","speech":"Good morning students! Today we will learn about Environment.","write":"Our Environment","color":"yellow"},
-  {"type":"explain","speech":"Environment means everything that surrounds us.","write":"Environment = Everything around us","color":"white"},
-  {"type":"subheading","speech":"Now let us look at the components.","write":"Components of Environment","color":"yellow"},
-  {"type":"list","speech":"Environment has three main parts — air, water, and land.","write":["Air (வான்)","Water (நீர்)","Land (நிலம்)"],"color":"blue"},
-  {"type":"formula","speech":"Remember this formula for environment.","write":"Environment = Biotic + Abiotic","color":"green"},
-  {"type":"highlight","speech":"This is very important to remember.","write":"Key fact: Environment supports all life on Earth","color":"red"},
-  {"type":"diagram","speech":"Let me draw a diagram to show this.","write":"Diagram: Components of Environment","diagram":"circle_labels","labels":["Air","Water","Land","Soil"],"color":"green"}
-]
+Return a JSON array. Each object must use ONE of these formats:
+
+TEXT STEPS:
+{"type":"heading",    "speech":"...", "write":"...",  "color":"yellow"}
+{"type":"subheading", "speech":"...", "write":"...",  "color":"yellow"}
+{"type":"explain",    "speech":"...", "write":"...",  "color":"white"}
+{"type":"list",       "speech":"...", "write":["...","...","..."], "color":"blue"}
+{"type":"formula",    "speech":"...", "write":"...",  "color":"green"}
+{"type":"highlight",  "speech":"...", "write":"...",  "color":"red"}
+
+DIAGRAM STEPS (use when showing a visual is helpful):
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"circle_labels", "labels":["A","B","C"], "color":"green"}
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"boxes",         "labels":["Step1","Step2","Step3"], "color":"blue"}
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"tree",          "labels":["Branch1","Branch2"],    "color":"yellow"}
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"water_cycle",   "color":"blue"}
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"food_chain",    "labels":["Plants","Deer","Tiger"], "color":"green"}
+
+SCIENCE DIAGRAM STEPS (use for biology/physics topics):
+{"type":"diagram", "speech":"...", "write":"Human Heart", "drawType":"science", "science":"heart",          "color":"red"}
+{"type":"diagram", "speech":"...", "write":"Plant Cell",  "drawType":"science", "science":"plant_cell",     "color":"green"}
+{"type":"diagram", "speech":"...", "write":"Photosynthesis","drawType":"science","science":"photosynthesis", "color":"green"}
+{"type":"diagram", "speech":"...", "write":"Solar System","drawType":"science", "science":"solar_system",   "color":"yellow"}
+
+MAP STEPS (use for geography topics):
+{"type":"diagram", "speech":"...", "write":"India Map",      "drawType":"map", "map":"india",        "highlight":"tamilnadu", "color":"green"}
+{"type":"diagram", "speech":"...", "write":"Tamil Nadu Map", "drawType":"map", "map":"tamilnadu",    "color":"yellow"}
+{"type":"diagram", "speech":"...", "write":"World Map",      "drawType":"map", "map":"world_simple", "color":"blue"}
 
 Rules:
-- type must be one of: heading, subheading, explain, list, formula, highlight, diagram
-- For "list" type, "write" should be an array of 3-5 strings
-- For "diagram" type, "diagram" should be one of: circle_labels, boxes, tree, water_cycle, food_chain
-- Keep speech simple and student-friendly
-- One concept per step
+- One concept per step. Keep speech simple and student-friendly.
 - color must be: yellow, white, blue, green, or red
-- Make it feel like a real classroom lesson
-- Add relatable Indian examples where possible`;
+- Use diagram/science/map steps where they add genuine value
+- For biology lessons: include a science diagram step
+- For geography lessons: include a map step
+- Add relatable Tamil Nadu / Indian examples where possible`;
 
   const response = await fetch('/api/ai', {
     method: 'POST',
@@ -1250,6 +1265,12 @@ function writeChalk(container, text, abort, minMs, maxMs) {
     const mx = Math.round(maxMs * speedFactor);
 
     container.innerHTML = '';
+    // Tamil font support — detect and apply before writing
+    if (detectLang(text) === 'ta') {
+      container.style.fontFamily = "'Noto Sans Tamil', sans-serif";
+      container.style.fontSize   = container.style.fontSize || '1.45rem';
+      container.style.lineHeight = '2.2';
+    }
     const textNode = document.createTextNode('');
     const cursor   = document.createElement('span');
     cursor.className = 'chalk-cursor';
@@ -1317,9 +1338,17 @@ function showCallout(msg, durationMs) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// LIVE DIAGRAM DRAWING ENGINE
+// LIVE DIAGRAM DRAWING ENGINE — routes to specialist engines
 // ═══════════════════════════════════════════════════════════
 async function drawDiagramLive(container, step, abort) {
+  // Route to specialist engine based on drawType or diagram key
+  if (step.drawType === 'map' || step.map) {
+    return await drawMap(container, step, abort);
+  }
+  if (step.drawType === 'science' || SCIENCE_DIAGRAMS[step.diagram || step.science || '']) {
+    return await drawScienceDiagram(container, step, abort);
+  }
+
   const dtype  = step.diagram || 'circle_labels';
   const labels = step.labels  || ['Item 1', 'Item 2', 'Item 3'];
   const svgNS  = 'http://www.w3.org/2000/svg';
@@ -1491,8 +1520,423 @@ async function drawFoodChainLive(svg, labels, abort) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// VOICE ENGINE
+// TAMIL LANGUAGE SUPPORT
+// Detect Tamil script and apply correct font
 // ═══════════════════════════════════════════════════════════
+function detectLang(text) {
+  return /[\u0B80-\u0BFF]/.test(text) ? 'ta' : 'en';
+}
+
+function applyLangFont(el, text) {
+  if (detectLang(text) === 'ta') {
+    el.style.fontFamily = "'Noto Sans Tamil', sans-serif";
+    el.style.fontSize   = '1.45rem';
+    el.style.lineHeight = '2.1';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// UNIFIED DRAW VISUAL — dispatcher
+// step.drawType: "map" | "diagram" | "text" | "science"
+// ═══════════════════════════════════════════════════════════
+async function drawVisual(container, step, abort) {
+  const dt = step.drawType || step.diagram || 'circle_labels';
+  if      (step.drawType === 'map')     await drawMap(container, step, abort);
+  else if (step.drawType === 'science') await drawScienceDiagram(container, step, abort);
+  else                                  await drawDiagramLive(container, step, abort);
+}
+
+// ═══════════════════════════════════════════════════════════
+// MAP DRAWING ENGINE
+// Live stroke-by-stroke SVG map drawing with chalk follow
+// Supports: india, tamilnadu, world_simple
+// ═══════════════════════════════════════════════════════════
+
+// Simplified India outline path (actual geographic shape, ~120 points)
+const MAP_PATHS = {
+  india: {
+    vb: '0 0 500 560',
+    outline: `M248,8 L262,12 L278,18 L295,22 L310,20 L322,28 L332,38 L340,50
+      L348,62 L352,76 L358,88 L365,100 L370,115 L375,128 L380,140 L385,155
+      L388,168 L390,182 L392,196 L390,210 L386,224 L380,236 L372,248 L365,258
+      L358,270 L352,282 L348,294 L345,308 L342,322 L338,334 L332,345 L325,356
+      L318,366 L310,374 L302,382 L295,390 L288,400 L282,410 L276,420 L270,430
+      L265,440 L260,452 L256,462 L252,472 L250,480 L248,490 L246,480 L244,472
+      L240,462 L236,452 L231,440 L226,430 L220,420 L214,410 L208,400 L202,390
+      L196,382 L189,374 L182,366 L175,356 L168,345 L162,334 L157,322 L153,308
+      L150,294 L147,282 L142,270 L136,258 L129,248 L122,236 L116,224 L112,210
+      L110,196 L112,182 L115,168 L118,155 L122,140 L128,128 L134,115 L140,100
+      L146,88 L152,76 L158,62 L165,50 L174,38 L184,28 L196,20 L210,22 L225,18
+      L238,12 Z`,
+    // Tamil Nadu region polygon
+    tamilnadu: `M250,360 L258,365 L266,370 L274,378 L280,388 L284,398 L286,410
+      L285,422 L282,434 L278,446 L273,456 L268,464 L263,472 L258,480 L254,486
+      L250,490 L246,486 L242,480 L238,472 L233,464 L228,456 L223,446 L219,434
+      L216,422 L215,410 L217,398 L222,388 L228,378 L236,370 L244,365 Z`,
+    labels: [
+      {x:250, y:200, text:'India', size:16, color:'#f5e87a'},
+      {x:250, y:430, text:'Tamil Nadu', size:11, color:'#a8e6a8'},
+      {x:150, y:160, text:'Rajasthan', size:9,  color:'#c8c4be'},
+      {x:350, y:120, text:'UP',        size:9,  color:'#c8c4be'},
+      {x:340, y:250, text:'Bengal',    size:9,  color:'#c8c4be'},
+      {x:130, y:280, text:'Maharashtra',size:8, color:'#c8c4be'},
+    ]
+  },
+
+  tamilnadu: {
+    vb: '0 0 300 400',
+    outline: `M150,20 L162,25 L175,32 L186,42 L196,54 L204,66 L210,80 L214,94
+      L216,108 L216,122 L214,136 L210,150 L206,162 L202,175 L198,188 L194,200
+      L190,212 L186,224 L182,236 L178,248 L175,260 L172,272 L170,284 L168,296
+      L166,308 L164,318 L162,330 L160,342 L157,352 L154,362 L151,370 L149,378
+      L147,385 L145,390 L143,385 L141,378 L139,370 L136,362 L133,352 L130,342
+      L128,330 L126,318 L124,308 L122,296 L120,284 L118,272 L115,260 L112,248
+      L108,236 L104,224 L100,212 L96,200 L92,188 L88,175 L84,162 L80,150
+      L76,136 L74,122 L74,108 L76,94 L80,80 L86,66 L94,54 L104,42 L115,32
+      L128,25 Z`,
+    labels: [
+      {x:150, y:60,  text:'Tamil Nadu', size:14, color:'#f5e87a'},
+      {x:150, y:120, text:'Chennai',    size:10, color:'#a8d8f0'},
+      {x:110, y:200, text:'Coimbatore', size:9,  color:'#c8c4be'},
+      {x:155, y:240, text:'Trichy',     size:9,  color:'#c8c4be'},
+      {x:100, y:300, text:'Madurai',    size:9,  color:'#a8e6a8'},
+      {x:148, y:360, text:'Kanyakumari',size:8,  color:'#f4a0a0'},
+    ]
+  },
+
+  world_simple: {
+    vb: '0 0 600 320',
+    outline: `M60,100 L80,88 L100,82 L120,80 L140,82 L155,90 L165,100 L170,112
+      L168,124 L160,134 L148,140 L134,142 L120,140 L108,134 L100,124 L98,112 Z
+      M200,95 L220,85 L245,82 L270,84 L290,92 L305,104 L310,118 L305,132
+      L290,142 L268,148 L245,150 L222,148 L204,140 L196,128 L196,114 Z
+      M320,100 L340,90 L365,86 L390,88 L412,96 L428,108 L432,122 L428,136
+      L415,146 L395,152 L370,154 L348,152 L330,144 L320,132 L318,118 Z
+      M200,170 L215,162 L232,158 L250,160 L264,168 L272,180 L270,194 L260,204
+      L244,210 L228,210 L214,204 L205,194 L202,182 Z
+      M280,175 L296,168 L312,166 L328,170 L338,180 L338,194 L328,204
+      L310,210 L292,208 L278,200 L274,188 Z`,
+    labels: [
+      {x:128, y:110, text:'N.America', size:9, color:'#a8d8f0'},
+      {x:248, y:115, text:'Europe',    size:9, color:'#f5e87a'},
+      {x:372, y:118, text:'Asia',      size:9, color:'#a8e6a8'},
+      {x:240, y:185, text:'Africa',    size:9, color:'#f4a0a0'},
+      {x:308, y:185, text:'Australia', size:9, color:'#d4a0f0'},
+    ]
+  }
+};
+
+async function drawMap(container, step, abort) {
+  const mapKey  = (step.map || 'india').toLowerCase();
+  const mapData = MAP_PATHS[mapKey] || MAP_PATHS.india;
+  const highlight = step.highlight || '';
+
+  const svg = svgEl('svg', { width:'100%', viewBox: mapData.vb });
+  svg.style.filter = 'drop-shadow(0 0 8px rgba(168,230,168,0.15))';
+  container.appendChild(svg);
+
+  // ── Draw outline with stroke animation + chalk follow ──
+  const outlineEl = svgEl('path', {
+    d: mapData.outline,
+    fill: 'rgba(168,230,168,0.06)',
+    stroke: '#a8e6a8',
+    'stroke-width': '1.8',
+    'stroke-linecap': 'round',
+    'stroke-linejoin': 'round'
+  });
+  await svgStrokeWithChalk(svg, outlineEl, 2200, 0, abort);
+  if (abort.aborted) return;
+
+  // ── Highlight region if requested ──
+  if (highlight && mapData[highlight]) {
+    await delay(200);
+    const hl = svgEl('path', {
+      d: mapData[highlight],
+      fill: 'rgba(245,232,122,0.22)',
+      stroke: '#f5e87a',
+      'stroke-width': '2',
+      'stroke-linecap': 'round'
+    });
+    await svgStrokeWithChalk(svg, hl, 900, 0, abort);
+    if (abort.aborted) return;
+  }
+
+  // ── Labels appear after drawing ──
+  await delay(300);
+  for (const lbl of mapData.labels) {
+    if (abort.aborted) return;
+    const isHighlighted = highlight && lbl.text.toLowerCase().includes(highlight.toLowerCase().replace('_',' ').split(' ')[0]);
+    const t = svgEl('text', {
+      x: lbl.x, y: lbl.y,
+      'text-anchor': 'middle',
+      fill: isHighlighted ? '#f5e87a' : lbl.color,
+      'font-family': 'Kalam, Noto Sans Tamil, cursive',
+      'font-size': lbl.size,
+      'font-weight': isHighlighted ? '700' : '400'
+    });
+    t.textContent = lbl.text;
+    await svgAppear(svg, t, 80, abort);
+    await delay(60);
+  }
+}
+
+// svgStrokeWithChalk: stroke animation + moves chalk piece along path
+async function svgStrokeWithChalk(parent, el, durMs, delayMs, abort) {
+  if (abort && abort.aborted) return;
+  parent.appendChild(el);
+
+  // Measure path length after appending
+  let pathLen = 600;
+  try { pathLen = el.getTotalLength ? el.getTotalLength() : 600; } catch(e) {}
+
+  el.style.strokeDasharray  = pathLen;
+  el.style.strokeDashoffset = pathLen;
+  el.style.opacity = '0';
+  el.style.transition = `stroke-dashoffset ${durMs}ms linear, opacity 0.2s`;
+
+  await new Promise(r => { animTimeout = setTimeout(r, delayMs + 20); });
+  if (abort && abort.aborted) return;
+
+  el.style.opacity = '1';
+  el.style.strokeDashoffset = '0';
+
+  // Move chalk along the path using getPointAtLength
+  if (el.getTotalLength && dustCanvas) {
+    const len    = pathLen;
+    const steps  = Math.min(80, Math.floor(durMs / 25));
+    const stepMs = durMs / steps;
+    for (let i = 0; i <= steps; i++) {
+      if (abort && abort.aborted) break;
+      const progress = i / steps;
+      try {
+        const pt = el.getPointAtLength(progress * len);
+        const board = document.getElementById('main-board');
+        const boardRect = board.getBoundingClientRect();
+        const svgRect   = parent.getBoundingClientRect();
+        // Convert SVG coordinates to board-relative
+        const bx = svgRect.left - boardRect.left + (pt.x / parseFloat(parent.getAttribute('viewBox').split(' ')[2])) * svgRect.width;
+        const by = svgRect.top  - boardRect.top  + (pt.y / parseFloat(parent.getAttribute('viewBox').split(' ')[3])) * svgRect.height;
+        const piece = document.getElementById('chalk-piece');
+        if (piece) {
+          piece.style.display = 'block';
+          piece.style.left = (bx - 14) + 'px';
+          piece.style.top  = (by - 4)  + 'px';
+          piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*8}deg)`;
+        }
+        // Dust trail
+        if (dustCtx) {
+          dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.12+Math.random()*0.1 });
+          if (dustTrail.length > 30) dustTrail.shift();
+          drawDustTrail();
+        }
+      } catch(e) {}
+      await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
+    }
+  } else {
+    await new Promise(r => { animTimeout = setTimeout(r, durMs + 60); });
+  }
+  hideChalkPiece();
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCIENCE DIAGRAM ENGINE
+// Heart, plant cell, photosynthesis, solar system
+// All drawn stroke-by-stroke
+// ═══════════════════════════════════════════════════════════
+const SCIENCE_DIAGRAMS = {
+
+  heart: {
+    vb: '0 0 400 360',
+    parts: [
+      // Outer heart outline
+      { type:'path', d:`M200,80 C200,60 175,40 148,48 C110,58 98,98 100,128
+          C102,158 120,185 145,208 L200,260 L255,208 C280,185 298,158 300,128
+          C302,98 290,58 252,48 C225,40 200,60 200,80 Z`,
+        stroke:'#f4a0a0', fill:'rgba(244,160,160,0.08)', sw:2.2, dur:1400, lbl:null },
+      // Left ventricle
+      { type:'path', d:`M165,140 C162,158 164,178 172,194 L200,220 L200,145 Z`,
+        stroke:'#f4a0a0', fill:'rgba(244,160,160,0.12)', sw:1.5, dur:600, lbl:{x:152,y:182,t:'Left\nVentricle',c:'#f4a0a0'} },
+      // Right ventricle
+      { type:'path', d:`M235,140 C238,158 236,178 228,194 L200,220 L200,145 Z`,
+        stroke:'#a8d8f0', fill:'rgba(168,216,240,0.12)', sw:1.5, dur:600, lbl:{x:250,y:182,t:'Right\nVentricle',c:'#a8d8f0'} },
+      // Septum
+      { type:'line', x1:200, y1:90, x2:200, y2:220,
+        stroke:'#f5e87a', sw:1.5, dur:400, dash:'5 3', lbl:{x:208,y:152,t:'Septum',c:'#f5e87a'} },
+      // Aorta
+      { type:'path', d:'M185,72 C180,52 170,38 160,30',
+        stroke:'#a8e6a8', fill:'none', sw:6, dur:350, lbl:{x:155,y:26,t:'Aorta',c:'#a8e6a8'} },
+      // Pulmonary artery
+      { type:'path', d:'M215,72 C220,52 230,38 240,30',
+        stroke:'#d4a0f0', fill:'none', sw:5, dur:350, lbl:{x:248,y:26,t:'Pulmonary\nArtery',c:'#d4a0f0'} },
+      // Blood flow arrows
+      { type:'arrow', x1:165,y1:120, x2:165,y2:155, stroke:'#f4a0a0', sw:1.5, dur:250, lbl:null },
+      { type:'arrow', x1:235,y1:120, x2:235,y2:155, stroke:'#a8d8f0', sw:1.5, dur:250, lbl:null },
+      // Title
+      { type:'text', x:200, y:298, t:'Human Heart', c:'#f5e87a', size:16, dur:0, lbl:null },
+      { type:'text', x:200, y:318, t:'(Oxygenated blood = Red  |  Deoxygenated = Blue)', c:'#c8c4be', size:9, dur:0, lbl:null },
+    ]
+  },
+
+  plant_cell: {
+    vb: '0 0 420 320',
+    parts: [
+      // Cell wall (outer rectangle)
+      { type:'rect', x:40, y:20, w:340, h:280, rx:8,
+        stroke:'#a8e6a8', fill:'rgba(168,230,168,0.04)', sw:2.5, dur:900, lbl:{x:210,y:14,t:'Cell Wall',c:'#a8e6a8'} },
+      // Cell membrane
+      { type:'rect', x:50, y:30, w:320, h:260, rx:5,
+        stroke:'#f5e87a', fill:'rgba(245,232,122,0.04)', sw:1.2, dur:700, lbl:null },
+      // Nucleus
+      { type:'ellipse', cx:210, cy:155, rx:50, ry:42,
+        stroke:'#a8d8f0', fill:'rgba(168,216,240,0.1)', sw:1.8, dur:550, lbl:{x:210,y:155,t:'Nucleus',c:'#a8d8f0'} },
+      // Chloroplast 1
+      { type:'ellipse', cx:120, cy:110, rx:32, ry:18,
+        stroke:'#a8e6a8', fill:'rgba(168,230,168,0.15)', sw:1.5, dur:400, lbl:{x:120,y:108,t:'Chloroplast',c:'#a8e6a8'} },
+      // Chloroplast 2
+      { type:'ellipse', cx:300, cy:110, rx:30, ry:17,
+        stroke:'#a8e6a8', fill:'rgba(168,230,168,0.15)', sw:1.5, dur:400, lbl:null },
+      // Vacuole
+      { type:'ellipse', cx:210, cy:200, rx:70, ry:45,
+        stroke:'#d4a0f0', fill:'rgba(212,160,240,0.06)', sw:1.5, dur:500, lbl:{x:210,y:200,t:'Vacuole',c:'#d4a0f0'} },
+      // Mitochondria
+      { type:'ellipse', cx:120, cy:210, rx:24, ry:13,
+        stroke:'#f4a0a0', fill:'rgba(244,160,160,0.1)', sw:1.4, dur:350, lbl:{x:120,y:210,t:'Mitochondria',c:'#f4a0a0'} },
+      // Title
+      { type:'text', x:210, y:308, t:'Plant Cell', c:'#f5e87a', size:15, dur:0, lbl:null },
+    ]
+  },
+
+  photosynthesis: {
+    vb: '0 0 500 300',
+    parts: [
+      // Leaf outline
+      { type:'path', d:`M250,20 C320,20 400,80 400,150 C400,220 320,280 250,280
+          C180,280 100,220 100,150 C100,80 180,20 250,20 Z`,
+        stroke:'#a8e6a8', fill:'rgba(168,230,168,0.07)', sw:2, dur:900, lbl:null },
+      // Midrib
+      { type:'line', x1:250,y1:20, x2:250,y2:280,
+        stroke:'#a8e6a8', sw:2, dur:400, lbl:null },
+      // Veins
+      { type:'line', x1:250,y1:80,  x2:160,y2:130, stroke:'#a8e6a8', sw:1, dur:200, lbl:null },
+      { type:'line', x1:250,y1:80,  x2:340,y2:130, stroke:'#a8e6a8', sw:1, dur:200, lbl:null },
+      { type:'line', x1:250,y1:150, x2:150,y2:185, stroke:'#a8e6a8', sw:1, dur:200, lbl:null },
+      { type:'line', x1:250,y1:150, x2:350,y2:185, stroke:'#a8e6a8', sw:1, dur:200, lbl:null },
+      // Sun arrow (CO2 in)
+      { type:'arrow', x1:30,y1:80, x2:110,y2:120, stroke:'#f5e87a', sw:2, dur:300, lbl:{x:18,y:68,t:'CO₂',c:'#f5e87a'} },
+      // Water arrow
+      { type:'arrow', x1:50,y1:250, x2:120,y2:210, stroke:'#a8d8f0', sw:2, dur:300, lbl:{x:22,y:258,t:'H₂O',c:'#a8d8f0'} },
+      // Sunlight arrow
+      { type:'arrow', x1:250,y1:295, x2:250,y2:240, stroke:'#f5e87a', sw:2, dur:300, lbl:null },
+      // Oxygen out arrow
+      { type:'arrow', x1:370,y1:120, x2:460,y2:80,  stroke:'#a8d8f0', sw:2, dur:300, lbl:{x:465,y:68,t:'O₂',c:'#a8d8f0'} },
+      // Glucose
+      { type:'arrow', x1:370,y1:200, x2:460,y2:240, stroke:'#a8e6a8', sw:2, dur:300, lbl:{x:462,y:250,t:'Glucose',c:'#a8e6a8'} },
+      // Sun icon
+      { type:'text', x:250,y:296, t:'☀ Sunlight', c:'#f5e87a', size:11, dur:0, lbl:null },
+      // Formula
+      { type:'text', x:250,y:158, t:'6CO₂ + 6H₂O → C₆H₁₂O₆ + 6O₂', c:'rgba(245,232,122,0.65)', size:9, dur:0, lbl:null },
+      // Title
+      { type:'text', x:250,y:16, t:'Photosynthesis', c:'#f5e87a', size:13, dur:0, lbl:null },
+    ]
+  },
+
+  solar_system: {
+    vb: '0 0 560 280',
+    parts: [
+      // Sun
+      { type:'circle', cx:50, cy:140, r:36, stroke:'#f5e87a', fill:'rgba(245,232,122,0.2)', sw:2.5, dur:500, lbl:{x:50,y:140,t:'Sun',c:'#f5e87a'} },
+      // Orbits + planets
+      { type:'ellipse', cx:50,cy:140, rx:80,  ry:18, stroke:'rgba(200,196,190,0.25)', fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:130, ry:28, stroke:'rgba(200,196,190,0.25)', fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:185, ry:38, stroke:'rgba(200,196,190,0.25)', fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:245, ry:50, stroke:'rgba(200,196,190,0.25)', fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:310, ry:62, stroke:'rgba(200,196,190,0.2)',  fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:375, ry:74, stroke:'rgba(200,196,190,0.2)',  fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:440, ry:86, stroke:'rgba(200,196,190,0.15)', fill:'none', sw:1, dur:300, lbl:null },
+      { type:'ellipse', cx:50,cy:140, rx:505, ry:98, stroke:'rgba(200,196,190,0.12)', fill:'none', sw:1, dur:300, lbl:null },
+      // Planets
+      { type:'circle', cx:130,cy:136, r:4,  stroke:'#c8c4be', fill:'#b0acaa', sw:1, dur:200, lbl:{x:130,y:124,t:'Mercury',c:'#c8c4be'} },
+      { type:'circle', cx:180,cy:131, r:6,  stroke:'#f4a0a0', fill:'#e8807c', sw:1, dur:200, lbl:{x:180,y:118,t:'Venus',c:'#f4a0a0'} },
+      { type:'circle', cx:235,cy:125, r:6,  stroke:'#a8d8f0', fill:'#5090c0', sw:1, dur:200, lbl:{x:235,y:112,t:'Earth',c:'#a8d8f0'} },
+      { type:'circle', cx:295,cy:118, r:5,  stroke:'#f4a0a0', fill:'#c84830', sw:1, dur:200, lbl:{x:295,y:106,t:'Mars',c:'#f4a0a0'} },
+      { type:'circle', cx:360,cy:110, r:12, stroke:'#d4a0f0', fill:'rgba(212,160,240,0.3)', sw:1.5, dur:300, lbl:{x:360,y:95,t:'Jupiter',c:'#d4a0f0'} },
+      { type:'circle', cx:425,cy:100, r:10, stroke:'#f5e87a', fill:'rgba(245,232,122,0.2)', sw:1.5, dur:300, lbl:{x:425,y:86,t:'Saturn',c:'#f5e87a'} },
+      { type:'circle', cx:490,cy:92,  r:7,  stroke:'#a8d8f0', fill:'rgba(168,216,240,0.2)', sw:1.5, dur:250, lbl:{x:490,y:78,t:'Uranus',c:'#a8d8f0'} },
+      { type:'circle', cx:548,cy:84,  r:7,  stroke:'#a8e6a8', fill:'rgba(168,230,168,0.2)', sw:1.5, dur:250, lbl:{x:548,y:70,t:'Neptune',c:'#a8e6a8'} },
+      // Title
+      { type:'text', x:280,y:274, t:'The Solar System', c:'#f5e87a', size:13, dur:0, lbl:null },
+    ]
+  }
+};
+
+async function drawScienceDiagram(container, step, abort) {
+  const key  = (step.science || step.diagram || 'heart').toLowerCase();
+  const diag = SCIENCE_DIAGRAMS[key] || SCIENCE_DIAGRAMS.heart;
+
+  const svg = svgEl('svg', { width:'100%', viewBox: diag.vb });
+  container.appendChild(svg);
+
+  for (const part of diag.parts) {
+    if (abort.aborted) return;
+
+    let el = null;
+
+    if (part.type === 'path') {
+      el = svgEl('path', { d:part.d, fill:part.fill||'none', stroke:part.stroke, 'stroke-width':part.sw, 'stroke-linecap':'round', 'stroke-linejoin':'round' });
+      if (part.dash) el.setAttribute('stroke-dasharray', part.dash);
+      await svgStrokeWithChalk(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'rect') {
+      el = svgEl('rect', { x:part.x, y:part.y, width:part.w, height:part.h, rx:part.rx||0, fill:part.fill||'none', stroke:part.stroke, 'stroke-width':part.sw });
+      await svgStrokeWithChalk(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'ellipse') {
+      el = svgEl('ellipse', { cx:part.cx, cy:part.cy, rx:part.rx, ry:part.ry, fill:part.fill||'none', stroke:part.stroke, 'stroke-width':part.sw });
+      await svgStrokeWithChalk(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'circle') {
+      el = svgEl('circle', { cx:part.cx, cy:part.cy, r:part.r, fill:part.fill||'none', stroke:part.stroke, 'stroke-width':part.sw });
+      await svgStrokeWithChalk(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'line') {
+      el = svgEl('line', { x1:part.x1, y1:part.y1, x2:part.x2, y2:part.y2, stroke:part.stroke, 'stroke-width':part.sw, 'stroke-linecap':'round' });
+      if (part.dash) el.setAttribute('stroke-dasharray', part.dash);
+      await svgStroke(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'arrow') {
+      // Line + arrowhead
+      el = svgEl('line', { x1:part.x1, y1:part.y1, x2:part.x2, y2:part.y2, stroke:part.stroke, 'stroke-width':part.sw, 'stroke-linecap':'round', 'marker-end':'url(#arr)' });
+      // Ensure arrowhead marker exists
+      if (!svg.querySelector('#arr')) {
+        const defs   = svgEl('defs', {});
+        const marker = svgEl('marker', { id:'arr', markerWidth:'8', markerHeight:'8', refX:'6', refY:'3', orient:'auto' });
+        const poly   = svgEl('polygon', { points:'0 0, 6 3, 0 6', fill: part.stroke || '#f5e87a' });
+        marker.appendChild(poly); defs.appendChild(marker); svg.insertBefore(defs, svg.firstChild);
+      }
+      await svgStroke(svg, el, part.dur, 0, abort);
+
+    } else if (part.type === 'text') {
+      el = svgEl('text', { x:part.x, y:part.y, 'text-anchor':'middle', 'dominant-baseline':'central', fill:part.c, 'font-family':'Kalam, Noto Sans Tamil, cursive', 'font-size':part.size||12 });
+      el.textContent = part.t;
+      await svgAppear(svg, el, 60, abort);
+    }
+
+    // Inline label (appears AFTER the shape is drawn)
+    if (part.lbl && !abort.aborted) {
+      await delay(120);
+      const lt = svgEl('text', { x:part.lbl.x, y:part.lbl.y, 'text-anchor':'middle', 'dominant-baseline':'central', fill:part.lbl.c, 'font-family':'Kalam, cursive', 'font-size':part.lbl.size||10 });
+      lt.textContent = part.lbl.t;
+      await svgAppear(svg, lt, 0, abort);
+    }
+
+    if (!abort.aborted) await delay(80);
+  }
+}
+
+// ── Hook drawVisual into the diagram case of teachStep ──
+// (drawDiagramLive already checks step.drawType via drawVisual)
+
+
 function speak(text) {
   if (!voiceOn || !('speechSynthesis' in window)) return;
   if (currentSpeech) window.speechSynthesis.cancel();
