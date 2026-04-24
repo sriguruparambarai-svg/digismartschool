@@ -1455,7 +1455,7 @@ async function drawDiagramLive(container, step, abort) {
   const key  = step.science || step.diagram || step.map || '';
   const path = key ? visualLibrary[key] : null;
   if (path) {
-    const loaded = await loadSVG(path, container, step, abort);
+    const loaded = await loadSVGIntoContainer(path, container, abort);
     if (loaded) return;
   }
 
@@ -1579,157 +1579,162 @@ const visualLibrary = {
   world_simple : '/assets/maps/world.svg',
 };
 
-// In-memory SVG cache — avoids re-fetching same file
-const SVG_CACHE = {};
+// ── SVG cache stores parsed SVG nodes (cloned on use) ──
+const svgCache = {};
 
-// ── loadSVG: fetch → cache → animate ──
-async function loadSVG(path, container, step, abort) {
-  if (!path) return false;
-
-  // Return cached text instantly
-  let svgText = SVG_CACHE[path] || null;
-
-  if (!svgText) {
-    try {
-      const resp = await fetch(path);
-      if (!resp.ok) throw new Error('not found');
-      svgText = await resp.text();
-      SVG_CACHE[path] = svgText;
-    } catch(e) {
-      return false;   // file not available — caller will use embedded engine
-    }
+async function loadSVG(path) {
+  if (svgCache[path]) return svgCache[path].cloneNode(true);
+  try {
+    const res  = await fetch(path);
+    if (!res.ok) throw new Error('not found');
+    const text = await res.text();
+    const div  = document.createElement('div');
+    div.innerHTML = text;
+    const svg = div.firstElementChild;
+    if (!svg || svg.tagName.toLowerCase() !== 'svg') throw new Error('invalid svg');
+    svgCache[path] = svg;
+    return svg.cloneNode(true);
+  } catch(e) {
+    return null;
   }
+}
 
-  // Parse SVG and insert into container
-  const parser = new DOMParser();
-  const doc    = parser.parseFromString(svgText, 'image/svg+xml');
-  const svgNode = doc.querySelector('svg');
-  if (!svgNode) return false;
+// ── loadSVG entry used by drawing engine ──
+async function loadSVGIntoContainer(path, container, abort) {
+  const svg = await loadSVG(path);
+  if (!svg) return false;
 
-  svgNode.setAttribute('width', '100%');
-  svgNode.removeAttribute('height');
-  svgNode.style.overflow = 'visible';
+  // Size: fill container width, auto height
+  svg.setAttribute('width', '100%');
+  svg.removeAttribute('height');
+  svg.style.maxHeight   = '420px';
+  svg.style.display     = 'block';
+  svg.style.margin      = '0 auto';
+  svg.style.overflow    = 'visible';
 
-  container.appendChild(svgNode);
-
-  // Animate using animateSVG
-  await animateSVG(svgNode, abort);
+  container.appendChild(svg);
+  await animateSVG(svg, abort);
   return true;
 }
 
-// ── animateSVG: stroke-dashoffset animation on ALL drawable elements ──
-// Labels (<text>) are hidden until paths finish, then fade in
+// ── animateSVG: PRESERVE original styles, only animate reveal ──
+// Fills and colors stay exactly as the SVG designer intended.
+// We reveal each element by animating its stroke-dashoffset.
+// Elements with fill-only (no stroke) appear with opacity fade instead.
 async function animateSVG(svg, abort) {
-  // All drawable shape elements
   const drawables = Array.from(
     svg.querySelectorAll('path, circle, ellipse, rect, line, polyline, polygon')
   );
+  const texts = Array.from(svg.querySelectorAll('text, tspan'));
 
-  // Hide labels initially
-  const labels = Array.from(svg.querySelectorAll('text'));
-  labels.forEach(t => {
+  // Hide all text labels until drawing finishes
+  texts.forEach(t => {
     t.style.opacity    = '0';
-    t.style.transition = 'opacity 0.5s ease';
+    t.style.transition = 'opacity 0.55s ease';
   });
 
-  // Animate each shape one at a time
   for (let i = 0; i < drawables.length; i++) {
     if (abort && abort.aborted) return;
     const el = drawables[i];
 
-    // Preserve existing stroke, or apply chalk white if none set
-    const existingStroke = el.getAttribute('stroke');
-    if (!existingStroke || existingStroke === 'none') {
-      el.setAttribute('stroke', '#f2efe9');
-    }
+    // Compute path length safely
+    let pathLen = 200;
+    try { if (el.getTotalLength) pathLen = Math.max(el.getTotalLength(), 10); } catch(e) {}
 
-    // Measure path length (works for path/circle/ellipse etc)
-    let len = 300;
-    try { if (el.getTotalLength) len = Math.max(el.getTotalLength(), 20); } catch(e) {}
+    const hasStroke = el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none';
+    const durMs     = Math.min(180 + pathLen * 1.1, 1400);
 
-    // Duration: proportional to length, clamped between 200ms and 1600ms
-    const durMs = Math.min(200 + len * 1.4, 1600);
+    if (hasStroke) {
+      // Stroke-draw animation — preserves original stroke color + fill
+      const origDash = el.getAttribute('stroke-dasharray') || '';
+      el.style.strokeDasharray  = pathLen;
+      el.style.strokeDashoffset = pathLen;
+      el.style.transition = `stroke-dashoffset ${durMs}ms linear`;
+      void el.getBoundingClientRect();  // force reflow
+      el.style.strokeDashoffset = '0';
 
-    el.style.strokeDasharray  = len;
-    el.style.strokeDashoffset = len;
-    el.style.opacity = '0';
-    el.style.transition = `stroke-dashoffset ${durMs}ms linear, opacity 0.15s`;
-
-    // Force reflow so transition fires
-    void el.getBoundingClientRect();
-
-    el.style.opacity          = '1';
-    el.style.strokeDashoffset = '0';
-
-    // Move chalk piece along this element if it has a path
-    if (el.getTotalLength && dustCanvas) {
-      const steps  = Math.min(40, Math.floor(durMs / 30));
-      const stepMs = durMs / steps;
-      for (let s = 0; s <= steps; s++) {
-        if (abort && abort.aborted) break;
-        try {
-          const pt = el.getPointAtLength((s / steps) * len);
-          const board     = document.getElementById('main-board');
-          const bRect     = board.getBoundingClientRect();
-          const svgRect   = svg.getBoundingClientRect();
-          const vb        = svg.viewBox.baseVal;
-          const scaleX    = svgRect.width  / (vb.width  || svgRect.width);
-          const scaleY    = svgRect.height / (vb.height || svgRect.height);
-          const bx = svgRect.left - bRect.left + pt.x * scaleX;
-          const by = svgRect.top  - bRect.top  + pt.y * scaleY;
-          const piece = document.getElementById('chalk-piece');
-          if (piece) {
-            piece.style.display   = 'block';
-            piece.style.left      = (bx - 14) + 'px';
-            piece.style.top       = (by - 4)  + 'px';
-            piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*6}deg)`;
-          }
-          if (dustCtx) {
-            dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.10+Math.random()*0.10 });
-            if (dustTrail.length > 25) dustTrail.shift();
-            drawDustTrail();
-          }
-        } catch(e) {}
-        await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
+      // Restore original stroke-dasharray after animation if it had one
+      if (origDash) {
+        setTimeout(() => { el.style.strokeDasharray = origDash; }, durMs + 50);
       }
+
+      // Chalk follow along path
+      if (el.getTotalLength && dustCanvas) {
+        const steps  = Math.min(35, Math.floor(durMs / 28));
+        const stepMs = durMs / steps;
+        for (let s = 0; s <= steps; s++) {
+          if (abort && abort.aborted) break;
+          try {
+            const pt    = el.getPointAtLength((s / steps) * pathLen);
+            const board = document.getElementById('main-board');
+            const bRect = board.getBoundingClientRect();
+            const sRect = svg.getBoundingClientRect();
+            const vb    = svg.viewBox.baseVal;
+            const sx    = sRect.width  / (vb.width  || sRect.width  || 1);
+            const sy    = sRect.height / (vb.height || sRect.height || 1);
+            const bx    = sRect.left - bRect.left + pt.x * sx;
+            const by    = sRect.top  - bRect.top  + pt.y * sy;
+            const piece = document.getElementById('chalk-piece');
+            if (piece) {
+              piece.style.display   = 'block';
+              piece.style.left      = (bx - 14) + 'px';
+              piece.style.top       = (by - 4)  + 'px';
+              piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*5}deg)`;
+            }
+            if (dustCtx) {
+              dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.09+Math.random()*0.09 });
+              if (dustTrail.length > 22) dustTrail.shift();
+              drawDustTrail();
+            }
+          } catch(e) {}
+          await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
+        }
+      } else {
+        await new Promise(r => { animTimeout = setTimeout(r, durMs + 20); });
+      }
+
     } else {
-      await new Promise(r => { animTimeout = setTimeout(r, durMs + 40); });
+      // Fill-only element — fade in (don't destroy fill with stroke animation)
+      el.style.opacity    = '0';
+      el.style.transition = `opacity ${Math.min(durMs * 0.6, 600)}ms ease`;
+      void el.getBoundingClientRect();
+      el.style.opacity = '1';
+      await new Promise(r => { animTimeout = setTimeout(r, Math.min(durMs * 0.6, 600) + 20); });
     }
 
-    if (!abort || !abort.aborted) await delay(30);
+    if (!abort || !abort.aborted) await delay(25);
   }
 
   hideChalkPiece();
 
-  // Fade in labels after all paths drawn
-  await delay(180);
-  for (const t of labels) {
+  // Reveal text labels one by one
+  await delay(150);
+  for (const t of texts) {
     if (abort && abort.aborted) break;
     t.style.opacity = '1';
-    await delay(55);
+    await delay(50);
   }
 }
 
-// ── drawVisual: try library SVG first, fall back to embedded engine ──
+// ── drawVisual: try SVG library first, fall back to embedded engine ──
 async function drawVisual(container, step, abort) {
-  // Determine library key
-  const key = step.science || step.diagram || step.map || '';
+  const key  = step.science || step.diagram || step.map || '';
   const path = key ? visualLibrary[key] : null;
 
-  // Voice starts immediately regardless of draw method
   if (voiceOn && step.speech) speak(step.speech);
 
-  // Try external SVG file
   if (path) {
-    const loaded = await loadSVG(path, container, step, abort);
-    if (loaded) return;   // done
+    const loaded = await loadSVGIntoContainer(path, container, abort);
+    if (loaded) return;
   }
 
-  // Fall back to embedded engine (always works offline)
+  // Embedded fallback (always works offline)
   if      (step.drawType === 'map')     await drawMap(container, step, abort);
   else if (step.drawType === 'science') await drawScienceDiagram(container, step, abort);
   else                                  await drawDiagramLive(container, step, abort);
 }
+
+
 
 
 // ═══════════════════════════════════════════════════════════
