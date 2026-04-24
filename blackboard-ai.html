@@ -1568,24 +1568,50 @@ function applyLangFont(el, text) {
 // Falls back to embedded engine if file not found.
 // ═══════════════════════════════════════════════════════════
 const visualLibrary = {
-  // Science diagrams
-  heart        : '/assets/diagrams/heart.svg',
-  plant_cell   : '/assets/diagrams/plant.svg',
-  photosynthesis: '/assets/diagrams/photosynthesis.svg',
-  solar_system : '/assets/diagrams/solar_system.svg',
-  // Maps
-  india        : '/assets/maps/india.svg',
-  tamilnadu    : '/assets/maps/tamilnadu.svg',
-  world_simple : '/assets/maps/world.svg',
+  // ── Science: Biology ──
+  heart            : '/assets/diagrams/heart.svg',
+  plant_cell       : '/assets/diagrams/plant.svg',
+  plant_anatomy    : '/assets/diagrams/plant_anatomy.svg',
+  photosynthesis   : '/assets/diagrams/photosynthesis.svg',
+  food_chain       : '/assets/diagrams/food_chain.svg',
+  water_cycle      : '/assets/diagrams/water_cycle.svg',
+  cell_division    : '/assets/diagrams/cell_division.svg',
+  dna_structure    : '/assets/diagrams/dna_structure.svg',
+  human_digestive  : '/assets/diagrams/human_digestive.svg',
+  human_respiratory: '/assets/diagrams/human_respiratory.svg',
+  human_circulatory: '/assets/diagrams/human_circulatory.svg',
+  human_nervous    : '/assets/diagrams/human_nervous.svg',
+  human_skeletal   : '/assets/diagrams/human_skeletal.svg',
+  human_eye        : '/assets/diagrams/human_eye.svg',
+  // ── Science: Physics / Chemistry ──
+  solar_system     : '/assets/diagrams/solar_system.svg',
+  atom_structure   : '/assets/diagrams/atom_structure.svg',
+  magnet_field     : '/assets/diagrams/magnet_field.svg',
+  electric_circuit : '/assets/diagrams/electric_circuit.svg',
+  states_of_matter : '/assets/diagrams/states_of_matter.svg',
+  layers_earth     : '/assets/diagrams/layers_earth.svg',
+  // ── Maths ──
+  fraction_visual  : '/assets/diagrams/fraction_visual.svg',
+  pythagoras       : '/assets/diagrams/pythagoras.svg',
+  // ── Maps ──
+  india            : '/assets/maps/india.svg',
+  tamilnadu        : '/assets/maps/tamilnadu.svg',
+  world_simple     : '/assets/maps/world.svg',
 };
 
-// ── SVG cache stores parsed SVG nodes (cloned on use) ──
+// ═══════════════════════════════════════════════════════════
+// PRO DIAGRAM ENGINE
+// Structured animation: outline → flow → labels
+// Chalk follow · Color preservation · Voice sync
+// ═══════════════════════════════════════════════════════════
+
+// ── SVG cache: stores original node, returns clone each use ──
 const svgCache = {};
 
 async function loadSVG(path) {
   if (svgCache[path]) return svgCache[path].cloneNode(true);
   try {
-    const res  = await fetch(path);
+    const res = await fetch(path);
     if (!res.ok) throw new Error('not found');
     const text = await res.text();
     const div  = document.createElement('div');
@@ -1594,148 +1620,202 @@ async function loadSVG(path) {
     if (!svg || svg.tagName.toLowerCase() !== 'svg') throw new Error('invalid svg');
     svgCache[path] = svg;
     return svg.cloneNode(true);
-  } catch(e) {
-    return null;
-  }
+  } catch(e) { return null; }
 }
 
-// ── loadSVG entry used by drawing engine ──
-async function loadSVGIntoContainer(path, container, abort) {
-  const svg = await loadSVG(path);
-  if (!svg) return false;
-
-  // Size: fill container width, auto height
-  svg.setAttribute('width', '100%');
-  svg.removeAttribute('height');
-  svg.style.maxHeight   = '420px';
-  svg.style.display     = 'block';
-  svg.style.margin      = '0 auto';
-  svg.style.overflow    = 'visible';
-
-  container.appendChild(svg);
-  await animateSVG(svg, abort);
-  return true;
-}
-
-// ── animateSVG: PRESERVE original styles, only animate reveal ──
-// Fills and colors stay exactly as the SVG designer intended.
-// We reveal each element by animating its stroke-dashoffset.
-// Elements with fill-only (no stroke) appear with opacity fade instead.
-async function animateSVG(svg, abort) {
-  const drawables = Array.from(
-    svg.querySelectorAll('path, circle, ellipse, rect, line, polyline, polygon')
-  );
-  const texts = Array.from(svg.querySelectorAll('text, tspan'));
-
-  // Hide all text labels until drawing finishes
-  texts.forEach(t => {
-    t.style.opacity    = '0';
-    t.style.transition = 'opacity 0.55s ease';
+// ── cleanSVG: strip editor metadata only — never touch geometry or colors ──
+function cleanSVG(svg) {
+  ['metadata','title','desc','script','foreignObject'].forEach(tag => {
+    svg.querySelectorAll(tag).forEach(el => el.remove());
   });
+  svg.querySelectorAll('*').forEach(el => {
+    const ln = el.localName || '';
+    if (ln.startsWith('sodipodi') || ln.startsWith('inkscape')) el.remove();
+  });
+  return svg;
+}
 
-  for (let i = 0; i < drawables.length; i++) {
-    if (abort && abort.aborted) return;
-    const el = drawables[i];
+// ── drawPath: animate a single path with stroke-dashoffset + chalk follow ──
+function drawPath(path, duration, abort) {
+  return new Promise(resolve => {
+    if (abort && abort.aborted) { resolve(); return; }
 
-    // Compute path length safely
-    let pathLen = 200;
-    try { if (el.getTotalLength) pathLen = Math.max(el.getTotalLength(), 10); } catch(e) {}
+    let len = 200;
+    try { if (path.getTotalLength) len = Math.max(path.getTotalLength(), 10); } catch(e) {}
 
-    const hasStroke = el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none';
-    const durMs     = Math.min(180 + pathLen * 1.1, 1400);
+    const origDash = path.getAttribute('stroke-dasharray') || '';
+    path.style.strokeDasharray  = len;
+    path.style.strokeDashoffset = len;
+    void path.getBoundingClientRect();
+    path.style.transition = `stroke-dashoffset ${duration}ms linear`;
+    path.style.strokeDashoffset = '0';
 
-    if (hasStroke) {
-      // Stroke-draw animation — preserves original stroke color + fill
-      const origDash = el.getAttribute('stroke-dasharray') || '';
-      el.style.strokeDasharray  = pathLen;
-      el.style.strokeDashoffset = pathLen;
-      el.style.transition = `stroke-dashoffset ${durMs}ms linear`;
-      void el.getBoundingClientRect();  // force reflow
-      el.style.strokeDashoffset = '0';
-
-      // Restore original stroke-dasharray after animation if it had one
-      if (origDash) {
-        setTimeout(() => { el.style.strokeDasharray = origDash; }, durMs + 50);
+    // Chalk piece follows path
+    if (path.getTotalLength && dustCanvas) {
+      const steps  = Math.min(30, Math.floor(duration / 30));
+      const stepMs = duration / steps;
+      let s = 0;
+      function chalkStep() {
+        if (abort && abort.aborted) { hideChalkPiece(); return; }
+        if (s > steps) { hideChalkPiece(); return; }
+        try {
+          const pt    = path.getPointAtLength((s / steps) * len);
+          const board = document.getElementById('main-board');
+          const bRect = board.getBoundingClientRect();
+          const svgEl = path.closest('svg');
+          const sRect = svgEl.getBoundingClientRect();
+          const vb    = svgEl.viewBox.baseVal;
+          const sx    = sRect.width  / (vb.width  || sRect.width  || 1);
+          const sy    = sRect.height / (vb.height || sRect.height || 1);
+          const bx    = sRect.left - bRect.left + pt.x * sx;
+          const by    = sRect.top  - bRect.top  + pt.y * sy;
+          const piece = document.getElementById('chalk-piece');
+          if (piece) {
+            piece.style.display   = 'block';
+            piece.style.left      = (bx - 14) + 'px';
+            piece.style.top       = (by - 4)  + 'px';
+            piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*5}deg)`;
+          }
+          if (dustCtx) {
+            dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.4, o:0.08+Math.random()*0.08 });
+            if (dustTrail.length > 20) dustTrail.shift();
+            drawDustTrail();
+          }
+        } catch(e) {}
+        s++;
+        animTimeout = setTimeout(chalkStep, stepMs);
       }
-
-      // Chalk follow along path
-      if (el.getTotalLength && dustCanvas) {
-        const steps  = Math.min(35, Math.floor(durMs / 28));
-        const stepMs = durMs / steps;
-        for (let s = 0; s <= steps; s++) {
-          if (abort && abort.aborted) break;
-          try {
-            const pt    = el.getPointAtLength((s / steps) * pathLen);
-            const board = document.getElementById('main-board');
-            const bRect = board.getBoundingClientRect();
-            const sRect = svg.getBoundingClientRect();
-            const vb    = svg.viewBox.baseVal;
-            const sx    = sRect.width  / (vb.width  || sRect.width  || 1);
-            const sy    = sRect.height / (vb.height || sRect.height || 1);
-            const bx    = sRect.left - bRect.left + pt.x * sx;
-            const by    = sRect.top  - bRect.top  + pt.y * sy;
-            const piece = document.getElementById('chalk-piece');
-            if (piece) {
-              piece.style.display   = 'block';
-              piece.style.left      = (bx - 14) + 'px';
-              piece.style.top       = (by - 4)  + 'px';
-              piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*5}deg)`;
-            }
-            if (dustCtx) {
-              dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.09+Math.random()*0.09 });
-              if (dustTrail.length > 22) dustTrail.shift();
-              drawDustTrail();
-            }
-          } catch(e) {}
-          await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
-        }
-      } else {
-        await new Promise(r => { animTimeout = setTimeout(r, durMs + 20); });
-      }
-
-    } else {
-      // Fill-only element — fade in (don't destroy fill with stroke animation)
-      el.style.opacity    = '0';
-      el.style.transition = `opacity ${Math.min(durMs * 0.6, 600)}ms ease`;
-      void el.getBoundingClientRect();
-      el.style.opacity = '1';
-      await new Promise(r => { animTimeout = setTimeout(r, Math.min(durMs * 0.6, 600) + 20); });
+      chalkStep();
     }
 
-    if (!abort || !abort.aborted) await delay(25);
+    if (origDash) setTimeout(() => { path.style.strokeDasharray = origDash; }, duration + 40);
+    animTimeout = setTimeout(resolve, duration);
+  });
+}
+
+// ── animateProDiagram: 3-phase structured animation ──
+// If SVG has #outline / #flow / #labels groups → use them in order.
+// Otherwise falls back to flat sequential animation.
+async function animateProDiagram(svg, abort) {
+  const outlineGroup = svg.querySelector('#outline');
+  const flowGroup    = svg.querySelector('#flow');
+  const labelsGroup  = svg.querySelector('#labels');
+
+  if (outlineGroup || flowGroup || labelsGroup) {
+    // ── Phase 1: Outline ──
+    if (outlineGroup) {
+      for (const el of outlineGroup.querySelectorAll('path,circle,ellipse,rect,line,polygon,polyline')) {
+        if (abort && abort.aborted) return;
+        const hasStroke = el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none';
+        if (hasStroke) {
+          const len = (() => { try { return el.getTotalLength ? el.getTotalLength() : 200; } catch(e){ return 200; } })();
+          await drawPath(el, Math.min(200 + len, 1400), abort);
+        } else {
+          el.style.opacity = '0'; el.style.transition = 'opacity 0.4s';
+          void el.getBoundingClientRect(); el.style.opacity = '1';
+          await new Promise(r => { animTimeout = setTimeout(r, 420); });
+        }
+        if (!abort || !abort.aborted) await delay(20);
+      }
+    }
+    // ── Phase 2: Flow arrows / vessels ──
+    if (flowGroup) {
+      for (const el of flowGroup.querySelectorAll('path,line,polyline,polygon')) {
+        if (abort && abort.aborted) return;
+        const len = (() => { try { return el.getTotalLength ? el.getTotalLength() : 150; } catch(e){ return 150; } })();
+        await drawPath(el, Math.min(180 + len * 0.85, 1000), abort);
+        await delay(15);
+      }
+    }
+    // ── Phase 3: Labels fade in ──
+    if (labelsGroup) {
+      const lbls = Array.from(labelsGroup.querySelectorAll('text,tspan'));
+      lbls.forEach(t => { t.style.opacity = '0'; t.style.transition = 'opacity 0.5s ease'; });
+      await delay(200);
+      for (const t of lbls) {
+        if (abort && abort.aborted) break;
+        t.style.opacity = '1';
+        await delay(120);
+      }
+    }
+    hideChalkPiece();
+    return;
+  }
+
+  // ── Flat animation (no groups) ──
+  const drawables = Array.from(svg.querySelectorAll('path,circle,ellipse,rect,line,polyline,polygon'));
+  const texts     = Array.from(svg.querySelectorAll('text,tspan'));
+  texts.forEach(t => { t.style.opacity = '0'; t.style.transition = 'opacity 0.5s ease'; });
+
+  for (const el of drawables) {
+    if (abort && abort.aborted) return;
+    const hasStroke = el.getAttribute('stroke') && el.getAttribute('stroke') !== 'none';
+    if (hasStroke) {
+      const len   = (() => { try { return el.getTotalLength ? el.getTotalLength() : 200; } catch(e){ return 200; } })();
+      await drawPath(el, Math.min(180 + len * 1.1, 1400), abort);
+    } else {
+      el.style.opacity = '0'; el.style.transition = 'opacity 0.45s';
+      void el.getBoundingClientRect(); el.style.opacity = '1';
+      await new Promise(r => { animTimeout = setTimeout(r, 460); });
+    }
+    if (!abort || !abort.aborted) await delay(22);
   }
 
   hideChalkPiece();
-
-  // Reveal text labels one by one
   await delay(150);
   for (const t of texts) {
     if (abort && abort.aborted) break;
     t.style.opacity = '1';
-    await delay(50);
+    await delay(55);
   }
 }
 
-// ── drawVisual: try SVG library first, fall back to embedded engine ──
+// ── highlightDiagramPart: pulse a named element gold for 2s ──
+function highlightDiagramPart(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const origStroke = el.style.stroke || el.getAttribute('stroke') || '';
+  const origWidth  = el.style.strokeWidth || el.getAttribute('stroke-width') || '1.5';
+  el.style.stroke      = '#ffd54f';
+  el.style.strokeWidth = '3';
+  el.style.filter      = 'drop-shadow(0 0 4px rgba(255,213,79,0.6))';
+  setTimeout(() => {
+    el.style.stroke      = origStroke;
+    el.style.strokeWidth = origWidth;
+    el.style.filter      = '';
+  }, 2000);
+}
+
+// ── loadSVGIntoContainer: fetch → clean → size → animate ──
+async function loadSVGIntoContainer(path, container, abort) {
+  const svg = await loadSVG(path);
+  if (!svg) return false;
+  cleanSVG(svg);
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  svg.removeAttribute('height');
+  svg.style.maxHeight = '440px';
+  svg.style.display   = 'block';
+  svg.style.margin    = '0 auto';
+  svg.style.overflow  = 'visible';
+  container.appendChild(svg);
+  await animateProDiagram(svg, abort);
+  return true;
+}
+
+// ── drawVisual: try SVG library first, fall back to embedded engines ──
 async function drawVisual(container, step, abort) {
   const key  = step.science || step.diagram || step.map || '';
   const path = key ? visualLibrary[key] : null;
-
   if (voiceOn && step.speech) speak(step.speech);
-
   if (path) {
     const loaded = await loadSVGIntoContainer(path, container, abort);
     if (loaded) return;
   }
-
-  // Embedded fallback (always works offline)
   if      (step.drawType === 'map')     await drawMap(container, step, abort);
   else if (step.drawType === 'science') await drawScienceDiagram(container, step, abort);
   else                                  await drawDiagramLive(container, step, abort);
 }
-
-
-
 
 // ═══════════════════════════════════════════════════════════
 // MAP DRAWING ENGINE
