@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Blackboard AI — DigiSmartSchool</title>
-<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   --maroon: #6B1A1A;
@@ -349,7 +349,7 @@ body {
 
 /* ═══════ BOARD TEXT STYLES ═══════ */
 .board-heading {
-  font-family: 'Caveat', cursive;
+  font-family: 'Kalam', cursive;
   color: var(--chalk-yellow);
   font-size: clamp(2rem, 4.5vw, 3.2rem);
   font-weight: 700; text-align: center;
@@ -358,7 +358,7 @@ body {
   line-height: 1.2;
 }
 .board-subheading {
-  font-family: 'Caveat', cursive;
+  font-family: 'Kalam', cursive;
   color: var(--chalk-yellow);
   font-size: clamp(1.4rem, 3.2vw, 2rem);
   font-weight: 600; margin: 0.9rem 0 0.4rem;
@@ -367,7 +367,7 @@ body {
   padding-bottom: 0.2rem;
 }
 .board-text {
-  font-family: 'Caveat', cursive; color: var(--chalk);
+  font-family: 'Kalam', cursive; color: var(--chalk);
   font-size: clamp(1.25rem, 2.7vw, 1.75rem);
   line-height: 1.75; margin: 0.4rem 0;
   text-shadow: 0.8px 0.8px 0 rgba(0,0,0,0.45);
@@ -380,7 +380,7 @@ body {
 }
 .board-keyterm { color: var(--chalk-blue); font-weight: 700; }
 .board-formula {
-  font-family: 'Caveat', cursive; color: var(--chalk-green);
+  font-family: 'Kalam', cursive; color: var(--chalk-green);
   font-size: 1.6rem;
   background: rgba(168,230,168,0.06);
   border: 1px dashed rgba(168,230,168,0.28);
@@ -390,19 +390,38 @@ body {
 }
 .board-list { list-style: none; margin: 0.4rem 0 0.4rem 1rem; }
 .board-list li {
-  font-family: 'Caveat', cursive; color: var(--chalk);
+  font-family: 'Kalam', cursive; color: var(--chalk);
   font-size: clamp(1.1rem, 2.4vw, 1.5rem); line-height: 1.75;
   position: relative; padding-left: 1.2rem;
 }
 .board-list li::before { content:'→'; position:absolute; left:-0.2rem; color:var(--chalk-yellow); }
 .board-list-item {
-  font-family: 'Caveat', cursive;
+  font-family: 'Kalam', cursive;
   font-size: clamp(1.1rem, 2.4vw, 1.5rem); line-height: 1.75;
   padding-left: 0.2rem;
 }
 
-/* Chalk underline */
-@keyframes underline-draw { from{width:0} to{width:100%} }
+/* SVG heading underline — stroke-drawn */
+.heading-underline-svg {
+  display: block;
+  width: 100%;
+  height: 8px;
+  margin-top: 2px;
+  overflow: visible;
+}
+.heading-underline-svg line {
+  stroke: var(--chalk-yellow);
+  stroke-width: 2;
+  stroke-linecap: round;
+  opacity: 0.55;
+  stroke-dasharray: 2000;
+  stroke-dashoffset: 2000;
+  transition: stroke-dashoffset 0.7s ease;
+}
+.heading-underline-svg line.drawn {
+  stroke-dashoffset: 0;
+}
+/* Legacy - keep for compat */
 .chalk-underline {
   display: block; height: 2px;
   background: linear-gradient(90deg, var(--chalk-yellow), transparent);
@@ -410,6 +429,7 @@ body {
   animation: underline-draw 0.6s ease forwards;
   opacity: 0.55; border-radius: 2px; width: 0;
 }
+@keyframes underline-draw { from{width:0} to{width:100%} }
 
 /* Board element fade-in */
 .board-element {
@@ -692,7 +712,6 @@ body {
 
         <!-- Floating chalk piece -->
         <div id="chalk-piece"></div>
-        <div id="chalk-dust">·</div>
 
         <!-- Teacher callout bubble -->
         <div class="teacher-callout" id="teacher-callout"></div>
@@ -793,6 +812,7 @@ async function startLesson() {
 
   setTimeout(async () => {
     showLoading('Preparing your lesson, please wait...');
+    initDustCanvas();
     try {
       lessonSteps = await generateLessonSteps(cls, subject, lesson);
       hideLoading();
@@ -992,9 +1012,18 @@ async function teachStep(step) {
       board.appendChild(h);
       await writeChalk(h, step.write, abort, 50, 95);
       if (!abort.aborted) {
-        const ul = document.createElement('div');
-        ul.className = 'chalk-underline';
-        board.appendChild(ul);
+        // SVG stroke-animated underline
+        const svgUL = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        svgUL.setAttribute('class','heading-underline-svg');
+        svgUL.setAttribute('viewBox','0 0 600 8');
+        svgUL.setAttribute('preserveAspectRatio','none');
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1','4'); line.setAttribute('y1','4');
+        line.setAttribute('x2','596'); line.setAttribute('y2','4');
+        svgUL.appendChild(line);
+        board.appendChild(svgUL);
+        // Trigger draw after paint
+        requestAnimationFrame(() => requestAnimationFrame(() => line.classList.add('drawn')));
       }
       break;
     }
@@ -1124,41 +1153,87 @@ function eraseBoard() {
 }
 
 // ═══════════════════════════════════════════════════════════
-// CHALK PIECE — floating element that moves with writing
+// CHALK PIECE — tracks the cursor span (exact write position)
 // ═══════════════════════════════════════════════════════════
-function showChalkAt(el) {
-  if (!el) return;
+let dustTrail = [];   // [{x,y,opacity}] for trailing particles
+let dustCanvas = null;
+let dustCtx    = null;
+let dustRAF    = null;
+
+function initDustCanvas() {
+  const board = document.getElementById('main-board');
+  if (document.getElementById('dust-canvas')) return;
+  dustCanvas = document.createElement('canvas');
+  dustCanvas.id = 'dust-canvas';
+  dustCanvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:98;';
+  board.appendChild(dustCanvas);
+  dustCtx = dustCanvas.getContext('2d');
+  resizeDustCanvas();
+}
+
+function resizeDustCanvas() {
+  if (!dustCanvas) return;
+  const board = document.getElementById('main-board');
+  dustCanvas.width  = board.offsetWidth;
+  dustCanvas.height = board.offsetHeight;
+}
+
+function showChalkAt(cursorEl) {
+  if (!cursorEl) return;
   const board = document.getElementById('main-board');
   const piece = document.getElementById('chalk-piece');
-  const dust  = document.getElementById('chalk-dust');
+  if (!piece) return;
 
-  const boardRect = board.getBoundingClientRect();
-  const elRect    = el.getBoundingClientRect();
+  // Use the cursor span's bounding rect — this is the exact tip position
+  const boardRect  = board.getBoundingClientRect();
+  const curRect    = cursorEl.getBoundingClientRect();
 
-  const x = elRect.left - boardRect.left + elRect.width  + 4;
-  const y = elRect.top  - boardRect.top  + elRect.height * 0.5 - 4;
+  // Chalk tip aligns to left edge of cursor (where text just ended)
+  const x = curRect.left - boardRect.left - 26;  // place chalk body before cursor
+  const y = curRect.top  - boardRect.top  + curRect.height * 0.38;
 
-  // Slight hand jitter
-  const jx = (Math.random() - 0.5) * 3;
-  const jy = (Math.random() - 0.5) * 2;
+  // Subtle hand jitter
+  const jx = (Math.random() - 0.5) * 2.5;
+  const jy = (Math.random() - 0.5) * 1.8;
 
-  piece.style.left    = (x + jx) + 'px';
-  piece.style.top     = (y + jy) + 'px';
+  const fx = x + jx;
+  const fy = y + jy;
+
+  piece.style.left    = fx + 'px';
+  piece.style.top     = fy + 'px';
   piece.style.display = 'block';
-  piece.style.transform = `rotate(${-18 + (Math.random() - 0.5) * 6}deg)`;
+  piece.style.transform = `rotate(${-18 + (Math.random() - 0.5) * 5}deg)`;
 
-  // Chalk dust particles near tip
-  dust.style.left    = (x - 2 + jx) + 'px';
-  dust.style.top     = (y + 4 + jy) + 'px';
-  dust.style.display = 'block';
-  dust.style.opacity = (Math.random() * 0.3).toString();
+  // Add dust particle to trail
+  if (dustCtx) {
+    dustTrail.push({
+      x: fx + 28 + Math.random() * 4,
+      y: fy + 4  + Math.random() * 3,
+      r: 1 + Math.random() * 2,
+      o: 0.18 + Math.random() * 0.14
+    });
+    if (dustTrail.length > 28) dustTrail.shift();
+    drawDustTrail();
+  }
+}
+
+function drawDustTrail() {
+  if (!dustCtx || !dustCanvas) return;
+  dustCtx.clearRect(0, 0, dustCanvas.width, dustCanvas.height);
+  dustTrail.forEach((p, i) => {
+    const fade = (i / dustTrail.length);  // newer = more opaque
+    dustCtx.beginPath();
+    dustCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+    dustCtx.fillStyle = `rgba(240,237,232,${p.o * fade})`;
+    dustCtx.fill();
+  });
 }
 
 function hideChalkPiece() {
   const p = document.getElementById('chalk-piece');
-  const d = document.getElementById('chalk-dust');
   if (p) p.style.display = 'none';
-  if (d) d.style.display = 'none';
+  dustTrail = [];
+  if (dustCtx && dustCanvas) dustCtx.clearRect(0, 0, dustCanvas.width, dustCanvas.height);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1201,8 +1276,8 @@ function writeChalk(container, text, abort, minMs, maxMs) {
       textNode.textContent += text[i];
       i++;
 
-      // Update chalk piece position
-      showChalkAt(container);
+      // Track cursor span — exact write position
+      showChalkAt(cursor);
 
       // Natural delay variation
       const ch = text[i - 1];
@@ -1517,6 +1592,7 @@ function goBack() {
 
 // ── Init ──
 document.getElementById('voice-toggle').classList.add('active');
+window.addEventListener('resize', resizeDustCanvas);
 
 // Auto-fill class & subject from URL params
 (function() {
