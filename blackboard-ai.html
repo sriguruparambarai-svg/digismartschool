@@ -1843,174 +1843,289 @@ async function drawIndiaMap(container, step, abort) {
   return await drawMap(container, step, abort);
 }
 
+// ── Clean loaded SVG: remove editor metadata, keep geometry only ──
+function cleanSVG(svgNode) {
+  const remove = ['metadata','sodipodi\\:namedview','inkscape\\:*',
+                  'desc','title','defs','style','script','foreignObject'];
+  // Safe removal by tag name
+  ['metadata','desc','title','script','foreignObject','style'].forEach(tag => {
+    svgNode.querySelectorAll(tag).forEach(el => el.remove());
+  });
+  // Remove Inkscape / Sodipodi nodes (namespaced — match by localName)
+  svgNode.querySelectorAll('*').forEach(el => {
+    const ln = el.localName || '';
+    if (ln.startsWith('sodipodi') || ln.startsWith('inkscape')) el.remove();
+  });
+  // Remove any element with sodipodi/inkscape namespace attribute
+  svgNode.querySelectorAll('[xmlns\\:sodipodi],[xmlns\\:inkscape]').forEach(el => {
+    ['xmlns:sodipodi','xmlns:inkscape','sodipodi:docname','inkscape:version',
+     'inkscape:label','inkscape:groupmode'].forEach(attr => el.removeAttribute(attr));
+  });
+  return svgNode;
+}
+
+// ── Apply blackboard chalk style to all paths in a loaded SVG ──
+function applyChalkStyle(svgNode, highlightId) {
+  svgNode.querySelectorAll('path, polygon, polyline').forEach(el => {
+    const id = (el.id || el.getAttribute('inkscape:label') || '').toLowerCase();
+    const isTN = highlightId && (id.includes(highlightId) || id.includes('tn') ||
+                  id.includes('tamilnadu') || id.includes('tamil_nadu'));
+    if (isTN) {
+      el.style.fill        = 'rgba(245,232,122,0.22)';
+      el.style.stroke      = '#f5e87a';
+      el.style.strokeWidth = '2';
+    } else {
+      el.style.fill        = 'rgba(168,230,168,0.05)';
+      el.style.stroke      = '#f2efe9';
+      el.style.strokeWidth = '1.5';
+    }
+    el.style.strokeLinecap  = 'round';
+    el.style.strokeLinejoin = 'round';
+  });
+}
+
+// ── Animate all paths in SVG with chalk follow ──
+async function animateMapPaths(svgNode, container, abort, durationPerPath) {
+  const paths = Array.from(svgNode.querySelectorAll('path, polygon, polyline'));
+  if (!paths.length) return;
+
+  const board  = document.getElementById('main-board');
+  const bRect  = board ? board.getBoundingClientRect() : {left:0, top:0};
+
+  for (let i = 0; i < paths.length; i++) {
+    if (abort && abort.aborted) return;
+    const el = paths[i];
+    let len = 100;
+    try { if (el.getTotalLength) len = Math.max(el.getTotalLength(), 10); } catch(e) {}
+
+    const dur = durationPerPath || Math.min(180 + len * 0.8, 1400);
+
+    // Stroke-draw animation
+    el.style.strokeDasharray  = len;
+    el.style.strokeDashoffset = len;
+    el.style.transition = `stroke-dashoffset ${dur}ms linear`;
+    void el.getBoundingClientRect();
+    el.style.strokeDashoffset = '0';
+
+    // Chalk piece follows path
+    if (el.getTotalLength && dustCanvas) {
+      const steps  = Math.min(30, Math.floor(dur / 30));
+      const stepMs = dur / steps;
+      for (let s = 0; s <= steps; s++) {
+        if (abort && abort.aborted) break;
+        try {
+          const pt    = el.getPointAtLength((s / steps) * len);
+          const sRect = svgNode.getBoundingClientRect();
+          const vb    = svgNode.viewBox.baseVal;
+          const sx    = sRect.width  / (vb.width  || sRect.width  || 1);
+          const sy    = sRect.height / (vb.height || sRect.height || 1);
+          const bx    = sRect.left - bRect.left + pt.x * sx;
+          const by    = sRect.top  - bRect.top  + pt.y * sy;
+          const piece = document.getElementById('chalk-piece');
+          if (piece) {
+            piece.style.display   = 'block';
+            piece.style.left      = (bx - 14) + 'px';
+            piece.style.top       = (by - 4)  + 'px';
+            piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*5}deg)`;
+          }
+          if (dustCtx) {
+            dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.08+Math.random()*0.08 });
+            if (dustTrail.length > 20) dustTrail.shift();
+            drawDustTrail();
+          }
+        } catch(e) {}
+        await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
+      }
+    } else {
+      await new Promise(r => { animTimeout = setTimeout(r, dur + 20); });
+    }
+    await delay(20);
+  }
+  hideChalkPiece();
+}
+
+// ── Add labels from embedded data after SVG drawn ──
+async function addMapLabels(svgNode, labels, highlight, abort) {
+  if (!labels || !labels.length) return;
+  // Ensure svgNode has correct viewBox for label coordinates
+  for (const lbl of labels) {
+    if (abort && abort.aborted) return;
+    const isTN  = highlight && lbl.text.toLowerCase().includes('tamil');
+    const t = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    t.setAttribute('x', lbl.x);
+    t.setAttribute('y', lbl.y);
+    t.setAttribute('text-anchor', 'middle');
+    t.setAttribute('dominant-baseline', 'central');
+    t.setAttribute('font-family', 'Kalam, Noto Sans Tamil, cursive');
+    t.setAttribute('font-size', lbl.size);
+    t.setAttribute('font-weight', lbl.weight || (isTN ? '700' : '400'));
+    t.setAttribute('fill', isTN ? '#f5e87a' : lbl.color);
+    t.style.opacity    = '0';
+    t.style.transition = 'opacity 0.5s ease';
+    t.textContent = lbl.text;
+    svgNode.appendChild(t);
+    await delay(60);
+    void t.getBoundingClientRect();
+    t.style.opacity = '1';
+  }
+}
+
+// ── MAIN drawMap: tries real SVG files → falls back to embedded paths ──
 async function drawMap(container, step, abort) {
   const mapKey    = (step.map || 'india').toLowerCase();
-  const mapData   = MAP_PATHS[mapKey] || MAP_PATHS.india;
   const highlight = step.highlight || '';
   const isIndia   = mapKey === 'india';
 
-  // Build SVG wrapper
-  const svg = svgEl('svg', { width:'100%', viewBox: mapData.vb });
-  svg.style.filter     = 'drop-shadow(0 0 10px rgba(168,230,168,0.12))';
-  svg.style.transition = 'transform 0.9s cubic-bezier(.34,1.2,.64,1)';
-  container.appendChild(svg);
-
-  // ── Ocean background hint ──
-  if (isIndia) {
-    const ocean = svgEl('rect', {x:0,y:0,width:500,height:580,
-      fill:'rgba(168,216,240,0.03)', rx:4});
-    svg.appendChild(ocean);
-    const oceanLbl = svgEl('text', {x:440,y:410,
-      fill:'rgba(168,216,240,0.28)', 'font-family':'Kalam,cursive',
-      'font-size':'9', 'text-anchor':'middle'});
-    oceanLbl.textContent = 'Indian Ocean';
-    svg.appendChild(oceanLbl);
-  }
-
-  // ── Voice opening ──
+  // ── Voice ──
   if (voiceOn) {
     speak(step.speech || (isIndia
       ? 'Now let us look at the map of India.'
       : `Here is the map of ${mapKey}.`));
   }
-  await delay(350);
+  await delay(300);
 
-  // ── Draw outline — white chalk stroke, 4–5 seconds for India ──
+  // ── Try loading real SVG file first ──
+  // File names match visualLibrary keys: india → /assets/maps/india.svg
+  const filePath = visualLibrary[mapKey] || `/assets/maps/${mapKey}.svg`;
+  const cachedSVG = await loadSVG(filePath);
+
+  if (cachedSVG) {
+    // ── REAL SVG FILE PATH ──
+    const svgNode = cachedSVG;
+    cleanSVG(svgNode);
+    applyChalkStyle(svgNode, highlight === 'tamilnadu' ? 'tamilnadu' : '');
+    svgNode.setAttribute('width',  '100%');
+    svgNode.removeAttribute('height');
+    svgNode.style.maxHeight  = '480px';
+    svgNode.style.display    = 'block';
+    svgNode.style.margin     = '0 auto';
+    svgNode.style.filter     = 'drop-shadow(0 0 10px rgba(168,230,168,0.10))';
+    svgNode.style.transition = 'transform 0.9s cubic-bezier(.34,1.2,.64,1)';
+    container.appendChild(svgNode);
+
+    // ── Animate India outline ──
+    await animateMapPaths(svgNode, container, abort);
+    if (abort && abort.aborted) return;
+
+    // ── Overlay Tamil Nadu from its own file ──
+    if (highlight === 'tamilnadu') {
+      if (voiceOn) speak('Here is Tamil Nadu — at the southern tip of India.');
+      await delay(200);
+      const tnSVG = await loadSVG(visualLibrary.tamilnadu || '/assets/maps/tamilnadu.svg');
+      if (tnSVG) {
+        cleanSVG(tnSVG);
+        tnSVG.querySelectorAll('path, polygon, polyline').forEach(el => {
+          el.style.fill        = 'rgba(245,232,122,0.22)';
+          el.style.stroke      = '#f5e87a';
+          el.style.strokeWidth = '2';
+          el.style.strokeLinecap  = 'round';
+          el.style.strokeLinejoin = 'round';
+        });
+        // Position Tamil Nadu SVG over India — absolute overlay
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'position:relative;width:100%;';
+        if (svgNode.parentNode === container) {
+          container.insertBefore(wrapper, svgNode);
+          wrapper.appendChild(svgNode);
+        }
+        tnSVG.style.cssText = 'position:absolute;width:28%;top:60%;left:36%;pointer-events:none;';
+        wrapper.appendChild(tnSVG);
+        await animateMapPaths(tnSVG, container, abort, 1200);
+        if (abort && abort.aborted) return;
+
+        // Zoom into Tamil Nadu
+        await delay(350);
+        svgNode.style.transformOrigin = '50% 76%';
+        svgNode.style.transform       = 'scale(1.55)';
+        await delay(1300);
+        svgNode.style.transform = 'scale(1)';
+        await delay(600);
+      }
+    }
+
+    // ── Add labels from embedded data ──
+    const mapData = MAP_PATHS[mapKey];
+    if (mapData && mapData.labels) {
+      // For label coordinates to work we need the embedded viewBox
+      // Add label layer as a second SVG on top
+      const labelSVG = document.createElementNS('http://www.w3.org/2000/svg','svg');
+      labelSVG.setAttribute('viewBox', mapData.vb);
+      labelSVG.setAttribute('width',   '100%');
+      labelSVG.style.cssText = 'position:absolute;top:0;left:0;width:100%;pointer-events:none;';
+      const wrap = container.querySelector('div') || container;
+      if (wrap !== container) wrap.appendChild(labelSVG);
+      else container.appendChild(labelSVG);
+      await addMapLabels(labelSVG, mapData.labels, highlight, abort);
+    }
+
+    if (voiceOn && isIndia && highlight === 'tamilnadu') {
+      await delay(300);
+      speak('Tamil Nadu is our state — at the southernmost part of India.');
+    }
+    return;
+  }
+
+  // ── FALLBACK: embedded approximate paths (offline / file not found) ──
+  const mapData = MAP_PATHS[mapKey] || MAP_PATHS.india;
+  const svg = svgEl('svg', { width:'100%', viewBox: mapData.vb });
+  svg.style.filter     = 'drop-shadow(0 0 10px rgba(168,230,168,0.10))';
+  svg.style.transition = 'transform 0.9s cubic-bezier(.34,1.2,.64,1)';
+  container.appendChild(svg);
+
+  if (isIndia) {
+    const ocean = svgEl('rect',{x:0,y:0,width:500,height:580,fill:'rgba(168,216,240,0.03)',rx:4});
+    svg.appendChild(ocean);
+  }
+
   const outlineEl = svgEl('path', {
     d: mapData.outline,
-    fill: 'rgba(168,230,168,0.05)',
-    stroke: '#f2efe9',
-    'stroke-width': '2.8',
-    'stroke-linecap': 'round',
-    'stroke-linejoin': 'round'
+    fill: 'rgba(168,230,168,0.05)', stroke: '#f2efe9',
+    'stroke-width':'2.4','stroke-linecap':'round','stroke-linejoin':'round'
   });
   await svgStrokeWithChalk(svg, outlineEl, isIndia ? 4800 : 3200, 0, abort);
-  if (abort.aborted) return;
+  if (abort && abort.aborted) return;
 
-  await delay(280);
-
-  // ── Highlight Tamil Nadu ──
   if (highlight && mapData[highlight]) {
-    if (voiceOn && highlight === 'tamilnadu') {
-      speak('Here is Tamil Nadu — at the southern tip of India.');
-    }
+    if (voiceOn) speak('Here is Tamil Nadu — at the southern tip of India.');
     await delay(180);
     const hl = svgEl('path', {
       d: mapData[highlight],
-      fill: 'rgba(245,232,122,0.20)',
-      stroke: '#f5e87a',
-      'stroke-width': '2.5',
-      'stroke-linecap': 'round',
-      'stroke-linejoin': 'round'
+      fill:'rgba(245,232,122,0.20)', stroke:'#f5e87a',
+      'stroke-width':'2.2','stroke-linecap':'round','stroke-linejoin':'round'
     });
     await svgStrokeWithChalk(svg, hl, 1400, 0, abort);
-    if (abort.aborted) return;
-
-    // Chalk dust burst over Tamil Nadu region
-    for (let d = 0; d < 7; d++) {
-      if (dustCtx) {
-        dustTrail.push({
-          x: 254 + (Math.random()-0.5)*38,
-          y: 438 + (Math.random()-0.5)*28,
-          r: 2 + Math.random()*3,
-          o: 0.16 + Math.random()*0.14
-        });
-      }
-    }
-    if (dustCtx) drawDustTrail();
+    if (abort && abort.aborted) return;
     await delay(380);
-
-    // ── Zoom into Tamil Nadu ──
-    svg.style.transformOrigin = '50% 76%';
+    svg.style.transformOrigin = '50% 78%';
     svg.style.transform       = 'scale(1.6)';
-    await delay(1400);
+    await delay(1300);
     svg.style.transform = 'scale(1)';
-    await delay(700);
+    await delay(600);
   }
 
-  // ── Labels fade in ──
-  await delay(180);
+  await delay(200);
   for (const lbl of mapData.labels) {
-    if (abort.aborted) return;
+    if (abort && abort.aborted) return;
     const isTN = highlight && lbl.text.toLowerCase().includes('tamil');
     const t = svgEl('text', {
-      x: lbl.x, y: lbl.y,
-      'text-anchor': 'middle',
-      'dominant-baseline': 'central',
-      fill:        isTN ? '#f5e87a' : lbl.color,
+      x:lbl.x, y:lbl.y,
+      'text-anchor':'middle','dominant-baseline':'central',
+      fill: isTN ? '#f5e87a' : lbl.color,
       'font-family':'Kalam, Noto Sans Tamil, cursive',
-      'font-size': lbl.size,
-      'font-weight': lbl.weight || (isTN ? '700' : '400')
+      'font-size':lbl.size, 'font-weight':lbl.weight || (isTN?'700':'400')
     });
     t.textContent = lbl.text;
     await svgAppear(svg, t, 0, abort);
     await delay(45);
   }
 
-  // ── Final voice ──
   if (voiceOn && isIndia && highlight === 'tamilnadu') {
-    await delay(350);
+    await delay(300);
     speak('Tamil Nadu is our state — at the southernmost part of India.');
   }
 }
 
-// svgStrokeWithChalk: stroke animation + moves chalk piece along path
-async function svgStrokeWithChalk(parent, el, durMs, delayMs, abort) {
-  if (abort && abort.aborted) return;
-  parent.appendChild(el);
 
-  // Measure path length after appending
-  let pathLen = 600;
-  try { pathLen = el.getTotalLength ? el.getTotalLength() : 600; } catch(e) {}
-
-  el.style.strokeDasharray  = pathLen;
-  el.style.strokeDashoffset = pathLen;
-  el.style.opacity = '0';
-  el.style.transition = `stroke-dashoffset ${durMs}ms linear, opacity 0.2s`;
-
-  await new Promise(r => { animTimeout = setTimeout(r, delayMs + 20); });
-  if (abort && abort.aborted) return;
-
-  el.style.opacity = '1';
-  el.style.strokeDashoffset = '0';
-
-  // Move chalk along the path using getPointAtLength
-  if (el.getTotalLength && dustCanvas) {
-    const len    = pathLen;
-    const steps  = Math.min(80, Math.floor(durMs / 25));
-    const stepMs = durMs / steps;
-    for (let i = 0; i <= steps; i++) {
-      if (abort && abort.aborted) break;
-      const progress = i / steps;
-      try {
-        const pt = el.getPointAtLength(progress * len);
-        const board = document.getElementById('main-board');
-        const boardRect = board.getBoundingClientRect();
-        const svgRect   = parent.getBoundingClientRect();
-        // Convert SVG coordinates to board-relative
-        const bx = svgRect.left - boardRect.left + (pt.x / parseFloat(parent.getAttribute('viewBox').split(' ')[2])) * svgRect.width;
-        const by = svgRect.top  - boardRect.top  + (pt.y / parseFloat(parent.getAttribute('viewBox').split(' ')[3])) * svgRect.height;
-        const piece = document.getElementById('chalk-piece');
-        if (piece) {
-          piece.style.display = 'block';
-          piece.style.left = (bx - 14) + 'px';
-          piece.style.top  = (by - 4)  + 'px';
-          piece.style.transform = `rotate(${-20 + (Math.random()-0.5)*8}deg)`;
-        }
-        // Dust trail
-        if (dustCtx) {
-          dustTrail.push({ x:bx, y:by, r:1+Math.random()*1.5, o:0.12+Math.random()*0.1 });
-          if (dustTrail.length > 30) dustTrail.shift();
-          drawDustTrail();
-        }
-      } catch(e) {}
-      await new Promise(r => { animTimeout = setTimeout(r, stepMs); });
-    }
-  } else {
-    await new Promise(r => { animTimeout = setTimeout(r, durMs + 60); });
-  }
-  hideChalkPiece();
-}
 
 // ═══════════════════════════════════════════════════════════
 // SCIENCE DIAGRAM ENGINE
