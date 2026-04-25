@@ -547,34 +547,27 @@ SLIDE CREATION RULES:
 4. If textbook is empty, generate 7-9 full teaching slides covering all aspects of the topic
 
 -------------------------------------
-OUTPUT FORMAT — return JSON array:
+OUTPUT FORMAT — return JSON array of 6-8 slides maximum:
 [
   {
     "slide_number": 1,
     "type": "title",
     "title": "slide heading",
-    "image_prompt": "describe educational illustration for this slide",
-    "content": "original paragraph text slightly simplified",
-    "points": ["bullet point 1", "bullet point 2", "bullet point 3"],
+    "content": "one sentence summary of this paragraph",
+    "points": ["key point 1", "key point 2", "key point 3"],
     "emoji": "📚"
   }
 ]
 
-TYPE must be one of: title, concept, key_points, table, timeline, formula, callout, diagram, barchart, summary
+TYPE: title, concept, key_points, table, timeline, formula, callout, diagram, barchart, summary
+For TABLE add: "table":{"headers":["A","B"],"rows":[["a","b"]]}
+For TIMELINE add: "timeline":[{"year":"1947","event":"..."}]
+For FORMULA add: "formula":"E=mc²"
+For CALLOUT add: "callout_type":"fact","callout_text":"..."
+For DIAGRAM add: "diagram":"heart" (heart/plant_cell/water_cycle/food_chain/photosynthesis/solar_system/atom_structure/human_digestive/human_respiratory/human_nervous/human_skeletal/human_eye/human_circulatory/layers_earth/magnet_field/electric_circuit/states_of_matter/pythagoras)
+For BARCHART add: "bars":[{"label":"X","value":80,"display":"80%"}]
 
-For TABLE type add: "table": {"headers": ["Col1","Col2"], "rows": [["val","val"]]}
-For TIMELINE type add: "timeline": [{"year": "1947", "event": "description"}]
-For FORMULA type add: "formula": "E = mc²"
-For CALLOUT type add: "callout_type": "fact", "callout_text": "important statement"
-For DIAGRAM type add: "diagram": "heart" (choose from: heart/plant_cell/water_cycle/food_chain/photosynthesis/solar_system/atom_structure/human_digestive/human_respiratory/human_nervous/human_skeletal/human_eye/human_circulatory/layers_earth/magnet_field/electric_circuit/states_of_matter/pythagoras)
-For BARCHART type add: "bars": [{"label": "Item", "value": 80, "display": "80%"}]
-
-CONTENT RULES:
-- "content" = original paragraph text, slightly simplified for ${cls} students
-- "points" = 3-5 bullet explanations highlighting key facts
-- "image_prompt" = clear description of educational illustration for this slide
-- Use TABLE for comparisons, TIMELINE for history/sequences, FORMULA for equations
-- End with a SUMMARY slide covering all key points
+RULES: max 3 points per slide. "content" max 1 sentence. End with summary.
 -------------------------------------`;
 
   const response = await fetch(API_URL, {
@@ -590,7 +583,23 @@ CONTENT RULES:
   if (!response.ok) throw new Error('API error ' + response.status);
   const d   = await response.json();
   const raw = d.content[0].text.replace(/```json|```/g, '').trim();
-  return JSON.parse(raw);
+
+  // ── JSON repair: if output was truncated mid-stream, recover valid slides ──
+  try {
+    return JSON.parse(raw);
+  } catch(e) {
+    // Find last complete slide object (ends with }  before a , or ] )
+    // Strategy: extract everything up to the last complete "}," or "}" before truncation
+    const lastClose = Math.max(raw.lastIndexOf('},'), raw.lastIndexOf('}\n]'), raw.lastIndexOf('}]'));
+    if (lastClose > 10) {
+      const partial = raw.substring(0, lastClose + 1) + ']';
+      try {
+        const result = JSON.parse(partial);
+        if (Array.isArray(result) && result.length > 0) return result;
+      } catch(e2) {}
+    }
+    throw new Error('Could not parse slide data. Please try again.');
+  }
 }
 
 // ── Build thumbnail rail ──
