@@ -1121,7 +1121,8 @@ async function startLesson() {
 // ═══════════════════════════════════════════════════════════
 // GREETING — teacher says good morning
 // ═══════════════════════════════════════════════════════════
-async function greetStudents() {
+async function greetStudents(skip) {
+  if (skip) return;  // autostart skips greeting for faster load
   const overlay = document.getElementById('greet-overlay');
   const gtxt    = document.getElementById('greet-text');
 
@@ -1136,12 +1137,12 @@ async function greetStudents() {
   for (const line of greetLines) {
     gtxt.textContent = line;
     if (voiceOn) speak(line);
-    await delay(1600);
+    await delay(700);
   }
 
   overlay.style.transition = 'opacity 0.5s ease';
   overlay.classList.add('hidden');
-  await delay(600);
+  await delay(500);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2707,18 +2708,23 @@ window.addEventListener('online',  () => showCallout('✅ Back online!', 2500));
 function goBack() {
   stopCurrentAnimation();
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  // If came from learnbot (same-tab navigation), go back there
-  if (document.referrer && document.referrer.includes('learnbot')) {
+  // Return to TeachBot — check sessionStorage return URL first
+  const returnUrl = sessionStorage.getItem('bb_returnUrl');
+  if (returnUrl) {
+    sessionStorage.removeItem('bb_returnUrl');
+    window.location.href = returnUrl;
+    return;
+  }
+  // Referrer fallback (teachbot.html or learnbot.html)
+  if (document.referrer && (
+    document.referrer.includes('teachbot') ||
+    document.referrer.includes('learnbot')
+  )) {
     window.location.href = document.referrer;
     return;
   }
-  // If opened directly or from other source — show welcome screen
-  document.getElementById('classroom').style.display = 'none';
-  const ws = document.getElementById('welcome-screen');
-  ws.style.display = 'flex'; ws.style.opacity = '1';
-  lessonSteps = []; currentStep = 0;
-  const gr = document.getElementById('greet-overlay');
-  if (gr) { gr.classList.remove('hidden'); gr.style.opacity = ''; }
+  // Direct fallback
+  window.location.href = 'teachbot.html';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3083,32 +3089,29 @@ document.addEventListener('DOMContentLoaded', function() {
     if (ht) ht.textContent = subject + (chapter ? ' — ' + chapter : '');
   } catch(e) { return; }
 
-  // Start teaching
+  // Start teaching — no unnecessary delay
   setTimeout(async function() {
     try { initDustCanvas(); } catch(e) {}
+    try { showLoading('Preparing your lesson...'); startLoadingMessages(); } catch(e) {}
 
-    try {
-      showLoading('Preparing your lesson...');
-      startLoadingMessages();
-    } catch(e) {}
+    // Show loading bar immediately while checking cache / calling API
+    try { showLoadingBar(); } catch(e) {}
 
-    // Cache check
+    // Cache check — instant if cached
     try {
       const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
       const cached   = getCachedLesson(cacheKey);
       if (cached) {
         lessonSteps = cached;
-        hideLoading();
-        stopLoadingMessages();
-        buildSidebar();
-        buildProgressDots();
-        await greetStudents();
+        try { hideLoading(); stopLoadingMessages(); hideLoadingBar(); } catch(e) {}
+        buildSidebar(); buildProgressDots();
+        await greetStudents(true); // skip — autostart
         renderStep(0);
         return;
       }
     } catch(e) {}
 
-    // Fast-start placeholder
+    // Fast-start: show placeholder immediately, greet quickly, then load real steps
     try {
       lessonSteps = [{
         type: 'explain',
@@ -3117,29 +3120,37 @@ document.addEventListener('DOMContentLoaded', function() {
         color: 'yellow',
         _placeholder: true
       }];
-      buildSidebar();
-      buildProgressDots();
-      await greetStudents();
+      buildSidebar(); buildProgressDots();
+      // Quick greeting — only 1 line to avoid 5-second wait
+      const overlay = document.getElementById('greet-overlay');
+      const gtxt    = document.getElementById('greet-text');
+      if (overlay && gtxt) {
+        overlay.classList.remove('hidden');
+        gtxt.textContent = '👩‍🏫 Welcome! Starting your lesson...';
+        if (voiceOn) speak('Welcome! Starting your lesson.');
+        await delay(900);
+        overlay.style.transition = 'opacity 0.4s';
+        overlay.classList.add('hidden');
+        await delay(450);
+      }
       renderStep(0);
     } catch(e) {}
 
-    // Background API call
-    try { showLoadingBar(); } catch(e) {}
+    // Background API call — real steps replace placeholder
     try {
       const steps = await generateLessonSteps(cls, subject, chapter || subject, lessonText);
-      try { hideLoadingBar(); stopLoadingMessages(); } catch(e) {}
+      try { hideLoadingBar(); stopLoadingMessages(); hideLoading(); } catch(e) {}
       lessonSteps = steps;
       try {
         const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
         cacheLesson(cacheKey, steps);
       } catch(e) {}
-      buildSidebar();
-      buildProgressDots();
+      buildSidebar(); buildProgressDots();
       if (currentStep === 0) renderStep(1);
     } catch(e) {
-      try { hideLoadingBar(); stopLoadingMessages(); } catch(e2) {}
+      try { hideLoadingBar(); stopLoadingMessages(); hideLoading(); } catch(e2) {}
     }
-  }, 400);
+  }, 100);  // minimal delay — just enough for DOM to settle
 });
 </script>
 </body>
