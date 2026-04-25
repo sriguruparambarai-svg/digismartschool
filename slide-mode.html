@@ -1,0 +1,1004 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slide Mode — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ── RESET & ROOT ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --maroon:     #6B1A1A;
+  --maroon-mid: #8B2A2A;
+  --gold:       #C9962A;
+  --gold-light: #F5E27A;
+  --sandal:     #E8C99A;
+  --bg:         #0e0a04;
+  --card-bg:    #1a1208;
+  --card2:      #0f1a0f;
+  --card3:      #0a0f1a;
+  --text:       #f0ece4;
+  --dim:        rgba(240,236,228,0.55);
+  --border:     rgba(201,150,42,0.22);
+}
+
+body {
+  font-family: 'Nunito', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── HEADER ── */
+.sm-header {
+  height: 52px;
+  background: linear-gradient(90deg, #1a0a04, #0e0a04);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.2rem;
+  flex-shrink: 0;
+  gap: 10px;
+}
+.sm-header-left { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.sm-back-btn {
+  background: transparent; border: 1px solid rgba(201,150,42,0.3);
+  border-radius: 7px; color: var(--sandal);
+  font-family: 'Nunito', sans-serif; font-size: 0.78rem; font-weight: 700;
+  padding: 5px 12px; cursor: pointer; white-space: nowrap; transition: all 0.2s;
+}
+.sm-back-btn:hover { background: rgba(201,150,42,0.1); }
+.sm-lesson-title {
+  font-family: 'Kalam', cursive; font-size: 1.05rem; color: var(--gold-light);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sm-header-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.sm-ctrl-btn {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 7px; color: #fff; font-family: 'Nunito', sans-serif;
+  font-size: 0.78rem; font-weight: 700; padding: 5px 12px;
+  cursor: pointer; transition: all 0.18s; white-space: nowrap;
+}
+.sm-ctrl-btn:hover { background: rgba(255,255,255,0.15); }
+.sm-ctrl-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.sm-ctrl-btn.primary { background: rgba(201,150,42,0.8); color: #0e0a04; border-color: var(--gold); }
+.sm-ctrl-btn.primary:hover { background: var(--gold); }
+
+/* ── UPLOAD BAR ── */
+.sm-upload-bar {
+  background: rgba(201,150,42,0.06);
+  border-bottom: 1px solid var(--border);
+  padding: 7px 1.2rem;
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0; flex-wrap: wrap;
+}
+.sm-upload-label { font-size: 0.78rem; font-weight: 700; color: rgba(201,150,42,0.7); white-space: nowrap; }
+.sm-upload-input {
+  font-size: 0.75rem; color: var(--sandal);
+  background: rgba(0,0,0,0.3); border: 1px dashed rgba(201,150,42,0.3);
+  border-radius: 6px; padding: 3px 8px; cursor: pointer;
+}
+.sm-upload-status { font-size: 0.73rem; color: rgba(201,150,42,0.6); }
+
+/* ── MAIN AREA ── */
+.sm-body { flex: 1; display: flex; overflow: hidden; position: relative; }
+
+/* ── THUMBNAIL RAIL (left) ── */
+.sm-rail {
+  width: 130px; flex-shrink: 0;
+  background: rgba(0,0,0,0.5);
+  border-right: 1px solid var(--border);
+  overflow-y: auto; padding: 8px 6px;
+  display: flex; flex-direction: column; gap: 6px;
+  scrollbar-width: thin; scrollbar-color: rgba(201,150,42,0.2) transparent;
+}
+.sm-thumb {
+  border-radius: 6px; padding: 7px 8px;
+  font-size: 0.68rem; font-weight: 700; cursor: pointer;
+  border: 1.5px solid transparent; line-height: 1.35;
+  color: rgba(240,236,228,0.5); transition: all 0.18s;
+  background: rgba(255,255,255,0.03);
+}
+.sm-thumb:hover { border-color: rgba(201,150,42,0.3); color: var(--sandal); }
+.sm-thumb.active { border-color: var(--gold); background: rgba(201,150,42,0.1); color: var(--gold-light); }
+.sm-thumb.done { border-color: rgba(201,150,42,0.2); }
+.sm-thumb-num { font-size: 0.6rem; color: var(--gold); margin-bottom: 2px; }
+
+/* ── SLIDE VIEWPORT ── */
+.sm-viewport {
+  flex: 1; display: flex; align-items: center; justify-content: center;
+  padding: 1.5rem; overflow-y: auto; background: #080604;
+  position: relative;
+}
+
+/* ── SLIDE CARD ── */
+.sm-slide {
+  width: 100%; max-width: 880px;
+  min-height: 480px;
+  border-radius: 16px;
+  padding: 2.4rem 2.8rem 2rem;
+  position: relative; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.7);
+  animation: slideEnter 0.32s cubic-bezier(.34,1.2,.64,1);
+}
+@keyframes slideEnter {
+  from { opacity:0; transform:translateY(12px) scale(0.985); }
+  to   { opacity:1; transform:translateY(0)    scale(1);     }
+}
+
+/* Slide type themes */
+.sm-slide.type-title    { background: linear-gradient(135deg, #1a0e04, #2a1808); border: 1.5px solid rgba(201,150,42,0.35); }
+.sm-slide.type-concept  { background: linear-gradient(145deg, #0f1a0a, #0a1208); border: 1.5px solid rgba(168,230,168,0.2); }
+.sm-slide.type-key_points { background: linear-gradient(145deg, #1a1208, #160e04); border: 1.5px solid rgba(245,232,122,0.22); }
+.sm-slide.type-table    { background: linear-gradient(145deg, #0a0f1a, #08101a); border: 1.5px solid rgba(168,216,240,0.22); }
+.sm-slide.type-timeline { background: linear-gradient(145deg, #12081a, #0e0614); border: 1.5px solid rgba(212,160,240,0.22); }
+.sm-slide.type-formula  { background: linear-gradient(145deg, #0a1a0a, #061206); border: 1.5px solid rgba(168,230,168,0.3); }
+.sm-slide.type-diagram  { background: linear-gradient(145deg, #0a1008, #08120a); border: 1.5px solid rgba(168,230,168,0.2); }
+.sm-slide.type-example  { background: linear-gradient(145deg, #0e0a1a, #0a0814); border: 1.5px solid rgba(212,160,240,0.2); }
+.sm-slide.type-summary  { background: linear-gradient(145deg, #1a0e08, #120a04); border: 1.5px solid rgba(201,150,42,0.3); }
+.sm-slide.type-list     { background: linear-gradient(145deg, #0f1208, #0a0e06); border: 1.5px solid rgba(168,230,168,0.18); }
+
+/* Decorative corner glow */
+.sm-slide::before {
+  content: ''; position: absolute; top: -40px; right: -40px;
+  width: 180px; height: 180px; border-radius: 50%;
+  pointer-events: none; opacity: 0.12;
+}
+.type-title::before    { background: radial-gradient(circle, #C9962A, transparent); }
+.type-concept::before  { background: radial-gradient(circle, #a8e6a8, transparent); }
+.type-key_points::before { background: radial-gradient(circle, #f5e87a, transparent); }
+.type-table::before    { background: radial-gradient(circle, #a8d8f0, transparent); }
+.type-timeline::before { background: radial-gradient(circle, #d4a0f0, transparent); }
+.type-formula::before  { background: radial-gradient(circle, #a8e6a8, transparent); }
+.type-diagram::before  { background: radial-gradient(circle, #a8e6a8, transparent); }
+.type-summary::before  { background: radial-gradient(circle, #C9962A, transparent); }
+
+/* ── SLIDE HEADER ── */
+.sm-slide-meta {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 1rem;
+}
+.sm-type-badge {
+  font-size: 0.62rem; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 1.5px; padding: 3px 9px; border-radius: 12px;
+}
+.type-title    .sm-type-badge { background: rgba(201,150,42,0.15); color: var(--gold); }
+.type-concept  .sm-type-badge { background: rgba(168,230,168,0.12); color: #a8e6a8; }
+.type-key_points .sm-type-badge { background: rgba(245,232,122,0.12); color: #f5e87a; }
+.type-table    .sm-type-badge { background: rgba(168,216,240,0.12); color: #a8d8f0; }
+.type-timeline .sm-type-badge { background: rgba(212,160,240,0.12); color: #d4a0f0; }
+.type-formula  .sm-type-badge { background: rgba(168,230,168,0.15); color: #a8e6a8; }
+.type-diagram  .sm-type-badge { background: rgba(168,230,168,0.12); color: #a8e6a8; }
+.type-example  .sm-type-badge { background: rgba(212,160,240,0.12); color: #d4a0f0; }
+.type-summary  .sm-type-badge { background: rgba(201,150,42,0.15); color: var(--gold); }
+.type-list     .sm-type-badge { background: rgba(168,230,168,0.10); color: #a8e6a8; }
+
+.sm-slide-num { font-size: 0.7rem; color: var(--dim); font-weight: 700; }
+
+/* ── SLIDE TITLE ── */
+.sm-slide-title {
+  font-family: 'Kalam', cursive;
+  font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+  font-weight: 700; line-height: 1.2; margin-bottom: 1.4rem;
+  padding-bottom: 0.7rem;
+}
+.type-title .sm-slide-title    { color: var(--gold-light); border-bottom: 2px solid rgba(201,150,42,0.25); }
+.type-concept .sm-slide-title  { color: #a8e6a8; border-bottom: 1.5px solid rgba(168,230,168,0.18); }
+.type-key_points .sm-slide-title { color: #f5e87a; border-bottom: 1.5px solid rgba(245,232,122,0.18); }
+.type-table .sm-slide-title    { color: #a8d8f0; border-bottom: 1.5px solid rgba(168,216,240,0.18); }
+.type-timeline .sm-slide-title { color: #d4a0f0; border-bottom: 1.5px solid rgba(212,160,240,0.18); }
+.type-formula .sm-slide-title  { color: #a8e6a8; border-bottom: 1.5px solid rgba(168,230,168,0.2); }
+.type-diagram .sm-slide-title  { color: #a8e6a8; border-bottom: 1.5px solid rgba(168,230,168,0.18); }
+.type-example .sm-slide-title  { color: #d4a0f0; border-bottom: 1.5px solid rgba(212,160,240,0.18); }
+.type-summary .sm-slide-title  { color: var(--gold-light); border-bottom: 2px solid rgba(201,150,42,0.22); }
+.type-list .sm-slide-title     { color: #a8e6a8; border-bottom: 1.5px solid rgba(168,230,168,0.16); }
+
+/* ── SLIDE BODY ── */
+.sm-slide-body { display: flex; gap: 1.8rem; align-items: flex-start; }
+.sm-slide-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+
+/* ── BULLET POINTS ── */
+.sm-points { list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+.sm-point {
+  font-size: clamp(0.9rem, 1.8vw, 1.12rem); line-height: 1.65;
+  padding: 0.5rem 0.9rem 0.5rem 1rem;
+  border-radius: 0 8px 8px 0;
+  border-left: 3px solid rgba(168,230,168,0.3);
+  background: rgba(255,255,255,0.025);
+  opacity: 0; transform: translateX(-6px);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.sm-point.visible { opacity: 1; transform: translateX(0); }
+.sm-point.key {
+  border-left-color: #f5e87a; background: rgba(245,232,122,0.05);
+  color: #f5e87a; font-weight: 700;
+}
+.sm-point.key::before { content: '★ '; }
+.sm-point.formula {
+  border-left-color: #a8e6a8; background: rgba(168,230,168,0.06);
+  color: #a8e6a8; font-size: 1.05rem;
+  font-family: 'Kalam', cursive; text-align: center; letter-spacing: 0.3px;
+}
+.sm-point.formula::before { content: '∴ '; }
+.sm-point.important {
+  border-left-color: #f4a0a0; background: rgba(244,160,160,0.05); color: #f4a0a0;
+}
+.sm-point::before { content: '→ '; opacity: 0.5; }
+
+/* ── TABLE ── */
+.sm-table-wrap { overflow-x: auto; border-radius: 10px; border: 1px solid rgba(168,216,240,0.18); }
+.sm-table {
+  width: 100%; border-collapse: collapse;
+  font-size: 0.88rem; min-width: 360px;
+}
+.sm-table th {
+  background: rgba(168,216,240,0.12); color: #a8d8f0;
+  font-weight: 800; padding: 0.6rem 0.9rem;
+  border-bottom: 1.5px solid rgba(168,216,240,0.2);
+  text-align: left; white-space: nowrap;
+}
+.sm-table td {
+  padding: 0.55rem 0.9rem; border-bottom: 1px solid rgba(168,216,240,0.08);
+  color: var(--text);
+}
+.sm-table tr:last-child td { border-bottom: none; }
+.sm-table tr:nth-child(even) td { background: rgba(168,216,240,0.03); }
+.sm-table tr:hover td { background: rgba(168,216,240,0.06); }
+
+/* ── TIMELINE ── */
+.sm-timeline { display: flex; flex-direction: column; gap: 0; }
+.sm-tl-item { display: flex; gap: 1rem; align-items: flex-start; padding-bottom: 1.1rem; position: relative; }
+.sm-tl-item:not(:last-child)::before {
+  content: ''; position: absolute; left: 14px; top: 28px;
+  width: 2px; bottom: 0; background: rgba(212,160,240,0.2);
+}
+.sm-tl-dot {
+  width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
+  background: rgba(212,160,240,0.15); border: 2px solid #d4a0f0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 0.68rem; font-weight: 800; color: #d4a0f0; z-index: 1;
+}
+.sm-tl-year { font-size: 0.78rem; font-weight: 800; color: #d4a0f0; margin-bottom: 2px; }
+.sm-tl-text { font-size: 0.9rem; color: var(--text); line-height: 1.5; }
+
+/* ── CALLOUT BOXES ── */
+.sm-callout {
+  border-radius: 10px; padding: 0.9rem 1.1rem; margin: 0.4rem 0;
+  font-size: 0.9rem; line-height: 1.6;
+}
+.sm-callout.note   { background: rgba(168,216,240,0.08); border-left: 4px solid #a8d8f0; color: #a8d8f0; }
+.sm-callout.tip    { background: rgba(168,230,168,0.08); border-left: 4px solid #a8e6a8; color: #a8e6a8; }
+.sm-callout.warn   { background: rgba(244,160,160,0.08); border-left: 4px solid #f4a0a0; color: #f4a0a0; }
+.sm-callout.fact   { background: rgba(245,232,122,0.08); border-left: 4px solid #f5e87a; color: #f5e87a; }
+.sm-callout-icon   { font-size: 1rem; margin-right: 6px; }
+
+/* ── FORMULA BOX ── */
+.sm-formula-box {
+  background: rgba(168,230,168,0.06); border: 1.5px solid rgba(168,230,168,0.25);
+  border-radius: 12px; padding: 1rem 1.4rem; text-align: center;
+  font-family: 'Kalam', cursive; font-size: 1.5rem; color: #a8e6a8;
+  letter-spacing: 0.3px; margin: 0.4rem 0;
+}
+
+/* ── BAR CHART ── */
+.sm-bar-chart { display: flex; flex-direction: column; gap: 0.5rem; }
+.sm-bar-row { display: flex; align-items: center; gap: 0.7rem; }
+.sm-bar-label { font-size: 0.8rem; width: 100px; text-align: right; color: var(--dim); flex-shrink: 0; }
+.sm-bar-track { flex: 1; height: 22px; background: rgba(255,255,255,0.05); border-radius: 4px; overflow: hidden; }
+.sm-bar-fill {
+  height: 100%; border-radius: 4px; width: 0%;
+  transition: width 0.8s cubic-bezier(.34,1.2,.64,1);
+  display: flex; align-items: center; padding-left: 8px;
+  font-size: 0.72rem; font-weight: 700;
+}
+.sm-bar-fill.c0 { background: linear-gradient(90deg, #a8d8f0, #78b8e0); color: #0a1a28; }
+.sm-bar-fill.c1 { background: linear-gradient(90deg, #a8e6a8, #78c678); color: #0a1a0a; }
+.sm-bar-fill.c2 { background: linear-gradient(90deg, #f5e87a, #e0c840); color: #1a1408; }
+.sm-bar-fill.c3 { background: linear-gradient(90deg, #f4a0a0, #e07070); color: #1a0a0a; }
+.sm-bar-fill.c4 { background: linear-gradient(90deg, #d4a0f0, #b070d0); color: #140a1a; }
+
+/* ── DIAGRAM SLOT ── */
+.sm-diagram-slot { margin-top: 0.5rem; max-height: 260px; overflow: hidden; }
+.sm-diagram-slot svg { width: 100%; max-height: 260px; }
+
+/* ── IMAGE SLOT ── */
+.sm-image-slot {
+  flex-shrink: 0; width: 220px;
+  border-radius: 10px; overflow: hidden;
+  border: 1px solid rgba(201,150,42,0.2);
+  background: rgba(0,0,0,0.3);
+  display: flex; align-items: center; justify-content: center;
+  min-height: 120px;
+}
+.sm-image-slot img { width: 100%; height: auto; object-fit: contain; max-height: 240px; }
+.sm-image-slot .no-img { font-size: 3.5rem; opacity: 0.18; }
+
+/* ── PROGRESS BAR ── */
+.sm-progress-wrap {
+  height: 3px; background: rgba(201,150,42,0.1); flex-shrink: 0;
+}
+.sm-progress-fill {
+  height: 100%; width: 0%;
+  background: linear-gradient(90deg, var(--gold), #f5e87a);
+  transition: width 0.4s ease;
+}
+
+/* ── FOOTER NAV ── */
+.sm-footer {
+  height: 52px; background: rgba(0,0,0,0.6);
+  border-top: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 1.2rem; gap: 1rem; flex-shrink: 0;
+}
+.sm-footer-dots {
+  display: flex; gap: 5px; align-items: center;
+  flex-wrap: wrap; justify-content: center; max-width: 360px;
+}
+.sm-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: rgba(201,150,42,0.2); cursor: pointer; transition: all 0.2s;
+}
+.sm-dot.active { background: var(--gold); transform: scale(1.3); box-shadow: 0 0 5px rgba(201,150,42,0.5); }
+.sm-dot.done   { background: rgba(201,150,42,0.45); }
+
+/* ── LOADING ── */
+.sm-loader {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 1.2rem; padding: 4rem;
+  text-align: center;
+}
+.sm-spinner {
+  width: 42px; height: 42px; border-radius: 50%;
+  border: 3px solid rgba(201,150,42,0.15);
+  border-top-color: var(--gold);
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.sm-loader-title { font-family: 'Cinzel', serif; font-size: 1.1rem; color: var(--gold); }
+.sm-loader-msg   { font-size: 0.85rem; color: var(--dim); }
+
+/* ── KEY SHORTCUT HINT ── */
+.sm-key-hint {
+  font-size: 0.65rem; color: rgba(201,150,42,0.3);
+  text-align: center; padding: 2px;
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<div class="sm-header">
+  <div class="sm-header-left">
+    <button class="sm-back-btn" onclick="goBack()">← Back</button>
+    <span class="sm-lesson-title" id="sm-lesson-title">Loading lesson...</span>
+  </div>
+  <div class="sm-header-right">
+    <button class="sm-ctrl-btn" id="sm-play-btn" onclick="smPlay()" disabled>▶ Play All</button>
+    <button class="sm-ctrl-btn" id="sm-pause-btn" onclick="smPause()" disabled style="display:none;">⏸ Pause</button>
+    <button class="sm-ctrl-btn" onclick="smPrev()" id="sm-prev-btn" disabled>⏮</button>
+    <button class="sm-ctrl-btn primary" onclick="smNext()" id="sm-next-btn" disabled>Next ⏭</button>
+  </div>
+</div>
+
+<!-- PDF UPLOAD BAR -->
+<div class="sm-upload-bar">
+  <span class="sm-upload-label">📄 Upload textbook PDF for diagrams:</span>
+  <input type="file" class="sm-upload-input" id="sm-pdf-input" accept=".pdf" onchange="handlePDF(event)">
+  <span class="sm-upload-status" id="sm-pdf-status"></span>
+</div>
+
+<!-- PROGRESS -->
+<div class="sm-progress-wrap">
+  <div class="sm-progress-fill" id="sm-prog"></div>
+</div>
+
+<!-- BODY -->
+<div class="sm-body">
+  <!-- Thumbnail rail -->
+  <div class="sm-rail" id="sm-rail"></div>
+
+  <!-- Viewport -->
+  <div class="sm-viewport" id="sm-viewport">
+    <!-- Loading state -->
+    <div class="sm-loader" id="sm-loader">
+      <div class="sm-spinner"></div>
+      <div class="sm-loader-title">Building Slides...</div>
+      <div class="sm-loader-msg" id="sm-loader-msg">Reading your lesson</div>
+    </div>
+    <!-- Slide card (hidden until ready) -->
+    <div id="sm-slide-wrap" style="width:100%;display:none;"></div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<div class="sm-footer">
+  <div class="sm-footer-dots" id="sm-dots"></div>
+  <div style="display:flex;align-items:center;gap:1rem;">
+    <span class="sm-key-hint">← → arrow keys to navigate · Space to play</span>
+    <span id="sm-counter" style="font-size:0.78rem;color:var(--dim);font-weight:700;"></span>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// SLIDE MODE ENGINE — Standalone
+// Reads lesson data from sessionStorage, generates Gamma-style slides
+// ═══════════════════════════════════════════════════════════
+
+const API_URL = '/api/ai';
+
+let slides        = [];
+let currentSlide  = 0;
+let isPlaying     = false;
+let currentUtt    = null;
+let pdfImages     = [];   // base64 images extracted from PDF
+let pdfBase64     = null;
+let lessonData    = {};
+
+const LOAD_MSGS = [
+  'Reading your lesson carefully...',
+  'Structuring content into slides...',
+  'Creating tables and timelines...',
+  'Adding diagrams and callouts...',
+  'Almost ready...'
+];
+
+// ── Diagram library ──
+const DIAGRAM_PATHS = {
+  heart:'/assets/diagrams/heart.svg', plant_cell:'/assets/diagrams/plant.svg',
+  water_cycle:'/assets/diagrams/water_cycle.svg', food_chain:'/assets/diagrams/food_chain.svg',
+  photosynthesis:'/assets/diagrams/photosynthesis.svg', solar_system:'/assets/diagrams/solar_system.svg',
+  atom_structure:'/assets/diagrams/atom_structure.svg', human_digestive:'/assets/diagrams/human_digestive.svg',
+  human_respiratory:'/assets/diagrams/human_respiratory.svg', human_nervous:'/assets/diagrams/human_nervous.svg',
+  human_skeletal:'/assets/diagrams/human_skeletal.svg', human_eye:'/assets/diagrams/human_eye.svg',
+  human_circulatory:'/assets/diagrams/human_circulatory.svg', cell_division:'/assets/diagrams/cell_division.svg',
+  dna_structure:'/assets/diagrams/dna_structure.svg', layers_earth:'/assets/diagrams/layers_earth.svg',
+  magnet_field:'/assets/diagrams/magnet_field.svg', electric_circuit:'/assets/diagrams/electric_circuit.svg',
+  states_of_matter:'/assets/diagrams/states_of_matter.svg', fraction_visual:'/assets/diagrams/fraction_visual.svg',
+  pythagoras:'/assets/diagrams/pythagoras.svg', plant_anatomy:'/assets/diagrams/plant_anatomy.svg'
+};
+
+const SVG_CACHE = {};
+
+// ── Init: read lesson data from sessionStorage ──
+window.addEventListener('DOMContentLoaded', async () => {
+  const raw = sessionStorage.getItem('sm_lesson');
+  if (!raw) { showError('No lesson found. Please go back and activate a lesson first.'); return; }
+  lessonData = JSON.parse(raw);
+  document.getElementById('sm-lesson-title').textContent =
+    `${lessonData.subject || ''} — ${lessonData.chapter || lessonData.lesson || ''}`;
+  startLoadingMessages();
+  try {
+    slides = await generateSlides(lessonData);
+    stopLoadingMessages();
+    buildRail();
+    buildDots();
+    renderSlide(0);
+    document.getElementById('sm-play-btn').disabled = false;
+    document.getElementById('sm-prev-btn').disabled = false;
+    document.getElementById('sm-next-btn').disabled = false;
+  } catch(e) {
+    showError('Could not generate slides: ' + e.message);
+  }
+});
+
+// ── Generate slides via Claude API ──
+async function generateSlides(data) {
+  const { cls, subject, chapter, lesson, lessonText, lang } = data;
+  const langInstr = lang === 'tamil'
+    ? 'Write in Tamil language only.'
+    : lang === 'both'
+    ? 'Write in English with Tamil translation in brackets after each point.'
+    : 'Write in clear English suitable for Indian school students.';
+
+  const text = (lessonText || lesson || '').substring(0, 4000);
+
+  const prompt = `You are creating a COMPLETE, DETAILED educational slide presentation for ${cls} studying ${subject}.
+Chapter/Topic: "${chapter || lesson}"
+
+${langInstr}
+
+CRITICAL RULES:
+- DO NOT summarise or skip any content
+- EVERY paragraph and concept from the lesson must appear in slides
+- Keep all facts, dates, names, definitions complete
+- Create 10–16 slides to cover everything
+
+Return ONLY a valid JSON array. No markdown, no extra text.
+
+SLIDE TYPES you MUST use where appropriate:
+- "concept"    → explanation slides with bullet points
+- "table"      → when comparing items, listing properties, or showing data
+- "timeline"   → for historical events, sequences, processes in order
+- "key_points" → important facts, definitions, formulas to remember
+- "formula"    → mathematical or scientific formulas
+- "example"    → worked examples, case studies, Indian examples
+- "diagram"    → when a standard diagram applies
+- "callout"    → important warnings, tips, notes
+- "list"       → numbered or categorised lists
+- "summary"    → final slide recap
+- "title"      → opening slide only
+
+JSON STRUCTURE per slide:
+
+For concept/list/key_points:
+{"type":"concept","title":"Slide Title","points":["Full sentence 1","Full sentence 2","Full sentence 3"],"emoji":"💡","image_hint":"what kind of image would help here"}
+
+For table:
+{"type":"table","title":"Comparison Table","emoji":"📊","table":{"headers":["Column 1","Column 2","Column 3"],"rows":[["val","val","val"],["val","val","val"]]}}
+
+For timeline:
+{"type":"timeline","title":"Historical Timeline","emoji":"📅","timeline":[{"year":"1947","event":"India gained independence"},{"year":"1950","event":"Constitution adopted"}]}
+
+For formula:
+{"type":"formula","title":"Important Formula","emoji":"🔢","formula":"E = mc²","points":["E = Energy","m = Mass","c = Speed of light"]}
+
+For callout:
+{"type":"callout","title":"Important Note","emoji":"⚠️","callout_type":"fact","callout_text":"Full important statement here","points":["Supporting point 1","Supporting point 2"]}
+
+For diagram:
+{"type":"diagram","title":"Diagram Title","emoji":"🔬","diagram":"heart","points":["Explanation of what to observe"]}
+
+For bar chart:
+{"type":"barchart","title":"Comparison","emoji":"📊","bars":[{"label":"Item 1","value":80,"display":"80%"},{"label":"Item 2","value":45,"display":"45%"}]}
+
+Lesson text to convert (DO NOT SKIP ANY PART):
+${text}`;
+
+  const response = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ payload: {
+      model: 'claude-sonnet-4-5',
+      max_tokens: 4000,
+      messages: [{ role: 'user', content: prompt }]
+    }})
+  });
+  if (!response.ok) throw new Error('API error ' + response.status);
+  const d = await response.json();
+  const raw = d.content[0].text.replace(/```json|```/g, '').trim();
+  return JSON.parse(raw);
+}
+
+// ── Build thumbnail rail ──
+function buildRail() {
+  const rail = document.getElementById('sm-rail');
+  rail.innerHTML = '';
+  slides.forEach((s, i) => {
+    const d = document.createElement('div');
+    d.className = 'sm-thumb' + (i === 0 ? ' active' : '');
+    d.innerHTML = `<div class="sm-thumb-num">${i+1}</div>${(s.emoji||'')+'  '+(s.title||'').substring(0,32)}`;
+    d.onclick = () => renderSlide(i);
+    rail.appendChild(d);
+  });
+}
+
+// ── Build footer dots ──
+function buildDots() {
+  const bar = document.getElementById('sm-dots');
+  bar.innerHTML = '';
+  slides.forEach((_, i) => {
+    const d = document.createElement('div');
+    d.className = 'sm-dot' + (i === 0 ? ' active' : '');
+    d.onclick = () => renderSlide(i);
+    bar.appendChild(d);
+  });
+}
+
+// ── Render slide ──
+async function renderSlide(idx) {
+  if (idx < 0 || idx >= slides.length) return;
+  currentSlide = idx;
+  const s = slides[idx];
+
+  // Update progress
+  document.getElementById('sm-prog').style.width = ((idx+1)/slides.length*100) + '%';
+  document.getElementById('sm-counter').textContent = `${idx+1} / ${slides.length}`;
+
+  // Update rail + dots
+  document.querySelectorAll('.sm-thumb').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+    el.classList.toggle('done', i < idx);
+  });
+  document.querySelectorAll('.sm-dot').forEach((el, i) => {
+    el.classList.toggle('active', i === idx);
+    el.classList.toggle('done', i < idx);
+  });
+
+  // Nav buttons
+  document.getElementById('sm-prev-btn').disabled = idx === 0;
+  document.getElementById('sm-next-btn').textContent = idx === slides.length - 1 ? '✅ Done' : 'Next ⏭';
+
+  // Build slide HTML
+  const wrap = document.getElementById('sm-slide-wrap');
+  wrap.innerHTML = '';
+  wrap.style.display = 'block';
+  document.getElementById('sm-loader').style.display = 'none';
+
+  const card = document.createElement('div');
+  card.className = `sm-slide type-${s.type || 'concept'}`;
+
+  // Meta row
+  card.innerHTML = `
+    <div class="sm-slide-meta">
+      <span class="sm-type-badge">${(s.type||'concept').replace('_',' ').toUpperCase()}</span>
+      <span class="sm-slide-num">${idx+1} / ${slides.length}</span>
+    </div>
+    <div class="sm-slide-title">${s.emoji||''} ${s.title||''}</div>
+  `;
+
+  const body = document.createElement('div');
+  body.className = 'sm-slide-body';
+
+  // Main content
+  const content = document.createElement('div');
+  content.className = 'sm-slide-content';
+  body.appendChild(content);
+
+  // ── Render by type ──
+  if (s.type === 'table' && s.table) {
+    const wrap2 = document.createElement('div');
+    wrap2.className = 'sm-table-wrap';
+    const tbl = document.createElement('table');
+    tbl.className = 'sm-table';
+    // Header
+    if (s.table.headers) {
+      const thead = document.createElement('thead');
+      const tr = document.createElement('tr');
+      s.table.headers.forEach(h => {
+        const th = document.createElement('th');
+        th.textContent = h; tr.appendChild(th);
+      });
+      thead.appendChild(tr); tbl.appendChild(thead);
+    }
+    // Rows
+    if (s.table.rows) {
+      const tbody = document.createElement('tbody');
+      s.table.rows.forEach(row => {
+        const tr = document.createElement('tr');
+        row.forEach(cell => { const td = document.createElement('td'); td.textContent = cell; tr.appendChild(td); });
+        tbody.appendChild(tr);
+      });
+      tbl.appendChild(tbody);
+    }
+    wrap2.appendChild(tbl); content.appendChild(wrap2);
+
+  } else if (s.type === 'timeline' && s.timeline) {
+    const tl = document.createElement('div');
+    tl.className = 'sm-timeline';
+    s.timeline.forEach((item, i) => {
+      const row = document.createElement('div');
+      row.className = 'sm-tl-item';
+      row.innerHTML = `
+        <div class="sm-tl-dot">${i+1}</div>
+        <div>
+          <div class="sm-tl-year">${item.year||item.date||''}</div>
+          <div class="sm-tl-text">${item.event||item.text||''}</div>
+        </div>`;
+      tl.appendChild(row);
+    });
+    content.appendChild(tl);
+
+  } else if (s.type === 'formula') {
+    if (s.formula) {
+      const fb = document.createElement('div');
+      fb.className = 'sm-formula-box'; fb.textContent = s.formula;
+      content.appendChild(fb);
+    }
+    if (s.points) appendPoints(content, s.points);
+
+  } else if (s.type === 'callout') {
+    const cb = document.createElement('div');
+    cb.className = `sm-callout ${s.callout_type || 'note'}`;
+    cb.innerHTML = `<span class="sm-callout-icon">${getCalloutIcon(s.callout_type)}</span>${s.callout_text||''}`;
+    content.appendChild(cb);
+    if (s.points) appendPoints(content, s.points);
+
+  } else if (s.type === 'barchart' && s.bars) {
+    const bc = document.createElement('div');
+    bc.className = 'sm-bar-chart';
+    const max = Math.max(...s.bars.map(b => b.value || 0)) || 100;
+    s.bars.forEach((bar, i) => {
+      const row = document.createElement('div');
+      row.className = 'sm-bar-row';
+      row.innerHTML = `
+        <div class="sm-bar-label">${bar.label}</div>
+        <div class="sm-bar-track">
+          <div class="sm-bar-fill c${i%5}" data-pct="${(bar.value/max*100).toFixed(0)}">
+            ${bar.display||bar.value}
+          </div>
+        </div>`;
+      bc.appendChild(row);
+    });
+    content.appendChild(bc);
+    // Animate bars
+    setTimeout(() => {
+      bc.querySelectorAll('.sm-bar-fill').forEach(el => {
+        el.style.width = el.dataset.pct + '%';
+      });
+    }, 120);
+
+  } else if (s.type === 'diagram') {
+    if (s.points) appendPoints(content, s.points);
+    if (s.diagram && DIAGRAM_PATHS[s.diagram]) {
+      const slot = document.createElement('div');
+      slot.className = 'sm-diagram-slot';
+      content.appendChild(slot);
+      loadSVGIntoSlot(s.diagram, slot);
+    }
+
+  } else {
+    // concept / key_points / list / example / summary / title
+    if (s.points) appendPoints(content, s.points);
+  }
+
+  card.appendChild(body);
+
+  // ── Visual column: PDF image > diagram > image_hint emoji ──
+  const visual = buildVisualColumn(s, idx);
+  if (visual) body.appendChild(visual);
+
+  wrap.appendChild(card);
+
+  // Stagger points reveal
+  setTimeout(() => {
+    card.querySelectorAll('.sm-point').forEach((el, i) => {
+      setTimeout(() => el.classList.add('visible'), 60 + i * 80);
+    });
+  }, 80);
+
+  // Voice if playing
+  if (isPlaying) smSpeakCurrent();
+}
+
+function appendPoints(container, points) {
+  const ul = document.createElement('ul');
+  ul.className = 'sm-points';
+  points.forEach(pt => {
+    const li = document.createElement('li');
+    li.className = 'sm-point' + classifyPoint(pt);
+    li.textContent = pt;
+    ul.appendChild(li);
+  });
+  container.appendChild(ul);
+}
+
+function classifyPoint(text) {
+  if (/important|remember|key|always|never|must|note/i.test(text)) return ' key';
+  if (/^[A-Za-z₀-₉\s]+[=+\-×÷^]/.test(text) || /formula/i.test(text)) return ' formula';
+  if (/warning|danger|caution/i.test(text)) return ' important';
+  return '';
+}
+
+function getCalloutIcon(type) {
+  return { fact:'💡', tip:'✅', warn:'⚠️', note:'📌' }[type] || '📌';
+}
+
+function buildVisualColumn(s, idx) {
+  // Priority 1: image from PDF
+  if (pdfImages.length > 0) {
+    const imgData = pdfImages[idx % pdfImages.length];
+    if (imgData) {
+      const slot = document.createElement('div');
+      slot.className = 'sm-image-slot';
+      const img = document.createElement('img');
+      img.src = imgData;
+      slot.appendChild(img);
+      return slot;
+    }
+  }
+  // Priority 2: diagram (for non-diagram type slides that have image_hint matching)
+  if (s.diagram && DIAGRAM_PATHS[s.diagram] && s.type !== 'diagram') {
+    const slot = document.createElement('div');
+    slot.className = 'sm-image-slot';
+    slot.style.width = '200px';
+    loadSVGIntoSlot(s.diagram, slot);
+    return slot;
+  }
+  return null;
+}
+
+// ── Load SVG into a container element ──
+async function loadSVGIntoSlot(key, container) {
+  const path = DIAGRAM_PATHS[key];
+  if (!path) return;
+  if (SVG_CACHE[path]) {
+    container.appendChild(SVG_CACHE[path].cloneNode(true));
+    animateSVGQuick(container.querySelector('svg'));
+    return;
+  }
+  try {
+    const res = await fetch(path);
+    if (!res.ok) return;
+    const text = await res.text();
+    const div = document.createElement('div');
+    div.innerHTML = text;
+    const svg = div.firstElementChild;
+    if (!svg) return;
+    SVG_CACHE[path] = svg;
+    svg.setAttribute('width', '100%');
+    svg.removeAttribute('height');
+    svg.style.maxHeight = '250px';
+    container.appendChild(svg.cloneNode(true));
+    animateSVGQuick(container.querySelector('svg'));
+  } catch(e) {}
+}
+
+function animateSVGQuick(svg) {
+  if (!svg) return;
+  const paths = svg.querySelectorAll('path, circle, ellipse, rect, line');
+  const texts = svg.querySelectorAll('text');
+  texts.forEach(t => { t.style.opacity = '0'; t.style.transition = 'opacity 0.5s ease 1s'; });
+  paths.forEach((p, i) => {
+    const hasS = p.getAttribute('stroke') && p.getAttribute('stroke') !== 'none';
+    if (!hasS) return;
+    let len = 200; try { len = p.getTotalLength(); } catch(e) {}
+    const dur = Math.min(120 + len * 0.6, 900);
+    p.style.strokeDasharray = len;
+    p.style.strokeDashoffset = len;
+    p.style.transition = `stroke-dashoffset ${dur}ms linear ${i * 30}ms`;
+    void p.getBoundingClientRect();
+    p.style.strokeDashoffset = '0';
+  });
+  setTimeout(() => texts.forEach(t => t.style.opacity = '1'), 1100);
+}
+
+// ── Navigation ──
+function smNext() {
+  if (currentSlide < slides.length - 1) renderSlide(currentSlide + 1);
+  else { isPlaying = false; updatePlayBtns(); }
+}
+function smPrev() {
+  if (currentSlide > 0) renderSlide(currentSlide - 1);
+}
+
+// ── Voice ──
+function smPlay() {
+  if (!slides.length) return;
+  isPlaying = true; updatePlayBtns();
+  smSpeakCurrent();
+}
+function smPause() {
+  isPlaying = false; updatePlayBtns();
+  speechSynthesis.cancel();
+}
+
+function smSpeakCurrent() {
+  const s = slides[currentSlide];
+  if (!s) return;
+  speechSynthesis.cancel();
+
+  // Build full speech text — title + ALL content
+  let speechParts = [s.title || ''];
+  if (s.points)   speechParts = speechParts.concat(s.points);
+  if (s.formula)  speechParts.push(s.formula);
+  if (s.callout_text) speechParts.push(s.callout_text);
+  if (s.timeline) s.timeline.forEach(t => speechParts.push(`${t.year}: ${t.event}`));
+  if (s.table && s.table.rows) s.table.rows.forEach(row => speechParts.push(row.join(', ')));
+
+  const txt = speechParts.join('. ').replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF ]/g, '');
+  const spd = lessonData.lang === 'tamil' ? 0.85 : 0.92;
+
+  const utt = new SpeechSynthesisUtterance(txt);
+  utt.lang  = lessonData.lang === 'tamil' ? 'ta-IN' : 'en-IN';
+  utt.rate  = spd;
+  currentUtt = utt;
+
+  utt.onend = () => {
+    if (!isPlaying) return;
+    if (currentSlide < slides.length - 1) {
+      setTimeout(() => { renderSlide(currentSlide + 1); }, 500);
+    } else {
+      isPlaying = false; updatePlayBtns();
+    }
+  };
+  speechSynthesis.speak(utt);
+}
+
+function updatePlayBtns() {
+  const play  = document.getElementById('sm-play-btn');
+  const pause = document.getElementById('sm-pause-btn');
+  if (isPlaying) { play.style.display = 'none'; pause.style.display = ''; }
+  else           { play.style.display = '';      pause.style.display = 'none'; }
+}
+
+// ── PDF Handler ──
+async function handlePDF(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const status = document.getElementById('sm-pdf-status');
+  status.textContent = '⏳ Extracting diagrams from PDF...';
+  pdfImages = [];
+
+  try {
+    const base64 = await new Promise((res, rej) => {
+      const reader = new FileReader();
+      reader.onload = e => res(e.target.result.split(',')[1]);
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+    pdfBase64 = base64;
+
+    // Ask Claude to identify diagrams in the PDF
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ payload: {
+        model: 'claude-sonnet-4-5',
+        max_tokens: 1000,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+            { type: 'text', text: `Analyse this textbook PDF. List every diagram, figure, chart, image, or illustration you find. For each, provide:
+1. Page number
+2. Description of what it shows
+3. Best matching diagram key (or null): heart, plant_cell, water_cycle, food_chain, photosynthesis, solar_system, atom_structure, human_digestive, human_respiratory, human_nervous, human_skeletal, human_eye, human_circulatory, cell_division, dna_structure, layers_earth, magnet_field, electric_circuit, states_of_matter, fraction_visual, pythagoras, plant_anatomy
+
+Return ONLY JSON: [{"page":1,"description":"...","diagramKey":"heart"}]
+If no diagrams found, return []` }
+          ]
+        }]
+      }})
+    });
+
+    if (!response.ok) throw new Error('API error');
+    const d    = await response.json();
+    const raw  = d.content[0].text.replace(/```json|```/g, '').trim();
+    const found = JSON.parse(raw);
+
+    if (found.length > 0) {
+      // Map found diagrams to slides
+      status.textContent = `✅ Found ${found.length} diagram(s) — injecting into slides`;
+      found.forEach((item, i) => {
+        if (item.diagramKey && slides[i]) {
+          slides[i].diagram = item.diagramKey;
+        }
+      });
+      renderSlide(currentSlide); // re-render
+    } else {
+      status.textContent = 'ℹ️ No standard diagrams found in PDF';
+    }
+  } catch(e) {
+    status.textContent = '⚠️ ' + e.message;
+  }
+}
+
+// ── Loading messages ──
+let loadMsgI = 0, loadMsgT = null;
+function startLoadingMessages() {
+  loadMsgT = setInterval(() => {
+    document.getElementById('sm-loader-msg').textContent = LOAD_MSGS[loadMsgI++ % LOAD_MSGS.length];
+  }, 800);
+}
+function stopLoadingMessages() {
+  if (loadMsgT) { clearInterval(loadMsgT); loadMsgT = null; }
+}
+
+function showError(msg) {
+  document.getElementById('sm-loader').innerHTML =
+    `<div style="color:#f4a0a0;font-size:1rem;text-align:center;max-width:420px;line-height:1.6;">
+      ⚠️ ${msg}<br><br>
+      <button onclick="goBack()" style="padding:8px 20px;background:var(--gold);border:none;border-radius:8px;cursor:pointer;font-weight:700;color:#0e0a04;">← Go Back</button>
+    </div>`;
+}
+
+function goBack() {
+  speechSynthesis.cancel();
+  window.history.back();
+}
+
+// ── Keyboard navigation ──
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') smNext();
+  if (e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   smPrev();
+  if (e.key === ' ') { e.preventDefault(); isPlaying ? smPause() : smPlay(); }
+  if (e.key === 'Escape') goBack();
+});
+</script>
+</body>
+</html>
