@@ -1184,6 +1184,12 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <div class="ssp-card-desc">Live diagrams & explanations</div>
     </div>
 
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('slides')">
+      <span class="ssp-card-icon">🖼️</span>
+      <div class="ssp-card-name">Slide Mode</div>
+      <div class="ssp-card-desc">Full lesson as structured slides</div>
+    </div>
+
     <div class="ssp-card mode-card" onclick="checkAndLaunch('quiz')">
       <span class="ssp-card-icon">🧪</span>
       <div class="ssp-card-name">Quiz Mode</div>
@@ -1408,6 +1414,65 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 
   <!-- MATHS MODE -->
   <div id="maths-mode" style="display:none;">
+
+  <!-- SLIDE MODE -->
+  <div id="slides-mode" style="display:none;">
+    <div class="card" style="padding:0;overflow:hidden;border:2px solid rgba(168,216,240,0.35);">
+
+      <!-- PDF Upload bar -->
+      <div id="slide-pdf-bar" style="background:rgba(168,216,240,0.06);border-bottom:1px solid rgba(168,216,240,0.15);padding:10px 16px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="font-size:0.8rem;font-weight:700;color:rgba(168,216,240,0.7);">📄 Upload textbook PDF to extract diagrams:</span>
+        <input type="file" id="slide-pdf-input" accept=".pdf" onchange="handleSlidePDF(event)" style="font-size:0.78rem;color:rgba(168,216,240,0.7);background:rgba(0,0,0,0.3);border:1px solid rgba(168,216,240,0.2);border-radius:6px;padding:4px 8px;cursor:pointer;"/>
+        <span id="slide-pdf-status" style="font-size:0.75rem;color:rgba(168,216,240,0.5);"></span>
+      </div>
+
+      <!-- Slide viewport -->
+      <div id="sm-loading" style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:340px;gap:14px;">
+        <div class="vspin"></div>
+        <div style="font-family:Cinzel,serif;font-size:1rem;font-weight:700;color:#C9A84C;">Building Slides...</div>
+        <div id="sm-loading-msg" style="font-size:0.82rem;color:#A07830;">Preparing your lesson</div>
+      </div>
+
+      <div id="sm-slide" style="display:none;min-height:340px;padding:2rem 2.4rem 1.4rem;position:relative;background:linear-gradient(145deg,#0d1520,#111820);">
+        <!-- Header row -->
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1rem;">
+          <div id="sm-badge" style="font-size:0.65rem;font-weight:800;text-transform:uppercase;letter-spacing:1.2px;color:rgba(168,216,240,0.5);"></div>
+          <div id="sm-num" style="font-size:0.72rem;color:rgba(168,216,240,0.4);font-family:Nunito,sans-serif;font-weight:700;"></div>
+        </div>
+        <!-- Title -->
+        <div id="sm-title" style="font-family:Kalam,cursive;font-size:clamp(1.5rem,3.5vw,2.2rem);font-weight:700;color:#f5e87a;margin-bottom:1.2rem;padding-bottom:0.7rem;border-bottom:1.5px solid rgba(245,232,122,0.15);line-height:1.25;"></div>
+        <!-- Two column: points + diagram/image -->
+        <div style="display:flex;gap:1.5rem;align-items:flex-start;">
+          <!-- Points list -->
+          <ul id="sm-points" style="flex:1;list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:0.6rem;"></ul>
+          <!-- Right column: diagram from library OR extracted from PDF -->
+          <div id="sm-visual" style="flex-shrink:0;width:220px;min-height:60px;display:flex;align-items:center;justify-content:center;"></div>
+        </div>
+      </div>
+
+      <!-- Progress bar -->
+      <div style="height:3px;background:rgba(168,216,240,0.1);">
+        <div id="sm-prog" style="height:100%;background:linear-gradient(90deg,#a8d8f0,#f5e87a);width:0%;transition:width 0.4s ease;"></div>
+      </div>
+
+      <!-- Controls -->
+      <div style="display:flex;align-items:center;gap:8px;padding:10px 14px;background:rgba(0,0,0,0.4);flex-wrap:wrap;">
+        <button class="vb" id="sm-play-btn" onclick="smPlay()" disabled>▶ Play</button>
+        <button class="vb" id="sm-pause-btn" onclick="smPause()" disabled>⏸ Pause</button>
+        <button class="vb" id="sm-prev-btn" onclick="smPrev()" disabled>⏮ Prev</button>
+        <button class="vb" id="sm-next-btn" onclick="smNext()" disabled>⏭ Next</button>
+        <button class="vb red" onclick="smStop();backToSetup()">✕ Exit</button>
+        <select class="vb" id="sm-speed" style="cursor:pointer;">
+          <option value="0.75">Slow</option>
+          <option value="0.9" selected>Normal</option>
+          <option value="1.2">Fast</option>
+        </select>
+        <span id="sm-counter" style="font-size:0.78rem;color:rgba(200,196,190,0.5);margin-left:auto;"></span>
+      </div>
+    </div>
+  </div>
+
+
     <div class="card">
       <div class="card-title" id="maths-chapter-title">📐 Mathematics</div>
 
@@ -1954,7 +2019,7 @@ function startStudent(){
   if(!cls||!sub){alert('Please select Class and Subject.');return;}
   if(!selectedMode){alert('Please choose a mode.');return;}
   if(!lessonTxt&&!window.pdfBase64){alert('No lesson found!\n\nPlease go to Teacher Panel, paste lesson text and click Activate.');return;}
-  if(selectedMode==='teaching'||selectedMode==='video'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
+  if(selectedMode==='teaching'||selectedMode==='video'||selectedMode==='slides'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
   else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];var tNameC='AI Teacher'; document.getElementById('chat-mode-title').textContent='💬 Ask AI Teacher'; document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">Good morning, students! I am '+tNameC+'. Ask me anything about today\'s lesson — I am here to help you understand!</div></div>';}
   else if(selectedMode==='quiz'){H('student-setup');S('quiz-mode');startQuiz();}
 }
@@ -1962,6 +2027,7 @@ function startStudent(){
 function beginTeaching(){
   H('lang-choice');
   if(selectedMode==='video'){S('video-mode');genVideoSlides();}
+  if(selectedMode==='slides'){S('slides-mode');genSlidesMode();}
   else if(selectedMode==='maths'){S('maths-mode');genMathsLesson();}
   else if(selectedMode==='diagram'){S('diagram-mode');genDiagram();}
   else if(selectedMode==='map'){S('map-mode');genMap();}
@@ -1970,7 +2036,7 @@ function beginTeaching(){
   else{S('teaching-mode');loadVoices();genPts();}
 }
 
-function backToSetup(){stopSpk();vStop();S('student-setup');H('lang-choice');H('teaching-mode');H('chat-mode');H('quiz-mode');H('video-mode');H('maths-mode');H('diagram-mode');H('map-mode');H('exam-mode');H('english-mode');document.getElementById('qz-final').style.display='none';document.getElementById('qz-content').style.display='none';document.querySelectorAll('.mode-card').forEach(m=>m.classList.remove('selected'));selectedMode='';}
+function backToSetup(){stopSpk();vStop();smStop();S('student-setup');H('lang-choice');H('teaching-mode');H('chat-mode');H('quiz-mode');H('video-mode');H('slides-mode');H('maths-mode');H('diagram-mode');H('map-mode');H('exam-mode');H('english-mode');document.getElementById('qz-final').style.display='none';document.getElementById('qz-content').style.display='none';document.querySelectorAll('.mode-card').forEach(m=>m.classList.remove('selected'));selectedMode='';}
 
 function loadVoices(){
   function pop(){
@@ -3636,14 +3702,6 @@ function checkAndLaunch(mode){
     launchTeachingMode();   // opens teaching-mode.html in new tab
     return;
   }
-  if(mode === 'video'){
-    // Open Blackboard AI in a new tab, passing class & subject as URL params
-    var params = new URLSearchParams();
-    params.set('class',   cls);
-    params.set('subject', subj);
-    window.open('blackboard-ai.html?' + params.toString(), '_blank');
-    return;
-  }
   // For all other modes: select it and call startStudent()
   selectedMode = mode;
   // highlight the clicked card visually
@@ -3736,6 +3794,308 @@ function toggleSidebar(){
   } else {
     sb.classList.add('collapsed');
     if(btn) btn.textContent = '▶';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// SLIDE MODE ENGINE
+// Structured slides with full content + PDF diagram extraction
+// ═══════════════════════════════════════════════════════════
+var smSlides = [], smIdx = 0, smPlaying = false, smUtt = null;
+var smPdfImages = [];   // images extracted from uploaded PDF
+var smMsgInterv = null;
+
+var SM_LOAD_MSGS = [
+  '📖 Reading lesson...','🧠 Structuring content...',
+  '✏️ Writing slides...','🎓 Almost ready...'
+];
+
+function smSetLoading(on, msg) {
+  document.getElementById('sm-loading').style.display = on ? 'flex' : 'none';
+  document.getElementById('sm-slide').style.display   = on ? 'none' : 'block';
+  if (on && msg) document.getElementById('sm-loading-msg').textContent = msg;
+  if (on) {
+    var i=0;
+    smMsgInterv = setInterval(function(){
+      i=(i+1)%SM_LOAD_MSGS.length;
+      document.getElementById('sm-loading-msg').textContent = SM_LOAD_MSGS[i];
+    }, 700);
+  } else {
+    if (smMsgInterv) { clearInterval(smMsgInterv); smMsgInterv = null; }
+  }
+}
+
+async function genSlidesMode() {
+  smSlides = []; smIdx = 0;
+  smSetLoading(true, 'Building slides...');
+  ['sm-play-btn','sm-prev-btn','sm-next-btn'].forEach(function(id){
+    var el=document.getElementById(id); if(el) el.disabled=true;
+  });
+
+  var info = window.AL || {};
+  var cls  = document.getElementById('s-class').value;
+  var subj = info.sub || document.getElementById('s-subject').value || '';
+  var ch   = info.ch  || lessonTxt.substring(0,60) || '';
+  var lang = teachLang==='tamil'
+    ? 'Write in Tamil only.'
+    : teachLang==='both'
+    ? 'Write in English with Tamil translation in brackets.'
+    : 'Write in clear simple English.';
+
+  var prompt = 'You are creating structured educational slides for a ' + cls + ' student.\n'
+    + 'Subject: ' + subj + ' | Chapter: "' + ch + '"\n\n'
+    + lang + '\n\n'
+    + 'Convert this lesson into structured slides. DO NOT summarise — keep full meaning.\n\n'
+    + 'Return ONLY valid JSON array. No markdown, no extra text.\n\n'
+    + '[\n'
+    + '  {"type":"title","title":"Topic Title","points":["Subject and class","Key theme of lesson"],"emoji":"📚"},\n'
+    + '  {"type":"concept","title":"Main Concept","points":["Full sentence explanation","Second important point","Third point","Key definition or fact"],"emoji":"💡"},\n'
+    + '  {"type":"key_points","title":"Key Points","points":["Important fact 1","Important fact 2","Important fact 3"],"emoji":"⭐"},\n'
+    + '  {"type":"summary","title":"What We Learned","points":["Point 1","Point 2","Point 3"],"emoji":"✅"}\n'
+    + ']\n\n'
+    + 'Rules:\n'
+    + '- Create 7–10 slides\n'
+    + '- Max 5 points per slide\n'
+    + '- Keep every sentence complete\n'
+    + '- type: title | concept | key_points | list | formula | example | diagram | summary\n'
+    + '- For diagram slides add: "diagram":"heart" (use: heart, plant_cell, water_cycle, food_chain, photosynthesis, solar_system, atom_structure, human_digestive, human_respiratory, human_nervous, human_skeletal, human_eye, human_circulatory, cell_division, dna_structure, layers_earth, magnet_field, electric_circuit, states_of_matter, fraction_visual, pythagoras)\n'
+    + '- Add emoji field for each slide\n\n'
+    + 'Lesson text:\n' + lessonTxt.substring(0, 2500);
+
+  try {
+    var d = await callAI({
+      model:'claude-sonnet-4-5', max_tokens:2500,
+      messages:[{role:'user', content:prompt}]
+    });
+    var raw = d.content[0].text.replace(/```json|```/g,'').trim();
+    smSlides = JSON.parse(raw);
+    smSetLoading(false);
+    smIdx = 0;
+    smShowSlide(0);
+    ['sm-play-btn','sm-prev-btn','sm-next-btn'].forEach(function(id){
+      var el=document.getElementById(id); if(el) el.disabled=false;
+    });
+  } catch(e) {
+    document.getElementById('sm-loading').innerHTML =
+      '<div style="color:#ff6b6b;text-align:center;padding:20px;font-family:Nunito,sans-serif;">'
+      + 'Error: ' + e.message
+      + '<br/><button onclick="backToSetup()" style="margin-top:12px;padding:8px 16px;background:#C9A84C;border:none;border-radius:8px;cursor:pointer;font-weight:700;">Go Back</button></div>';
+  }
+}
+
+// Diagram library paths (same keys as blackboard-ai)
+var SM_DIAGRAMS = {
+  heart:'/assets/diagrams/heart.svg', plant_cell:'/assets/diagrams/plant.svg',
+  water_cycle:'/assets/diagrams/water_cycle.svg', food_chain:'/assets/diagrams/food_chain.svg',
+  photosynthesis:'/assets/diagrams/photosynthesis.svg', solar_system:'/assets/diagrams/solar_system.svg',
+  atom_structure:'/assets/diagrams/atom_structure.svg', human_digestive:'/assets/diagrams/human_digestive.svg',
+  human_respiratory:'/assets/diagrams/human_respiratory.svg', human_nervous:'/assets/diagrams/human_nervous.svg',
+  human_skeletal:'/assets/diagrams/human_skeletal.svg', human_eye:'/assets/diagrams/human_eye.svg',
+  human_circulatory:'/assets/diagrams/human_circulatory.svg', cell_division:'/assets/diagrams/cell_division.svg',
+  dna_structure:'/assets/diagrams/dna_structure.svg', layers_earth:'/assets/diagrams/layers_earth.svg',
+  magnet_field:'/assets/diagrams/magnet_field.svg', electric_circuit:'/assets/diagrams/electric_circuit.svg',
+  states_of_matter:'/assets/diagrams/states_of_matter.svg', fraction_visual:'/assets/diagrams/fraction_visual.svg',
+  pythagoras:'/assets/diagrams/pythagoras.svg', plant_anatomy:'/assets/diagrams/plant_anatomy.svg'
+};
+
+function smShowSlide(i) {
+  if (i<0 || i>=smSlides.length) return;
+  smIdx = i;
+  var s = smSlides[i];
+  var numEl   = document.getElementById('sm-num');
+  var badgeEl = document.getElementById('sm-badge');
+  var titleEl = document.getElementById('sm-title');
+  var listEl  = document.getElementById('sm-points');
+  var progEl  = document.getElementById('sm-prog');
+  var ctrEl   = document.getElementById('sm-counter');
+  var visEl   = document.getElementById('sm-visual');
+
+  if(numEl)   numEl.textContent   = (i+1) + ' / ' + smSlides.length;
+  if(badgeEl) badgeEl.textContent = (s.type||'concept').replace('_',' ').toUpperCase();
+  if(titleEl) titleEl.textContent = (s.emoji||'') + '  ' + (s.title||'');
+  if(progEl)  progEl.style.width  = (((i+1)/smSlides.length)*100) + '%';
+  if(ctrEl)   ctrEl.textContent   = (i+1) + ' / ' + smSlides.length;
+
+  // Points — ALL of them, staggered reveal
+  if (listEl) {
+    listEl.innerHTML = '';
+    var points = s.points || [];
+    points.forEach(function(pt, idx) {
+      var li = document.createElement('li');
+      li.textContent = pt;
+      li.style.cssText = 'font-family:Kalam,cursive;font-size:clamp(0.95rem,2vw,1.2rem);'
+        + 'color:#f0ede8;line-height:1.6;padding:0.45rem 0.8rem 0.45rem 0.9rem;'
+        + 'background:rgba(255,255,255,0.03);border-left:3px solid rgba(168,216,240,0.3);'
+        + 'border-radius:0 7px 7px 0;opacity:0;transform:translateX(-6px);'
+        + 'transition:opacity 0.3s ease,transform 0.3s ease;list-style:none;';
+      // Key point style
+      if (/important|remember|key|always|never|must/i.test(pt)) {
+        li.style.borderLeftColor = '#f5e87a';
+        li.style.color = '#f5e87a';
+      }
+      // Formula style
+      if (/=/.test(pt) && pt.length < 60) {
+        li.style.borderLeftColor = '#a8e6a8';
+        li.style.color = '#a8e6a8';
+        li.style.textAlign = 'center';
+        li.style.fontStyle = 'italic';
+      }
+      listEl.appendChild(li);
+      setTimeout(function(){ li.style.opacity='1'; li.style.transform='translateX(0)'; }, 80 + idx*80);
+    });
+  }
+
+  // Visual column — diagram from library, PDF image, or emoji
+  if (visEl) {
+    visEl.innerHTML = '';
+    // Priority 1: diagram from library
+    if (s.diagram && SM_DIAGRAMS[s.diagram]) {
+      fetch(SM_DIAGRAMS[s.diagram])
+        .then(function(r){ return r.ok ? r.text() : null; })
+        .then(function(txt) {
+          if (!txt) return;
+          var div = document.createElement('div');
+          div.innerHTML = txt;
+          var svg = div.firstElementChild;
+          if (!svg) return;
+          svg.setAttribute('width','100%');
+          svg.removeAttribute('height');
+          svg.style.maxHeight = '200px';
+          // Quick stroke animation
+          var paths = svg.querySelectorAll('path,circle,ellipse,rect,line');
+          paths.forEach(function(p,pi){
+            var hasS = p.getAttribute('stroke') && p.getAttribute('stroke')!=='none';
+            if (!hasS) return;
+            var len=200; try{len=p.getTotalLength();}catch(e){}
+            var dur = Math.min(150+len*0.7,900);
+            p.style.strokeDasharray=len;
+            p.style.strokeDashoffset=len;
+            p.style.transition='stroke-dashoffset '+dur+'ms linear '+(pi*40)+'ms';
+            void p.getBoundingClientRect();
+            p.style.strokeDashoffset='0';
+          });
+          var texts=svg.querySelectorAll('text');
+          texts.forEach(function(t){t.style.opacity='0';t.style.transition='opacity 0.5s ease 0.8s';});
+          setTimeout(function(){texts.forEach(function(t){t.style.opacity='1';});},900);
+          visEl.appendChild(svg);
+        }).catch(function(){});
+    }
+    // Priority 2: PDF-extracted image matching slide index
+    else if (smPdfImages.length > 0) {
+      var imgData = smPdfImages[i % smPdfImages.length];
+      if (imgData) {
+        var img = document.createElement('img');
+        img.src = imgData;
+        img.style.cssText = 'width:100%;max-height:200px;object-fit:contain;border-radius:8px;border:1px solid rgba(168,216,240,0.15);';
+        visEl.appendChild(img);
+      }
+    }
+    // Priority 3: emoji fallback
+    else {
+      visEl.style.cssText += ';font-size:4rem;opacity:0.3;';
+      visEl.textContent = s.emoji || '📖';
+    }
+  }
+
+  // Slide entry animation
+  var card = document.getElementById('sm-slide');
+  if (card) { card.style.animation='none'; setTimeout(function(){ card.style.animation='slin 0.4s ease'; },10); }
+}
+
+// Voice — reads title + ALL points
+function smSpeak(slide) {
+  if (!slide) return;
+  speechSynthesis.cancel();
+  var txt = (slide.title||'') + '. ' + (slide.points||[]).join('. ');
+  var spd = parseFloat((document.getElementById('sm-speed')||{value:'0.9'}).value) || 0.9;
+  var utt = new SpeechSynthesisUtterance(txt.replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF ]/g,''));
+  var voices = speechSynthesis.getVoices();
+  var taVoice = voices.find(function(v){ return v.lang && v.lang.startsWith('ta'); });
+  if (taVoice && teachLang==='tamil') utt.voice = taVoice;
+  utt.lang = teachLang==='tamil' ? 'ta-IN' : 'en-IN';
+  utt.rate = spd;
+  smUtt = utt;
+  utt.onend = function() {
+    if (!smPlaying) return;
+    if (smIdx < smSlides.length-1) { smIdx++; setTimeout(function(){ smShowSlide(smIdx); smSpeak(smSlides[smIdx]); },400); }
+    else { smPlaying=false; smSetBtns(); var n=document.getElementById('sm-num'); if(n) n.textContent='Completed! ✅'; }
+  };
+  utt.onerror = function() {
+    if (smPlaying && smIdx < smSlides.length-1) { smIdx++; setTimeout(function(){ smShowSlide(smIdx); smSpeak(smSlides[smIdx]); },400); }
+  };
+  speechSynthesis.speak(utt);
+}
+
+function smSetBtns() {
+  var play=document.getElementById('sm-play-btn'), pause=document.getElementById('sm-pause-btn');
+  if(play) play.disabled = smPlaying;
+  if(pause) pause.disabled = !smPlaying;
+}
+
+function smPlay()  { if(!smSlides.length)return; smPlaying=true; smSetBtns(); smShowSlide(smIdx); smSpeak(smSlides[smIdx]); }
+function smPause() { smPlaying=false; speechSynthesis.cancel(); smSetBtns(); }
+function smStop()  { smPlaying=false; speechSynthesis.cancel(); smSetBtns(); }
+function smPrev()  { smPlaying=false; speechSynthesis.cancel(); if(smIdx>0){ smIdx--; smShowSlide(smIdx); } }
+function smNext()  { smPlaying=false; speechSynthesis.cancel(); if(smIdx<smSlides.length-1){ smIdx++; smShowSlide(smIdx); } }
+
+// ── PDF Upload + Diagram Extraction ──
+async function handleSlidePDF(event) {
+  var file = event.target.files[0];
+  if (!file) return;
+  var statusEl = document.getElementById('slide-pdf-status');
+  statusEl.textContent = '⏳ Processing PDF...';
+  smPdfImages = [];
+
+  try {
+    // Read PDF as base64 and send to Claude for analysis
+    var base64 = await new Promise(function(res, rej) {
+      var reader = new FileReader();
+      reader.onload = function(e) { res(e.target.result.split(',')[1]); };
+      reader.onerror = rej;
+      reader.readAsDataURL(file);
+    });
+
+    // Send first page to Claude to extract any diagrams/images description
+    var response = await fetch('/api/ai', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ payload: {
+        model: 'claude-sonnet-4-5',
+        max_tokens: 800,
+        messages: [{
+          role: 'user',
+          content: [
+            { type:'document', source:{type:'base64', media_type:'application/pdf', data:base64} },
+            { type:'text', text:'Look at this PDF. List any diagrams, figures, charts, or images you find. For each one, describe: 1) What it shows 2) Which of these diagram keys it matches (if any): heart, plant_cell, water_cycle, food_chain, photosynthesis, solar_system, atom_structure, human_digestive, human_respiratory, human_nervous, human_skeletal, human_eye, human_circulatory, cell_division, dna_structure, layers_earth, magnet_field, electric_circuit, states_of_matter, fraction_visual, pythagoras. Return ONLY JSON: [{"description":"...","diagramKey":"heart or null","page":1}]' }
+          ]
+        }]
+      }})
+    });
+
+    if (!response.ok) throw new Error('API error');
+    var data = await response.json();
+    var txt  = data.content[0].text.replace(/```json|```/g,'').trim();
+    var diagrams = JSON.parse(txt);
+
+    // Map found diagrams to slide indices
+    if (diagrams && diagrams.length > 0) {
+      statusEl.textContent = '✅ Found ' + diagrams.length + ' diagram(s) in PDF';
+      // Store diagram keys for slides to use
+      smPdfImages = diagrams.map(function(d) { return d.diagramKey || null; });
+      // Auto-inject into matching slides
+      if (smSlides.length > 0) {
+        diagrams.forEach(function(d, i) {
+          if (d.diagramKey && smSlides[i]) {
+            smSlides[i].diagram = d.diagramKey;
+          }
+        });
+        smShowSlide(smIdx); // re-render current slide
+      }
+    } else {
+      statusEl.textContent = 'ℹ️ No standard diagrams found in PDF';
+    }
+  } catch(e) {
+    statusEl.textContent = '⚠️ Could not process PDF: ' + e.message;
   }
 }
 
