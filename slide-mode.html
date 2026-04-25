@@ -689,7 +689,7 @@ function buildRail() {
     const d = document.createElement('div');
     d.className = 'sm-thumb' + (i === 0 ? ' active' : '');
     d.innerHTML = `<div class="sm-thumb-num">${i+1}</div>${(s.emoji||'')+'  '+(s.title||'').substring(0,32)}`;
-    d.onclick = () => renderSlide(i);
+    d.onclick = () => { speechSynthesis.cancel(); speechId++; renderSlide(i); };
     rail.appendChild(d);
   });
 }
@@ -701,7 +701,7 @@ function buildDots() {
   slides.forEach((_, i) => {
     const d = document.createElement('div');
     d.className = 'sm-dot' + (i === 0 ? ' active' : '');
-    d.onclick = () => renderSlide(i);
+    d.onclick = () => { speechSynthesis.cancel(); speechId++; renderSlide(i); };
     bar.appendChild(d);
   });
 }
@@ -1053,10 +1053,14 @@ function animateSVGQuick(svg) {
 
 // ── Navigation ──
 function smNext() {
+  speechSynthesis.cancel();
+  speechId++;  // invalidate any pending onend
   if (currentSlide < slides.length - 1) renderSlide(currentSlide + 1);
   else { isPlaying = false; updatePlayBtns(); }
 }
 function smPrev() {
+  speechSynthesis.cancel();
+  speechId++;  // invalidate any pending onend
   if (currentSlide > 0) renderSlide(currentSlide - 1);
 }
 
@@ -1071,12 +1075,17 @@ function smPause() {
   speechSynthesis.cancel();
 }
 
+let speechId = 0;  // incremented each call; stale onend callbacks check this and abort
+
 function smSpeakCurrent() {
   const s = slides[currentSlide];
   if (!s) return;
-  speechSynthesis.cancel();
 
-  // Build full speech — support both old shape and new content.* shape
+  // Cancel any in-progress speech FIRST, then increment ID
+  // so the old onend fires with a stale ID and does nothing
+  speechSynthesis.cancel();
+  const myId = ++speechId;
+
   const contentObj = s.content || {};
   const para      = contentObj.paragraph || s.paragraph || '';
   const bullets   = contentObj.bullets   || s.points    || [];
@@ -1087,21 +1096,21 @@ function smSpeakCurrent() {
   if (para)      parts.push(para);
   if (highlight) parts.push(highlight);
   parts = parts.concat(bullets);
-  if (s.formula)       parts.push(s.formula);
-  if (s.callout_text)  parts.push(s.callout_text);
+  if (s.formula)               parts.push(s.formula);
+  if (s.callout_text)          parts.push(s.callout_text);
   if (contentObj.callout_text) parts.push(contentObj.callout_text);
   if (s.timeline) s.timeline.forEach(t => parts.push(`${t.year||''}: ${t.event||t.text||''}`));
   if (s.table && s.table.rows) s.table.rows.forEach(r => parts.push(r.join(', ')));
 
   const lang = lessonData.lang || 'english';
-  const txt  = parts.join('. ').replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF .,!?]/g, '');
+  const txt  = parts.filter(Boolean).join('. ')
+    .replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF .,!?]/g, '');
   const spd  = lang === 'tamil' ? 0.82 : 0.90;
 
   const utt = new SpeechSynthesisUtterance(txt);
   utt.lang  = lang === 'tamil' ? 'ta-IN' : 'en-IN';
   utt.rate  = spd;
 
-  // Pick Tamil voice if available and Tamil mode
   if (lang === 'tamil') {
     const voices = speechSynthesis.getVoices();
     const taVoice = voices.find(v => v.lang && v.lang.startsWith('ta'));
@@ -1109,7 +1118,10 @@ function smSpeakCurrent() {
   }
 
   currentUtt = utt;
+
   utt.onend = () => {
+    // If speechId changed, user navigated — do NOT advance
+    if (speechId !== myId) return;
     if (!isPlaying) return;
     if (currentSlide < slides.length - 1) {
       setTimeout(() => renderSlide(currentSlide + 1), 400);
@@ -1117,11 +1129,15 @@ function smSpeakCurrent() {
       isPlaying = false; updatePlayBtns();
     }
   };
+
   utt.onerror = () => {
+    // Same guard — stale errors must not advance slides
+    if (speechId !== myId) return;
     if (isPlaying && currentSlide < slides.length - 1) {
       setTimeout(() => renderSlide(currentSlide + 1), 400);
     }
   };
+
   speechSynthesis.speak(utt);
 }
 
