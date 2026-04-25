@@ -1217,9 +1217,40 @@ function showLoading(title, sub){
 function hideLoading(){ document.getElementById('loading-screen').classList.remove('show'); }
 
 // ══════════════════════════════════════════════════
-// URL PARAMS — allow subject pages to open teaching mode directly
-// ══════════════════════════════════════════════════
+// ── AUTOSTART: launched from TeachBot — skip setup, begin class immediately ──
 function loadFromURLParams(){
+  // Check sessionStorage first (from TeachBot)
+  var raw = null;
+  try { raw = sessionStorage.getItem('tm_autostart'); } catch(e){}
+
+  if (raw) {
+    try { sessionStorage.removeItem('tm_autostart'); } catch(e){}
+    var data;
+    try { data = JSON.parse(raw); } catch(e) { data = null; }
+
+    if (data && data.subject) {
+      // Pre-fill form fields
+      var ss = document.getElementById('setup-subject');
+      var sc = document.getElementById('setup-class');
+      var st = document.getElementById('setup-topic');
+      var sl = document.getElementById('setup-lesson');
+      if (ss) ss.value = data.subject  || '';
+      if (sc) sc.value = data.cls      || '';
+      if (st) st.value = data.topic    || data.subject || '';
+      if (sl) sl.value = data.lessonText || '';
+
+      // Set language
+      if (data.lang) setLangTab(data.lang);
+      else           setLangTab('en');
+
+      // Hide setup screen — begin class immediately
+      document.getElementById('setup-screen').style.display = 'none';
+      setTimeout(function(){ beginClass(); }, 120);
+      return;
+    }
+  }
+
+  // Fallback: URL params (direct link usage)
   var params = new URLSearchParams(window.location.search);
   var subj   = params.get('subject');
   var cls    = params.get('class');
@@ -1228,22 +1259,15 @@ function loadFromURLParams(){
   var lang   = params.get('lang');
 
   if(subj || topic){
-    // Pre-fill the setup form
     if(subj)   document.getElementById('setup-subject').value = subj;
     if(cls)    document.getElementById('setup-class').value   = cls;
     if(topic)  document.getElementById('setup-topic').value   = topic;
     if(lesson) document.getElementById('setup-lesson').value  = lesson;
-
-    // Pre-select language tab if passed, but do NOT auto-start
     if(lang){
       var mapped = lang === 'mixed' ? 'bi' : lang === 'tamil' ? 'ta' : lang === 'english' ? 'en' : lang;
       setLangTab(mapped);
     }
-
-    // Show setup screen so student can choose language before starting
     document.getElementById('setup-screen').style.display = 'flex';
-
-    // Highlight the Begin button to draw attention
     var btn = document.querySelector('.btn-gold');
     if(btn) btn.style.animation = 'pulse 1.5s 2';
   }

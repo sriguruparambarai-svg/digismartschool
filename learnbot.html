@@ -2000,16 +2000,27 @@ function setLang(l,el){document.querySelectorAll('.lang-card').forEach(x=>x.clas
 // ── Teaching Mode — opens dedicated AI classroom page ──
 function launchTeachingMode(){
   var subj    = document.getElementById('s-subject')?.value || '';
-  var cls     = document.getElementById('s-class')?.value   || 'Class 9';
-  var chapter = document.getElementById('t-chapter')?.value || '';
-  var lesson  = window.lessonTxt || document.getElementById('t-text')?.value || '';
-  var params  = new URLSearchParams();
-  if(subj)    params.set('subject', subj);
-  if(cls)     params.set('class',   cls);
-  if(chapter) params.set('topic',   chapter);
-  if(lesson)  params.set('lesson',  lesson.substring(0, 800));
-  var url = 'teaching-mode.html' + (params.toString() ? '?' + params.toString() : '');
-  window.open(url, '_blank');
+  var cls     = document.getElementById('s-class')?.value   || '';
+  var chapter = window.AL ? (window.AL.ch || '') : '';
+  var lesson  = typeof lessonTxt !== 'undefined' ? lessonTxt : '';
+  var lang    = typeof teachLang !== 'undefined' ? teachLang : 'english';
+
+  // Pass full data via sessionStorage — no truncation, no repeated inputs
+  var tmData = {
+    subject:    subj,
+    cls:        cls,
+    topic:      chapter || subj,
+    lessonText: lesson.substring(0, 3000),
+    lang:       lang === 'both' ? 'bi' : lang === 'tamil' ? 'ta' : 'en'
+  };
+  try {
+    sessionStorage.setItem('tm_autostart', JSON.stringify(tmData));
+    sessionStorage.setItem('bb_returnUrl', window.location.href);
+  } catch(e) {
+    tmData.lessonText = lesson.substring(0, 800);
+    try { sessionStorage.setItem('tm_autostart', JSON.stringify(tmData)); } catch(e2){}
+  }
+  window.open('teaching-mode.html', '_blank');
 }
 
 function startStudent(){
