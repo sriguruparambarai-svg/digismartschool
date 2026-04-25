@@ -112,17 +112,21 @@ body {
 /* ── SLIDE VIEWPORT ── */
 .sm-viewport {
   flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 1.5rem; overflow-y: auto;
+  padding: 1.2rem; overflow: hidden;
   background: linear-gradient(160deg, #f5ede0 0%, #f9f4ec 60%, #f0e8d8 100%);
   position: relative;
 }
 
 /* ── SLIDE CARD ── */
 .sm-slide {
-  width: 100%; max-width: 900px; min-height: 460px;
-  border-radius: 18px;
-  padding: 2.4rem 2.8rem 2rem;
+  /* Fixed 16:9 rectangle — always fits the viewport, never grows */
+  width: 100%; max-width: 960px;
+  height: calc(100vh - 52px - 38px - 3px - 52px - 28px);
+  max-height: 540px;
+  border-radius: 14px;
+  padding: 1.4rem 1.8rem 1.2rem;
   position: relative; overflow: hidden;
+  display: flex; flex-direction: column;
   box-shadow: 0 8px 40px rgba(107,26,26,0.12), 0 2px 8px rgba(107,26,26,0.07);
   animation: slideEnter 0.32s cubic-bezier(.34,1.2,.64,1);
   background: #ffffff;
@@ -180,7 +184,7 @@ body {
 /* ── SLIDE META ── */
 .sm-slide-meta {
   display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 0.9rem; padding-left: 0.6rem;
+  margin-bottom: 0.5rem; padding-left: 0.6rem;
 }
 .sm-type-badge {
   font-size: 0.6rem; font-weight: 800; text-transform: uppercase;
@@ -202,9 +206,9 @@ body {
 /* ── SLIDE TITLE ── */
 .sm-slide-title {
   font-family: 'Kalam', cursive;
-  font-size: clamp(1.4rem, 3vw, 2rem);
-  font-weight: 700; line-height: 1.2; margin-bottom: 1.3rem;
-  padding-bottom: 0.65rem; padding-left: 0.6rem;
+  font-size: clamp(1.1rem, 2.4vw, 1.6rem);
+  font-weight: 700; line-height: 1.2; margin-bottom: 0.7rem;
+  padding-bottom: 0.45rem; padding-left: 0.6rem;
   border-bottom: 2px solid rgba(107,26,26,0.10);
 }
 .type-title .sm-slide-title    { color: var(--maroon); border-bottom-color: rgba(201,150,42,0.3); }
@@ -220,22 +224,21 @@ body {
 
 /* ── SLIDE BODY — 60/40 LAYOUT ── */
 .sm-slide-body {
-  display: flex; gap: 1.6rem; align-items: flex-start;
-  flex: 1; min-height: 0;
+  display: flex; gap: 1.4rem; align-items: stretch;
+  flex: 1; min-height: 0; overflow: hidden;
 }
 
 /* LEFT COLUMN — 60% — diagram / image */
 .sm-left-col {
-  width: 58%; flex-shrink: 0;
+  width: 56%; flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
-  background: rgba(107,26,26,0.04);
-  border-radius: 12px;
-  border: 1.5px solid rgba(107,26,26,0.08);
-  min-height: 280px; padding: 10px;
+  background: var(--sandal-lt);
+  border-radius: 10px;
+  border: 1.5px solid rgba(107,26,26,0.10);
   overflow: hidden;
 }
-.sm-left-col svg  { width: 100%; max-height: 320px; }
-.sm-left-col img  { width: 100%; max-height: 320px; object-fit: contain; border-radius: 8px; }
+.sm-left-col svg  { width: 100%; height: 100%; max-height: 420px; object-fit: contain; }
+.sm-left-col img  { width: 100%; height: 100%; object-fit: contain; }
 
 /* Image prompt placeholder */
 .sm-img-placeholder {
@@ -251,10 +254,12 @@ body {
 
 /* RIGHT COLUMN — 40% — text */
 .sm-right-col {
-  flex: 1; min-width: 0;
-  display: flex; flex-direction: column; gap: 0;
+  flex: 1; min-width: 0; min-height: 0;
+  display: flex; flex-direction: column;
+  overflow-y: auto; overflow-x: hidden;
+  scrollbar-width: thin; scrollbar-color: rgba(107,26,26,0.15) transparent;
 }
-.sm-slide-content { display: flex; flex-direction: column; gap: 0.55rem; }
+.sm-slide-content { display: flex; flex-direction: column; gap: 0.5rem; }
 
 /* Highlight box */
 .sm-highlight-box {
@@ -587,6 +592,8 @@ RULES:
 - Each paragraph = one slide. Do NOT merge or skip.
 - Preserve original wording as much as possible.
 - 6-8 slides maximum.
+- NEVER include comprehension questions, exercises, or Q&A in slides.
+- ONLY include textbook narrative/explanatory paragraphs.
 
 Return JSON array:
 [{
@@ -726,23 +733,30 @@ async function renderSlide(idx) {
   rightCol.className = 'sm-right-col';
   body.appendChild(rightCol);
 
-  // ── FILL LEFT COLUMN: diagram > PDF page > image_prompt illustration ──
-  const diagKey = s.diagram && s.diagram !== 'null' ? s.diagram : autoPickDiagram(idx);
-  if (pdfImages.length > 0 && pdfImages[idx]) {
-    // PDF page image takes priority
+  // ── FILL LEFT COLUMN ──
+  // Priority 1: PDF page image (always wins if PDF uploaded)
+  // Priority 2: SVG diagram ONLY if slide explicitly requests one
+  // Priority 3: styled image-prompt placeholder
+  const hasPDFImage = pdfImages.length > 0;
+  const slideHasDiagram = s.diagram && s.diagram !== 'null' && s.diagram !== 'none' && DIAGRAM_PATHS[s.diagram];
+
+  if (hasPDFImage) {
+    // Use PDF page — cycle through available pages
+    const pageImg = pdfImages[idx % pdfImages.length];
     const img = document.createElement('img');
-    img.src = pdfImages[idx];
-    img.style.cssText = 'width:100%;max-height:360px;object-fit:contain;border-radius:10px;';
+    img.src = pageImg;
+    img.style.cssText = 'width:100%;height:100%;object-fit:contain;';
     leftCol.appendChild(img);
-  } else if (diagKey && DIAGRAM_PATHS[diagKey]) {
-    // SVG diagram
-    loadSVGIntoSlot(diagKey, leftCol);
+  } else if (slideHasDiagram) {
+    // Only show SVG if Claude explicitly chose one (not auto-pick)
+    loadSVGIntoSlot(s.diagram, leftCol);
   } else {
-    // Image prompt fallback — show styled placeholder with the prompt text
+    // Styled placeholder with image_prompt description
     const ph = document.createElement('div');
     ph.className = 'sm-img-placeholder';
+    ph.style.width = '100%';
     ph.innerHTML = `<div class="sm-img-prompt-icon">🖼️</div>
-      <div class="sm-img-prompt-text">${s.image_prompt || 'Illustration for ' + (s.title||topic)}</div>`;
+      <div class="sm-img-prompt-text">${s.image_prompt || (s.title||'')}</div>`;
     leftCol.appendChild(ph);
   }
 
