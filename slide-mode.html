@@ -218,9 +218,53 @@ body {
 .type-summary .sm-slide-title  { color: var(--maroon); border-bottom-color: rgba(201,150,42,0.3); }
 .type-list .sm-slide-title     { color: var(--maroon); }
 
-/* ── SLIDE BODY ── */
-.sm-slide-body { display: flex; gap: 1.8rem; align-items: flex-start; padding-left: 0.6rem; }
-.sm-slide-content { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.55rem; }
+/* ── SLIDE BODY — 60/40 LAYOUT ── */
+.sm-slide-body {
+  display: flex; gap: 1.6rem; align-items: flex-start;
+  flex: 1; min-height: 0;
+}
+
+/* LEFT COLUMN — 60% — diagram / image */
+.sm-left-col {
+  width: 58%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(107,26,26,0.04);
+  border-radius: 12px;
+  border: 1.5px solid rgba(107,26,26,0.08);
+  min-height: 280px; padding: 10px;
+  overflow: hidden;
+}
+.sm-left-col svg  { width: 100%; max-height: 320px; }
+.sm-left-col img  { width: 100%; max-height: 320px; object-fit: contain; border-radius: 8px; }
+
+/* Image prompt placeholder */
+.sm-img-placeholder {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 12px; padding: 1.5rem; text-align: center; width: 100%;
+}
+.sm-img-prompt-icon { font-size: 3.5rem; opacity: 0.25; }
+.sm-img-prompt-text {
+  font-size: 0.82rem; color: var(--text-mid); line-height: 1.55;
+  font-style: italic; max-width: 240px; opacity: 0.7;
+}
+
+/* RIGHT COLUMN — 40% — text */
+.sm-right-col {
+  flex: 1; min-width: 0;
+  display: flex; flex-direction: column; gap: 0;
+}
+.sm-slide-content { display: flex; flex-direction: column; gap: 0.55rem; }
+
+/* Highlight box */
+.sm-highlight-box {
+  background: linear-gradient(135deg, rgba(201,150,42,0.12), rgba(201,150,42,0.06));
+  border: 1.5px solid rgba(201,150,42,0.3);
+  border-radius: 8px; padding: 0.6rem 0.9rem;
+  font-size: 0.88rem; font-weight: 700; color: var(--maroon);
+  line-height: 1.55; margin-bottom: 0.5rem;
+}
+.sm-hl-star { color: var(--gold-dark); margin-right: 4px; }
 
 /* ── BULLET POINTS ── */
 .sm-points { list-style: none; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -255,12 +299,13 @@ body {
 }
 .sm-point::before { content: '→ '; color: var(--sandal-dark); }
 
-/* ── CONTENT TEXT (for Gamma-style paragraph content) ── */
+/* ── CONTENT TEXT ── */
 .sm-content-text {
-  font-size: clamp(0.9rem, 1.7vw, 1.05rem); line-height: 1.75;
-  color: var(--text-mid); padding: 0.4rem 0.6rem;
+  font-size: clamp(0.82rem, 1.5vw, 0.98rem); line-height: 1.75;
+  color: var(--text-mid); padding: 0.5rem 0.7rem;
   background: rgba(107,26,26,0.03);
-  border-radius: 8px; margin-bottom: 0.6rem;
+  border-radius: 8px; margin-bottom: 0.4rem;
+  border-left: 3px solid rgba(107,26,26,0.12);
 }
 
 /* ── TABLE ── */
@@ -517,58 +562,54 @@ window.addEventListener('DOMContentLoaded', async () => {
 // ── Generate slides via Claude API ──
 async function generateSlides(data) {
   const { cls, subject, chapter, lesson, lessonText, lang } = data;
-  const topic   = chapter || lesson || subject || 'General Topic';
-  const text    = (lessonText || lesson || '').substring(0, 1800);
+  const topic = chapter || lesson || subject || 'General Topic';
+  const text  = (lessonText || lesson || '').substring(0, 1800);
   const langInstr = lang === 'tamil' ? 'Write in Tamil only.'
     : lang === 'both' ? 'English with Tamil translation in brackets.'
     : 'Simple English for Indian school students.';
 
-  const systemPrompt = `You are an expert teacher creating classroom slides from a textbook.
+  const systemPrompt =
+`You are an expert school teacher converting textbook content into classroom slides.
 ${langInstr}
-CRITICAL:
-- Do NOT summarize content.
-- Do NOT skip any paragraph or concept.
-- Convert the ENTIRE textbook content into structured slides.
-- If lesson_text is empty, generate full teaching content based on the topic.
+CRITICAL: Do NOT summarize. Do NOT skip content. Preserve textbook wording.
+If lesson_text is empty, generate full teaching content based on topic.
 Return ONLY valid JSON array. No explanation. No markdown.`;
 
-  const userPrompt = `CLASS: ${cls}
+  const userPrompt =
+`CLASS: ${cls}
 SUBJECT: ${subject}
 TOPIC: "${topic}"
 
 TEXTBOOK CONTENT:
-${text || '(No textbook text provided — generate complete lesson content based on topic)'}
+${text || '(Empty — generate complete lesson based on topic)'}
 
--------------------------------------
-SLIDE CREATION RULES:
-1. Each PARAGRAPH = ONE SLIDE (do not merge paragraphs)
-2. DO NOT SKIP ANY CONTENT
-3. Maintain ORIGINAL ORDER
-4. If textbook is empty, generate 7-9 full teaching slides covering all aspects of the topic
+RULES:
+- Each paragraph = one slide. Do NOT merge or skip.
+- Preserve original wording as much as possible.
+- 6-8 slides maximum.
 
--------------------------------------
-OUTPUT FORMAT — return JSON array of 6-8 slides maximum:
-[
-  {
-    "slide_number": 1,
-    "type": "title",
-    "title": "slide heading",
-    "content": "one sentence summary of this paragraph",
-    "points": ["key point 1", "key point 2", "key point 3"],
-    "emoji": "📚"
-  }
-]
+Return JSON array:
+[{
+  "slide_number": 1,
+  "title": "slide title",
+  "type": "title|concept|key_points|table|timeline|formula|diagram|barchart|callout|summary",
+  "paragraph": "full original paragraph text preserved here",
+  "points": ["key fact 1","key fact 2","key fact 3"],
+  "highlight": "most important sentence from this paragraph",
+  "image_prompt": "describe exact textbook diagram or illustration for this slide",
+  "diagram": "heart|plant_cell|water_cycle|food_chain|photosynthesis|solar_system|atom_structure|human_digestive|human_respiratory|human_nervous|human_skeletal|human_eye|human_circulatory|layers_earth|magnet_field|electric_circuit|states_of_matter|pythagoras|plant_anatomy|null",
+  "emoji": "📚"
+}]
 
-TYPE: title, concept, key_points, table, timeline, formula, callout, diagram, barchart, summary
-For TABLE add: "table":{"headers":["A","B"],"rows":[["a","b"]]}
-For TIMELINE add: "timeline":[{"year":"1947","event":"..."}]
-For FORMULA add: "formula":"E=mc²"
-For CALLOUT add: "callout_type":"fact","callout_text":"..."
-For DIAGRAM add: "diagram":"heart" (heart/plant_cell/water_cycle/food_chain/photosynthesis/solar_system/atom_structure/human_digestive/human_respiratory/human_nervous/human_skeletal/human_eye/human_circulatory/layers_earth/magnet_field/electric_circuit/states_of_matter/pythagoras)
-For BARCHART add: "bars":[{"label":"X","value":80,"display":"80%"}]
+Extra fields for special types:
+- table: add "table":{"headers":["A","B"],"rows":[["a","b"]]}
+- timeline: add "timeline":[{"year":"1947","event":"..."}]
+- formula: add "formula":"E=mc²"
+- callout: add "callout_type":"fact","callout_text":"..."
+- barchart: add "bars":[{"label":"X","value":80,"display":"80%"}]
 
-RULES: max 3 points per slide. "content" max 1 sentence. End with summary.
--------------------------------------`;
+Set "diagram" to the matching key if the textbook mentions a diagram, else null.
+End with a summary slide.`;
 
   const response = await fetch(API_URL, {
     method: 'POST',
@@ -584,12 +625,9 @@ RULES: max 3 points per slide. "content" max 1 sentence. End with summary.
   const d   = await response.json();
   const raw = d.content[0].text.replace(/```json|```/g, '').trim();
 
-  // ── JSON repair: if output was truncated mid-stream, recover valid slides ──
   try {
     return JSON.parse(raw);
   } catch(e) {
-    // Find last complete slide object (ends with }  before a , or ] )
-    // Strategy: extract everything up to the last complete "}," or "}" before truncation
     const lastClose = Math.max(raw.lastIndexOf('},'), raw.lastIndexOf('}\n]'), raw.lastIndexOf('}]'));
     if (lastClose > 10) {
       const partial = raw.substring(0, lastClose + 1) + ']';
@@ -660,48 +698,88 @@ async function renderSlide(idx) {
   const card = document.createElement('div');
   card.className = `sm-slide type-${s.type || 'concept'}`;
 
-  // Meta row
-  card.innerHTML = `
-    <div class="sm-slide-meta">
-      <span class="sm-type-badge">${(s.type||'concept').replace('_',' ').toUpperCase()}</span>
-      <span class="sm-slide-num">${idx+1} / ${slides.length}</span>
-    </div>
-    <div class="sm-slide-title">${s.emoji||''} ${s.title||''}</div>
-  `;
+  // ── HEADER: badge + slide number ──
+  const meta = document.createElement('div');
+  meta.className = 'sm-slide-meta';
+  meta.innerHTML = `<span class="sm-type-badge">${(s.type||'concept').replace(/_/g,' ').toUpperCase()}</span>
+    <span class="sm-slide-num">${idx+1} / ${slides.length}</span>`;
+  card.appendChild(meta);
 
+  // ── TITLE ──
+  const titleEl = document.createElement('div');
+  titleEl.className = 'sm-slide-title';
+  titleEl.textContent = (s.emoji || '') + ' ' + (s.title || '');
+  card.appendChild(titleEl);
+
+  // ── 60/40 BODY ──
   const body = document.createElement('div');
   body.className = 'sm-slide-body';
+  card.appendChild(body);
 
-  // Main content
-  const content = document.createElement('div');
-  content.className = 'sm-slide-content';
-  body.appendChild(content);
+  // LEFT: image/diagram (60%)
+  const leftCol = document.createElement('div');
+  leftCol.className = 'sm-left-col';
+  body.appendChild(leftCol);
 
-  // ── Show content paragraph if present (Gamma-style) ──
-  if (s.content && s.type !== 'table' && s.type !== 'timeline' && s.type !== 'barchart') {
-    const ct = document.createElement('div');
-    ct.className = 'sm-content-text';
-    ct.textContent = s.content;
-    content.appendChild(ct);
+  // RIGHT: content (40%)
+  const rightCol = document.createElement('div');
+  rightCol.className = 'sm-right-col';
+  body.appendChild(rightCol);
+
+  // ── FILL LEFT COLUMN: diagram > PDF page > image_prompt illustration ──
+  const diagKey = s.diagram && s.diagram !== 'null' ? s.diagram : autoPickDiagram(idx);
+  if (pdfImages.length > 0 && pdfImages[idx]) {
+    // PDF page image takes priority
+    const img = document.createElement('img');
+    img.src = pdfImages[idx];
+    img.style.cssText = 'width:100%;max-height:360px;object-fit:contain;border-radius:10px;';
+    leftCol.appendChild(img);
+  } else if (diagKey && DIAGRAM_PATHS[diagKey]) {
+    // SVG diagram
+    loadSVGIntoSlot(diagKey, leftCol);
+  } else {
+    // Image prompt fallback — show styled placeholder with the prompt text
+    const ph = document.createElement('div');
+    ph.className = 'sm-img-placeholder';
+    ph.innerHTML = `<div class="sm-img-prompt-icon">🖼️</div>
+      <div class="sm-img-prompt-text">${s.image_prompt || 'Illustration for ' + (s.title||topic)}</div>`;
+    leftCol.appendChild(ph);
   }
 
-  // ── Render by type ──
+  // ── FILL RIGHT COLUMN ──
+  const content = document.createElement('div');
+  content.className = 'sm-slide-content';
+  rightCol.appendChild(content);
+
+  // Paragraph (full textbook text)
+  const para = s.paragraph || s.content || '';
+  if (para && s.type !== 'table' && s.type !== 'timeline' && s.type !== 'barchart') {
+    const pt = document.createElement('div');
+    pt.className = 'sm-content-text';
+    pt.textContent = para;
+    content.appendChild(pt);
+  }
+
+  // Highlight sentence
+  if (s.highlight) {
+    const hl = document.createElement('div');
+    hl.className = 'sm-highlight-box';
+    hl.innerHTML = `<span class="sm-hl-star">★</span> ${s.highlight}`;
+    content.appendChild(hl);
+  }
+
+  // Type-specific content
   if (s.type === 'table' && s.table) {
     const wrap2 = document.createElement('div');
     wrap2.className = 'sm-table-wrap';
     const tbl = document.createElement('table');
     tbl.className = 'sm-table';
-    // Header
     if (s.table.headers) {
       const thead = document.createElement('thead');
       const tr = document.createElement('tr');
-      s.table.headers.forEach(h => {
-        const th = document.createElement('th');
-        th.textContent = h; tr.appendChild(th);
-      });
+      s.table.headers.forEach(h => { const th = document.createElement('th'); th.textContent = h; tr.appendChild(th); });
       thead.appendChild(tr); tbl.appendChild(thead);
     }
-    // Rows
     if (s.table.rows) {
       const tbody = document.createElement('tbody');
       s.table.rows.forEach(row => {
@@ -719,12 +797,9 @@ async function renderSlide(idx) {
     s.timeline.forEach((item, i) => {
       const row = document.createElement('div');
       row.className = 'sm-tl-item';
-      row.innerHTML = `
-        <div class="sm-tl-dot">${i+1}</div>
-        <div>
-          <div class="sm-tl-year">${item.year||item.date||''}</div>
-          <div class="sm-tl-text">${item.event||item.text||''}</div>
-        </div>`;
+      row.innerHTML = `<div class="sm-tl-dot">${i+1}</div>
+        <div><div class="sm-tl-year">${item.year||item.date||''}</div>
+        <div class="sm-tl-text">${item.event||item.text||''}</div></div>`;
       tl.appendChild(row);
     });
     content.appendChild(tl);
@@ -748,45 +823,19 @@ async function renderSlide(idx) {
     const bc = document.createElement('div');
     bc.className = 'sm-bar-chart';
     const max = Math.max(...s.bars.map(b => b.value || 0)) || 100;
-    s.bars.forEach((bar, i) => {
+    s.bars.forEach((bar, bi) => {
       const row = document.createElement('div');
       row.className = 'sm-bar-row';
-      row.innerHTML = `
-        <div class="sm-bar-label">${bar.label}</div>
-        <div class="sm-bar-track">
-          <div class="sm-bar-fill c${i%5}" data-pct="${(bar.value/max*100).toFixed(0)}">
-            ${bar.display||bar.value}
-          </div>
-        </div>`;
+      row.innerHTML = `<div class="sm-bar-label">${bar.label}</div>
+        <div class="sm-bar-track"><div class="sm-bar-fill c${bi%5}" data-pct="${(bar.value/max*100).toFixed(0)}">${bar.display||bar.value}</div></div>`;
       bc.appendChild(row);
     });
     content.appendChild(bc);
-    // Animate bars
-    setTimeout(() => {
-      bc.querySelectorAll('.sm-bar-fill').forEach(el => {
-        el.style.width = el.dataset.pct + '%';
-      });
-    }, 120);
-
-  } else if (s.type === 'diagram') {
-    if (s.points) appendPoints(content, s.points);
-    if (s.diagram && DIAGRAM_PATHS[s.diagram]) {
-      const slot = document.createElement('div');
-      slot.className = 'sm-diagram-slot';
-      content.appendChild(slot);
-      loadSVGIntoSlot(s.diagram, slot);
-    }
+    setTimeout(() => { bc.querySelectorAll('.sm-bar-fill').forEach(el => { el.style.width = el.dataset.pct + '%'; }); }, 120);
 
   } else {
-    // concept / key_points / list / example / summary / title
     if (s.points) appendPoints(content, s.points);
   }
-
-  card.appendChild(body);
-
-  // ── Visual column: PDF image > diagram > image_hint emoji ──
-  const visual = buildVisualColumn(s, idx);
-  if (visual) body.appendChild(visual);
 
   wrap.appendChild(card);
 
