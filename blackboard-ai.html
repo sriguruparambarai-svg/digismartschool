@@ -2706,12 +2706,17 @@ window.addEventListener('offline', () => showCallout('📶 No internet connectio
 window.addEventListener('online',  () => showCallout('✅ Back online!', 2500));
 function goBack() {
   stopCurrentAnimation();
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  // If came from learnbot (same-tab navigation), go back there
+  if (document.referrer && document.referrer.includes('learnbot')) {
+    window.location.href = document.referrer;
+    return;
+  }
+  // If opened directly or from other source — show welcome screen
   document.getElementById('classroom').style.display = 'none';
   const ws = document.getElementById('welcome-screen');
-  ws.style.display = 'flex';
-  ws.style.opacity = '1';
+  ws.style.display = 'flex'; ws.style.opacity = '1';
   lessonSteps = []; currentStep = 0;
-  // Hide greet overlay for next session
   const gr = document.getElementById('greet-overlay');
   if (gr) { gr.classList.remove('hidden'); gr.style.opacity = ''; }
 }
@@ -3022,95 +3027,120 @@ window.addEventListener('resize', resizeDustCanvas);
 })();
 
 // ── AUTOSTART: if launched from TeachBot, skip welcome screen completely ──
-(function() {
-  const raw = sessionStorage.getItem('bb_autostart');
+document.addEventListener('DOMContentLoaded', function() {
+  let raw;
+  try { raw = sessionStorage.getItem('bb_autostart'); } catch(e) { return; }
   if (!raw) return;
-  sessionStorage.removeItem('bb_autostart'); // consume it
+  try { sessionStorage.removeItem('bb_autostart'); } catch(e) {}
 
   let data;
   try { data = JSON.parse(raw); } catch(e) { return; }
 
-  const { cls, subject, chapter, lessonText, lang } = data;
+  const cls        = data.cls        || '';
+  const subject    = data.subject    || '';
+  const chapter    = data.chapter    || '';
+  const lessonText = data.lessonText || '';
+  const lang       = data.lang       || 'english';
+
   if (!cls || !subject) return;
 
   // Set language mode
-  if (lang === 'tamil')    { teachingMode = 'tamil';    langCode = 'ta'; }
+  if (lang === 'tamil')     { teachingMode = 'tamil';    langCode = 'ta'; }
   else if (lang === 'both') { teachingMode = 'bilingual'; langCode = 'bilingual'; }
   else                      { teachingMode = 'standard'; langCode = 'en'; }
 
-  // Fill welcome form fields (for caching key)
-  const selClass = document.getElementById('sel-class');
-  const selSubj  = document.getElementById('sel-subject');
-  for (let i=0;i<selClass.options.length;i++) {
-    if (selClass.options[i].value===cls||selClass.options[i].text===cls) { selClass.selectedIndex=i; break; }
-  }
-  for (let i=0;i<selSubj.options.length;i++) {
-    if (selSubj.options[i].value===subject||selSubj.options[i].text===subject) { selSubj.selectedIndex=i; break; }
-  }
-  const inp = document.getElementById('inp-lesson');
-  if (inp) inp.value = chapter || subject;
+  // Pre-fill form for cache key generation
+  try {
+    const selClass = document.getElementById('sel-class');
+    if (selClass) {
+      for (let i = 0; i < selClass.options.length; i++) {
+        if (selClass.options[i].value === cls || selClass.options[i].text === cls) {
+          selClass.selectedIndex = i; break;
+        }
+      }
+    }
+    const selSubj = document.getElementById('sel-subject');
+    if (selSubj) {
+      for (let i = 0; i < selSubj.options.length; i++) {
+        if (selSubj.options[i].value === subject || selSubj.options[i].text === subject) {
+          selSubj.selectedIndex = i; break;
+        }
+      }
+    }
+    const inp = document.getElementById('inp-lesson');
+    if (inp) inp.value = chapter || subject;
+  } catch(e) {}
 
-  // Hide welcome, show classroom immediately
-  const ws = document.getElementById('welcome-screen');
-  ws.style.display = 'none';
-  const cl = document.getElementById('classroom');
-  cl.style.display = 'flex';
-  cl.style.flexDirection = 'column';
-  document.getElementById('hdr-class').textContent = cls;
-  document.getElementById('hdr-title').textContent = `${subject}${chapter ? ' — ' + chapter : ''}`;
+  // Hide welcome screen, show classroom
+  try {
+    const ws = document.getElementById('welcome-screen');
+    if (ws) ws.style.display = 'none';
+    const cl = document.getElementById('classroom');
+    if (cl) { cl.style.display = 'flex'; cl.style.flexDirection = 'column'; }
+    const hc = document.getElementById('hdr-class');
+    if (hc) hc.textContent = cls;
+    const ht = document.getElementById('hdr-title');
+    if (ht) ht.textContent = subject + (chapter ? ' — ' + chapter : '');
+  } catch(e) { return; }
 
-  // Start lesson
-  setTimeout(async () => {
-    initDustCanvas();
-    showLoading('Preparing your lesson...');
-    startLoadingMessages();
+  // Start teaching
+  setTimeout(async function() {
+    try { initDustCanvas(); } catch(e) {}
 
-    // Check cache first
-    const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
-    const cached   = getCachedLesson(cacheKey);
-    if (cached) {
-      lessonSteps = cached;
-      hideLoading();
-      stopLoadingMessages();
+    try {
+      showLoading('Preparing your lesson...');
+      startLoadingMessages();
+    } catch(e) {}
+
+    // Cache check
+    try {
+      const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
+      const cached   = getCachedLesson(cacheKey);
+      if (cached) {
+        lessonSteps = cached;
+        hideLoading();
+        stopLoadingMessages();
+        buildSidebar();
+        buildProgressDots();
+        await greetStudents();
+        renderStep(0);
+        return;
+      }
+    } catch(e) {}
+
+    // Fast-start placeholder
+    try {
+      lessonSteps = [{
+        type: 'explain',
+        speech: 'Let us begin today\'s lesson on ' + (chapter || subject) + '.',
+        write: subject + (chapter ? ': ' + chapter : ''),
+        color: 'yellow',
+        _placeholder: true
+      }];
       buildSidebar();
       buildProgressDots();
       await greetStudents();
       renderStep(0);
-      return;
-    }
+    } catch(e) {}
 
-    // Fast start: placeholder while API loads
-    lessonSteps = [{
-      type:'explain',
-      speech:`Let us begin today's lesson on ${chapter || subject}.`,
-      write:`${subject}${chapter ? ': ' + chapter : ''}`,
-      color:'yellow',
-      _placeholder:true
-    }];
-    buildSidebar();
-    buildProgressDots();
-    await greetStudents();
-    renderStep(0);
-
-    // Generate real steps using existing lesson text from TeachBot
-    showLoadingBar();
+    // Background API call
+    try { showLoadingBar(); } catch(e) {}
     try {
-      // Use lessonText from teachbot if available, else generate from topic
       const steps = await generateLessonSteps(cls, subject, chapter || subject, lessonText);
-      hideLoadingBar();
-      stopLoadingMessages();
+      try { hideLoadingBar(); stopLoadingMessages(); } catch(e) {}
       lessonSteps = steps;
-      cacheLesson(cacheKey, steps);
+      try {
+        const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
+        cacheLesson(cacheKey, steps);
+      } catch(e) {}
       buildSidebar();
       buildProgressDots();
       if (currentStep === 0) renderStep(1);
     } catch(e) {
-      hideLoadingBar();
-      stopLoadingMessages();
-      console.warn('Lesson generation failed:', e.message);
+      try { hideLoadingBar(); stopLoadingMessages(); } catch(e2) {}
     }
-  }, 300);
-})();
+  }, 400);
+});
 </script>
 </body>
 </html>

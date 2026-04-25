@@ -2026,17 +2026,22 @@ function startStudent(){
 function beginTeaching(){
   H('lang-choice');
   if(selectedMode==='video'){
-    // Pass all lesson data to blackboard-ai so it starts immediately
+    // Pass lesson data to blackboard-ai — NO pdfBase64 (too large for sessionStorage)
     var bbData = {
       cls:        document.getElementById('s-class').value,
       subject:    document.getElementById('s-subject').value,
       chapter:    window.AL ? (window.AL.ch || '') : '',
-      lessonText: lessonTxt || '',
-      lang:       typeof teachLang !== 'undefined' ? teachLang : 'english',
-      pdfBase64:  window.pdfBase64 || null
+      lessonText: (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 3000),
+      lang:       typeof teachLang !== 'undefined' ? teachLang : 'english'
     };
-    sessionStorage.setItem('bb_autostart', JSON.stringify(bbData));
-    window.open('blackboard-ai.html','_blank');
+    try {
+      sessionStorage.setItem('bb_autostart', JSON.stringify(bbData));
+    } catch(e) {
+      bbData.lessonText = (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 800);
+      try { sessionStorage.setItem('bb_autostart', JSON.stringify(bbData)); } catch(e2) {}
+    }
+    // Navigate same tab — avoids popup blocker, same origin so sessionStorage works
+    window.location.href = 'blackboard-ai.html';
     return;
   }
   if(selectedMode==='slides'){S('slides-mode');genSlidesMode();}
