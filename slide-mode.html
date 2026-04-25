@@ -825,7 +825,7 @@ function getCalloutIcon(type) {
 }
 
 function buildVisualColumn(s, idx) {
-  // Priority 1: image from PDF
+  // Priority 1: PDF image (base64 extracted page)
   if (pdfImages.length > 0) {
     const imgData = pdfImages[idx % pdfImages.length];
     if (imgData) {
@@ -837,15 +837,59 @@ function buildVisualColumn(s, idx) {
       return slot;
     }
   }
-  // Priority 2: diagram (for non-diagram type slides that have image_hint matching)
-  if (s.diagram && DIAGRAM_PATHS[s.diagram] && s.type !== 'diagram') {
+
+  // Priority 2: diagram from this slide's own diagram field
+  const diagKey = s.diagram || autoPickDiagram(idx);
+  if (diagKey && DIAGRAM_PATHS[diagKey]) {
     const slot = document.createElement('div');
     slot.className = 'sm-image-slot';
-    slot.style.width = '200px';
-    loadSVGIntoSlot(s.diagram, slot);
+    slot.style.cssText = 'width:210px;min-height:140px;padding:8px;background:#fff8f0;border:1.5px solid rgba(107,26,26,0.12);border-radius:12px;display:flex;align-items:center;justify-content:center;flex-shrink:0;';
+    loadSVGIntoSlot(diagKey, slot);
     return slot;
   }
   return null;
+}
+
+// Auto-pick a diagram based on lesson topic keywords
+function autoPickDiagram(slideIdx) {
+  const topic = (lessonData.chapter || lessonData.lesson || lessonData.subject || '').toLowerCase();
+  const text  = (lessonData.lessonText || '').toLowerCase();
+  const combined = topic + ' ' + text.substring(0, 300);
+
+  const keyMap = [
+    { keys:['heart','cardiac','blood pump','circulat'],        diagram:'heart' },
+    { keys:['plant cell','cell wall','chloroplast','vacuole'], diagram:'plant_cell' },
+    { keys:['photosynthesis','chlorophyll','sunlight plant'],  diagram:'photosynthesis' },
+    { keys:['water cycle','evaporation','precipitation','condensation'], diagram:'water_cycle' },
+    { keys:['food chain','herbivore','carnivore','producer'],  diagram:'food_chain' },
+    { keys:['solar system','planet','orbit','sun moon'],       diagram:'solar_system' },
+    { keys:['atom','electron','proton','neutron','nucleus'],   diagram:'atom_structure' },
+    { keys:['digest','stomach','intestine','oesophagus'],      diagram:'human_digestive' },
+    { keys:['lung','respirat','bronch','trachea','breath'],    diagram:'human_respiratory' },
+    { keys:['nervous','neuron','brain','spinal','nerve'],      diagram:'human_nervous' },
+    { keys:['skeleton','bone','skull','femur','skeletal'],     diagram:'human_skeletal' },
+    { keys:['eye','cornea','retina','lens','vision'],          diagram:'human_eye' },
+    { keys:['heart','circulat','artery','vein','blood'],       diagram:'human_circulatory' },
+    { keys:['mitosis','cell division','chromosome'],           diagram:'cell_division' },
+    { keys:['dna','gene','heredit','genetics'],                diagram:'dna_structure' },
+    { keys:['earth layer','mantle','crust','core'],            diagram:'layers_earth' },
+    { keys:['magnet','magnetic field','north pole','south pole'], diagram:'magnet_field' },
+    { keys:['electric','circuit','current','voltage','resistor'], diagram:'electric_circuit' },
+    { keys:['solid','liquid','gas','matter','state'],          diagram:'states_of_matter' },
+    { keys:['fraction','numerator','denominator','half'],      diagram:'fraction_visual' },
+    { keys:['pythagoras','hypotenuse','right angle','triangle'], diagram:'pythagoras' },
+    { keys:['plant','root','stem','leaf','flower'],            diagram:'plant_anatomy' },
+  ];
+
+  for (const entry of keyMap) {
+    if (entry.keys.some(k => combined.includes(k))) {
+      return entry.diagram;
+    }
+  }
+
+  // Rotate through a few relevant diagrams if no match
+  const fallbacks = ['water_cycle','solar_system','states_of_matter','food_chain','atom_structure'];
+  return fallbacks[slideIdx % fallbacks.length];
 }
 
 // ── Load SVG into a container element ──
@@ -952,65 +996,52 @@ function updatePlayBtns() {
   else           { play.style.display = '';      pause.style.display = 'none'; }
 }
 
-// ── PDF Handler ──
+// ── PDF Handler — extract page images using PDF.js (no API call needed) ──
 async function handlePDF(event) {
   const file = event.target.files[0];
   if (!file) return;
   const status = document.getElementById('sm-pdf-status');
-  status.textContent = '⏳ Extracting diagrams from PDF...';
+  status.textContent = '⏳ Extracting pages from PDF...';
   pdfImages = [];
 
   try {
-    const base64 = await new Promise((res, rej) => {
-      const reader = new FileReader();
-      reader.onload = e => res(e.target.result.split(',')[1]);
-      reader.onerror = rej;
-      reader.readAsDataURL(file);
-    });
-    pdfBase64 = base64;
-
-    // Ask Claude to identify diagrams in the PDF
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: {
-        model: 'claude-sonnet-4-5',
-        max_tokens: 1000,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-            { type: 'text', text: `Analyse this textbook PDF. List every diagram, figure, chart, image, or illustration you find. For each, provide:
-1. Page number
-2. Description of what it shows
-3. Best matching diagram key (or null): heart, plant_cell, water_cycle, food_chain, photosynthesis, solar_system, atom_structure, human_digestive, human_respiratory, human_nervous, human_skeletal, human_eye, human_circulatory, cell_division, dna_structure, layers_earth, magnet_field, electric_circuit, states_of_matter, fraction_visual, pythagoras, plant_anatomy
-
-Return ONLY JSON: [{"page":1,"description":"...","diagramKey":"heart"}]
-If no diagrams found, return []` }
-          ]
-        }]
-      }})
-    });
-
-    if (!response.ok) throw new Error('API error');
-    const d    = await response.json();
-    const raw  = d.content[0].text.replace(/```json|```/g, '').trim();
-    const found = JSON.parse(raw);
-
-    if (found.length > 0) {
-      // Map found diagrams to slides
-      status.textContent = `✅ Found ${found.length} diagram(s) — injecting into slides`;
-      found.forEach((item, i) => {
-        if (item.diagramKey && slides[i]) {
-          slides[i].diagram = item.diagramKey;
-        }
+    // Load PDF.js from CDN
+    if (!window.pdfjsLib) {
+      await new Promise((res, rej) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+        s.onload = res; s.onerror = rej;
+        document.head.appendChild(s);
       });
-      renderSlide(currentSlide); // re-render
-    } else {
-      status.textContent = 'ℹ️ No standard diagrams found in PDF';
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
+
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const maxPages = Math.min(pdf.numPages, 8); // max 8 pages
+
+    status.textContent = `⏳ Rendering ${maxPages} pages...`;
+
+    for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale: 1.2 });
+      const canvas = document.createElement('canvas');
+      canvas.width  = viewport.width;
+      canvas.height = viewport.height;
+      const ctx = canvas.getContext('2d');
+      await page.render({ canvasContext: ctx, viewport }).promise;
+      pdfImages.push(canvas.toDataURL('image/jpeg', 0.75));
+    }
+
+    status.textContent = `✅ ${pdfImages.length} pages extracted — showing in slides`;
+
+    // Re-render current slide to show the PDF image
+    if (slides.length > 0) renderSlide(currentSlide);
+
   } catch(e) {
-    status.textContent = '⚠️ ' + e.message;
+    status.textContent = '⚠️ Could not read PDF: ' + e.message;
+    console.error('PDF error:', e);
   }
 }
 
