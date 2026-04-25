@@ -599,73 +599,42 @@ window.addEventListener('DOMContentLoaded', async () => {
 async function generateSlides(data) {
   const { cls, subject, chapter, lesson, lessonText, lang } = data;
   const topic = chapter || lesson || subject || 'General Topic';
-  const text  = (lessonText || lesson || '').substring(0, 1800);
-  const langInstr = lang === 'tamil' ? 'Write ONLY in Tamil.'
-    : lang === 'both' ? 'Write in English with Tamil in brackets.'
-    : 'Write in clear English for Indian school students.';
+  const text  = (lessonText || lesson || '').substring(0, 1400);
+  const langInstr = lang === 'tamil' ? 'Write in Tamil only.'
+    : lang === 'both' ? 'English with Tamil in brackets.'
+    : 'Simple English for Indian school students.';
 
   const systemPrompt =
-`You are an expert school teacher AND textbook slide designer.
-${langInstr}
-CRITICAL: Do NOT summarize. Do NOT skip ANY paragraph. Preserve textbook wording exactly.
-If lesson_text is empty, generate complete teaching content based on topic.
-NEVER include comprehension questions, exercises, Q&A, or activities in slides.
-Return ONLY valid JSON array. No markdown. No explanation.`;
+`You are a school teacher making classroom slides. ${langInstr}
+Rules: No summarizing. No questions. No exercises. Preserve textbook wording.
+If no text given, generate lesson content from topic.
+Return ONLY a JSON array. No markdown. No extra text.`;
 
+  // Keep user prompt as short as possible to leave tokens for output
   const userPrompt =
-`CLASS: ${cls}
-SUBJECT: ${subject}
-TOPIC: "${topic}"
+`CLASS: ${cls}, SUBJECT: ${subject}, TOPIC: "${topic}"
 
-TEXTBOOK CONTENT:
-${text || '(Empty — generate complete lesson content for this topic)'}
+TEXT:
+${text || 'Generate complete lesson content for this topic.'}
 
-RULES:
-1. Each paragraph = ONE slide. Do NOT merge paragraphs.
-2. DO NOT skip any content.
-3. Maintain EXACT textbook order.
-4. Preserve original sentences (minor simplification only).
-5. 6-8 slides maximum.
-6. NEVER include questions, exercises, or Q&A sections.
+Make 5 slides. Each paragraph = 1 slide. No Q&A slides.
 
-Return ONLY this JSON format:
-[{
-  "slide_number": 1,
-  "title": "short slide title",
-  "type": "title|concept|key_points|table|timeline|formula|diagram|barchart|callout|summary",
-  "layout": { "left_width": "65%", "right_width": "35%", "fullscreen": true },
-  "image": {
-    "description": "VERY DETAILED scene: e.g. King sitting in royal court on throne, wise men standing around, golden palace interior with pillars and drapes",
-    "style": "textbook realistic illustration",
-    "diagram_key": "heart|plant_cell|water_cycle|food_chain|photosynthesis|solar_system|atom_structure|human_digestive|human_respiratory|human_nervous|human_skeletal|human_eye|human_circulatory|layers_earth|magnet_field|electric_circuit|states_of_matter|pythagoras|plant_anatomy|none"
-  },
-  "content": {
-    "paragraph": "full original paragraph text kept exactly as in textbook",
-    "bullets": ["key point 1", "key point 2", "key point 3"],
-    "highlight": "most important sentence from this paragraph"
-  },
-  "emoji": "📚"
-}]
+Return this exact JSON (5 items):
+[{"n":1,"title":"...","para":"full paragraph text","bullets":["point1","point2"],"highlight":"key sentence","scene":"describe exact visual scene for this slide","diagram":"heart OR water_cycle OR food_chain OR solar_system OR atom_structure OR none","emoji":"📖"}]
 
-IMAGE RULES:
-- "description" must be a DETAILED, REALISTIC scene matching the textbook paragraph exactly.
-- For English stories: describe the exact scene (characters, setting, action).
-- For Science: describe the exact diagram (labels, arrows, components).
-- For History: describe the exact historical scene or map.
-- Set "diagram_key" ONLY if a standard SVG diagram applies, otherwise "none".
-- NEVER write "illustration of..." — write what IS in the scene.
-
-CONTENT RULES:
-- "paragraph": full original paragraph, max 60 words if needed for fit
-- "bullets": exactly 2-3 short bullets, each max 8 words
-- "highlight": single most important sentence, max 15 words`;
+Rules:
+- "para": full original paragraph, max 50 words
+- "bullets": exactly 2 short bullets  
+- "highlight": 1 key sentence max 12 words
+- "scene": vivid description of what should be illustrated
+- "diagram": only if science/maths diagram needed, else "none"`;
 
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payload: {
       model: 'claude-sonnet-4-5',
-      max_tokens: 2500,
+      max_tokens: 2000,
       system: systemPrompt,
       messages: [{ role: 'user', content: userPrompt }]
     }})
@@ -674,19 +643,42 @@ CONTENT RULES:
   const d   = await response.json();
   const raw = d.content[0].text.replace(/```json|```/g, '').trim();
 
+  // Try full parse first
   try {
-    return JSON.parse(raw);
+    const result = JSON.parse(raw);
+    if (Array.isArray(result)) return normaliseSlides(result);
+    throw new Error('not array');
   } catch(e) {
-    const lastClose = Math.max(raw.lastIndexOf('},'), raw.lastIndexOf('}\n]'), raw.lastIndexOf('}]'));
-    if (lastClose > 10) {
-      const partial = raw.substring(0, lastClose + 1) + ']';
+    // Repair: find last complete object
+    const lastClose = Math.max(
+      raw.lastIndexOf('},\n'), raw.lastIndexOf('},\r'), raw.lastIndexOf('}]'), raw.lastIndexOf('}\n]')
+    );
+    if (lastClose > 5) {
       try {
-        const result = JSON.parse(partial);
-        if (Array.isArray(result) && result.length > 0) return result;
+        const partial = JSON.parse(raw.substring(0, lastClose + 1) + ']');
+        if (Array.isArray(partial) && partial.length > 0) return normaliseSlides(partial);
       } catch(e2) {}
     }
     throw new Error('Could not parse slides. Please try again.');
   }
+}
+
+// Normalise flat {n,title,para,bullets,highlight,scene,diagram} → render-compatible shape
+function normaliseSlides(arr) {
+  return arr.map(s => ({
+    slide_number: s.n || s.slide_number || 1,
+    title:   s.title   || '',
+    type:    s.type    || 'concept',
+    emoji:   s.emoji   || '📖',
+    diagram: s.diagram !== 'none' ? s.diagram : null,
+    // New nested shape for renderSlide
+    image:   { description: s.scene || s.image_prompt || s.title, diagram_key: s.diagram || 'none' },
+    content: { paragraph: s.para || s.paragraph || '', bullets: s.bullets || s.points || [], highlight: s.highlight || '' },
+    // Keep flat keys too for backwards compat
+    paragraph: s.para || s.paragraph || '',
+    points:    s.bullets || s.points || [],
+    highlight: s.highlight || '',
+  }));
 }
 
 // ── Build thumbnail rail ──
