@@ -491,9 +491,13 @@ body {
 
 <!-- PDF UPLOAD BAR -->
 <div class="sm-upload-bar">
-  <span class="sm-upload-label">📄 Upload textbook PDF for diagrams:</span>
-  <input type="file" class="sm-upload-input" id="sm-pdf-input" accept=".pdf" onchange="handlePDF(event)">
-  <span class="sm-upload-status" id="sm-pdf-status"></span>
+  <span class="sm-upload-label">📖 To show your textbook images:</span>
+  <label style="display:flex;align-items:center;gap:8px;cursor:pointer;background:var(--maroon);color:var(--sandal);padding:5px 14px;border-radius:8px;font-size:0.78rem;font-weight:700;border:1px solid var(--gold-dark);">
+    📄 Upload Book PDF
+    <input type="file" class="sm-upload-input" id="sm-pdf-input" accept=".pdf" onchange="handlePDF(event)" style="display:none;">
+  </label>
+  <span id="sm-pdf-status" style="font-size:0.73rem;color:var(--maroon);font-weight:600;"></span>
+  <span style="font-size:0.7rem;color:var(--dim);margin-left:auto;">Without PDF → scene illustrations shown</span>
 </div>
 
 <!-- PROGRESS -->
@@ -1080,28 +1084,50 @@ function smSpeakCurrent() {
   if (!s) return;
   speechSynthesis.cancel();
 
-  // Build full speech text — title + ALL content
-  let speechParts = [s.title || ''];
-  if (s.points)   speechParts = speechParts.concat(s.points);
-  if (s.formula)  speechParts.push(s.formula);
-  if (s.callout_text) speechParts.push(s.callout_text);
-  if (s.timeline) s.timeline.forEach(t => speechParts.push(`${t.year}: ${t.event}`));
-  if (s.table && s.table.rows) s.table.rows.forEach(row => speechParts.push(row.join(', ')));
+  // Build full speech — support both old shape and new content.* shape
+  const contentObj = s.content || {};
+  const para      = contentObj.paragraph || s.paragraph || '';
+  const bullets   = contentObj.bullets   || s.points    || [];
+  const highlight = contentObj.highlight || s.highlight || '';
 
-  const txt = speechParts.join('. ').replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF ]/g, '');
-  const spd = lessonData.lang === 'tamil' ? 0.85 : 0.92;
+  let parts = [];
+  if (s.title)   parts.push(s.title);
+  if (para)      parts.push(para);
+  if (highlight) parts.push(highlight);
+  parts = parts.concat(bullets);
+  if (s.formula)       parts.push(s.formula);
+  if (s.callout_text)  parts.push(s.callout_text);
+  if (contentObj.callout_text) parts.push(contentObj.callout_text);
+  if (s.timeline) s.timeline.forEach(t => parts.push(`${t.year||''}: ${t.event||t.text||''}`));
+  if (s.table && s.table.rows) s.table.rows.forEach(r => parts.push(r.join(', ')));
+
+  const lang = lessonData.lang || 'english';
+  const txt  = parts.join('. ').replace(/[^\u0000-\u007E\u0900-\u097F\u0B80-\u0BFF .,!?]/g, '');
+  const spd  = lang === 'tamil' ? 0.82 : 0.90;
 
   const utt = new SpeechSynthesisUtterance(txt);
-  utt.lang  = lessonData.lang === 'tamil' ? 'ta-IN' : 'en-IN';
+  utt.lang  = lang === 'tamil' ? 'ta-IN' : 'en-IN';
   utt.rate  = spd;
-  currentUtt = utt;
 
+  // Pick Tamil voice if available and Tamil mode
+  if (lang === 'tamil') {
+    const voices = speechSynthesis.getVoices();
+    const taVoice = voices.find(v => v.lang && v.lang.startsWith('ta'));
+    if (taVoice) utt.voice = taVoice;
+  }
+
+  currentUtt = utt;
   utt.onend = () => {
     if (!isPlaying) return;
     if (currentSlide < slides.length - 1) {
-      setTimeout(() => { renderSlide(currentSlide + 1); }, 500);
+      setTimeout(() => renderSlide(currentSlide + 1), 400);
     } else {
       isPlaying = false; updatePlayBtns();
+    }
+  };
+  utt.onerror = () => {
+    if (isPlaying && currentSlide < slides.length - 1) {
+      setTimeout(() => renderSlide(currentSlide + 1), 400);
     }
   };
   speechSynthesis.speak(utt);
@@ -1114,17 +1140,21 @@ function updatePlayBtns() {
   else           { play.style.display = '';      pause.style.display = 'none'; }
 }
 
-// ── PDF Handler — extract page images using PDF.js (no API call needed) ──
+// ── PDF Handler — extract one page per slide using PDF.js ──
 async function handlePDF(event) {
   const file = event.target.files[0];
   if (!file) return;
+  await extractPDFImages(file);
+}
+
+async function extractPDFImages(file) {
   const status = document.getElementById('sm-pdf-status');
-  status.textContent = '⏳ Extracting pages from PDF...';
+  status.textContent = '⏳ Loading PDF pages...';
   pdfImages = [];
 
   try {
-    // Load PDF.js from CDN
     if (!window.pdfjsLib) {
+      status.textContent = '⏳ Loading PDF reader...';
       await new Promise((res, rej) => {
         const s = document.createElement('script');
         s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
@@ -1137,24 +1167,27 @@ async function handlePDF(event) {
 
     const arrayBuffer = await file.arrayBuffer();
     const pdf = await window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-    const maxPages = Math.min(pdf.numPages, 8); // max 8 pages
 
-    status.textContent = `⏳ Rendering ${maxPages} pages...`;
+    // Extract as many pages as we have slides (or all pages if fewer)
+    const targetPages = Math.max(slides.length || 8, pdf.numPages);
+    const maxPages = Math.min(pdf.numPages, 20);
+
+    status.textContent = `⏳ Extracting ${maxPages} pages from your book...`;
 
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       const page = await pdf.getPage(pageNum);
-      const viewport = page.getViewport({ scale: 1.2 });
+      const viewport = page.getViewport({ scale: 1.5 });
       const canvas = document.createElement('canvas');
       canvas.width  = viewport.width;
       canvas.height = viewport.height;
       const ctx = canvas.getContext('2d');
       await page.render({ canvasContext: ctx, viewport }).promise;
-      pdfImages.push(canvas.toDataURL('image/jpeg', 0.75));
+      pdfImages.push(canvas.toDataURL('image/jpeg', 0.82));
     }
 
-    status.textContent = `✅ ${pdfImages.length} pages extracted — showing in slides`;
+    status.textContent = `✅ ${pdfImages.length} book pages ready — slides now show your textbook images`;
 
-    // Re-render current slide to show the PDF image
+    // Re-render current slide immediately
     if (slides.length > 0) renderSlide(currentSlide);
 
   } catch(e) {
@@ -1184,7 +1217,14 @@ function showError(msg) {
 
 function goBack() {
   speechSynthesis.cancel();
-  window.history.back();
+  // Works whether opened as new tab (window.opener) or same tab (history)
+  if (window.opener && !window.opener.closed) {
+    window.close();
+  } else if (document.referrer) {
+    window.location.href = document.referrer;
+  } else {
+    window.location.href = '/learnbot.html';
+  }
 }
 
 // ── Keyboard navigation ──
