@@ -2018,32 +2018,13 @@ function startStudent(){
   if(!cls||!sub){alert('Please select Class and Subject.');return;}
   if(!selectedMode){alert('Please choose a mode.');return;}
   if(!lessonTxt&&!window.pdfBase64){alert('No lesson found!\n\nPlease go to Teacher Panel, paste lesson text and click Activate.');return;}
-  if(selectedMode==='teaching'||selectedMode==='video'||selectedMode==='slides'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
+  if(selectedMode==='teaching'||selectedMode==='slides'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
   else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];var tNameC='AI Teacher'; document.getElementById('chat-mode-title').textContent='💬 Ask AI Teacher'; document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">Good morning, students! I am '+tNameC+'. Ask me anything about today\'s lesson — I am here to help you understand!</div></div>';}
   else if(selectedMode==='quiz'){H('student-setup');S('quiz-mode');startQuiz();}
 }
 
 function beginTeaching(){
   H('lang-choice');
-  if(selectedMode==='video'){
-    // Pass lesson data to blackboard-ai — NO pdfBase64 (too large for sessionStorage)
-    var bbData = {
-      cls:        document.getElementById('s-class').value,
-      subject:    document.getElementById('s-subject').value,
-      chapter:    window.AL ? (window.AL.ch || '') : '',
-      lessonText: (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 3000),
-      lang:       typeof teachLang !== 'undefined' ? teachLang : 'english'
-    };
-    try {
-      sessionStorage.setItem('bb_autostart', JSON.stringify(bbData));
-    } catch(e) {
-      bbData.lessonText = (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 800);
-      try { sessionStorage.setItem('bb_autostart', JSON.stringify(bbData)); } catch(e2) {}
-    }
-    // Navigate same tab — avoids popup blocker, same origin so sessionStorage works
-    window.location.href = 'blackboard-ai.html';
-    return;
-  }
   if(selectedMode==='slides'){S('slides-mode');genSlidesMode();}
   else if(selectedMode==='maths'){S('maths-mode');genMathsLesson();}
   else if(selectedMode==='diagram'){S('diagram-mode');genDiagram();}
@@ -3716,26 +3697,45 @@ function checkAndLaunch(mode){
   if(!subj){ alert('Please select a Subject first.');  return; }
 
   if(mode === 'teaching'){
-    launchTeachingMode();   // opens teaching-mode.html in new tab
+    launchTeachingMode();
     return;
   }
+
+  if(mode === 'video'){
+    // Build data bundle
+    var bbData = {
+      cls:        cls,
+      subject:    subj,
+      chapter:    window.AL ? (window.AL.ch || '') : '',
+      lessonText: (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 3000),
+      lang:       typeof teachLang !== 'undefined' ? teachLang : 'english'
+    };
+    try {
+      sessionStorage.setItem('bb_autostart', JSON.stringify(bbData));
+    } catch(e) {
+      bbData.lessonText = bbData.lessonText.substring(0, 800);
+      try { sessionStorage.setItem('bb_autostart', JSON.stringify(bbData)); } catch(e2) {}
+    }
+    window.location.href = 'blackboard-ai.html';
+    return;
+  }
+
   if(mode === 'slides'){
-    // Pass lesson data via sessionStorage then open slide-mode.html
     var info = window.AL || {};
     sessionStorage.setItem('sm_lesson', JSON.stringify({
-      cls:     cls,
-      subject: subj,
-      chapter: info.ch  || '',
-      lesson:  info.ch  || lessonTxt.substring(0,80) || subj,
-      lessonText: lessonTxt || '',
-      lang:    typeof teachLang !== 'undefined' ? teachLang : 'english'
+      cls:        cls,
+      subject:    subj,
+      chapter:    info.ch  || '',
+      lesson:     info.ch  || (typeof lessonTxt!=='undefined' ? lessonTxt.substring(0,80) : '') || subj,
+      lessonText: typeof lessonTxt !== 'undefined' ? lessonTxt : '',
+      lang:       typeof teachLang !== 'undefined' ? teachLang : 'english'
     }));
     window.open('slide-mode.html', '_blank');
     return;
   }
-  // For all other modes: select it and call startStudent()
+
+  // All other modes: select and call startStudent()
   selectedMode = mode;
-  // highlight the clicked card visually
   document.querySelectorAll('.ssp-card').forEach(function(c){ c.style.outline=''; });
   startStudent();
 }
