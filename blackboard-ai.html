@@ -452,11 +452,10 @@ body {
 /* ═══════ GREET OVERLAY ═══════ */
 #greet-overlay {
   position: absolute; inset: 0; z-index: 50;
-  display: flex; align-items: center; justify-content: center;
+  display: none; /* starts hidden — greetStudents() sets display:flex */
+  align-items: center; justify-content: center;
   background: radial-gradient(ellipse at center, rgba(20,40,20,0.92) 0%, rgba(10,12,8,0.97) 100%);
-  transition: opacity 0.6s ease;
 }
-#greet-overlay.hidden { opacity: 0; pointer-events: none; display: none; }
 .greet-text {
   font-family: 'Caveat', cursive;
   font-size: clamp(2rem, 5vw, 3.5rem);
@@ -858,7 +857,7 @@ body {
         </div>
 
         <!-- Greet overlay -->
-        <div id="greet-overlay">
+        <div id="greet-overlay" style="display:none;">
           <div class="greet-text" id="greet-text">👩‍🏫 Good morning, students...</div>
         </div>
 
@@ -1122,9 +1121,11 @@ async function startLesson() {
 // GREETING — teacher says good morning
 // ═══════════════════════════════════════════════════════════
 async function greetStudents(skip) {
-  if (skip) return;  // autostart skips greeting for faster load
+  if (skip) return;
+
   const overlay = document.getElementById('greet-overlay');
   const gtxt    = document.getElementById('greet-text');
+  if (!overlay || !gtxt) return;
 
   const greetLines = [
     '👩‍🏫 Good morning, students...',
@@ -1132,7 +1133,10 @@ async function greetStudents(skip) {
     '✏️ Let\'s begin...'
   ];
 
-  overlay.classList.remove('hidden');
+  // Show overlay
+  overlay.style.display = 'flex';
+  overlay.style.opacity = '1';
+  overlay.style.transition = 'none';
 
   for (const line of greetLines) {
     gtxt.textContent = line;
@@ -1140,10 +1144,12 @@ async function greetStudents(skip) {
     await delay(700);
   }
 
+  // Fade out then HIDE completely
   overlay.style.transition = 'opacity 0.5s ease';
-  overlay.classList.add('hidden');
-  await delay(520);
-  overlay.style.display = 'none'; // fully remove from layout
+  overlay.style.opacity = '0';
+  await delay(550);
+  overlay.style.display = 'none'; // completely gone — content now visible
+  overlay.style.transition = 'none';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3121,14 +3127,18 @@ document.addEventListener('DOMContentLoaded', function() {
       const overlay = document.getElementById('greet-overlay');
       const gtxt    = document.getElementById('greet-text');
       if (overlay && gtxt) {
-        overlay.classList.remove('hidden');
+        overlay.style.display = 'flex';
+        overlay.style.opacity = '1';
+        overlay.style.transition = 'none';
         gtxt.textContent = '👩‍🏫 Welcome! Starting your lesson...';
         if (voiceOn) speak('Welcome! Starting your lesson.');
         await delay(900);
-        overlay.style.transition = 'opacity 0.4s';
-        overlay.classList.add('hidden');
+        overlay.style.transition = 'opacity 0.4s ease';
+        overlay.style.opacity = '0';
         await delay(450);
-        overlay.style.display = 'none'; // fully remove
+        overlay.style.display = 'none'; // fully gone
+        overlay.style.transition = 'none';
+      }
       }
       renderStep(0);
     } catch(e) {}
