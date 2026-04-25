@@ -456,7 +456,7 @@ body {
   background: radial-gradient(ellipse at center, rgba(20,40,20,0.92) 0%, rgba(10,12,8,0.97) 100%);
   transition: opacity 0.6s ease;
 }
-#greet-overlay.hidden { opacity: 0; pointer-events: none; }
+#greet-overlay.hidden { opacity: 0; pointer-events: none; display: none; }
 .greet-text {
   font-family: 'Caveat', cursive;
   font-size: clamp(2rem, 5vw, 3.5rem);
@@ -1142,7 +1142,8 @@ async function greetStudents(skip) {
 
   overlay.style.transition = 'opacity 0.5s ease';
   overlay.classList.add('hidden');
-  await delay(500);
+  await delay(520);
+  overlay.style.display = 'none'; // fully remove from layout
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2708,23 +2709,18 @@ window.addEventListener('online',  () => showCallout('✅ Back online!', 2500));
 function goBack() {
   stopCurrentAnimation();
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  // Return to TeachBot — check sessionStorage return URL first
+  // Always return to Student TeachBot tab — append #student so the tab auto-activates
   const returnUrl = sessionStorage.getItem('bb_returnUrl');
-  if (returnUrl) {
-    sessionStorage.removeItem('bb_returnUrl');
-    window.location.href = returnUrl;
-    return;
+  sessionStorage.removeItem('bb_returnUrl');
+
+  // Build correct return URL with #student hash
+  let base = 'teachbot.html';
+  if (returnUrl && (returnUrl.includes('teachbot') || returnUrl.includes('learnbot'))) {
+    base = returnUrl.split('#')[0]; // strip any old hash
+  } else if (document.referrer && (document.referrer.includes('teachbot') || document.referrer.includes('learnbot'))) {
+    base = document.referrer.split('#')[0];
   }
-  // Referrer fallback (teachbot.html or learnbot.html)
-  if (document.referrer && (
-    document.referrer.includes('teachbot') ||
-    document.referrer.includes('learnbot')
-  )) {
-    window.location.href = document.referrer;
-    return;
-  }
-  // Direct fallback
-  window.location.href = 'teachbot.html';
+  window.location.href = base + '#student';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3132,6 +3128,7 @@ document.addEventListener('DOMContentLoaded', function() {
         overlay.style.transition = 'opacity 0.4s';
         overlay.classList.add('hidden');
         await delay(450);
+        overlay.style.display = 'none'; // fully remove
       }
       renderStep(0);
     } catch(e) {}
