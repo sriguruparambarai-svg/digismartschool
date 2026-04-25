@@ -490,71 +490,43 @@ window.addEventListener('DOMContentLoaded', async () => {
 async function generateSlides(data) {
   const { cls, subject, chapter, lesson, lessonText, lang } = data;
   const langInstr = lang === 'tamil'
-    ? 'Write in Tamil language only.'
+    ? 'Write in Tamil only.'
     : lang === 'both'
-    ? 'Write in English with Tamil translation in brackets after each point.'
-    : 'Write in clear English suitable for Indian school students.';
+    ? 'English with Tamil in brackets.'
+    : 'Simple English for Indian school students.';
 
-  const text = (lessonText || lesson || '').substring(0, 4000);
+  // Keep lesson text short to avoid timeout
+  const text = (lessonText || lesson || '').substring(0, 1800);
+  const topic = chapter || lesson || subject;
 
-  const prompt = `You are creating a COMPLETE, DETAILED educational slide presentation for ${cls} studying ${subject}.
-Chapter/Topic: "${chapter || lesson}"
-
+  const prompt = `Create educational slides for ${cls} ${subject} — topic: "${topic}".
 ${langInstr}
 
-CRITICAL RULES:
-- DO NOT summarise or skip any content
-- EVERY paragraph and concept from the lesson must appear in slides
-- Keep all facts, dates, names, definitions complete
-- Create 10–16 slides to cover everything
+Return ONLY a valid JSON array of 7-9 slides. No extra text.
 
-Return ONLY a valid JSON array. No markdown, no extra text.
+Use these types: title, concept, table, timeline, key_points, formula, callout, diagram, barchart, summary
 
-SLIDE TYPES you MUST use where appropriate:
-- "concept"    → explanation slides with bullet points
-- "table"      → when comparing items, listing properties, or showing data
-- "timeline"   → for historical events, sequences, processes in order
-- "key_points" → important facts, definitions, formulas to remember
-- "formula"    → mathematical or scientific formulas
-- "example"    → worked examples, case studies, Indian examples
-- "diagram"    → when a standard diagram applies
-- "callout"    → important warnings, tips, notes
-- "list"       → numbered or categorised lists
-- "summary"    → final slide recap
-- "title"      → opening slide only
+Formats:
+concept: {"type":"concept","title":"...","points":["...","..."],"emoji":"💡"}
+table: {"type":"table","title":"...","emoji":"📊","table":{"headers":["A","B"],"rows":[["a","b"]]}}
+timeline: {"type":"timeline","title":"...","emoji":"📅","timeline":[{"year":"1947","event":"..."}]}
+formula: {"type":"formula","title":"...","emoji":"🔢","formula":"E=mc²","points":["E=Energy"]}
+callout: {"type":"callout","title":"...","emoji":"⚠️","callout_type":"fact","callout_text":"...","points":["..."]}
+diagram: {"type":"diagram","title":"...","emoji":"🔬","diagram":"heart","points":["..."]}
+barchart: {"type":"barchart","title":"...","emoji":"📊","bars":[{"label":"X","value":80,"display":"80%"}]}
+key_points: {"type":"key_points","title":"...","emoji":"⭐","points":["...","..."]}
+summary: {"type":"summary","title":"What We Learned","emoji":"✅","points":["...","..."]}
 
-JSON STRUCTURE per slide:
+Rules: Keep all facts complete. Use table for comparisons. Use timeline for history. Use diagram when relevant (heart/water_cycle/solar_system/atom_structure/food_chain/photosynthesis/human_digestive/layers_earth/magnet_field/electric_circuit/states_of_matter/pythagoras). End with summary slide.
 
-For concept/list/key_points:
-{"type":"concept","title":"Slide Title","points":["Full sentence 1","Full sentence 2","Full sentence 3"],"emoji":"💡","image_hint":"what kind of image would help here"}
-
-For table:
-{"type":"table","title":"Comparison Table","emoji":"📊","table":{"headers":["Column 1","Column 2","Column 3"],"rows":[["val","val","val"],["val","val","val"]]}}
-
-For timeline:
-{"type":"timeline","title":"Historical Timeline","emoji":"📅","timeline":[{"year":"1947","event":"India gained independence"},{"year":"1950","event":"Constitution adopted"}]}
-
-For formula:
-{"type":"formula","title":"Important Formula","emoji":"🔢","formula":"E = mc²","points":["E = Energy","m = Mass","c = Speed of light"]}
-
-For callout:
-{"type":"callout","title":"Important Note","emoji":"⚠️","callout_type":"fact","callout_text":"Full important statement here","points":["Supporting point 1","Supporting point 2"]}
-
-For diagram:
-{"type":"diagram","title":"Diagram Title","emoji":"🔬","diagram":"heart","points":["Explanation of what to observe"]}
-
-For bar chart:
-{"type":"barchart","title":"Comparison","emoji":"📊","bars":[{"label":"Item 1","value":80,"display":"80%"},{"label":"Item 2","value":45,"display":"45%"}]}
-
-Lesson text to convert (DO NOT SKIP ANY PART):
-${text}`;
+Lesson: ${text}`;
 
   const response = await fetch(API_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ payload: {
       model: 'claude-sonnet-4-5',
-      max_tokens: 4000,
+      max_tokens: 2500,
       messages: [{ role: 'user', content: prompt }]
     }})
   });
