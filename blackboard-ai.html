@@ -805,9 +805,6 @@ body {
     <button class="btn-start" onclick="startLesson()">
       ✏️ Start Teaching on Blackboard
     </button>
-    <button class="btn-start btn-slide-start" onclick="startSlideMode()" style="margin-top:10px;background:linear-gradient(135deg,#1a3a5c,#2a5a8c);border-color:rgba(168,216,240,0.5);color:#a8d8f0;">
-      🖼️ Open as Slide Mode
-    </button>
 
 
   </div>
@@ -828,7 +825,6 @@ body {
       <button class="ctrl-btn" onclick="nextStep()">⏭ Next</button>
       <button class="ctrl-btn" id="voice-toggle" onclick="toggleVoice()">🔊 Voice</button>
       <button class="ctrl-btn" onclick="toggleSidebar()" id="sidebar-toggle-btn" title="Toggle Steps">☰</button>
-      <button class="ctrl-btn" id="slide-mode-toggle" onclick="switchToSlideMode()" title="Slide Mode" style="display:none;">🖼️ Slides</button>
       <select class="speed-select" id="speed-sel" onchange="changeSpeed(this.value)">
         <option value="0.5">🐢 Slow</option>
         <option value="1" selected>Normal</option>
@@ -917,7 +913,9 @@ body {
       <div style="position:absolute;top:12px;right:14px;z-index:20;">
         <button class="ctrl-btn" onclick="switchToBlackboard()" style="font-size:0.78rem;">🖊️ Blackboard</button>
       </div>
-    </div>
+    </div><!-- /slide-container -->
+
+  </div><!-- /classroom-body -->
 
   <!-- Status bar -->
   <div class="status-bar">
@@ -925,7 +923,7 @@ body {
     <div class="status-speech" id="status-speech">Ready to teach...</div>
     <div id="step-counter" style="min-width:80px;text-align:right;font-size:0.75rem;">Step 0 / 0</div>
   </div>
-</div>
+</div><!-- /classroom -->
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -1149,16 +1147,21 @@ async function greetStudents() {
 // ═══════════════════════════════════════════════════════════
 // GENERATE LESSON (unchanged API logic)
 // ═══════════════════════════════════════════════════════════
-async function generateLessonSteps(cls, subject, lesson) {
+async function generateLessonSteps(cls, subject, lesson, lessonText) {
   const langInstruction = teachingMode === 'tamil'
     ? 'Respond in Tamil language only. Use simple Tamil words for school students.'
     : teachingMode === 'bilingual'
     ? 'Write each "write" field in both English and Tamil (Tamil in parentheses). Speech in English.'
     : 'Respond in simple English suitable for Indian school students.';
 
+  // Use actual lesson text from teacher if provided
+  const lessonContext = lessonText && lessonText.trim()
+    ? `\nTEXTBOOK CONTENT:\n${lessonText.substring(0, 1600)}\n`
+    : '';
+
   const prompt = `You are a school teacher in Tamil Nadu, India, teaching ${subject} to ${cls} students (CBSE curriculum).
 The lesson is: "${lesson}"
-
+${lessonContext}
 ${langInstruction}
 
 Convert this lesson into 8–12 step-by-step teaching actions for a blackboard teaching session.
@@ -2921,8 +2924,8 @@ function switchToSlideMode() {
   slideModeActive = true;
   document.getElementById('board-wrap').style.display     = 'none';
   document.getElementById('slide-container').style.display = 'flex';
-  document.getElementById('slide-mode-toggle').textContent = '🖊️ Board';
-  document.getElementById('slide-mode-toggle').onclick     = switchToBlackboard;
+  // slide mode toggle removed
+  // slide mode toggle removed
   stopCurrentAnimation();
   renderSlide();
 }
@@ -2931,8 +2934,8 @@ function switchToBlackboard() {
   slideModeActive = false;
   document.getElementById('slide-container').style.display = 'none';
   document.getElementById('board-wrap').style.display      = 'flex';
-  document.getElementById('slide-mode-toggle').textContent = '🖼️ Slides';
-  document.getElementById('slide-mode-toggle').onclick     = switchToSlideMode;
+  // slide mode toggle removed
+  // slide mode toggle removed
 }
 
 // ── Start slide mode from welcome screen ──
@@ -2951,7 +2954,7 @@ async function startSlideMode() {
     document.getElementById('hdr-class').textContent = cls;
     document.getElementById('hdr-title').textContent = `${subject} — ${lesson}`;
     // Show slide toggle button in header
-    document.getElementById('slide-mode-toggle').style.display = '';
+    // slide mode toggle removed
   }, 500);
 
   setTimeout(async () => {
@@ -3016,6 +3019,97 @@ window.addEventListener('resize', resizeDustCanvas);
     document.getElementById('welcome-sub').textContent = name;
     document.title = 'Blackboard AI — ' + name;
   }
+})();
+
+// ── AUTOSTART: if launched from TeachBot, skip welcome screen completely ──
+(function() {
+  const raw = sessionStorage.getItem('bb_autostart');
+  if (!raw) return;
+  sessionStorage.removeItem('bb_autostart'); // consume it
+
+  let data;
+  try { data = JSON.parse(raw); } catch(e) { return; }
+
+  const { cls, subject, chapter, lessonText, lang } = data;
+  if (!cls || !subject) return;
+
+  // Set language mode
+  if (lang === 'tamil')    { teachingMode = 'tamil';    langCode = 'ta'; }
+  else if (lang === 'both') { teachingMode = 'bilingual'; langCode = 'bilingual'; }
+  else                      { teachingMode = 'standard'; langCode = 'en'; }
+
+  // Fill welcome form fields (for caching key)
+  const selClass = document.getElementById('sel-class');
+  const selSubj  = document.getElementById('sel-subject');
+  for (let i=0;i<selClass.options.length;i++) {
+    if (selClass.options[i].value===cls||selClass.options[i].text===cls) { selClass.selectedIndex=i; break; }
+  }
+  for (let i=0;i<selSubj.options.length;i++) {
+    if (selSubj.options[i].value===subject||selSubj.options[i].text===subject) { selSubj.selectedIndex=i; break; }
+  }
+  const inp = document.getElementById('inp-lesson');
+  if (inp) inp.value = chapter || subject;
+
+  // Hide welcome, show classroom immediately
+  const ws = document.getElementById('welcome-screen');
+  ws.style.display = 'none';
+  const cl = document.getElementById('classroom');
+  cl.style.display = 'flex';
+  cl.style.flexDirection = 'column';
+  document.getElementById('hdr-class').textContent = cls;
+  document.getElementById('hdr-title').textContent = `${subject}${chapter ? ' — ' + chapter : ''}`;
+
+  // Start lesson
+  setTimeout(async () => {
+    initDustCanvas();
+    showLoading('Preparing your lesson...');
+    startLoadingMessages();
+
+    // Check cache first
+    const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
+    const cached   = getCachedLesson(cacheKey);
+    if (cached) {
+      lessonSteps = cached;
+      hideLoading();
+      stopLoadingMessages();
+      buildSidebar();
+      buildProgressDots();
+      await greetStudents();
+      renderStep(0);
+      return;
+    }
+
+    // Fast start: placeholder while API loads
+    lessonSteps = [{
+      type:'explain',
+      speech:`Let us begin today's lesson on ${chapter || subject}.`,
+      write:`${subject}${chapter ? ': ' + chapter : ''}`,
+      color:'yellow',
+      _placeholder:true
+    }];
+    buildSidebar();
+    buildProgressDots();
+    await greetStudents();
+    renderStep(0);
+
+    // Generate real steps using existing lesson text from TeachBot
+    showLoadingBar();
+    try {
+      // Use lessonText from teachbot if available, else generate from topic
+      const steps = await generateLessonSteps(cls, subject, chapter || subject, lessonText);
+      hideLoadingBar();
+      stopLoadingMessages();
+      lessonSteps = steps;
+      cacheLesson(cacheKey, steps);
+      buildSidebar();
+      buildProgressDots();
+      if (currentStep === 0) renderStep(1);
+    } catch(e) {
+      hideLoadingBar();
+      stopLoadingMessages();
+      console.warn('Lesson generation failed:', e.message);
+    }
+  }, 300);
 })();
 </script>
 </body>
