@@ -270,10 +270,20 @@ textarea.paste:focus{border-color:var(--gold);}
       <div>
         <label class="fl">Class</label>
         <select id="s-class">
-          <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-          <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-          <option>Class 7</option><option>Class 8</option>
-          <option selected>Class 9</option><option>Class 10</option>
+          <option value="LKG">🌱 LKG</option>
+          <option value="UKG">🌿 UKG</option>
+          <option value="Class 1">Class 1</option>
+          <option value="Class 2">Class 2</option>
+          <option value="Class 3">Class 3</option>
+          <option value="Class 4">Class 4</option>
+          <option value="Class 5">Class 5</option>
+          <option value="Class 6">Class 6</option>
+          <option value="Class 7">Class 7</option>
+          <option value="Class 8">Class 8</option>
+          <option value="Class 9" selected>Class 9</option>
+          <option value="Class 10">Class 10</option>
+          <option value="Class 11">Class 11</option>
+          <option value="Class 12">Class 12</option>
         </select>
       </div>
     </div>
@@ -537,7 +547,8 @@ async function startClass(){
   topic=document.getElementById('s-topic').value.trim();
   var les=document.getElementById('s-lesson').value.trim();
   diagId=(document.getElementById('s-diagram')||{}).value||'';
-  if(!topic){showErr('Please enter a chapter / topic name.');return;}
+  // Allow start even without topic — use subject name as fallback
+  if(!topic) topic = subj;
   hideErr();
   mode=subj==='Maths'?'maths':diagId?'diagram':'theory';
   showLoad('Preparing lesson…',subj+' — '+topic);
@@ -1192,16 +1203,33 @@ function loadFromSession(){
   try{sessionStorage.removeItem('tm_autostart');}catch(e){}
   var data;try{data=JSON.parse(raw);}catch(e){return false;}
   if(!data||!data.subject)return false;
+
   var ss=document.getElementById('s-subj'),sc=document.getElementById('s-class');
   var st=document.getElementById('s-topic'),sl=document.getElementById('s-lesson');
-  if(ss)ss.value=data.subject||'Science';
-  if(sc)sc.value=data.cls||'Class 9';
-  if(st)st.value=data.topic||'';
-  if(sl)sl.value=data.lessonText||'';
+  if(ss) ss.value=data.subject||'Science';
+  // Set class — try exact match, then with "Class " prefix
+  if(sc){
+    var clsVal=data.cls||data.class||'Class 9';
+    // Try direct match first
+    var matched=Array.from(sc.options).some(function(o){return o.value===clsVal;});
+    if(matched) sc.value=clsVal;
+    else {
+      // Try adding "Class " prefix
+      var withPrefix='Class '+clsVal.replace(/^class\s*/i,'');
+      var matched2=Array.from(sc.options).some(function(o){return o.value===withPrefix;});
+      if(matched2) sc.value=withPrefix;
+    }
+  }
+  // Topic: use chapter, or topic, or fall back to subject name — never empty
+  var topicVal=(data.topic||data.chapter||data.subject||'').trim();
+  if(st) st.value=topicVal;
+  if(sl) sl.value=data.lessonText||'';
   if(data.diagramId){var sd=document.getElementById('s-diagram');if(sd)sd.value=data.diagramId;}
   if(data.lang)setLang(data.lang);else setLang('en');
   onSubjChange();
-  setTimeout(startClass,150);
+  // Auto-start immediately — skip setup screen
+  document.getElementById('setup-screen').style.display='none';
+  setTimeout(startClass,200);
   return true;
 }
 
