@@ -467,21 +467,19 @@ async function buildScript(){
     return;
   }
 
-  // ── Step 1: Ask AI ONLY for explain + keypoint for each paragraph ──
+  // ── Step 1: Ask AI ONLY for keypoints ──
   var explainPrompt='You are an experienced Tamil Nadu school teacher.\n'
     +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
     +'I will give you '+_paras.length+' textbook paragraphs.\n'
     +'For EACH paragraph, give me ONLY:\n'
-    +'1. "explain": 1-2 sentences explaining this paragraph simply (Tamil Nadu daily life examples)\n'
-    +'2. "keypoint": 8-12 word key fact from this paragraph\n\n'
+    +'1. "keypoint": 8-12 word key fact (or empty string if no key fact)\n\n'
     +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
-    +lr+'\n\n'
     +'Return ONLY valid JSON array, one object per paragraph:\n'
-    +'[{"para":1,"explain":"...","keypoint":"...","lang":"en"},...]';
+    +'[{"para":1,"keypoint":"..."},...]';
 
   var explainData=[];
   try{
-    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,system:'Return ONLY valid JSON array. No markdown.',messages:[{role:'user',content:explainPrompt}]}})});
+    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:1000,system:'Return ONLY valid JSON array. No markdown.',messages:[{role:'user',content:explainPrompt}]}})});
     var eRaw=await eRes.text();
     var eResp=JSON.parse(eRaw);
     var eText='';
@@ -491,60 +489,54 @@ async function buildScript(){
     var eParsed=null;try{eParsed=JSON.parse(eCl);}catch(e){}
     if(!eParsed){var a=eCl.indexOf('['),b=eCl.lastIndexOf(']');if(a>=0&&b>a)try{eParsed=JSON.parse(eCl.substring(a,b+1));}catch(e){}}
     if(eParsed&&Array.isArray(eParsed))explainData=eParsed;
-  }catch(e){console.warn('Explain generation failed, using defaults',e);}
+  }catch(e){console.warn('Keypoint generation failed, continuing',e);}
 
-  // ── Step 2: Build segments directly — read_line is the ACTUAL paragraph text ──
+  // ── Step 2: Build segments — sentence-by-sentence reading ──
   segs=[];
-  var vt=['strict','normal','emphasis','question','command'];
 
-  // Opening segment
-  segs.push({text:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read and understand '+_paras.length+' paragraphs together.',tone:'strict',pause:1.5,lang:'en',type:'open',para_index:0,_orig:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read and understand '+_paras.length+' paragraphs together.'});
+  // Opening
+  segs.push({text:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.',tone:'strict',pause:1.5,lang:'en',type:'open',para_index:0,_orig:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.'});
 
   for(var i=0;i<_paras.length;i++){
     var para=_paras[i];
     var pNum=i+1;
     var exp=explainData[i]||{};
-    var explainTxt=exp.explain||'This paragraph tells us about '+S.topic+'.';
-    var keypointTxt=exp.keypoint||para.substring(0,60)+'…';
-    var lang=exp.lang||'en';
+    var keypointTxt=(exp.keypoint||'').trim();
 
-    // a) show_para — tell student which paragraph
+    // a) show_para
     segs.push({
       text:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.',
       tone:'strict',pause:1.2,lang:'en',type:'show_para',para_index:pNum,
       _orig:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.'
     });
 
-    // b) read_line — ACTUAL BOOK TEXT — constructed directly, no AI
-    // If paragraph is long, split into 2 parts
-    if(para.length>300){
-      var mid=para.indexOf('. ',Math.floor(para.length/2));
-      if(mid<0)mid=Math.floor(para.length/2);
-      var part1=para.substring(0,mid+1).trim();
-      var part2=para.substring(mid+1).trim();
-      segs.push({text:part1,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:part1});
-      if(part2.length>10)segs.push({text:part2,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:part2});
-    } else {
-      segs.push({text:para,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:para});
+    // b) read_line — sentence by sentence, EXACT book text
+    var sentences=para.split(/(?<=[.!?])\s+/).filter(function(s){return s.trim().length>5;});
+    if(sentences.length===0) sentences=[para];
+    for(var si=0;si<sentences.length;si++){
+      var sent=sentences[si].trim();
+      if(!sent) continue;
+      segs.push({text:sent,tone:'normal',pause:0.8,lang:'en',type:'read_line',para_index:pNum,_orig:sent});
     }
 
-    // c) explain — AI generated
-    segs.push({text:explainTxt,tone:'normal',pause:1.2,lang:lang,type:'explain',para_index:pNum,_orig:explainTxt});
+    // c) keypoint — ONLY if meaningful, max 1 per paragraph
+    if(keypointTxt&&keypointTxt.length>20){
+      segs.push({
+        text:'Remember this: '+keypointTxt,
+        tone:'emphasis',pause:1.2,lang:'en',type:'keypoint',
+        para_index:pNum,keypoint:keypointTxt,
+        _orig:'Remember this: '+keypointTxt
+      });
+    }
 
-    // d) keypoint — AI generated
-    segs.push({text:'The key point here is: '+keypointTxt,tone:'emphasis',pause:1.5,lang:lang,type:'keypoint',para_index:pNum,keypoint:keypointTxt,_orig:'The key point here is: '+keypointTxt});
-
-    // e) emphasis
-    var emphTxt='REMEMBER: '+keypointTxt;
-    segs.push({text:emphTxt,tone:'emphasis',pause:1.8,lang:lang,type:'emphasis',para_index:pNum,_orig:emphTxt});
-
-    // f) wait_next — pause for student to re-read
+    // d) wait_next
     var waitTxt='Good. Now read paragraph '+pNum+' once more from your book. Press Next when you are ready.';
     segs.push({text:waitTxt,tone:'normal',pause:0.5,lang:'en',type:'wait_next',para_index:pNum,_orig:waitTxt});
   }
 
   // Summary
-  var summaryTxt='Excellent students! Today we read '+_paras.length+' paragraphs from '+S.topic+'. The key points were: '+explainData.filter(function(e){return e.keypoint;}).map(function(e){return e.keypoint;}).slice(0,4).join('; ')+'. Well done!';
+  var kpList=explainData.filter(function(e){return e.keypoint&&e.keypoint.length>20;}).map(function(e){return e.keypoint;}).slice(0,4);
+  var summaryTxt='Excellent students! Today we finished '+_paras.length+' paragraphs from '+S.topic+'.'+(kpList.length?' Key points: '+kpList.join('. ')+'.' :'')+' Well done!';
   segs.push({text:summaryTxt,tone:'emphasis',pause:2.0,lang:'en',type:'summary',para_index:0,_orig:summaryTxt});
 
   if(!segs.length)throw new Error('No segments generated.');
