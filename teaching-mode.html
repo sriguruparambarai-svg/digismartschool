@@ -83,8 +83,7 @@ html,body{font-family:'Lexend',sans-serif;background:var(--bg);color:var(--text)
 .bp-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
 .bp-badge{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--maroon);background:rgba(107,26,26,.07);padding:3px 8px;border-radius:8px;}
 .bp-hint{font-size:.67rem;color:var(--dim);font-style:italic;}
-.bp-text{font-family:'Lora',serif;font-size:.98rem;line-height:1.9;color:var(--text);background:#fff;padding:11px 15px;border-radius:9px;border-left:4px solid var(--maroon);max-height:220px;overflow-y:auto;transition:border-left-color .3s,background .3s;}
-.bp-text .current-sentence{background:rgba(107,26,26,0.13);border-radius:3px;padding:1px 3px;font-weight:700;color:var(--maroon);}
+.bp-text{font-family:'Lora',serif;font-size:.98rem;line-height:1.9;color:var(--text);background:#fff;padding:11px 15px;border-radius:9px;border-left:4px solid var(--maroon);max-height:180px;overflow-y:auto;transition:border-left-color .3s,background .3s;}
 
 /* Key points */
 .kp-panel{background:linear-gradient(135deg,rgba(154,106,26,.05),rgba(107,26,26,.02));border-bottom:1px solid rgba(154,106,26,.14);padding:9px 18px;flex-shrink:0;}
@@ -418,22 +417,40 @@ async function launchClass(data){
 async function buildScript(){
   _paras=[];
   if(S.lessonText&&S.lessonText.trim()){
-    // Clean the extracted text — remove markdown headers from Vision API output
     var cleaned=S.lessonText
-      .replace(/^#+\s.*$/gm,'')        // remove # headings
-      .replace(/^\*\*.*\*\*$/gm,'')    // remove bold lines
-      .replace(/^---+$/gm,'')          // remove dividers
+      .replace(/^#+\s.*$/gm,'')
+      .replace(/^\*\*.*\*\*$/gm,'')
+      .replace(/^---+$/gm,'')
+      .replace(/\r\n/g,' ')
+      .replace(/\r/g,' ')
+      .replace(/\n/g,' ')
+      .replace(/\s{2,}/g,' ')
       .trim();
-    _paras=cleaned.split(/\n{2,}/)
-      .map(function(p){return p.replace(/\n/g,' ').replace(/\s{2,}/g,' ').trim();})
-      .filter(function(p){return p.length>30 && !/^(page\s*\d+|#|##)/i.test(p);})
-      .slice(0,15); // up to 15 paragraphs
+
+    // ── ROBUST SENTENCE-BASED PARAGRAPH EXTRACTION ──
+    // Split on sentence boundaries, then group into chunks of ~3 sentences each
+    var allSentences=(cleaned.match(/[^.!?]+[.!?]+/g)||[])
+      .map(function(s){return s.trim();})
+      .filter(function(s){return s.length>30 && !/^(page\s*\d+)/i.test(s);});
+
+    if(allSentences.length===0){
+      // Last resort: split by long spaces or semicolons
+      allSentences=cleaned.split(/[;।]+/).map(function(s){return s.trim();}).filter(function(s){return s.length>40;});
+    }
+
+    // Group every 3 sentences into one paragraph for natural teaching flow
+    var groupSize=3;
+    for(var gi=0;gi<allSentences.length;gi+=groupSize){
+      var chunk=allSentences.slice(gi,gi+groupSize).join(' ').trim();
+      if(chunk.length>60) _paras.push(chunk);
+    }
+    _paras=_paras.slice(0,15);
   }
 
   var lr=S.lang==='ta'?'Explain ONLY in Tamil.':S.lang==='bi'?'Explain in English. Add Tamil meaning for key terms.':'Explain ONLY in English.';
 
   // ══════════════════════════════════════════
-  // MATHS — still fully AI generated
+  // MATHS — fully AI generated (unchanged)
   // ══════════════════════════════════════════
   if(S.mode==='maths'){
     var mathsPrompt='You are an experienced Tamil Nadu school teacher.\n'
@@ -452,96 +469,106 @@ async function buildScript(){
   }
 
   // ══════════════════════════════════════════
-  // THEORY/SCIENCE/ENGLISH/TAMIL/SOCIAL
-  // Build read_line segments DIRECTLY from paragraphs — no AI needed
-  // Only ask AI to generate explain + keypoint for each paragraph
+  // NO TEXT — generate full lesson from topic name
   // ══════════════════════════════════════════
   if(_paras.length===0){
-    // No text — generate full lesson from topic
     var genPrompt='You are an experienced Tamil Nadu school teacher.\n'
       +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
-      +'Generate a complete lesson. For each concept, use:\n'
-      +'show_para → read_line (write the actual lesson text) → explain → keypoint → emphasis → wait_next\n'
-      +'End with summary.\n'+lr+'\n\n'
-      +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index, keypoint';
+      +'Teach this topic. For each concept paragraph:\n'
+      +'  show_para → read_line (3-4 sentences, real lesson text) → explain (1 short sentence)\n'
+      +'End with summary. No wait_next segments.\n'+lr+'\n\n'
+      +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index';
     await callAI(genPrompt);
     return;
   }
 
-  // ── Step 1: Ask AI ONLY for keypoints ──
-  var explainPrompt='You are an experienced Tamil Nadu school teacher.\n'
-    +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
-    +'I will give you '+_paras.length+' textbook paragraphs.\n'
-    +'For EACH paragraph, give me ONLY:\n'
-    +'1. "keypoint": 8-12 word key fact (or empty string if no key fact)\n\n'
-    +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
-    +'Return ONLY valid JSON array, one object per paragraph:\n'
-    +'[{"para":1,"keypoint":"..."},...]';
-
+  // ══════════════════════════════════════════
+  // HAS TEXT — Ask AI for one-sentence explanation per paragraph
+  // ══════════════════════════════════════════
   var explainData=[];
   try{
-    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:1000,system:'Return ONLY valid JSON array. No markdown.',messages:[{role:'user',content:explainPrompt}]}})});
+    var explainPrompt='You are a Tamil Nadu school teacher.\n'
+      +'For each paragraph below, write ONE simple sentence (max 15 words) explaining the main idea.\n'
+      +'Like a teacher saying it in revision. Simple words only.\n\n'
+      +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
+      +'Return ONLY a JSON array, one object per paragraph:\n'
+      +'[{"para":1,"explain":"..."},...]';
+    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:800,system:'Return ONLY valid JSON array. No markdown. No extra text.',messages:[{role:'user',content:explainPrompt}]}})});
     var eRaw=await eRes.text();
     var eResp=JSON.parse(eRaw);
     var eText='';
     if(eResp.content&&eResp.content[0])eText=(eResp.content[0].text||'').trim();
     else if(eResp.text)eText=String(eResp.text).trim();
     var eCl=eText.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-    var eParsed=null;try{eParsed=JSON.parse(eCl);}catch(e){}
+    var eParsed=null;
+    try{eParsed=JSON.parse(eCl);}catch(e){}
     if(!eParsed){var a=eCl.indexOf('['),b=eCl.lastIndexOf(']');if(a>=0&&b>a)try{eParsed=JSON.parse(eCl.substring(a,b+1));}catch(e){}}
     if(eParsed&&Array.isArray(eParsed))explainData=eParsed;
-  }catch(e){console.warn('Keypoint generation failed, continuing',e);}
+  }catch(e){console.warn('Explanation generation failed, continuing without explanations',e);}
 
-  // ── Step 2: Build segments — sentence-by-sentence reading ──
+  // ══════════════════════════════════════════
+  // BUILD SEGMENTS — sentence-by-sentence, auto-progress, NO wait_next
+  // ══════════════════════════════════════════
   segs=[];
 
-  // Opening
-  segs.push({text:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.',tone:'strict',pause:1.5,lang:'en',type:'open',para_index:0,_orig:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.'});
+  // Opening greeting
+  var openTxt='Good morning students. Open your '+S.subject+' book. Today we will study '+S.topic+'. Follow along as I read each paragraph.';
+  segs.push({text:openTxt,tone:'strict',pause:1.2,lang:'en',type:'open',para_index:0,_orig:openTxt});
 
   for(var i=0;i<_paras.length;i++){
     var para=_paras[i];
     var pNum=i+1;
-    var exp=explainData[i]||{};
-    var keypointTxt=(exp.keypoint||'').trim();
+    var expObj=explainData[i]||{};
+    var explainTxt=(expObj.explain||'').trim();
 
-    // a) show_para
+    // 1. Announce paragraph — show full paragraph in book panel
+    var announceTxt='Paragraph '+pNum+'. Follow with your finger.';
     segs.push({
-      text:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.',
-      tone:'strict',pause:1.2,lang:'en',type:'show_para',para_index:pNum,
-      _orig:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.'
+      text:announceTxt,
+      tone:'strict',pause:0.8,lang:'en',type:'show_para',
+      para_index:pNum,para_text:para,
+      _orig:announceTxt
     });
 
-    // b) read_line — sentence by sentence, EXACT book text
-    var sentences=para.match(/[^.!?]+[.!?]+/g)||[];
-    sentences=sentences.map(function(s){return s.trim();}).filter(function(s){return s.length>5;});
+    // 2. Split paragraph into sentences and read each one
+    var sentences=(para.match(/[^.!?]+[.!?]+/g)||[])
+      .map(function(s){return s.trim();})
+      .filter(function(s){return s.length>5;});
     if(sentences.length===0) sentences=[para];
+
     for(var si=0;si<sentences.length;si++){
       var sent=sentences[si].trim();
       if(!sent) continue;
-      segs.push({text:sent,tone:'normal',pause:0.8,lang:'en',type:'read_line',para_index:pNum,_orig:sent});
-    }
-
-    // c) keypoint — ONLY if meaningful, max 1 per paragraph
-    if(keypointTxt&&keypointTxt.length>20){
       segs.push({
-        text:'Remember this: '+keypointTxt,
-        tone:'emphasis',pause:1.2,lang:'en',type:'keypoint',
-        para_index:pNum,keypoint:keypointTxt,
-        _orig:'Remember this: '+keypointTxt
+        text:sent,
+        tone:'normal',pause:0.6,lang:'en',
+        type:'read_line',
+        para_index:pNum,para_text:para,
+        _orig:sent
       });
     }
 
-    // d) wait_next
-    var waitTxt='Good. Now read paragraph '+pNum+' once more from your book. Press Next when you are ready.';
-    segs.push({text:waitTxt,tone:'normal',pause:0.5,lang:'en',type:'wait_next',para_index:pNum,_orig:waitTxt});
+    // 3. One-sentence explanation (auto-continues, no wait)
+    if(explainTxt&&explainTxt.length>5){
+      segs.push({
+        text:explainTxt,
+        tone:'emphasis',pause:1.0,lang:'en',
+        type:'explain',
+        para_index:pNum,para_text:para,
+        _orig:explainTxt
+      });
+    } else {
+      // Fallback if AI didn't return explanation
+      var fbTxt='Good. That was paragraph '+pNum+'.';
+      segs.push({text:fbTxt,tone:'normal',pause:0.8,lang:'en',type:'explain',para_index:pNum,para_text:para,_orig:fbTxt});
+    }
   }
 
-  // Summary
-  var kpList=explainData.filter(function(e){return e.keypoint&&e.keypoint.length>20;}).map(function(e){return e.keypoint;}).slice(0,4);
-  var summaryTxt='Excellent students! Today we finished '+_paras.length+' paragraphs from '+S.topic+'.'+(kpList.length?' Key points: '+kpList.join('. ')+'.' :'')+' Well done!';
+  // Final summary
+  var summaryTxt='Excellent work, students! We have finished all '+_paras.length+' paragraphs of '+S.topic+'. Well done!';
   segs.push({text:summaryTxt,tone:'emphasis',pause:2.0,lang:'en',type:'summary',para_index:0,_orig:summaryTxt});
 
-  if(!segs.length)throw new Error('No segments generated.');
+  if(!segs.length) throw new Error('No segments generated.');
 }
 
 // Helper: call AI and populate segs (used for maths and topic-only modes)
@@ -610,40 +637,34 @@ function playSeg(i){
   idx=i;var seg=segs[i];
   updateProg(i);hlScript(i);
 
-  // Book panel — always show paragraph text whenever we are inside a paragraph
+  // Book panel — show FULL paragraph for show_para, read_line, explain
   var bp=document.getElementById('book-panel');
-  if(seg.para_index>0 && _paras && _paras[seg.para_index-1]){
-    var paraText = _paras[seg.para_index-1];
+  var paraForPanel=seg.para_text||(_paras&&_paras[seg.para_index-1])||null;
+  if(seg.para_index>0 && paraForPanel){
     document.getElementById('bp-badge').textContent='📖 Paragraph '+seg.para_index+' of '+_paras.length;
-    // For read_line: highlight the current sentence inside the paragraph
     if(seg.type==='read_line'){
-      var sentences2 = paraText.match(/[^.!?]+[.!?]+/g)||[paraText];
-      var htmlParts = '';
-      var currentSent = (seg._orig||seg.text).trim();
-      sentences2.forEach(function(s){
-        var st = s.trim();
-        if(st === currentSent || paraText.indexOf(st) === paraText.indexOf(currentSent)){
-          htmlParts += '<span class="current-sentence">'+escH(st)+'</span> ';
-        } else {
-          htmlParts += escH(st)+' ';
-        }
-      });
-      document.getElementById('bp-text').innerHTML = htmlParts;
-      // Scroll highlighted sentence into view
-      setTimeout(function(){
-        var hl = document.querySelector('.bp-text .current-sentence');
-        if(hl) hl.scrollIntoView({block:'nearest',behavior:'smooth'});
-      }, 100);
+      // Highlight current sentence, show full paragraph
+      var fullPara=paraForPanel;
+      var curSent=(seg._orig||seg.text).trim();
+      var paraHtml=escH(fullPara);
+      var sentEscaped=escH(curSent);
+      // Replace first occurrence of the sentence with highlighted version
+      var hilited=paraHtml.replace(sentEscaped,'<mark style="background:rgba(107,26,26,0.18);color:var(--maroon);border-radius:3px;padding:1px 2px;font-weight:700;">'+sentEscaped+'</mark>');
+      document.getElementById('bp-text').innerHTML=hilited;
+      // Scroll highlight into view
+      setTimeout(function(){var m=document.querySelector('#bp-text mark');if(m)m.scrollIntoView({block:'nearest',behavior:'smooth'});},80);
     } else {
-      document.getElementById('bp-text').innerHTML = escH(paraText);
+      document.getElementById('bp-text').innerHTML=escH(paraForPanel);
     }
     bp.hidden=false;
-  } else if(seg.type==='summary'){
-    document.getElementById('bp-badge').textContent='📝 Lesson Summary';
-    document.getElementById('bp-text').innerHTML='Summarising today\'s lesson…';
-    bp.hidden=false;
-  } else if(seg.type==='open'){
-    bp.hidden=true;
+  } else if(seg.type==='summary'||seg.type==='open'){
+    if(seg.type==='summary'){
+      document.getElementById('bp-badge').textContent='📝 Lesson Summary';
+      document.getElementById('bp-text').innerHTML='All '+_paras.length+' paragraphs of <strong>'+escH(S.topic)+'</strong> completed.';
+      bp.hidden=false;
+    } else {
+      bp.hidden=true;
+    }
   }
 
   // Maths board
@@ -669,11 +690,7 @@ function playSeg(i){
   speakSeg(seg,function(){
     setSpeaking(false);hideOverlays();
     if(!playing)return;
-    if(seg.type==='wait_next'){
-      var h=seg.para_index>0?'👆 Read paragraph '+seg.para_index+' from your book. Press Next when ready.':'👆 Press Next when you are ready to continue.';
-      showNextBar(h,function(){if(!playing){playing=true;updateCtrl();}playSeg(i+1);});
-      return;
-    }
+    // Always auto-advance — no manual wait
     ptimer=setTimeout(function(){if(!playing)return;playSeg(i+1);},(seg.pause||1)*1000);
   });
 }
@@ -685,21 +702,30 @@ var TR=/[\u0B80-\u0BFF]/;
 function renderTxt(seg){
   var el=document.getElementById('curr-line');
   var isMaths=seg.type==='maths_answer'||seg.type==='maths_formula'||seg.type==='maths_step'||seg.type==='maths_rough';
-  var isRead=seg.type==='read_line'||seg.type==='word_meaning';
+  var isRead=seg.type==='read_line';
+  var isExplain=seg.type==='explain';
   var txt=isMaths&&seg.display?seg.display:seg._orig||seg.text;
   var prev=el.textContent.trim();
-  var skip=['ready','stopped','complete'];
+  var skip=['ready','stopped','complete','class is ready'];
   if(prev&&!skip.some(function(w){return prev.toLowerCase().includes(w);}))document.getElementById('prev-line').textContent=prev;
-  el.className='curr-line'+(isMaths?' maths-disp':isRead?' book-read':'');
-  if(isMaths){el.textContent=txt;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);return;}
-  // For read_line — show sentence prominently in the speech area
-  if(isRead){
-    // Show the sentence with a reading indicator
-    el.innerHTML='<span style="font-size:0.72rem;font-weight:800;color:var(--gold2);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px;">📖 Reading aloud:</span>'+escH(txt);
-    el.style.opacity='0';
-    setTimeout(function(){el.style.opacity='1';},30);
+  if(isMaths){
+    el.className='curr-line maths-disp';
+    el.textContent=txt;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
     return;
   }
+  if(isRead){
+    el.className='curr-line book-read';
+    el.innerHTML='<span style="font-size:.62rem;font-weight:800;color:var(--gold2);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:5px;">📖 Reading:</span>'+escH(txt);
+    el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
+    return;
+  }
+  if(isExplain){
+    el.className='curr-line';
+    el.innerHTML='<span style="font-size:.62rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:5px;">💡 Explanation:</span><span style="color:var(--teal);font-weight:700;">'+escH(txt)+'</span>';
+    el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
+    return;
+  }
+  el.className='curr-line';
   var words=txt.split(/(\s+)/);var html='',wi=0;
   words.forEach(function(w){if(/\s+/.test(w)){html+=w;return;}var c='w';if(/^(IMPORTANT|NOTE|REMEMBER|CRITICAL|KEY|LISTEN|நினைவில்)$/i.test(w))c+=' bold';html+='<span class="'+c+'" data-w="'+wi+'">'+escH(w)+'</span>';wi++;});
   el.innerHTML=html;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
@@ -755,12 +781,8 @@ function stopAudio(){if(curAudio){curAudio.pause();curAudio.src='';curAudio=null
 async function fetchEL(t,tone,lang){var c=cTxt(t);if(!c)throw new Error('empty');var r=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:c,tone,lang})});if(!r.ok)throw new Error('voice '+r.status);var d=await r.json();if(!d.audio)throw new Error('no audio');return d.audio;}
 function pb64(b64){return new Promise(function(res){stopAudio();var a=new Audio('data:audio/mpeg;base64,'+b64);curAudio=a;a.playbackRate=Math.max(.5,Math.min(2,spd));a.onended=function(){curAudio=null;res();};a.onerror=function(){curAudio=null;res();};a.play().catch(function(){curAudio=null;res();});});}
 async function spkChunk(t,tone,l){try{var b=await fetchEL(t,tone,l);await pb64(b);return;}catch(e){}if(l==='ta'){try{var p=tPh(t);var b2=await fetchEL(p,tone,'en');await pb64(b2);return;}catch(e){}}await new Promise(function(r){brTTS(t,tone,r,l);});}
-async function speakSeg(seg,onEnd){stopAudio();var sel=document.getElementById('voice-sel');var useBr=sel&&sel.value==='browser';var txt=seg.text||'';var tone=seg.tone||'normal';var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));
-  // For read_line: speak the sentence slowly with a clear reading tone
-  if(seg.type==='read_line'){tone='normal';}
-  try{if(!useBr){if(fl==='mixed'){var cs=splitL(txt);for(var i=0;i<cs.length;i++){if(!playing&&paused)break;await spkChunk(cs[i].text,tone,cs[i].lang);if(i<cs.length-1)await new Promise(r=>setTimeout(r,80));}}else{await spkChunk(txt,tone,fl);}}else{await new Promise(function(r){brTTS(txt,tone,r,fl);});}}catch(e){try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}}if(onEnd)onEnd();}
-function brTTS(txt,tone,onEnd,l){if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}speechSynthesis.cancel();var cfg=TONES[tone]||TONES.normal;var bv=speechSynthesis.getVoices();var isTa=(l==='ta');var v=null,st=txt;if(isTa){v=bv.find(v=>v.lang&&v.lang.startsWith('ta'))||null;if(!v){st=tPh(txt);v=bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}}else{v=bv.find(v=>v.lang==='en-IN'&&(v.name.includes('Natural')||v.name.includes('Neural')))||bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}if(!st||!st.trim()){if(onEnd)onEnd();return;}var u=new SpeechSynthesisUtterance(st);if(v)u.voice=v;// Use slower rate for book reading so students can follow
-var readRate = (tone==='normal' && l!=='ta') ? Math.max(.5,Math.min(1.4,cfg.rate*spd*0.88)) : Math.max(.5,Math.min(2,cfg.rate*spd));u.rate=readRate;u.pitch=cfg.pitch;u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';u.onend=onEnd||function(){};u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};speechSynthesis.speak(u);}
+async function speakSeg(seg,onEnd){stopAudio();var sel=document.getElementById('voice-sel');var useBr=sel&&sel.value==='browser';var txt=seg.text||'';var tone=seg.tone||'normal';var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));try{if(!useBr){if(fl==='mixed'){var cs=splitL(txt);for(var i=0;i<cs.length;i++){if(!playing&&paused)break;await spkChunk(cs[i].text,tone,cs[i].lang);if(i<cs.length-1)await new Promise(r=>setTimeout(r,80));}}else{await spkChunk(txt,tone,fl);}}else{await new Promise(function(r){brTTS(txt,tone,r,fl);});}}catch(e){try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}}if(onEnd)onEnd();}
+function brTTS(txt,tone,onEnd,l){if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}speechSynthesis.cancel();var cfg=TONES[tone]||TONES.normal;var bv=speechSynthesis.getVoices();var isTa=(l==='ta');var v=null,st=txt;if(isTa){v=bv.find(v=>v.lang&&v.lang.startsWith('ta'))||null;if(!v){st=tPh(txt);v=bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}}else{v=bv.find(v=>v.lang==='en-IN'&&(v.name.includes('Natural')||v.name.includes('Neural')))||bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}if(!st||!st.trim()){if(onEnd)onEnd();return;}var u=new SpeechSynthesisUtterance(st);if(v)u.voice=v;u.rate=Math.max(.5,Math.min(2,cfg.rate*spd));u.pitch=cfg.pitch;u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';u.onend=onEnd||function(){};u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};speechSynthesis.speak(u);}
 
 // LOAD/ERR UI
 function showLoad(t,s){document.getElementById('l-txt').textContent=t;document.getElementById('l-sub').textContent=s;document.getElementById('loading').classList.add('show');}
