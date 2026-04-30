@@ -999,6 +999,41 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 }
 .ssp-card-desc { font-size: 0.7rem; color: var(--gold-dark); line-height: 1.45; font-weight: 600; }
 
+/* Teaching Mode Subject Class Cards */
+.tm-class-card {
+  background: linear-gradient(155deg, var(--sandal), #fff9ee);
+  border: 2px solid rgba(160,120,48,0.3);
+  border-radius: 16px;
+  padding: 22px 14px 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(.34,1.4,.64,1);
+  position: relative;
+  box-shadow: 0 2px 8px rgba(107,15,26,0.07);
+}
+.tm-class-card:hover {
+  transform: translateY(-5px) scale(1.04);
+  border-color: var(--gold);
+  box-shadow: 0 10px 28px rgba(107,15,26,0.18), 0 0 0 3px rgba(201,168,76,0.3);
+}
+.tm-class-card:active { transform: scale(0.97); }
+.tm-class-card .tc-icon { font-size: 2.2rem; display: block; margin-bottom: 10px; transition: transform 0.22s; }
+.tm-class-card:hover .tc-icon { transform: scale(1.15); }
+.tm-class-card .tc-name {
+  font-family: "Cinzel", serif;
+  font-size: 0.85rem; font-weight: 700;
+  color: var(--maroon-dark); margin-bottom: 4px;
+}
+.tm-class-card .tc-sub { font-size: 0.68rem; color: var(--gold-dark); font-weight: 600; line-height: 1.4; }
+.tm-class-card .tc-badge {
+  position: absolute; top: 8px; right: 8px;
+  background: linear-gradient(135deg, var(--maroon), var(--maroon-mid));
+  color: var(--gold-light);
+  font-size: 0.52rem; font-weight: 900;
+  padding: 2px 6px; border-radius: 5px;
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
+
 /* ── SUBJECT TOOLS PANEL (inside sidebar) ── */
 .subj-tools-panel {
   border-top: 1px solid rgba(201,168,76,0.2);
@@ -1170,8 +1205,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <!-- ── MODE CARDS ── -->
   <div class="ssp-mode-grid" id="mode-grid-area">
 
-    <!-- Teaching Mode — opens in new tab -->
-    <div class="ssp-card ssp-card-featured mode-card" id="mode-teaching-card" onclick="checkAndLaunch('teaching')">
+    <!-- Teaching Mode — shows subject picker -->
+    <div class="ssp-card ssp-card-featured mode-card" id="mode-teaching-card" onclick="openTeachingPicker()">
       <span class="ssp-ai-pill">AI ✦</span>
       <span class="ssp-card-icon">🎓</span>
       <div class="ssp-card-name">Teaching Mode</div>
@@ -1217,6 +1252,31 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   </div><!-- /ssp-mode-grid / mode-grid-area -->
 
 </div><!-- /sp-step1-wrap -->
+
+<!-- ═══ TEACHING MODE SUBJECT PICKER ═══ -->
+<div id="tm-subject-picker" style="display:none; padding: 10px 0;">
+
+  <!-- Back button -->
+  <div style="margin-bottom:14px;">
+    <button onclick="closeTeachingPicker()" style="background:rgba(107,26,26,0.08);border:1.5px solid rgba(107,26,26,0.2);color:var(--maroon-dark);padding:7px 16px;border-radius:9px;font-family:inherit;font-size:0.78rem;font-weight:700;cursor:pointer;">← Back to Modes</button>
+  </div>
+
+  <div style="margin-bottom:16px;">
+    <div style="font-family:'Cinzel',serif;font-size:1.05rem;font-weight:700;color:var(--maroon-dark);margin-bottom:4px;">🎓 Choose Your Class</div>
+    <div style="font-size:0.75rem;color:var(--gold-dark);font-weight:600;">AI Teacher will take class with voice — paragraph by paragraph from the book</div>
+  </div>
+
+  <!-- Subject cards rendered by JS -->
+  <div id="tm-subject-cards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:12px;"></div>
+
+  <!-- No lesson message -->
+  <div id="tm-no-lesson" style="display:none;background:rgba(107,26,26,0.05);border:1.5px solid rgba(107,26,26,0.18);border-radius:12px;padding:20px;text-align:center;margin-top:8px;">
+    <div style="font-size:1.8rem;margin-bottom:8px;">📚</div>
+    <div style="font-size:0.88rem;font-weight:700;color:var(--maroon-dark);margin-bottom:5px;">No Lesson Activated Yet</div>
+    <div style="font-size:0.75rem;color:var(--gold-dark);line-height:1.6;">Please ask your teacher to go to the<br/><strong>Teacher Panel → Activate Lesson</strong><br/>before starting Teaching Mode.</div>
+  </div>
+
+</div><!-- /tm-subject-picker -->
 
 <!-- ══ Step 2 wrapper kept hidden — startStudent() still works ══ -->
 <div id="sp-step2-wrap" style="display:none!important;"></div>
@@ -1910,6 +1970,11 @@ function handleTxt(inp){
       const base64=e.target.result.split(',')[1];
       window.pdfBase64=base64;
       window.pdfName=f.name;
+      window.pdfExtracting=true;
+
+      // Disable Activate button while extracting — prevent early activation
+      var actBtn=document.querySelector('[onclick="activateLesson()"]');
+      if(actBtn){actBtn.disabled=true;actBtn.style.opacity='.5';actBtn.textContent='⏳ Extracting PDF… please wait';}
 
       // Check size - warn if very large
       const sizeMB=(base64.length*0.75/1024/1024).toFixed(1);
@@ -1936,12 +2001,20 @@ function handleTxt(inp){
         status.textContent='✅ PDF text extracted! ('+data.text.length+' characters) — Ready to activate';
         status.style.color='green';
         window.pdfBase64=null; // Clear PDF since we have text now
+        window.pdfExtracting=false;
+        // Re-enable Activate button
+        var actBtn2=document.querySelector('[onclick="activateLesson()"]');
+        if(actBtn2){actBtn2.disabled=false;actBtn2.style.opacity='1';actBtn2.textContent='✅ Activate Lesson for Students';}
       }catch(err){
         console.error('PDF extraction error:',err);
         // Keep PDF stored for direct use
         status.textContent='⚠️ Text extraction failed ('+err.message+'). PDF stored — will teach directly from PDF file.';
         status.style.color='orange';
         document.getElementById('t-text').value='PDF file loaded: '+f.name;
+        window.pdfExtracting=false;
+        // Re-enable button even on failure so teacher can still activate
+        var actBtn3=document.querySelector('[onclick="activateLesson()"]');
+        if(actBtn3){actBtn3.disabled=false;actBtn3.style.opacity='1';actBtn3.textContent='✅ Activate Lesson for Students';}
       }
     };
     reader.onerror=()=>{ status.textContent='❌ Could not read file. Try again.'; };
@@ -1974,6 +2047,12 @@ function activateLesson(){
   const txt=document.getElementById('t-text').value;
   if(!cls||!sub||!ch){alert('Please select Class, Subject and enter Chapter name.');return;}
 
+  // Block if PDF extraction is still running
+  if(window.pdfExtracting){
+    alert('⏳ PDF is still being extracted. Please wait until you see "Ready to activate" before clicking Activate.');
+    return;
+  }
+
   const hasPDF = window.pdfBase64 && window.pdfBase64.length > 0;
   const hasText = txt.trim().length > 20 && !txt.startsWith('PDF file loaded:');
 
@@ -1982,7 +2061,8 @@ function activateLesson(){
     return;
   }
 
-  lessonTxt = hasText ? txt : '';
+  // Always store extracted text. If PDF extraction failed but text exists, use it.
+  lessonTxt = hasText ? txt.trim() : '';
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
 
@@ -1997,34 +2077,100 @@ function activateLesson(){
 function selMode(m,el){document.querySelectorAll('.mode-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');selectedMode=m;}
 function setLang(l,el){document.querySelectorAll('.lang-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');teachLang=l;}
 
-// ── Teaching Mode — opens dedicated AI classroom page ──
-function launchTeachingMode(){
-  var sEl     = document.getElementById('s-subject');
-  var cEl     = document.getElementById('s-class');
-  var subj    = (sEl ? sEl.value : '') || (window.AL ? window.AL.sub : '') || '';
-  var cls     = cEl ? cEl.value : '';
-  var chapter = window.AL ? (window.AL.ch || '') : '';
-  var lesson  = typeof lessonTxt !== 'undefined' ? lessonTxt : '';
-  var lang    = typeof teachLang !== 'undefined' ? teachLang : 'english';
+// ══════════════════════════════════════════════════════
+// TEACHING MODE — SUBJECT PICKER + DIRECT LAUNCH
+// ══════════════════════════════════════════════════════
+var TM_SUBJECTS = {
+  'Maths':           { icon:'📐', card:'Maths Class',           hint:'Numbers, formulas, step-by-step solving' },
+  'Science':         { icon:'🔬', card:'Science Class',         hint:'Concepts, diagrams, experiments' },
+  'Social Science':  { icon:'🗺️', card:'Social Science Class',  hint:'History, geography, civics' },
+  'English':         { icon:'📖', card:'English Class',         hint:'Reading, grammar, comprehension' },
+  'Tamil':           { icon:'அ',  card:'Tamil Class',           hint:'பாடம், இலக்கணம், கதைகள்' },
+  'EVS':             { icon:'🌿', card:'EVS Class',             hint:'Environment and our world' },
+  'Computer Science':{ icon:'💻', card:'Computer Class',        hint:'Programming, technology, internet' },
+  'Hindi':           { icon:'🇮🇳', card:'Hindi Class',          hint:'भाषा, व्याकरण, कहानियाँ' }
+};
 
-  // topic = chapter name if set, else subject name — never empty
-  var topicVal = (chapter || subj || 'Lesson').trim();
+function openTeachingPicker(){
+  var cls = document.getElementById('s-class').value;
+  if(!cls){ alert('Please select your Class first.'); return; }
+
+  var cardsEl    = document.getElementById('tm-subject-cards');
+  var noLessonEl = document.getElementById('tm-no-lesson');
+  cardsEl.innerHTML = '';
+
+  // Check t-text directly as extra fallback
+  var tTextDirect='';
+  var tEl=document.getElementById('t-text');
+  if(tEl){var tv=tEl.value.trim();if(tv.length>20&&!tv.startsWith('PDF file loaded:'))tTextDirect=tv;}
+  var hasLesson = window.AL && window.AL.sub && (lessonTxt || window.pdfBase64 || tTextDirect);
+
+  if(!hasLesson){
+    noLessonEl.style.display = 'block';
+    cardsEl.style.display    = 'none';
+  } else {
+    noLessonEl.style.display = 'none';
+    cardsEl.style.display    = 'grid';
+
+    var activeSub = window.AL.sub;
+    var cfg = TM_SUBJECTS[activeSub] || { icon:'📚', card:activeSub+' Class', hint:'AI Teacher will guide you' };
+
+    var card = document.createElement('div');
+    card.className = 'tm-class-card';
+    card.innerHTML =
+      '<span class="tc-badge">AI ✦</span>'+
+      '<span class="tc-icon">'+cfg.icon+'</span>'+
+      '<div class="tc-name">'+cfg.card+'</div>'+
+      '<div class="tc-sub">'+cfg.hint+'</div>'+
+      '<div style="margin-top:10px;font-size:0.65rem;color:rgba(107,26,26,0.5);font-weight:700;">'+
+        cls+' • '+(window.AL.ch||activeSub)+
+      '</div>';
+    card.onclick = function(){ launchTeachingMode(activeSub); };
+    cardsEl.appendChild(card);
+  }
+
+  document.getElementById('mode-grid-area').style.display    = 'none';
+  document.getElementById('tm-subject-picker').style.display = 'block';
+}
+
+function closeTeachingPicker(){
+  document.getElementById('tm-subject-picker').style.display = 'none';
+  document.getElementById('mode-grid-area').style.display    = 'grid';
+}
+
+function launchTeachingMode(subjectOverride){
+  var cls     = document.getElementById('s-class').value || (window.AL ? window.AL.cls : '') || 'Class 9';
+  var subj    = subjectOverride || (window.AL ? window.AL.sub : '') || 'Science';
+  var chapter = window.AL ? (window.AL.ch || '') : '';
+  var lang    = typeof teachLang !== 'undefined' ? teachLang : 'english';
+  var langVal = lang==='both'?'bi':lang==='tamil'?'ta':'en';
+  var topicVal = (chapter || subj).trim();
+
+  // Get lesson text — try lessonTxt first, then read t-text directly as fallback
+  var lesson = (typeof lessonTxt !== 'undefined' && lessonTxt && lessonTxt.trim().length > 20) ? lessonTxt : '';
+  if(!lesson){
+    var tTextEl = document.getElementById('t-text');
+    if(tTextEl){
+      var tVal = tTextEl.value.trim();
+      if(tVal.length > 20 && !tVal.startsWith('PDF file loaded:')) lesson = tVal;
+    }
+  }
 
   var tmData = {
     subject:    subj,
     cls:        cls,
     topic:      topicVal,
-    lessonText: lesson.substring(0, 3000),
-    lang:       lang === 'both' ? 'bi' : lang === 'tamil' ? 'ta' : 'en'
+    lessonText: lesson.substring(0, 4000),
+    lang:       langVal,
+    autostart:  true
   };
   try {
     sessionStorage.setItem('tm_autostart', JSON.stringify(tmData));
     sessionStorage.setItem('bb_returnUrl', window.location.href);
-  } catch(e) {
+  } catch(e){
     tmData.lessonText = lesson.substring(0, 800);
     try { sessionStorage.setItem('tm_autostart', JSON.stringify(tmData)); } catch(e2){}
   }
-  // Same tab — Back button in teaching-mode returns here via bb_returnUrl
   window.location.href = 'teaching-mode.html';
 }
 
@@ -3710,10 +3856,9 @@ function checkAndLaunch(mode){
   var cls  = document.getElementById('s-class').value;
   var subj = document.getElementById('s-subject').value;
   if(!cls){  alert('Please select your Class first.'); return; }
-  if(!subj){ alert('Please select a Subject first.');  return; }
 
   if(mode === 'teaching'){
-    launchTeachingMode();
+    openTeachingPicker();
     return;
   }
 
