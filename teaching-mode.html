@@ -83,7 +83,8 @@ html,body{font-family:'Lexend',sans-serif;background:var(--bg);color:var(--text)
 .bp-row{display:flex;align-items:center;gap:8px;margin-bottom:7px;}
 .bp-badge{font-size:.6rem;font-weight:800;text-transform:uppercase;letter-spacing:1px;color:var(--maroon);background:rgba(107,26,26,.07);padding:3px 8px;border-radius:8px;}
 .bp-hint{font-size:.67rem;color:var(--dim);font-style:italic;}
-.bp-text{font-family:'Lora',serif;font-size:.98rem;line-height:1.9;color:var(--text);background:#fff;padding:11px 15px;border-radius:9px;border-left:4px solid var(--maroon);max-height:180px;overflow-y:auto;transition:border-left-color .3s,background .3s;}
+.bp-text{font-family:'Lora',serif;font-size:.98rem;line-height:1.9;color:var(--text);background:#fff;padding:11px 15px;border-radius:9px;border-left:4px solid var(--maroon);max-height:220px;overflow-y:auto;transition:border-left-color .3s,background .3s;}
+.bp-text .current-sentence{background:rgba(107,26,26,0.13);border-radius:3px;padding:1px 3px;font-weight:700;color:var(--maroon);}
 
 /* Key points */
 .kp-panel{background:linear-gradient(135deg,rgba(154,106,26,.05),rgba(107,26,26,.02));border-bottom:1px solid rgba(154,106,26,.14);padding:9px 18px;flex-shrink:0;}
@@ -511,7 +512,8 @@ async function buildScript(){
     });
 
     // b) read_line — sentence by sentence, EXACT book text
-    var sentences=para.split(/(?<=[.!?])\s+/).filter(function(s){return s.trim().length>5;});
+    var sentences=para.match(/[^.!?]+[.!?]+/g)||[];
+    sentences=sentences.map(function(s){return s.trim();}).filter(function(s){return s.length>5;});
     if(sentences.length===0) sentences=[para];
     for(var si=0;si<sentences.length;si++){
       var sent=sentences[si].trim();
@@ -608,16 +610,40 @@ function playSeg(i){
   idx=i;var seg=segs[i];
   updateProg(i);hlScript(i);
 
-  // Book panel
+  // Book panel — always show paragraph text whenever we are inside a paragraph
   var bp=document.getElementById('book-panel');
-  if(seg.para_index>0&&_paras&&_paras[seg.para_index-1]){
-    document.getElementById('bp-text').textContent=_paras[seg.para_index-1];
+  if(seg.para_index>0 && _paras && _paras[seg.para_index-1]){
+    var paraText = _paras[seg.para_index-1];
     document.getElementById('bp-badge').textContent='📖 Paragraph '+seg.para_index+' of '+_paras.length;
+    // For read_line: highlight the current sentence inside the paragraph
+    if(seg.type==='read_line'){
+      var sentences2 = paraText.match(/[^.!?]+[.!?]+/g)||[paraText];
+      var htmlParts = '';
+      var currentSent = (seg._orig||seg.text).trim();
+      sentences2.forEach(function(s){
+        var st = s.trim();
+        if(st === currentSent || paraText.indexOf(st) === paraText.indexOf(currentSent)){
+          htmlParts += '<span class="current-sentence">'+escH(st)+'</span> ';
+        } else {
+          htmlParts += escH(st)+' ';
+        }
+      });
+      document.getElementById('bp-text').innerHTML = htmlParts;
+      // Scroll highlighted sentence into view
+      setTimeout(function(){
+        var hl = document.querySelector('.bp-text .current-sentence');
+        if(hl) hl.scrollIntoView({block:'nearest',behavior:'smooth'});
+      }, 100);
+    } else {
+      document.getElementById('bp-text').innerHTML = escH(paraText);
+    }
     bp.hidden=false;
   } else if(seg.type==='summary'){
     document.getElementById('bp-badge').textContent='📝 Lesson Summary';
-    document.getElementById('bp-text').textContent='Summarising today\'s lesson…';
+    document.getElementById('bp-text').innerHTML='Summarising today\'s lesson…';
     bp.hidden=false;
+  } else if(seg.type==='open'){
+    bp.hidden=true;
   }
 
   // Maths board
@@ -666,7 +692,14 @@ function renderTxt(seg){
   if(prev&&!skip.some(function(w){return prev.toLowerCase().includes(w);}))document.getElementById('prev-line').textContent=prev;
   el.className='curr-line'+(isMaths?' maths-disp':isRead?' book-read':'');
   if(isMaths){el.textContent=txt;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);return;}
-  if(isRead){var bpT=document.getElementById('bp-text');if(bpT){bpT.style.borderLeftColor='var(--gold2)';bpT.style.background='rgba(255,253,230,1)';setTimeout(function(){bpT.style.borderLeftColor='var(--maroon)';bpT.style.background='#fff';},2200);}}
+  // For read_line — show sentence prominently in the speech area
+  if(isRead){
+    // Show the sentence with a reading indicator
+    el.innerHTML='<span style="font-size:0.72rem;font-weight:800;color:var(--gold2);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:6px;">📖 Reading aloud:</span>'+escH(txt);
+    el.style.opacity='0';
+    setTimeout(function(){el.style.opacity='1';},30);
+    return;
+  }
   var words=txt.split(/(\s+)/);var html='',wi=0;
   words.forEach(function(w){if(/\s+/.test(w)){html+=w;return;}var c='w';if(/^(IMPORTANT|NOTE|REMEMBER|CRITICAL|KEY|LISTEN|நினைவில்)$/i.test(w))c+=' bold';html+='<span class="'+c+'" data-w="'+wi+'">'+escH(w)+'</span>';wi++;});
   el.innerHTML=html;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
@@ -722,8 +755,12 @@ function stopAudio(){if(curAudio){curAudio.pause();curAudio.src='';curAudio=null
 async function fetchEL(t,tone,lang){var c=cTxt(t);if(!c)throw new Error('empty');var r=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:c,tone,lang})});if(!r.ok)throw new Error('voice '+r.status);var d=await r.json();if(!d.audio)throw new Error('no audio');return d.audio;}
 function pb64(b64){return new Promise(function(res){stopAudio();var a=new Audio('data:audio/mpeg;base64,'+b64);curAudio=a;a.playbackRate=Math.max(.5,Math.min(2,spd));a.onended=function(){curAudio=null;res();};a.onerror=function(){curAudio=null;res();};a.play().catch(function(){curAudio=null;res();});});}
 async function spkChunk(t,tone,l){try{var b=await fetchEL(t,tone,l);await pb64(b);return;}catch(e){}if(l==='ta'){try{var p=tPh(t);var b2=await fetchEL(p,tone,'en');await pb64(b2);return;}catch(e){}}await new Promise(function(r){brTTS(t,tone,r,l);});}
-async function speakSeg(seg,onEnd){stopAudio();var sel=document.getElementById('voice-sel');var useBr=sel&&sel.value==='browser';var txt=seg.text||'';var tone=seg.tone||'normal';var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));try{if(!useBr){if(fl==='mixed'){var cs=splitL(txt);for(var i=0;i<cs.length;i++){if(!playing&&paused)break;await spkChunk(cs[i].text,tone,cs[i].lang);if(i<cs.length-1)await new Promise(r=>setTimeout(r,80));}}else{await spkChunk(txt,tone,fl);}}else{await new Promise(function(r){brTTS(txt,tone,r,fl);});}}catch(e){try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}}if(onEnd)onEnd();}
-function brTTS(txt,tone,onEnd,l){if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}speechSynthesis.cancel();var cfg=TONES[tone]||TONES.normal;var bv=speechSynthesis.getVoices();var isTa=(l==='ta');var v=null,st=txt;if(isTa){v=bv.find(v=>v.lang&&v.lang.startsWith('ta'))||null;if(!v){st=tPh(txt);v=bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}}else{v=bv.find(v=>v.lang==='en-IN'&&(v.name.includes('Natural')||v.name.includes('Neural')))||bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}if(!st||!st.trim()){if(onEnd)onEnd();return;}var u=new SpeechSynthesisUtterance(st);if(v)u.voice=v;u.rate=Math.max(.5,Math.min(2,cfg.rate*spd));u.pitch=cfg.pitch;u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';u.onend=onEnd||function(){};u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};speechSynthesis.speak(u);}
+async function speakSeg(seg,onEnd){stopAudio();var sel=document.getElementById('voice-sel');var useBr=sel&&sel.value==='browser';var txt=seg.text||'';var tone=seg.tone||'normal';var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));
+  // For read_line: speak the sentence slowly with a clear reading tone
+  if(seg.type==='read_line'){tone='normal';}
+  try{if(!useBr){if(fl==='mixed'){var cs=splitL(txt);for(var i=0;i<cs.length;i++){if(!playing&&paused)break;await spkChunk(cs[i].text,tone,cs[i].lang);if(i<cs.length-1)await new Promise(r=>setTimeout(r,80));}}else{await spkChunk(txt,tone,fl);}}else{await new Promise(function(r){brTTS(txt,tone,r,fl);});}}catch(e){try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}}if(onEnd)onEnd();}
+function brTTS(txt,tone,onEnd,l){if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}speechSynthesis.cancel();var cfg=TONES[tone]||TONES.normal;var bv=speechSynthesis.getVoices();var isTa=(l==='ta');var v=null,st=txt;if(isTa){v=bv.find(v=>v.lang&&v.lang.startsWith('ta'))||null;if(!v){st=tPh(txt);v=bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}}else{v=bv.find(v=>v.lang==='en-IN'&&(v.name.includes('Natural')||v.name.includes('Neural')))||bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}if(!st||!st.trim()){if(onEnd)onEnd();return;}var u=new SpeechSynthesisUtterance(st);if(v)u.voice=v;// Use slower rate for book reading so students can follow
+var readRate = (tone==='normal' && l!=='ta') ? Math.max(.5,Math.min(1.4,cfg.rate*spd*0.88)) : Math.max(.5,Math.min(2,cfg.rate*spd));u.rate=readRate;u.pitch=cfg.pitch;u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';u.onend=onEnd||function(){};u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};speechSynthesis.speak(u);}
 
 // LOAD/ERR UI
 function showLoad(t,s){document.getElementById('l-txt').textContent=t;document.getElementById('l-sub').textContent=s;document.getElementById('loading').classList.add('show');}
