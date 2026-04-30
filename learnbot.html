@@ -2009,45 +2009,102 @@ function handleTxt(inp){
         if(actBtn2){actBtn2.disabled=false;actBtn2.style.opacity='1';actBtn2.textContent='✅ Activate Lesson for Students';}
       }catch(err){
         console.error('Server PDF extraction error:',err);
-        status.textContent='⏳ Server extraction failed — trying browser extraction…';
+        status.textContent='⏳ Trying browser extraction…';
         status.style.color='var(--maroon)';
 
-        // Try PDF.js client-side extraction as fallback
+        // TIER 2: PDF.js text extraction (works for text-based PDFs)
         try{
-          if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
+          if(typeof pdfjsLib==='undefined') throw new Error('PDF.js not loaded');
           pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-          var arrBuf = await new Promise(function(res,rej){
-            var r2=new FileReader();
-            r2.onload=function(e){res(e.target.result);};
-            r2.onerror=rej;
-            r2.readAsArrayBuffer(f);
+          var arrBuf=await new Promise(function(res2,rej2){
+            var r2=new FileReader();r2.onload=function(e2){res2(e2.target.result);};r2.onerror=rej2;r2.readAsArrayBuffer(f);
           });
-          var pdf = await pdfjsLib.getDocument({data:arrBuf}).promise;
+          var pdfDoc=await pdfjsLib.getDocument({data:arrBuf}).promise;
           var texts=[];
-          for(var p=1;p<=Math.min(pdf.numPages,15);p++){
-            var pg=await pdf.getPage(p);
+          for(var p=1;p<=Math.min(pdfDoc.numPages,15);p++){
+            var pg=await pdfDoc.getPage(p);
             var tc=await pg.getTextContent();
             var pt=tc.items.map(function(i){return i.str;}).join(' ').trim();
             if(pt) texts.push(pt);
           }
-          var extracted = texts.join('\n\n').trim();
-          if(extracted.length < 20) throw new Error('No text found in PDF');
+          var extracted=texts.join('\n\n').trim();
+          if(extracted.length<20) throw new Error('No text layer — scanned PDF');
 
-          document.getElementById('t-text').value = extracted;
-          status.textContent='✅ Text extracted in browser! ('+extracted.length+' characters) — Ready to activate';
+          document.getElementById('t-text').value=extracted;
+          status.textContent='✅ Text extracted! ('+extracted.length+' chars) — Ready to activate';
           status.style.color='green';
-          window.pdfBase64=null; // text is ready, clear base64
-          window.pdfExtracting=false;
-          var actBtn4=document.querySelector('[onclick="activateLesson()"]');
-          if(actBtn4){actBtn4.disabled=false;actBtn4.style.opacity='1';actBtn4.textContent='✅ Activate Lesson for Students';}
+          window.pdfBase64=null;window.pdfExtracting=false;
+          var b4=document.querySelector('[onclick="activateLesson()"]');
+          if(b4){b4.disabled=false;b4.style.opacity='1';b4.textContent='✅ Activate Lesson for Students';}
+
         }catch(e2){
-          console.error('Browser PDF extraction also failed:',e2);
-          status.textContent='✅ PDF uploaded. Text could not be extracted (scanned image). Click "Activate Lesson for Students" below — AI will teach from the topic name.';
-          status.style.color='green';
-          document.getElementById('t-text').value='';
-          window.pdfExtracting=false;
-          var actBtn5=document.querySelector('[onclick="activateLesson()"]');
-          if(actBtn5){actBtn5.disabled=false;actBtn5.style.opacity='1';actBtn5.textContent='✅ Activate Lesson for Students';}
+          // TIER 3: Scanned PDF — render pages to canvas → send to Claude Vision API
+          console.log('Text extraction failed, trying Vision API for scanned PDF…');
+          status.textContent='⏳ Scanned PDF detected — reading with AI Vision (may take 30-60 seconds)…';
+          status.style.color='var(--maroon)';
+          try{
+            if(typeof pdfjsLib==='undefined') throw new Error('PDF.js not loaded');
+            pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            var arrBuf2=await new Promise(function(res3,rej3){
+              var r3=new FileReader();r3.onload=function(e3){res3(e3.target.result);};r3.onerror=rej3;r3.readAsArrayBuffer(f);
+            });
+            var pdfDoc2=await pdfjsLib.getDocument({data:arrBuf2}).promise;
+            var pageImages=[];
+            var maxPages=Math.min(pdfDoc2.numPages,6); // max 6 pages for Vision
+            status.textContent='⏳ Rendering '+maxPages+' pages for AI Vision…';
+
+            for(var pi=1;pi<=maxPages;pi++){
+              var page=await pdfDoc2.getPage(pi);
+              var viewport=page.getViewport({scale:1.5});
+              var canvas=document.createElement('canvas');
+              canvas.width=viewport.width; canvas.height=viewport.height;
+              var ctx=canvas.getContext('2d');
+              await page.render({canvasContext:ctx,viewport:viewport}).promise;
+              var imgData=canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+              pageImages.push(imgData);
+              status.textContent='⏳ Rendered page '+pi+' of '+maxPages+'…';
+            }
+
+            // Send all page images to Claude Vision
+            status.textContent='⏳ AI is reading your scanned PDF ('+maxPages+' pages)…';
+            var visionContent=[];
+            for(var vi=0;vi<pageImages.length;vi++){
+              visionContent.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:pageImages[vi]}});
+              visionContent.push({type:'text',text:'Page '+(vi+1)+': Extract ALL text from this page exactly as it appears in the book. Include all numbers, formulas, problems, and sentences. Preserve paragraph structure.'});
+            }
+            visionContent.push({type:'text',text:'Provide the complete extracted text from all pages, maintaining the original structure and order. Output only the extracted text, no commentary.'});
+
+            var vRes=await fetch('/api/ai',{
+              method:'POST',headers:{'Content-Type':'application/json'},
+              body:JSON.stringify({payload:{
+                model:'claude-sonnet-4-5',
+                max_tokens:4000,
+                messages:[{role:'user',content:visionContent}]
+              }})
+            });
+            var vData=await vRes.json();
+            var vText='';
+            if(vData.content&&vData.content[0]) vText=(vData.content[0].text||'').trim();
+            else if(vData.text) vText=String(vData.text).trim();
+
+            if(!vText||vText.length<20) throw new Error('Vision API returned empty text');
+
+            document.getElementById('t-text').value=vText;
+            status.textContent='✅ AI Vision read '+maxPages+' pages! ('+vText.length+' chars) — Ready to activate';
+            status.style.color='green';
+            window.pdfBase64=null;window.pdfExtracting=false;
+            var b5=document.querySelector('[onclick="activateLesson()"]');
+            if(b5){b5.disabled=false;b5.style.opacity='1';b5.textContent='✅ Activate Lesson for Students';}
+
+          }catch(e3){
+            console.error('Vision API also failed:',e3);
+            status.textContent='⚠️ Could not read this PDF automatically. Please paste the lesson text in the box above, then click Activate.';
+            status.style.color='orange';
+            document.getElementById('t-text').value='';
+            window.pdfExtracting=false;
+            var b6=document.querySelector('[onclick="activateLesson()"]');
+            if(b6){b6.disabled=false;b6.style.opacity='1';b6.textContent='✅ Activate Lesson for Students';}
+          }
         }
       }
     };
