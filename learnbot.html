@@ -2061,10 +2061,20 @@ function activateLesson(){
     return;
   }
 
-  // Always store extracted text. If PDF extraction failed but text exists, use it.
   lessonTxt = hasText ? txt.trim() : '';
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
+
+  // ── Save to sessionStorage NOW so Teaching Mode always has it ──
+  // This is the critical fix: store at activation time, not at launch time
+  var activatedData = {
+    subject:    sub,
+    cls:        cls,
+    topic:      ch,
+    lessonText: lessonTxt.substring(0, 4000),
+    lang:       'en'  // will be overridden at launch time
+  };
+  try { sessionStorage.setItem('tm_activated', JSON.stringify(activatedData)); } catch(e){}
 
   const msg = hasText
     ? '✅ Lesson Activated!\n\nAI Teacher has studied the lesson and is ready to teach!'
@@ -2092,18 +2102,21 @@ var TM_SUBJECTS = {
 };
 
 function openTeachingPicker(){
-  var cls = document.getElementById('s-class').value;
-  if(!cls){ alert('Please select your Class first.'); return; }
-
   var cardsEl    = document.getElementById('tm-subject-cards');
   var noLessonEl = document.getElementById('tm-no-lesson');
   cardsEl.innerHTML = '';
 
-  // Check t-text directly as extra fallback
-  var tTextDirect='';
+  // Read from sessionStorage — saved at activation time (most reliable)
+  var activated = null;
+  try { var r=sessionStorage.getItem('tm_activated'); if(r) activated=JSON.parse(r); } catch(e){}
+
+  // Also check live JS variables as fallback
+  var liveLesson = (typeof lessonTxt!=='undefined' && lessonTxt && lessonTxt.trim().length>20) ? lessonTxt : '';
   var tEl=document.getElementById('t-text');
-  if(tEl){var tv=tEl.value.trim();if(tv.length>20&&!tv.startsWith('PDF file loaded:'))tTextDirect=tv;}
-  var hasLesson = window.AL && window.AL.sub && (lessonTxt || window.pdfBase64 || tTextDirect);
+  if(!liveLesson && tEl){ var tv=tEl.value.trim(); if(tv.length>20&&!tv.startsWith('PDF file loaded:')) liveLesson=tv; }
+
+  var hasLesson = (activated && activated.subject && activated.lessonText && activated.lessonText.trim().length>10)
+               || (window.AL && window.AL.sub && liveLesson);
 
   if(!hasLesson){
     noLessonEl.style.display = 'block';
@@ -2112,7 +2125,10 @@ function openTeachingPicker(){
     noLessonEl.style.display = 'none';
     cardsEl.style.display    = 'grid';
 
-    var activeSub = window.AL.sub;
+    var activeSub = (activated&&activated.subject)||(window.AL&&window.AL.sub)||'';
+    var activeCls = (activated&&activated.cls)||document.getElementById('s-class').value||(window.AL&&window.AL.cls)||'';
+    var activeCh  = (activated&&activated.topic)||(window.AL&&window.AL.ch)||activeSub;
+
     var cfg = TM_SUBJECTS[activeSub] || { icon:'📚', card:activeSub+' Class', hint:'AI Teacher will guide you' };
 
     var card = document.createElement('div');
@@ -2123,7 +2139,7 @@ function openTeachingPicker(){
       '<div class="tc-name">'+cfg.card+'</div>'+
       '<div class="tc-sub">'+cfg.hint+'</div>'+
       '<div style="margin-top:10px;font-size:0.65rem;color:rgba(107,26,26,0.5);font-weight:700;">'+
-        cls+' • '+(window.AL.ch||activeSub)+
+        activeCls+' • '+activeCh+
       '</div>';
     card.onclick = function(){ launchTeachingMode(activeSub); };
     cardsEl.appendChild(card);
@@ -2139,22 +2155,23 @@ function closeTeachingPicker(){
 }
 
 function launchTeachingMode(subjectOverride){
-  var cls     = document.getElementById('s-class').value || (window.AL ? window.AL.cls : '') || 'Class 9';
-  var subj    = subjectOverride || (window.AL ? window.AL.sub : '') || 'Science';
-  var chapter = window.AL ? (window.AL.ch || '') : '';
   var lang    = typeof teachLang !== 'undefined' ? teachLang : 'english';
   var langVal = lang==='both'?'bi':lang==='tamil'?'ta':'en';
+
+  // Read from tm_activated (saved at activateLesson time) — most reliable
+  var activated = null;
+  try { var r=sessionStorage.getItem('tm_activated'); if(r) activated=JSON.parse(r); } catch(e){}
+
+  // Build data — activated sessionStorage is primary, live vars are fallback
+  var subj    = subjectOverride || (activated&&activated.subject) || (window.AL?window.AL.sub:'') || 'Science';
+  var cls     = (activated&&activated.cls) || document.getElementById('s-class').value || (window.AL?window.AL.cls:'') || 'Class 9';
+  var chapter = (activated&&activated.topic) || (window.AL?window.AL.ch:'') || '';
   var topicVal = (chapter || subj).trim();
 
-  // Get lesson text — try lessonTxt first, then read t-text directly as fallback
-  var lesson = (typeof lessonTxt !== 'undefined' && lessonTxt && lessonTxt.trim().length > 20) ? lessonTxt : '';
-  if(!lesson){
-    var tTextEl = document.getElementById('t-text');
-    if(tTextEl){
-      var tVal = tTextEl.value.trim();
-      if(tVal.length > 20 && !tVal.startsWith('PDF file loaded:')) lesson = tVal;
-    }
-  }
+  // Lesson text — activated sessionStorage first, then live vars
+  var lesson  = (activated&&activated.lessonText&&activated.lessonText.trim().length>10) ? activated.lessonText : '';
+  if(!lesson){ lesson = (typeof lessonTxt!=='undefined'&&lessonTxt&&lessonTxt.trim().length>20) ? lessonTxt : ''; }
+  if(!lesson){ var tEl=document.getElementById('t-text'); if(tEl){ var tv=tEl.value.trim(); if(tv.length>20&&!tv.startsWith('PDF file loaded:')) lesson=tv; } }
 
   var tmData = {
     subject:    subj,
