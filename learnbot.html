@@ -1080,6 +1080,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 #sp-step2-wrap { display: none !important; }
 
 </style>
+<!-- PDF.js for client-side text extraction (fallback when server extraction fails) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 <div class="header">
@@ -2006,15 +2008,48 @@ function handleTxt(inp){
         var actBtn2=document.querySelector('[onclick="activateLesson()"]');
         if(actBtn2){actBtn2.disabled=false;actBtn2.style.opacity='1';actBtn2.textContent='✅ Activate Lesson for Students';}
       }catch(err){
-        console.error('PDF extraction error:',err);
-        // Keep PDF stored for direct use
-        status.textContent='⚠️ Text extraction failed ('+err.message+'). PDF stored — will teach directly from PDF file.';
-        status.style.color='orange';
-        document.getElementById('t-text').value='PDF file loaded: '+f.name;
-        window.pdfExtracting=false;
-        // Re-enable button even on failure so teacher can still activate
-        var actBtn3=document.querySelector('[onclick="activateLesson()"]');
-        if(actBtn3){actBtn3.disabled=false;actBtn3.style.opacity='1';actBtn3.textContent='✅ Activate Lesson for Students';}
+        console.error('Server PDF extraction error:',err);
+        status.textContent='⏳ Server extraction failed — trying browser extraction…';
+        status.style.color='var(--maroon)';
+
+        // Try PDF.js client-side extraction as fallback
+        try{
+          if(typeof pdfjsLib === 'undefined') throw new Error('PDF.js not loaded');
+          pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          var arrBuf = await new Promise(function(res,rej){
+            var r2=new FileReader();
+            r2.onload=function(e){res(e.target.result);};
+            r2.onerror=rej;
+            r2.readAsArrayBuffer(f);
+          });
+          var pdf = await pdfjsLib.getDocument({data:arrBuf}).promise;
+          var texts=[];
+          for(var p=1;p<=Math.min(pdf.numPages,15);p++){
+            var pg=await pdf.getPage(p);
+            var tc=await pg.getTextContent();
+            var pt=tc.items.map(function(i){return i.str;}).join(' ').trim();
+            if(pt) texts.push(pt);
+          }
+          var extracted = texts.join('\n\n').trim();
+          if(extracted.length < 20) throw new Error('No text found in PDF');
+
+          document.getElementById('t-text').value = extracted;
+          status.textContent='✅ Text extracted in browser! ('+extracted.length+' characters) — Ready to activate';
+          status.style.color='green';
+          window.pdfBase64=null; // text is ready, clear base64
+          window.pdfExtracting=false;
+          var actBtn4=document.querySelector('[onclick="activateLesson()"]');
+          if(actBtn4){actBtn4.disabled=false;actBtn4.style.opacity='1';actBtn4.textContent='✅ Activate Lesson for Students';}
+        }catch(e2){
+          console.error('Browser PDF extraction also failed:',e2);
+          // Last resort: store filename, keep pdfBase64 in memory
+          status.textContent='⚠️ Could not read text from this PDF. Please paste the lesson text manually below.';
+          status.style.color='orange';
+          document.getElementById('t-text').value='';
+          window.pdfExtracting=false;
+          var actBtn5=document.querySelector('[onclick="activateLesson()"]');
+          if(actBtn5){actBtn5.disabled=false;actBtn5.style.opacity='1';actBtn5.textContent='✅ Activate Lesson for Students';}
+        }
       }
     };
     reader.onerror=()=>{ status.textContent='❌ Could not read file. Try again.'; };
@@ -2066,13 +2101,13 @@ function activateLesson(){
   window.AL={cls,sub,ch};
 
   // ── Save to sessionStorage NOW so Teaching Mode always has it ──
-  // This is the critical fix: store at activation time, not at launch time
   var activatedData = {
     subject:    sub,
     cls:        cls,
     topic:      ch,
     lessonText: lessonTxt.substring(0, 4000),
-    lang:       'en'  // will be overridden at launch time
+    hasPDF:     hasPDF,
+    lang:       'en'
   };
   try { sessionStorage.setItem('tm_activated', JSON.stringify(activatedData)); } catch(e){}
 
@@ -2115,8 +2150,11 @@ function openTeachingPicker(){
   var tEl=document.getElementById('t-text');
   if(!liveLesson && tEl){ var tv=tEl.value.trim(); if(tv.length>20&&!tv.startsWith('PDF file loaded:')) liveLesson=tv; }
 
-  var hasLesson = (activated && activated.subject && activated.lessonText && activated.lessonText.trim().length>10)
-               || (window.AL && window.AL.sub && liveLesson);
+  var hasLesson = (activated && activated.subject && (
+                    (activated.lessonText && activated.lessonText.trim().length>10)
+                    || activated.hasPDF
+                  ))
+               || (window.AL && window.AL.sub && (liveLesson || window.pdfBase64));
 
   if(!hasLesson){
     noLessonEl.style.display = 'block';
