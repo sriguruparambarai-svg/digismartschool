@@ -2091,16 +2091,13 @@ function activateLesson(){
   const hasPDF = window.pdfBase64 && window.pdfBase64.length > 0;
   const hasText = txt.trim().length > 20 && !txt.startsWith('PDF file loaded:');
 
-  if(!hasText && !hasPDF){
-    alert('Please paste lesson text OR upload a PDF file.');
-    return;
-  }
-
+  // Always allow activation — class + subject + chapter is enough for AI to teach
+  // If no text: AI will generate lesson from topic name
   lessonTxt = hasText ? txt.trim() : '';
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
 
-  // ── Save to sessionStorage NOW so Teaching Mode always has it ──
+  // Save everything to sessionStorage at activation time
   var activatedData = {
     subject:    sub,
     cls:        cls,
@@ -2111,9 +2108,10 @@ function activateLesson(){
   };
   try { sessionStorage.setItem('tm_activated', JSON.stringify(activatedData)); } catch(e){}
 
-  const msg = hasText
-    ? '✅ Lesson Activated!\n\nAI Teacher has studied the lesson and is ready to teach!'
-    : '✅ Lesson Activated!\n\nPDF is ready — AI Teacher will teach from the uploaded PDF file!';
+  var msg;
+  if(hasText)      msg='✅ Lesson Activated!\n\nAI Teacher has studied the lesson and is ready to teach!';
+  else if(hasPDF)  msg='✅ Lesson Activated!\n\nAI Teacher is ready. Topic: '+ch;
+  else             msg='✅ Lesson Activated!\n\nAI Teacher will generate a lesson for '+sub+' — '+ch+'\n(No textbook text — AI will teach from topic knowledge)';
 
   alert(msg);
   showTab('student',document.querySelectorAll('.tab-btn')[1]);
@@ -2150,11 +2148,9 @@ function openTeachingPicker(){
   var tEl=document.getElementById('t-text');
   if(!liveLesson && tEl){ var tv=tEl.value.trim(); if(tv.length>20&&!tv.startsWith('PDF file loaded:')) liveLesson=tv; }
 
-  var hasLesson = (activated && activated.subject && (
-                    (activated.lessonText && activated.lessonText.trim().length>10)
-                    || activated.hasPDF
-                  ))
-               || (window.AL && window.AL.sub && (liveLesson || window.pdfBase64));
+  // Show card whenever subject is activated — AI can teach from topic alone
+  var hasLesson = (activated && activated.subject && activated.subject.trim().length > 0)
+               || (window.AL && window.AL.sub);
 
   if(!hasLesson){
     noLessonEl.style.display = 'block';
