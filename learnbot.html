@@ -2050,42 +2050,58 @@ function handleTxt(inp){
             });
             var pdfDoc2=await pdfjsLib.getDocument({data:arrBuf2}).promise;
             var pageImages=[];
-            var maxPages=Math.min(pdfDoc2.numPages,6); // max 6 pages for Vision
-            status.textContent='⏳ Rendering '+maxPages+' pages for AI Vision…';
+            var maxPages=pdfDoc2.numPages; // Read ALL pages
+            var totalPages=maxPages;
+            status.textContent='⏳ Rendering '+totalPages+' pages for AI Vision…';
 
-            for(var pi=1;pi<=maxPages;pi++){
+            // Render all pages to images
+            var pageImages=[];
+            for(var pi=1;pi<=totalPages;pi++){
               var page=await pdfDoc2.getPage(pi);
-              var viewport=page.getViewport({scale:1.5});
+              var viewport=page.getViewport({scale:1.2}); // slightly lower scale for speed
               var canvas=document.createElement('canvas');
               canvas.width=viewport.width; canvas.height=viewport.height;
               var ctx=canvas.getContext('2d');
               await page.render({canvasContext:ctx,viewport:viewport}).promise;
-              var imgData=canvas.toDataURL('image/jpeg',0.85).split(',')[1];
+              var imgData=canvas.toDataURL('image/jpeg',0.75).split(',')[1]; // lower quality = smaller size
               pageImages.push(imgData);
-              status.textContent='⏳ Rendered page '+pi+' of '+maxPages+'…';
+              status.textContent='⏳ Rendered page '+pi+' of '+totalPages+'…';
             }
 
-            // Send all page images to Claude Vision
-            status.textContent='⏳ AI is reading your scanned PDF ('+maxPages+' pages)…';
-            var visionContent=[];
-            for(var vi=0;vi<pageImages.length;vi++){
-              visionContent.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:pageImages[vi]}});
-              visionContent.push({type:'text',text:'Page '+(vi+1)+': Extract ALL text from this page exactly as it appears in the book. Include all numbers, formulas, problems, and sentences. Preserve paragraph structure.'});
-            }
-            visionContent.push({type:'text',text:'Provide the complete extracted text from all pages, maintaining the original structure and order. Output only the extracted text, no commentary.'});
+            // Process in batches of 3 pages per Vision API call
+            var BATCH=3;
+            var allText=[];
+            var totalBatches=Math.ceil(pageImages.length/BATCH);
+            status.textContent='⏳ AI reading pages — batch 1 of '+totalBatches+'…';
 
-            var vRes=await fetch('/api/ai',{
-              method:'POST',headers:{'Content-Type':'application/json'},
-              body:JSON.stringify({payload:{
-                model:'claude-sonnet-4-5',
-                max_tokens:4000,
-                messages:[{role:'user',content:visionContent}]
-              }})
-            });
-            var vData=await vRes.json();
-            var vText='';
-            if(vData.content&&vData.content[0]) vText=(vData.content[0].text||'').trim();
-            else if(vData.text) vText=String(vData.text).trim();
+            for(var bi=0;bi<pageImages.length;bi+=BATCH){
+              var batchImgs=pageImages.slice(bi,bi+BATCH);
+              var batchNum=Math.floor(bi/BATCH)+1;
+              status.textContent='⏳ AI reading pages '+(bi+1)+'-'+Math.min(bi+BATCH,totalPages)+' (batch '+batchNum+'/'+totalBatches+')…';
+
+              var vc=[];
+              for(var vi2=0;vi2<batchImgs.length;vi2++){
+                vc.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:batchImgs[vi2]}});
+                vc.push({type:'text',text:'Page '+(bi+vi2+1)+': Extract ALL text exactly as it appears. Preserve every sentence, number, name, heading and paragraph. No commentary.'});
+              }
+              vc.push({type:'text',text:'Output only the extracted text from these pages in order. Keep paragraph breaks. No headers like "Page 1:".'});
+
+              var bRes=await fetch('/api/ai',{
+                method:'POST',headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({payload:{
+                  model:'claude-sonnet-4-5',
+                  max_tokens:3000,
+                  messages:[{role:'user',content:vc}]
+                }})
+              });
+              var bData=await bRes.json();
+              var bText='';
+              if(bData.content&&bData.content[0]) bText=(bData.content[0].text||'').trim();
+              else if(bData.text) bText=String(bData.text).trim();
+              if(bText) allText.push(bText);
+            }
+
+            var vText=allText.join('\n\n').trim();
 
             if(!vText||vText.length<20) throw new Error('Vision API returned empty text');
 

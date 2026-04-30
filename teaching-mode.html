@@ -417,91 +417,154 @@ async function launchClass(data){
 async function buildScript(){
   _paras=[];
   if(S.lessonText&&S.lessonText.trim()){
-    _paras=S.lessonText.trim().split(/\n{2,}/).map(function(p){return p.replace(/\n/g,' ').trim();}).filter(function(p){return p.length>25;}).slice(0,10);
+    // Clean the extracted text — remove markdown headers from Vision API output
+    var cleaned=S.lessonText
+      .replace(/^#+\s.*$/gm,'')        // remove # headings
+      .replace(/^\*\*.*\*\*$/gm,'')    // remove bold lines
+      .replace(/^---+$/gm,'')          // remove dividers
+      .trim();
+    _paras=cleaned.split(/\n{2,}/)
+      .map(function(p){return p.replace(/\n/g,' ').replace(/\s{2,}/g,' ').trim();})
+      .filter(function(p){return p.length>30 && !/^(page\s*\d+|#|##)/i.test(p);})
+      .slice(0,15); // up to 15 paragraphs
   }
-  var lr=S.lang==='ta'?'Teach ONLY in Tamil. All segments lang="ta".':S.lang==='bi'?'Bilingual: English teaching + Tamil meaning segments after key terms.':'Teach ONLY in English. All segments lang="en".';
 
-  var mi='';
-  var paraBlock=_paras.length>0?'\n\nTEXTBOOK PARAGRAPHS — use EXACTLY in read_line segments:\n'+_paras.map(function(p,i){return '--- PARA '+(i+1)+' ---\n'+p;}).join('\n\n'):'';
-  var paraCount=_paras.length>0?_paras.length+' paragraphs':'No textbook — generate content for "'+S.topic+'"';
+  var lr=S.lang==='ta'?'Explain ONLY in Tamil.':S.lang==='bi'?'Explain in English. Add Tamil meaning for key terms.':'Explain ONLY in English.';
 
+  // ══════════════════════════════════════════
+  // MATHS — still fully AI generated
+  // ══════════════════════════════════════════
   if(S.mode==='maths'){
-    mi='MATHS TEACHING:\n'
-      +'TWO FIELDS: "display"=SYMBOLS on screen (e.g. "9 - 1 = 8") | "text"=WORDS spoken (e.g. "nine minus one equals eight")\n'
-      +'NEVER mix symbols in text field or words in display field.\n'
-      +'Segments in order:\n'
-      +'1. maths_answer  — display: final answer symbols | text: say answer in words\n'
-      +'2. maths_formula — display: formula symbols       | text: what the formula means\n'
-      +'3. maths_step (one per step) — display: step symbols | text: explain this step\n'
-      +'4. maths_rough   — display: rough work            | text: "Write this in rough book"\n'
-      +'5. summary       — text: recap what we solved';
-  } else if(S.mode==='science'){
-    mi='SCIENCE TEACHING — '+paraCount+'. Read paragraph by paragraph. Students follow from their book.\n'
-      +'For EACH paragraph:\n'
-      +'a) show_para — "Students, look at paragraph N. Put finger on first line."\n'
-      +'b) read_line — EXACT paragraph text word for word. Never shorten.\n'
-      +'c) explain   — Explain in simple Tamil Nadu daily life examples. 2 sentences.\n'
-      +'d) keypoint  — Key fact. Add "keypoint" field (8-12 words).\n'
-      +'e) emphasis  — "REMEMBER: [key fact]"\n'
-      +'f) wait_next — "Good. Read paragraph N again. Press Next when ready."\n'
-      +'End with: summary'
-      +paraBlock;
-  } else if(S.mode==='english'){
-    mi='ENGLISH TEACHING — '+paraCount+'. Read clearly for pronunciation. Help students understand.\n'
-      +'For EACH paragraph:\n'
-      +'a) show_para   — "Students, find paragraph N in your book."\n'
-      +'b) read_line   — EXACT paragraph text. Read slowly and clearly.\n'
-      +'c) word_meaning— Pick 1-2 difficult words. Explain meaning simply.\n'
-      +'d) explain     — Paragraph meaning in simple words.\n'
-      +'e) keypoint    — Main idea. Add "keypoint" field.\n'
-      +'f) wait_next   — "Good. Read paragraph N aloud yourself. Press Next when done."\n'
-      +'End with: summary'
-      +paraBlock;
-  } else if(S.mode==='tamil'){
-    mi='TAMIL TEACHING — '+paraCount+'. தமிழ் வழிக் கற்பித்தல். Teach ONLY in Tamil.\n'
-      +'For EACH paragraph:\n'
-      +'a) show_para — "மாணவர்களே, பத்தி N பாருங்கள். விரலை வையுங்கள்."\n'
-      +'b) read_line — EXACT paragraph text word for word.\n'
-      +'c) explain   — Explain in simple Tamil.\n'
-      +'d) keypoint  — Add "keypoint" field in Tamil.\n'
-      +'e) emphasis  — "நினைவில் வையுங்கள்: [key fact]"\n'
-      +'f) wait_next — "நன்று. மீண்டும் படியுங்கள். தயாரானதும் Next அழுத்துங்கள்."\n'
-      +'End with: summary'
-      +paraBlock;
-  } else {
-    // theory (Social Science, EVS, Computer, etc.)
-    mi=S.subject.toUpperCase()+' TEACHING — '+paraCount+'. Story-style narrative. Read paragraph by paragraph.\n'
-      +'DO NOT give bullet points. DO NOT summarise. Read like a real teacher from the book.\n'
-      +'For EACH paragraph:\n'
-      +'a) show_para — "Students, look at paragraph N. Keep your finger on it."\n'
-      +'b) read_line — EXACT paragraph text, word for word.\n'
-      +'c) explain   — Engaging story-style explanation. Use Tamil Nadu context. 2 sentences.\n'
-      +'d) keypoint  — Dates, names, key facts. Add "keypoint" field (8-12 words).\n'
-      +'e) emphasis  — "REMEMBER: [key fact]"\n'
-      +'f) wait_next — "Good. Read paragraph N from your book once more. Press Next when ready."\n'
-      +'End with: summary — recap all key points.'
-      +paraBlock;
+    var mathsPrompt='You are an experienced Tamil Nadu school teacher.\n'
+      +'Class: '+S.cls+' | Subject: Maths | Chapter: '+S.topic+'\n\n'
+      +(S.lessonText?'TEXTBOOK:\n'+S.lessonText.substring(0,2000):'Generate lesson for: '+S.topic)+'\n\n'
+      +'MATHS TEACHING — TWO FIELDS:\n'
+      +'• "display" = SYMBOLS on screen (e.g. "9 - 1 = 8")\n'
+      +'• "text"    = WORDS spoken aloud (e.g. "nine minus one equals eight")\n'
+      +'NEVER put symbols in text. NEVER put words in display.\n'
+      +'Segments: maths_answer → maths_formula → maths_step (×N) → maths_rough → summary\n\n'
+      +lr+'\n\n'
+      +'Return ONLY valid JSON array []. No markdown.\n'
+      +'Fields: text, display, tone, pause, lang, type, para_index';
+    await callAI(mathsPrompt);
+    return;
   }
 
-  var les=S.lessonText?'TEXTBOOK:\n'+S.lessonText.substring(0,2500):'(No textbook — generate from topic)';
-  var prompt='You are an experienced Tamil Nadu school teacher.\nClass: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'+les+'\n\n'+mi+'\n\n'+lr+'\n\nRULES:\n1. Each segment: 1-3 sentences. Natural classroom speech.\n2. Address: "Students…","Children…","Now class…"\n3. read_line: EXACT book text — no paraphrasing, no shortening.\n4. maths: "display"=symbols, "text"=spoken words. Never mix.\n5. Return ONLY valid JSON array [ ]. No markdown.\n\nFields: text, display(optional), tone, pause, lang, type, para_index, keypoint(optional)\ntone: strict normal emphasis question command\ntype: open show_para read_line explain keypoint emphasis wait_next summary maths_answer maths_formula maths_step maths_rough word_meaning diagram_intro diagram_part';
+  // ══════════════════════════════════════════
+  // THEORY/SCIENCE/ENGLISH/TAMIL/SOCIAL
+  // Build read_line segments DIRECTLY from paragraphs — no AI needed
+  // Only ask AI to generate explain + keypoint for each paragraph
+  // ══════════════════════════════════════════
+  if(_paras.length===0){
+    // No text — generate full lesson from topic
+    var genPrompt='You are an experienced Tamil Nadu school teacher.\n'
+      +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
+      +'Generate a complete lesson. For each concept, use:\n'
+      +'show_para → read_line (write the actual lesson text) → explain → keypoint → emphasis → wait_next\n'
+      +'End with summary.\n'+lr+'\n\n'
+      +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index, keypoint';
+    await callAI(genPrompt);
+    return;
+  }
 
+  // ── Step 1: Ask AI ONLY for explain + keypoint for each paragraph ──
+  var explainPrompt='You are an experienced Tamil Nadu school teacher.\n'
+    +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
+    +'I will give you '+_paras.length+' textbook paragraphs.\n'
+    +'For EACH paragraph, give me ONLY:\n'
+    +'1. "explain": 1-2 sentences explaining this paragraph simply (Tamil Nadu daily life examples)\n'
+    +'2. "keypoint": 8-12 word key fact from this paragraph\n\n'
+    +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
+    +lr+'\n\n'
+    +'Return ONLY valid JSON array, one object per paragraph:\n'
+    +'[{"para":1,"explain":"...","keypoint":"...","lang":"en"},...]';
+
+  var explainData=[];
+  try{
+    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:2000,system:'Return ONLY valid JSON array. No markdown.',messages:[{role:'user',content:explainPrompt}]}})});
+    var eRaw=await eRes.text();
+    var eResp=JSON.parse(eRaw);
+    var eText='';
+    if(eResp.content&&eResp.content[0])eText=(eResp.content[0].text||'').trim();
+    else if(eResp.text)eText=String(eResp.text).trim();
+    var eCl=eText.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    var eParsed=null;try{eParsed=JSON.parse(eCl);}catch(e){}
+    if(!eParsed){var a=eCl.indexOf('['),b=eCl.lastIndexOf(']');if(a>=0&&b>a)try{eParsed=JSON.parse(eCl.substring(a,b+1));}catch(e){}}
+    if(eParsed&&Array.isArray(eParsed))explainData=eParsed;
+  }catch(e){console.warn('Explain generation failed, using defaults',e);}
+
+  // ── Step 2: Build segments directly — read_line is the ACTUAL paragraph text ──
+  segs=[];
+  var vt=['strict','normal','emphasis','question','command'];
+
+  // Opening segment
+  segs.push({text:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read and understand '+_paras.length+' paragraphs together.',tone:'strict',pause:1.5,lang:'en',type:'open',para_index:0,_orig:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read and understand '+_paras.length+' paragraphs together.'});
+
+  for(var i=0;i<_paras.length;i++){
+    var para=_paras[i];
+    var pNum=i+1;
+    var exp=explainData[i]||{};
+    var explainTxt=exp.explain||'This paragraph tells us about '+S.topic+'.';
+    var keypointTxt=exp.keypoint||para.substring(0,60)+'…';
+    var lang=exp.lang||'en';
+
+    // a) show_para — tell student which paragraph
+    segs.push({
+      text:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.',
+      tone:'strict',pause:1.2,lang:'en',type:'show_para',para_index:pNum,
+      _orig:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.'
+    });
+
+    // b) read_line — ACTUAL BOOK TEXT — constructed directly, no AI
+    // If paragraph is long, split into 2 parts
+    if(para.length>300){
+      var mid=para.indexOf('. ',Math.floor(para.length/2));
+      if(mid<0)mid=Math.floor(para.length/2);
+      var part1=para.substring(0,mid+1).trim();
+      var part2=para.substring(mid+1).trim();
+      segs.push({text:part1,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:part1});
+      if(part2.length>10)segs.push({text:part2,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:part2});
+    } else {
+      segs.push({text:para,tone:'normal',pause:1.0,lang:'en',type:'read_line',para_index:pNum,_orig:para});
+    }
+
+    // c) explain — AI generated
+    segs.push({text:explainTxt,tone:'normal',pause:1.2,lang:lang,type:'explain',para_index:pNum,_orig:explainTxt});
+
+    // d) keypoint — AI generated
+    segs.push({text:'The key point here is: '+keypointTxt,tone:'emphasis',pause:1.5,lang:lang,type:'keypoint',para_index:pNum,keypoint:keypointTxt,_orig:'The key point here is: '+keypointTxt});
+
+    // e) emphasis
+    var emphTxt='REMEMBER: '+keypointTxt;
+    segs.push({text:emphTxt,tone:'emphasis',pause:1.8,lang:lang,type:'emphasis',para_index:pNum,_orig:emphTxt});
+
+    // f) wait_next — pause for student to re-read
+    var waitTxt='Good. Now read paragraph '+pNum+' once more from your book. Press Next when you are ready.';
+    segs.push({text:waitTxt,tone:'normal',pause:0.5,lang:'en',type:'wait_next',para_index:pNum,_orig:waitTxt});
+  }
+
+  // Summary
+  var summaryTxt='Excellent students! Today we read '+_paras.length+' paragraphs from '+S.topic+'. The key points were: '+explainData.filter(function(e){return e.keypoint;}).map(function(e){return e.keypoint;}).slice(0,4).join('; ')+'. Well done!';
+  segs.push({text:summaryTxt,tone:'emphasis',pause:2.0,lang:'en',type:'summary',para_index:0,_orig:summaryTxt});
+
+  if(!segs.length)throw new Error('No segments generated.');
+}
+
+// Helper: call AI and populate segs (used for maths and topic-only modes)
+async function callAI(prompt){
   var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:3000,system:'Tamil Nadu school teacher. Return ONLY valid JSON array [ ]. No markdown.',messages:[{role:'user',content:prompt}]}})});
   var rawTxt=await res.text();
   if(!res.ok)throw new Error('Server '+res.status+': '+rawTxt.substring(0,100));
-  var resp;try{resp=JSON.parse(rawTxt);}catch(e){throw new Error('Bad server response: '+rawTxt.substring(0,100));}
+  var resp;try{resp=JSON.parse(rawTxt);}catch(e){throw new Error('Bad server response');}
   if(resp.error)throw new Error('API: '+(resp.error.message||'error'));
   var raw='';
   if(resp.content&&resp.content[0])raw=(resp.content[0].text||'').trim();
   else if(resp.text)raw=String(resp.text).trim();
   if(!raw)throw new Error('Empty AI response');
-
-  var parsed=null,cl=raw.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  try{parsed=JSON.parse(cl);}catch(e){}
+  var cl=raw.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  var parsed=null;try{parsed=JSON.parse(cl);}catch(e){}
   if(!parsed){var a=cl.indexOf('['),b=cl.lastIndexOf(']');if(a>=0&&b>a)try{parsed=JSON.parse(cl.substring(a,b+1));}catch(e){}}
-  if(!parsed){var ms=cl.match(/\{[\s\S]+?\}/g)||[];var os=[];ms.forEach(function(m){try{os.push(JSON.parse(m));}catch(e){};});if(os.length)parsed=os;}
   if(!parsed||!Array.isArray(parsed)||!parsed.length)throw new Error('Could not parse AI response. Try again.');
-
   var vt=['strict','normal','emphasis','question','command'];
   segs=parsed.map(function(seg){
     var rl=seg.lang||'';var l='en';
