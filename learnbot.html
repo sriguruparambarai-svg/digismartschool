@@ -4504,9 +4504,10 @@ async function handleSlidePDF(event) {
   .crv-a-card{background:linear-gradient(145deg,#F5E6C8,#FFFDF5);border-radius:18px;padding:22px;margin-bottom:14px;border:2px solid #A07830;box-shadow:0 6px 22px rgba(107,15,26,0.22);display:none;}
   .crv-a-label{font-family:"Cinzel",serif;color:#6B0F1A;font-size:0.75rem;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;}
   .crv-a-lines{color:#2A0A0F;font-size:1.02rem;line-height:2;font-weight:600;}
-  .crv-a-line{display:block;opacity:0;transition:opacity 0.35s;}
+  .crv-a-line{display:block;opacity:0;transition:opacity 0.35s;padding:4px 0;border-bottom:1px solid rgba(107,15,26,0.08);line-height:1.7;}
+  .crv-a-line:last-child{border-bottom:none;}
   .crv-a-line.vis{opacity:1;}
-  .crv-a-line.reading{background:linear-gradient(90deg,rgba(107,15,26,0.1),transparent);border-radius:4px;}
+  .crv-a-line.reading{background:linear-gradient(90deg,rgba(107,15,26,0.1),transparent);border-radius:4px;padding-left:6px;}
 
   /* Key points card */
   .crv-kp-card{background:linear-gradient(135deg,#3A0810,#4A0A12);border-radius:14px;padding:20px;margin-bottom:14px;border:2px solid rgba(201,168,76,0.35);display:none;}
@@ -4746,7 +4747,7 @@ function _crvOcrViaVision(pageImages, nm, fileName){
     content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}});
     content.push({type:'text',text:'Page '+(i+1)+':'});
   });
-  content.push({type:'text',text:'Extract ALL text from these pages exactly as written. Preserve question numbers, bold text, and answer structure. Output plain text only.'});
+  content.push({type:'text',text:'Extract ALL text from these pages exactly as written. Output PLAIN TEXT ONLY — no asterisks, no ** bold markers, no ## headings, no markdown. Keep numbered questions as "1. Question text" and numbered answer points as "1. Answer point". Preserve all question numbers and answer content faithfully.'});
 
   fetch(API_URL,{
     method:'POST',
@@ -4785,7 +4786,7 @@ function _crvOcrViaAPI(b64, fileName, nm){
       max_tokens:4000,
       messages:[{role:'user',content:[
         {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}},
-        {type:'text',text:'Extract ALL text from this document exactly as written. Preserve question numbers and answer structure. Output plain text only.'}
+        {type:'text',text:'Extract ALL text from this document exactly as written. Output PLAIN TEXT ONLY — no asterisks, no ** bold markers, no ## headings, no markdown. Keep numbered questions as "1. Question text" and numbered answer points as "1. Answer point".'}
       ]}]
     }})
   })
@@ -4805,37 +4806,110 @@ function _crvOcrViaAPI(b64, fileName, nm){
   });
 }
 
-/* ── parse Q&A ── */
+/* ── clean markdown symbols from any text before display or speech ── */
+function crvClean(txt){
+  if(!txt) return '';
+  return txt
+    .replace(/\*\*([^*]+)\*\*/g,'$1')   // **bold** → bold
+    .replace(/\*([^*]+)\*/g,'$1')        // *italic* → italic
+    .replace(/#{1,6}\s*/g,'')            // ## headings → remove
+    .replace(/__([^_]+)__/g,'$1')        // __bold__ → bold
+    .replace(/_([^_]+)_/g,'$1')          // _italic_ → italic
+    .replace(/`([^`]+)`/g,'$1')          // `code` → code
+    .replace(/\s{2,}/g,' ')
+    .trim();
+}
+
+/* ── parse Q&A from OCR/pasted text ── */
 function crvParse(raw){
   var qa=[];
 
-  /* Format 1: Q1: ... A1: ... */
+  // Clean markdown from the whole raw text first
+  var cleaned=crvClean(raw);
+
+  // ── STRATEGY 1: Bold questions (OCR from exam paper like Xavier)
+  // Pattern: "8. What is...?\nAnswer text\n\n1. What are...?\nAnswer"
+  // Detect: numbered main questions followed by numbered/point answers
+  var lines=raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+
+  // Find bold/heading style questions — lines that are short, end with ? or are ALL CAPS or bold
+  // In OCR output from scanned PDFs, questions often appear as standalone bold lines
+  // Strategy: find lines matching "N. Question text?" pattern at section level
+  var mainQPattern=/^(\d+)\.\s{0,3}([A-Z][^.]{15,}[\?\.])\s*$/;
+  var secQPattern=/^[IVX]+\.\s+/; // Roman numeral sections like "IV. Long answers:"
+
+  // Try to detect document structure — exam paper format
+  // Questions are bold lines (marked ** in OCR), answers are numbered points below
+  var boldQLines=[];
+  for(var li=0;li<lines.length;li++){
+    var l=lines[li];
+    // Bold question in OCR = **text** or standalone question line
+    if(/^\*\*(.+)\*\*$/.test(l)||(/\?/.test(l)&&l.length<150&&!(/^\d+\./.test(l))&&l.length>20)){
+      boldQLines.push({idx:li, q:crvClean(l)});
+    }
+  }
+
+  if(boldQLines.length>=2){
+    // Build Q&A from bold questions + following content as answers
+    for(var bi=0;bi<boldQLines.length;bi++){
+      var startIdx=boldQLines[bi].idx+1;
+      var endIdx=bi+1<boldQLines.length ? boldQLines[bi+1].idx : lines.length;
+      var ansLines=[];
+      for(var ai=startIdx;ai<endIdx;ai++){
+        var al=crvClean(lines[ai]);
+        if(al.length>3 && !secQPattern.test(lines[ai])) ansLines.push(al);
+      }
+      var ans=ansLines.join(' ').trim();
+      if(boldQLines[bi].q&&ans.length>10){
+        qa.push({question:boldQLines[bi].q, answer:ans});
+      }
+    }
+    if(qa.length>=2) return qa;
+    qa=[];
+  }
+
+  // ── STRATEGY 2: Numbered main questions (1. Q text\n numbered points below)
+  // Detect top-level numbered questions (not sub-points like "  1. point")
+  // Top-level = line starting with single digit + period + capital letter question
+  var topQs=[];
+  for(var ti=0;ti<lines.length;ti++){
+    var tl=crvClean(lines[ti]);
+    // Match: "1. Explain the role..." or "2. What are the goals..."
+    var tm=tl.match(/^(\d+)\.\s+([A-Z].{20,})/);
+    if(tm && !lines[ti].match(/^\s+/)){
+      topQs.push({idx:ti, num:parseInt(tm[1]), q:tm[2]});
+    }
+  }
+
+  if(topQs.length>=2){
+    for(var tqi=0;tqi<topQs.length;tqi++){
+      var tStart=topQs[tqi].idx+1;
+      var tEnd=tqi+1<topQs.length ? topQs[tqi+1].idx : lines.length;
+      var tAns=[];
+      for(var tai=tStart;tai<tEnd;tai++){
+        var tal=crvClean(lines[tai]);
+        if(tal.length>3) tAns.push(tal);
+      }
+      var tAnsStr=tAns.join(' ').trim();
+      if(topQs[tqi].q&&tAnsStr.length>10){
+        qa.push({question:topQs[tqi].q, answer:tAnsStr});
+      }
+    }
+    if(qa.length>=2) return qa;
+    qa=[];
+  }
+
+  // ── STRATEGY 3: Q1:/A1: explicit labels
   var re1=/[Qq]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Aa]\s*\d+\s*[.:\)])\s*[Aa]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Qq]\s*\d+\s*[.:\)]|$)/g;
   var m;
-  while((m=re1.exec(raw))!==null){
-    var q=m[1].trim(), a=m[2].trim();
-    if(q&&a) qa.push({question:q,answer:a});
+  while((m=re1.exec(cleaned))!==null){
+    var q2=m[1].trim(), a2=m[2].trim();
+    if(q2&&a2) qa.push({question:crvClean(q2),answer:crvClean(a2)});
   }
   if(qa.length) return qa;
 
-  /* Format 2: numbered "1. Question\nAnswer text" */
-  var lines=raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
-  var i=0;
-  while(i<lines.length){
-    var qm=lines[i].match(/^(\d+)[.:\)]\s+(.+)/);
-    if(qm){
-      var qtxt=qm[2], alines=[], j=i+1;
-      while(j<lines.length && !lines[j].match(/^(\d+)[.:\)]\s+/) && !lines[j].match(/^[Qq]\d+/)){
-        alines.push(lines[j]); j++;
-      }
-      if(alines.length) qa.push({question:qtxt, answer:alines.join(' ')});
-      i=j;
-    } else { i++; }
-  }
-  if(qa.length) return qa;
-
-  /* Format 3: blank-line separated blocks — odd=question, even=answer */
-  var blocks=raw.split(/\n\s*\n/).map(function(b){return b.replace(/\n/g,' ').trim();}).filter(function(b){return b.length>10;});
+  // ── STRATEGY 4: blank-line separated blocks
+  var blocks=cleaned.split(/\n\s*\n/).map(function(b){return b.replace(/\n/g,' ').trim();}).filter(function(b){return b.length>15;});
   for(var k=0;k+1<blocks.length;k+=2) qa.push({question:blocks[k],answer:blocks[k+1]});
   return qa;
 }
@@ -4877,12 +4951,16 @@ function crvShowQ(){
   if(_crvIdx>=_crvQA.length){crvDone();return;}
   var total=_crvQA.length, qa=_crvQA[_crvIdx];
 
+  // Clean markdown from question and answer
+  var qClean=crvClean(qa.question);
+  var aClean=crvClean(qa.answer);
+
   /* progress */
   document.getElementById('crv-prog-fill').style.width=((_crvIdx/total)*100)+'%';
   document.getElementById('crv-prog-label').textContent='Question '+(_crvIdx+1)+' / '+total;
 
   /* reset cards */
-  document.getElementById('crv-q-text').textContent=qa.question;
+  document.getElementById('crv-q-text').textContent=qClean;
   document.getElementById('crv-a-card').style.display='none';
   document.getElementById('crv-kp-card').style.display='none';
   document.getElementById('crv-done-card').style.display='none';
@@ -4892,46 +4970,78 @@ function crvShowQ(){
   var pb=document.getElementById('crv-pause-btn');
   pb.style.display='inline-block'; pb.textContent='⏸ Pause'; _crvPaused=false;
 
-  /* Step 1: read question aloud */
-  crvSpeak('Question '+(_crvIdx+1)+'... '+qa.question, function(){
+  /* Step 1: speak question slowly and clearly */
+  crvSpeak('Question '+(_crvIdx+1)+'.   '+qClean, function(){
     if(_crvPaused) return;
-    setTimeout(function(){crvRevealAnswer(qa.answer,function(){
-      if(_crvPaused) return;
-      crvKeyPoints(qa.question, qa.answer);
-    });},500);
+    setTimeout(function(){
+      crvRevealAnswer(aClean, function(){
+        if(_crvPaused) return;
+        crvKeyPoints(qClean, aClean);
+      });
+    },600);
   });
 }
 
-/* ── reveal answer line by line ── */
+/* ── reveal answer point by point ── */
 function crvRevealAnswer(ansText, onDone){
   var card=document.getElementById('crv-a-card');
   var linesEl=document.getElementById('crv-a-lines');
   card.style.display='block'; linesEl.innerHTML='';
 
-  /* split into sentences */
-  var sents=(ansText.match(/[^.!?]+[.!?]*/g)||[ansText])
-    .map(function(s){return s.trim();}).filter(function(s){return s.length>3;});
+  // Split on numbered points (1. 2. 3.) if present, else by sentence
+  var points=[];
+  var numberedSplit=ansText.split(/(?=\d+\.\s+[A-Z])/);
+  if(numberedSplit.length>1){
+    numberedSplit.forEach(function(p){
+      var t=p.trim(); if(t.length>5) points.push(t);
+    });
+  } else {
+    // Fall back to sentence splitting
+    points=(ansText.match(/[^.!?]+[.!?]*/g)||[ansText])
+      .map(function(s){return s.trim();})
+      .filter(function(s){return s.length>5;});
+  }
 
-  sents.forEach(function(s,idx){
+  // Build display elements
+  points.forEach(function(pt,idx){
     var sp=document.createElement('span');
-    sp.className='crv-a-line'; sp.id='crv-al-'+idx; sp.textContent=s+' ';
+    sp.className='crv-a-line'; sp.id='crv-al-'+idx;
+    sp.textContent=pt;
     linesEl.appendChild(sp);
+    // Add a small gap between points
+    linesEl.appendChild(document.createTextNode(' '));
   });
 
-  crvReadLines(sents,'Answer… ',0,onDone);
+  // Speak "Answer" prefix once, then read each point with a pause
+  crvSpeak('Answer.', function(){
+    setTimeout(function(){
+      crvReadPoints(points, 0, onDone);
+    }, 400);
+  });
 }
 
-function crvReadLines(sents,prefix,idx,onDone){
+function crvReadPoints(points, idx, onDone){
   if(_crvPaused) return;
-  if(idx>=sents.length){if(onDone)onDone();return;}
+  if(idx>=points.length){if(onDone) onDone(); return;}
 
   var el=document.getElementById('crv-al-'+idx);
   if(el){
+    // Scroll into view
+    el.scrollIntoView({block:'nearest',behavior:'smooth'});
     el.classList.add('vis','reading');
-    setTimeout(function(){if(el)el.classList.remove('reading');},2000);
+    setTimeout(function(){if(el) el.classList.remove('reading');},2200);
   }
-  crvSpeak((idx===0?prefix:'')+sents[idx],function(){
-    setTimeout(function(){crvReadLines(sents,prefix,idx+1,onDone);},280);
+
+  // Clean the point text before speaking
+  var speakText=crvClean(points[idx]);
+  // Remove leading "1. " numbering from speech
+  speakText=speakText.replace(/^\d+\.\s+/,'');
+
+  crvSpeak(speakText, function(){
+    // Natural pause between points — longer pause = more teacher-like
+    setTimeout(function(){
+      crvReadPoints(points, idx+1, onDone);
+    }, 500);
   });
 }
 

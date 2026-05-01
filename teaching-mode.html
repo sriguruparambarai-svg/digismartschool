@@ -417,32 +417,27 @@ async function launchClass(data){
 async function buildScript(){
   _paras=[];
   if(S.lessonText&&S.lessonText.trim()){
+    // Clean the extracted text — remove markdown headers from Vision API output
     var cleaned=S.lessonText
-      .replace(/^#+\s.*$/gm,'')
-      .replace(/^\*\*.*\*\*$/gm,'')
-      .replace(/^---+$/gm,'')
-      .replace(/\r\n/g,' ')
-      .replace(/\r/g,' ')
-      .replace(/\n/g,' ')
+      .replace(/^#+\s.*$/gm,'')        // remove # headings
+      .replace(/^\*\*.*\*\*$/gm,'')    // remove bold lines
+      .replace(/^---+$/gm,'')          // remove dividers
+      .replace(/\r\n/g,' ').replace(/\r/g,' ').replace(/\n/g,' ')  // flatten all line breaks
       .replace(/\s{2,}/g,' ')
       .trim();
 
-    // ── ROBUST SENTENCE-BASED PARAGRAPH EXTRACTION ──
-    // Split on sentence boundaries, then group into chunks of ~3 sentences each
-    var allSentences=(cleaned.match(/[^.!?]+[.!?]+/g)||[])
+    // Split into sentences, group every 3 into a "paragraph"
+    var allSents=(cleaned.match(/[^.!?]+[.!?]+/g)||[])
       .map(function(s){return s.trim();})
       .filter(function(s){return s.length>30 && !/^(page\s*\d+)/i.test(s);});
-
-    if(allSentences.length===0){
-      // Last resort: split by long spaces or semicolons
-      allSentences=cleaned.split(/[;।]+/).map(function(s){return s.trim();}).filter(function(s){return s.length>40;});
-    }
-
-    // Group every 3 sentences into one paragraph for natural teaching flow
-    var groupSize=3;
-    for(var gi=0;gi<allSentences.length;gi+=groupSize){
-      var chunk=allSentences.slice(gi,gi+groupSize).join(' ').trim();
-      if(chunk.length>60) _paras.push(chunk);
+    if(allSents.length===0){
+      _paras=cleaned.split(/[;।]+/).map(function(s){return s.trim();}).filter(function(s){return s.length>40;});
+    } else {
+      var grp=3;
+      for(var gi=0;gi<allSents.length;gi+=grp){
+        var chunk=allSents.slice(gi,gi+grp).join(' ').trim();
+        if(chunk.length>60) _paras.push(chunk);
+      }
     }
     _paras=_paras.slice(0,15);
   }
@@ -450,7 +445,7 @@ async function buildScript(){
   var lr=S.lang==='ta'?'Explain ONLY in Tamil.':S.lang==='bi'?'Explain in English. Add Tamil meaning for key terms.':'Explain ONLY in English.';
 
   // ══════════════════════════════════════════
-  // MATHS — fully AI generated (unchanged)
+  // MATHS — still fully AI generated
   // ══════════════════════════════════════════
   if(S.mode==='maths'){
     var mathsPrompt='You are an experienced Tamil Nadu school teacher.\n'
@@ -469,106 +464,97 @@ async function buildScript(){
   }
 
   // ══════════════════════════════════════════
-  // NO TEXT — generate full lesson from topic name
+  // THEORY/SCIENCE/ENGLISH/TAMIL/SOCIAL
+  // Build read_line segments DIRECTLY from paragraphs — no AI needed
+  // Only ask AI to generate explain + keypoint for each paragraph
   // ══════════════════════════════════════════
   if(_paras.length===0){
+    // No text — generate full lesson from topic
     var genPrompt='You are an experienced Tamil Nadu school teacher.\n'
       +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
-      +'Teach this topic. For each concept paragraph:\n'
-      +'  show_para → read_line (3-4 sentences, real lesson text) → explain (1 short sentence)\n'
-      +'End with summary. No wait_next segments.\n'+lr+'\n\n'
-      +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index';
+      +'Generate a complete lesson. For each paragraph use ONLY:\n'
+      +'show_para → read_line (one sentence per segment, actual lesson text) → keypoint (max 1, only if important) → wait_next\n'
+      +'NO explain segments. NO emphasis segments. NO summaries inside paragraphs.\n'
+      +'End with one summary segment.\n'+lr+'\n\n'
+      +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index, keypoint';
     await callAI(genPrompt);
     return;
   }
 
-  // ══════════════════════════════════════════
-  // HAS TEXT — Ask AI for one-sentence explanation per paragraph
-  // ══════════════════════════════════════════
+  // ── Step 1: Ask AI ONLY for keypoints ──
+  var explainPrompt='You are an experienced Tamil Nadu school teacher.\n'
+    +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
+    +'I will give you '+_paras.length+' textbook paragraphs.\n'
+    +'For EACH paragraph, give me ONLY:\n'
+    +'1. "keypoint": 8-12 word key fact (or empty string if no key fact)\n\n'
+    +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
+    +'Return ONLY valid JSON array, one object per paragraph:\n'
+    +'[{"para":1,"keypoint":"..."},...]';
+
   var explainData=[];
   try{
-    var explainPrompt='You are a Tamil Nadu school teacher.\n'
-      +'For each paragraph below, write ONE simple sentence (max 15 words) explaining the main idea.\n'
-      +'Like a teacher saying it in revision. Simple words only.\n\n'
-      +_paras.map(function(p,i){return 'PARA '+(i+1)+':\n'+p;}).join('\n\n')+'\n\n'
-      +'Return ONLY a JSON array, one object per paragraph:\n'
-      +'[{"para":1,"explain":"..."},...]';
-    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:800,system:'Return ONLY valid JSON array. No markdown. No extra text.',messages:[{role:'user',content:explainPrompt}]}})});
+    var eRes=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:1000,system:'Return ONLY valid JSON array. No markdown.',messages:[{role:'user',content:explainPrompt}]}})});
     var eRaw=await eRes.text();
     var eResp=JSON.parse(eRaw);
     var eText='';
     if(eResp.content&&eResp.content[0])eText=(eResp.content[0].text||'').trim();
     else if(eResp.text)eText=String(eResp.text).trim();
     var eCl=eText.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-    var eParsed=null;
-    try{eParsed=JSON.parse(eCl);}catch(e){}
+    var eParsed=null;try{eParsed=JSON.parse(eCl);}catch(e){}
     if(!eParsed){var a=eCl.indexOf('['),b=eCl.lastIndexOf(']');if(a>=0&&b>a)try{eParsed=JSON.parse(eCl.substring(a,b+1));}catch(e){}}
     if(eParsed&&Array.isArray(eParsed))explainData=eParsed;
-  }catch(e){console.warn('Explanation generation failed, continuing without explanations',e);}
+  }catch(e){console.warn('Keypoint generation failed, continuing',e);}
 
-  // ══════════════════════════════════════════
-  // BUILD SEGMENTS — sentence-by-sentence, auto-progress, NO wait_next
-  // ══════════════════════════════════════════
+  // ── Step 2: Build segments — sentence-by-sentence reading ──
   segs=[];
 
-  // Opening greeting
-  var openTxt='Good morning students. Open your '+S.subject+' book. Today we will study '+S.topic+'. Follow along as I read each paragraph.';
-  segs.push({text:openTxt,tone:'strict',pause:1.2,lang:'en',type:'open',para_index:0,_orig:openTxt});
+  // Opening
+  segs.push({text:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.',tone:'strict',pause:1.5,lang:'en',type:'open',para_index:0,_orig:'Students, open your '+S.subject+' book to '+S.topic+'. Today we will read paragraph by paragraph together.'});
 
   for(var i=0;i<_paras.length;i++){
     var para=_paras[i];
     var pNum=i+1;
-    var expObj=explainData[i]||{};
-    var explainTxt=(expObj.explain||'').trim();
+    var exp=explainData[i]||{};
+    var keypointTxt=(exp.keypoint||'').trim();
 
-    // 1. Announce paragraph — show full paragraph in book panel
-    var announceTxt='Paragraph '+pNum+'. Follow with your finger.';
+    // a) show_para
     segs.push({
-      text:announceTxt,
-      tone:'strict',pause:0.8,lang:'en',type:'show_para',
-      para_index:pNum,para_text:para,
-      _orig:announceTxt
+      text:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.',
+      tone:'strict',pause:1.2,lang:'en',type:'show_para',para_index:pNum,
+      _orig:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.'
     });
 
-    // 2. Split paragraph into sentences and read each one
-    var sentences=(para.match(/[^.!?]+[.!?]+/g)||[])
+    // b) read_line — one segment per sentence, EXACT book text
+    var sentences=(para.match(/[^.!?]+[.!?]+/g)||[para])
       .map(function(s){return s.trim();})
       .filter(function(s){return s.length>5;});
-    if(sentences.length===0) sentences=[para];
-
     for(var si=0;si<sentences.length;si++){
       var sent=sentences[si].trim();
       if(!sent) continue;
+      segs.push({text:sent,tone:'normal',pause:0.8,lang:'en',type:'read_line',para_index:pNum,_orig:sent});
+    }
+
+    // c) keypoint — ONLY if meaningful, max 1 per paragraph
+    if(keypointTxt&&keypointTxt.length>20){
       segs.push({
-        text:sent,
-        tone:'normal',pause:0.6,lang:'en',
-        type:'read_line',
-        para_index:pNum,para_text:para,
-        _orig:sent
+        text:'Remember this: '+keypointTxt,
+        tone:'emphasis',pause:1.2,lang:'en',type:'keypoint',
+        para_index:pNum,keypoint:keypointTxt,
+        _orig:'Remember this: '+keypointTxt
       });
     }
 
-    // 3. One-sentence explanation (auto-continues, no wait)
-    if(explainTxt&&explainTxt.length>5){
-      segs.push({
-        text:explainTxt,
-        tone:'emphasis',pause:1.0,lang:'en',
-        type:'explain',
-        para_index:pNum,para_text:para,
-        _orig:explainTxt
-      });
-    } else {
-      // Fallback if AI didn't return explanation
-      var fbTxt='Good. That was paragraph '+pNum+'.';
-      segs.push({text:fbTxt,tone:'normal',pause:0.8,lang:'en',type:'explain',para_index:pNum,para_text:para,_orig:fbTxt});
-    }
+    // d) wait_next
+    var waitTxt='Good. Now read paragraph '+pNum+' once more from your book. Press Next when you are ready.';
+    segs.push({text:waitTxt,tone:'normal',pause:0.5,lang:'en',type:'wait_next',para_index:pNum,_orig:waitTxt});
   }
 
-  // Final summary
-  var summaryTxt='Excellent work, students! We have finished all '+_paras.length+' paragraphs of '+S.topic+'. Well done!';
+  // Summary
+  var kpList=explainData.filter(function(e){return e.keypoint&&e.keypoint.length>20;}).map(function(e){return e.keypoint;}).slice(0,4);
+  var summaryTxt='Excellent students! Today we finished '+_paras.length+' paragraphs from '+S.topic+'.'+(kpList.length?' Key points: '+kpList.join('. ')+'.' :'')+' Well done!';
   segs.push({text:summaryTxt,tone:'emphasis',pause:2.0,lang:'en',type:'summary',para_index:0,_orig:summaryTxt});
 
-  if(!segs.length) throw new Error('No segments generated.');
+  if(!segs.length)throw new Error('No segments generated.');
 }
 
 // Helper: call AI and populate segs (used for maths and topic-only modes)
@@ -637,34 +623,16 @@ function playSeg(i){
   idx=i;var seg=segs[i];
   updateProg(i);hlScript(i);
 
-  // Book panel — show FULL paragraph for show_para, read_line, explain
+  // Book panel
   var bp=document.getElementById('book-panel');
-  var paraForPanel=seg.para_text||(_paras&&_paras[seg.para_index-1])||null;
-  if(seg.para_index>0 && paraForPanel){
+  if(seg.para_index>0&&_paras&&_paras[seg.para_index-1]){
+    document.getElementById('bp-text').textContent=_paras[seg.para_index-1];
     document.getElementById('bp-badge').textContent='📖 Paragraph '+seg.para_index+' of '+_paras.length;
-    if(seg.type==='read_line'){
-      // Highlight current sentence, show full paragraph
-      var fullPara=paraForPanel;
-      var curSent=(seg._orig||seg.text).trim();
-      var paraHtml=escH(fullPara);
-      var sentEscaped=escH(curSent);
-      // Replace first occurrence of the sentence with highlighted version
-      var hilited=paraHtml.replace(sentEscaped,'<mark style="background:rgba(107,26,26,0.18);color:var(--maroon);border-radius:3px;padding:1px 2px;font-weight:700;">'+sentEscaped+'</mark>');
-      document.getElementById('bp-text').innerHTML=hilited;
-      // Scroll highlight into view
-      setTimeout(function(){var m=document.querySelector('#bp-text mark');if(m)m.scrollIntoView({block:'nearest',behavior:'smooth'});},80);
-    } else {
-      document.getElementById('bp-text').innerHTML=escH(paraForPanel);
-    }
     bp.hidden=false;
-  } else if(seg.type==='summary'||seg.type==='open'){
-    if(seg.type==='summary'){
-      document.getElementById('bp-badge').textContent='📝 Lesson Summary';
-      document.getElementById('bp-text').innerHTML='All '+_paras.length+' paragraphs of <strong>'+escH(S.topic)+'</strong> completed.';
-      bp.hidden=false;
-    } else {
-      bp.hidden=true;
-    }
+  } else if(seg.type==='summary'){
+    document.getElementById('bp-badge').textContent='📝 Lesson Summary';
+    document.getElementById('bp-text').textContent='Summarising today\'s lesson…';
+    bp.hidden=false;
   }
 
   // Maths board
@@ -690,7 +658,11 @@ function playSeg(i){
   speakSeg(seg,function(){
     setSpeaking(false);hideOverlays();
     if(!playing)return;
-    // Always auto-advance — no manual wait
+    if(seg.type==='wait_next'){
+      var h=seg.para_index>0?'👆 Read paragraph '+seg.para_index+' from your book. Press Next when ready.':'👆 Press Next when you are ready to continue.';
+      showNextBar(h,function(){if(!playing){playing=true;updateCtrl();}playSeg(i+1);});
+      return;
+    }
     ptimer=setTimeout(function(){if(!playing)return;playSeg(i+1);},(seg.pause||1)*1000);
   });
 }
@@ -702,30 +674,14 @@ var TR=/[\u0B80-\u0BFF]/;
 function renderTxt(seg){
   var el=document.getElementById('curr-line');
   var isMaths=seg.type==='maths_answer'||seg.type==='maths_formula'||seg.type==='maths_step'||seg.type==='maths_rough';
-  var isRead=seg.type==='read_line';
-  var isExplain=seg.type==='explain';
+  var isRead=seg.type==='read_line'||seg.type==='word_meaning';
   var txt=isMaths&&seg.display?seg.display:seg._orig||seg.text;
   var prev=el.textContent.trim();
-  var skip=['ready','stopped','complete','class is ready'];
+  var skip=['ready','stopped','complete'];
   if(prev&&!skip.some(function(w){return prev.toLowerCase().includes(w);}))document.getElementById('prev-line').textContent=prev;
-  if(isMaths){
-    el.className='curr-line maths-disp';
-    el.textContent=txt;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
-    return;
-  }
-  if(isRead){
-    el.className='curr-line book-read';
-    el.innerHTML='<span style="font-size:.62rem;font-weight:800;color:var(--gold2);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:5px;">📖 Reading:</span>'+escH(txt);
-    el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
-    return;
-  }
-  if(isExplain){
-    el.className='curr-line';
-    el.innerHTML='<span style="font-size:.62rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:5px;">💡 Explanation:</span><span style="color:var(--teal);font-weight:700;">'+escH(txt)+'</span>';
-    el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
-    return;
-  }
-  el.className='curr-line';
+  el.className='curr-line'+(isMaths?' maths-disp':isRead?' book-read':'');
+  if(isMaths){el.textContent=txt;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);return;}
+  if(isRead){var bpT=document.getElementById('bp-text');if(bpT){bpT.style.borderLeftColor='var(--gold2)';bpT.style.background='rgba(255,253,230,1)';setTimeout(function(){bpT.style.borderLeftColor='var(--maroon)';bpT.style.background='#fff';},2200);}}
   var words=txt.split(/(\s+)/);var html='',wi=0;
   words.forEach(function(w){if(/\s+/.test(w)){html+=w;return;}var c='w';if(/^(IMPORTANT|NOTE|REMEMBER|CRITICAL|KEY|LISTEN|நினைவில்)$/i.test(w))c+=' bold';html+='<span class="'+c+'" data-w="'+wi+'">'+escH(w)+'</span>';wi++;});
   el.innerHTML=html;el.style.opacity='0';setTimeout(function(){el.style.opacity='1';},30);
