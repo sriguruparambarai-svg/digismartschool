@@ -1090,11 +1090,12 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div class="header-right"><span class="ai-badge">✨ AI Powered</span></div>
 </div>
 
-<!-- ROLE TABS — top bar shows only 3 tabs -->
+<!-- ROLE TABS — top bar shows 4 tabs -->
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
   <button class="tab-btn" onclick="showTab('student',this)">🎓 Student TeachBot</button>
   <button class="tab-btn" onclick="showTab('notes',this)">📋 Class Notes</button>
+  <button class="tab-btn" onclick="openRevisionPage()">🔁 Class Revision</button>
 </div>
 
 <!-- Subject context banner — hidden, IDs kept for JS -->
@@ -1225,6 +1226,24 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <span class="ssp-card-icon">🖼️</span>
       <div class="ssp-card-name">Slide Mode</div>
       <div class="ssp-card-desc">Full lesson as structured slides</div>
+    </div>
+
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('quiz')">
+      <span class="ssp-card-icon">🧪</span>
+      <div class="ssp-card-name">Quiz Mode</div>
+      <div class="ssp-card-desc">Test your understanding</div>
+    </div>
+
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('chat')">
+      <span class="ssp-card-icon">💬</span>
+      <div class="ssp-card-name">Doubt Mode</div>
+      <div class="ssp-card-desc">Ask anything about the lesson</div>
+    </div>
+
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('exam')">
+      <span class="ssp-card-icon">🏆</span>
+      <div class="ssp-card-name">Exam Prep</div>
+      <div class="ssp-card-desc">Competitive exam questions</div>
     </div>
 
     <div class="ssp-card mode-card" id="mode-diagram-card" onclick="checkAndLaunch('diagram')">
@@ -4399,6 +4418,494 @@ async function handleSlidePDF(event) {
   } catch(e) {
     statusEl.textContent = '⚠️ Could not process PDF: ' + e.message;
   }
+}
+
+// ════════════════════════════════════════════════════════
+//  CLASS REVISION  —  full-screen overlay page
+// ════════════════════════════════════════════════════════
+
+/* ── inject styles once ── */
+(function(){
+  var s=document.createElement('style');
+  s.textContent=`
+  /* Overlay shell */
+  #crv-overlay{
+    display:none;position:fixed;inset:0;z-index:9999;
+    background:linear-gradient(135deg,#4A0A12 0%,#6B0F1A 50%,#4A0A12 100%);
+    flex-direction:column;overflow:hidden;font-family:"Nunito",sans-serif;
+  }
+  #crv-overlay.open{display:flex;}
+
+  /* Header */
+  .crv-hdr{
+    background:linear-gradient(90deg,#3A0810,#6B0F1A,#3A0810);
+    border-bottom:3px solid #C9A84C;padding:13px 20px;
+    display:flex;align-items:center;gap:14px;flex-shrink:0;
+    box-shadow:0 4px 20px rgba(0,0,0,0.4);
+  }
+  .crv-hdr-logo{width:48px;height:48px;border-radius:50%;border:2px solid #C9A84C;object-fit:cover;}
+  .crv-hdr h2{font-family:"Cinzel",serif;color:#E8C96A;font-size:1.35rem;letter-spacing:1.5px;flex:1;}
+  .crv-hdr-badge{background:linear-gradient(135deg,#A07830,#FFD700);color:#3A0810;font-weight:800;font-size:0.75rem;padding:4px 12px;border-radius:20px;}
+  .crv-close{background:rgba(201,168,76,0.12);border:2px solid rgba(201,168,76,0.5);color:#E8C96A;padding:8px 18px;border-radius:10px;cursor:pointer;font-weight:800;font-size:0.9rem;font-family:"Nunito",sans-serif;transition:all 0.2s;}
+  .crv-close:hover{background:rgba(201,168,76,0.3);}
+
+  /* Scrollable body */
+  .crv-body{flex:1;overflow-y:auto;padding:24px 16px 60px;}
+  .crv-inner{max-width:680px;margin:0 auto;}
+
+  /* ── INPUT SCREEN ── */
+  #crv-input{display:block;}
+  .crv-page-title{font-family:"Cinzel",serif;color:#E8C96A;font-size:1.5rem;text-align:center;margin-bottom:6px;}
+  .crv-page-sub{color:rgba(245,230,200,0.7);text-align:center;font-size:0.92rem;margin-bottom:22px;}
+
+  .crv-card{background:linear-gradient(145deg,#F5E6C8,#FFFDF5);border-radius:18px;padding:22px;margin-bottom:18px;border:2px solid #A07830;box-shadow:0 8px 30px rgba(107,15,26,0.3);}
+  .crv-card-title{font-family:"Cinzel",serif;color:#6B0F1A;font-size:1rem;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;display:flex;align-items:center;gap:8px;}
+
+  .crv-upload-box{border:3px dashed #A07830;border-radius:12px;padding:26px;text-align:center;cursor:pointer;background:rgba(201,168,76,0.05);transition:all 0.2s;}
+  .crv-upload-box:hover{border-color:#6B0F1A;background:rgba(107,15,26,0.06);}
+  .crv-upload-box input{display:none;}
+  .crv-upload-icon{font-size:2.4rem;margin-bottom:8px;}
+  .crv-upload-label{font-weight:800;color:#6B0F1A;font-size:1rem;}
+  .crv-upload-hint{color:#A07830;font-size:0.82rem;margin-top:4px;}
+  #crv-file-name{display:none;margin-top:10px;background:#FFF3CD;color:#856404;border-radius:8px;padding:7px 14px;font-weight:700;font-size:0.88rem;text-align:center;}
+
+  .crv-or{text-align:center;color:#A07830;font-weight:800;font-size:0.88rem;margin:16px 0;position:relative;}
+  .crv-or::before,.crv-or::after{content:'';position:absolute;top:50%;width:40%;height:1px;background:#EDD9A3;}
+  .crv-or::before{left:0;}.crv-or::after{right:0;}
+
+  #crv-paste{width:100%;min-height:150px;padding:13px;font-size:0.97rem;border:2px solid #A07830;border-radius:12px;background:#FFFDF5;color:#2A0A0F;font-family:"Nunito",sans-serif;font-weight:600;resize:vertical;outline:none;line-height:1.7;transition:border 0.2s;box-sizing:border-box;}
+  #crv-paste:focus{border-color:#6B0F1A;}
+  #crv-paste::placeholder{color:#C9A884;}
+
+  #crv-format-hint{margin-top:10px;padding:10px 14px;background:rgba(201,168,76,0.12);border-radius:10px;border-left:3px solid #C9A84C;font-size:0.82rem;color:rgba(245,230,200,0.8);line-height:1.6;}
+
+  .crv-start-btn{width:100%;padding:16px;font-size:1.1rem;font-weight:800;font-family:"Nunito",sans-serif;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:14px;cursor:pointer;transition:all 0.2s;margin-top:6px;box-shadow:0 4px 18px rgba(107,15,26,0.45);display:flex;align-items:center;justify-content:center;gap:10px;}
+  .crv-start-btn:hover{transform:translateY(-2px);box-shadow:0 8px 24px rgba(107,15,26,0.55);}
+  .crv-start-btn:disabled{opacity:0.4;cursor:not-allowed;transform:none;}
+
+  #crv-parsing{display:none;text-align:center;color:#E8C96A;font-weight:700;padding:16px;gap:10px;align-items:center;justify-content:center;}
+  .crv-spin{width:24px;height:24px;border:3px solid rgba(201,168,76,0.2);border-top-color:#C9A84C;border-radius:50%;animation:crv-spin 0.8s linear infinite;display:inline-block;}
+  @keyframes crv-spin{to{transform:rotate(360deg);}}
+
+  /* ── REVISION SCREEN ── */
+  #crv-revision{display:none;}
+
+  .crv-prog-wrap{background:rgba(255,255,255,0.1);border-radius:8px;height:8px;margin-bottom:8px;overflow:hidden;}
+  .crv-prog-fill{height:100%;background:linear-gradient(90deg,#C9A84C,#FFD700);border-radius:8px;transition:width 0.7s ease;}
+  .crv-prog-label{text-align:center;color:#E8C96A;font-family:"Cinzel",serif;font-size:0.9rem;letter-spacing:1px;margin-bottom:18px;}
+
+  /* Question card */
+  .crv-q-card{background:linear-gradient(135deg,#3A0810,#6B0F1A);border-radius:18px;padding:24px;margin-bottom:14px;border:3px solid #C9A84C;box-shadow:0 8px 30px rgba(0,0,0,0.45);}
+  .crv-q-label{font-family:"Cinzel",serif;color:#A07830;font-size:0.75rem;text-transform:uppercase;letter-spacing:2px;margin-bottom:10px;}
+  .crv-q-text{color:#F5E6C8;font-size:1.2rem;line-height:1.8;font-weight:700;}
+  .crv-q-text .crv-reading{background:rgba(255,215,0,0.22);border-radius:3px;padding:0 2px;}
+
+  /* Answer card */
+  .crv-a-card{background:linear-gradient(145deg,#F5E6C8,#FFFDF5);border-radius:18px;padding:22px;margin-bottom:14px;border:2px solid #A07830;box-shadow:0 6px 22px rgba(107,15,26,0.22);display:none;}
+  .crv-a-label{font-family:"Cinzel",serif;color:#6B0F1A;font-size:0.75rem;text-transform:uppercase;letter-spacing:2px;margin-bottom:12px;}
+  .crv-a-lines{color:#2A0A0F;font-size:1.02rem;line-height:2;font-weight:600;}
+  .crv-a-line{display:block;opacity:0;transition:opacity 0.35s;}
+  .crv-a-line.vis{opacity:1;}
+  .crv-a-line.reading{background:linear-gradient(90deg,rgba(107,15,26,0.1),transparent);border-radius:4px;}
+
+  /* Key points card */
+  .crv-kp-card{background:linear-gradient(135deg,#3A0810,#4A0A12);border-radius:14px;padding:20px;margin-bottom:14px;border:2px solid rgba(201,168,76,0.35);display:none;}
+  .crv-kp-label{font-family:"Cinzel",serif;color:#FFD700;font-size:0.85rem;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+  .crv-kp-item{color:#F5E6C8;font-size:0.98rem;padding:7px 0 7px 18px;border-left:3px solid #C9A84C;margin-bottom:7px;line-height:1.55;font-weight:600;opacity:0;transition:opacity 0.4s;position:relative;}
+  .crv-kp-item::before{content:"•";position:absolute;left:6px;color:#C9A84C;}
+  .crv-kp-item.vis{opacity:1;}
+
+  /* Controls */
+  .crv-ctrl-row{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-top:4px;}
+  .crv-next-btn{padding:14px 32px;font-size:1.05rem;font-weight:800;font-family:"Nunito",sans-serif;background:linear-gradient(135deg,#C9A84C,#FFD700);color:#4A0A12;border:none;border-radius:14px;cursor:pointer;transition:all 0.2s;display:none;box-shadow:0 4px 16px rgba(201,168,76,0.4);}
+  .crv-next-btn:hover{transform:translateY(-2px);}
+  .crv-pause-btn{padding:10px 18px;font-size:0.9rem;font-weight:700;font-family:"Nunito",sans-serif;background:rgba(201,168,76,0.12);color:#E8C96A;border:2px solid rgba(201,168,76,0.35);border-radius:12px;cursor:pointer;transition:all 0.2s;display:none;}
+  .crv-pause-btn:hover{background:rgba(201,168,76,0.28);}
+
+  /* Done card */
+  .crv-done-card{background:linear-gradient(135deg,#3A0810,#6B0F1A);border-radius:18px;padding:28px;text-align:center;border:3px solid #C9A84C;display:none;}
+  .crv-done-icon{font-size:3rem;margin-bottom:10px;}
+  .crv-done-title{font-family:"Cinzel",serif;color:#E8C96A;font-size:1.4rem;margin-bottom:8px;}
+  .crv-done-sub{color:#F5E6C8;margin-bottom:20px;font-size:0.95rem;}
+  .crv-restart-btn{padding:12px 28px;font-size:0.97rem;font-weight:800;font-family:"Nunito",sans-serif;background:linear-gradient(135deg,#C9A84C,#FFD700);color:#4A0A12;border:none;border-radius:12px;cursor:pointer;transition:all 0.2s;}
+  .crv-restart-btn:hover{transform:translateY(-2px);}
+  `;
+  document.head.appendChild(s);
+})();
+
+/* ── inject HTML once ── */
+function _crvBuildDOM(){
+  if(document.getElementById('crv-overlay')) return;
+  var h=`
+  <div id="crv-overlay">
+    <div class="crv-hdr">
+      <img class="crv-hdr-logo" src="logo.png" onerror="this.style.display='none'" alt=""/>
+      <h2>🔁 Class Revision</h2>
+      <span class="crv-hdr-badge">✨ AI Powered</span>
+      <button class="crv-close" onclick="closeRevision()">✕ Close</button>
+    </div>
+
+    <div class="crv-body">
+      <div class="crv-inner">
+
+        <!-- ══ INPUT SCREEN ══ -->
+        <div id="crv-input">
+          <div class="crv-page-title">📚 Class Revision</div>
+          <div class="crv-page-sub">Upload Q&amp;A content or paste it — AI will revise with your students</div>
+
+          <div class="crv-card">
+            <div class="crv-card-title">📄 Step 1 — Add Q&amp;A Content</div>
+
+            <div class="crv-upload-box" onclick="document.getElementById('crv-file-inp').click()">
+              <input type="file" id="crv-file-inp" accept=".pdf,.txt" onchange="crvHandleFile(event)"/>
+              <div class="crv-upload-icon">📤</div>
+              <div class="crv-upload-label">Upload PDF or Text File</div>
+              <div class="crv-upload-hint">Questions &amp; Answers — Q1/A1 format or numbered</div>
+            </div>
+            <div id="crv-file-name"></div>
+
+            <div class="crv-or">— OR —</div>
+
+            <textarea id="crv-paste" placeholder="Paste your Q&amp;A here...
+
+Example format:
+Q1: What is photosynthesis?
+A1: Photosynthesis is the process by which plants make their own food using sunlight, water and carbon dioxide.
+
+Q2: Where does photosynthesis occur?
+A2: It occurs in the chloroplasts of green plant cells."></textarea>
+
+            <div id="crv-format-hint">
+              💡 <strong>Accepted formats:</strong> Q1/A1 labels · Numbered lists (1. Question, Answer below) · Plain paragraphs separated by blank lines
+            </div>
+          </div>
+
+          <div id="crv-parsing"><div class="crv-spin"></div><span>Preparing revision session…</span></div>
+          <button class="crv-start-btn" id="crv-start-btn" onclick="crvStart()">📖 Start Revision</button>
+        </div>
+
+        <!-- ══ REVISION SCREEN ══ -->
+        <div id="crv-revision">
+          <div class="crv-prog-wrap"><div class="crv-prog-fill" id="crv-prog-fill" style="width:0%"></div></div>
+          <div class="crv-prog-label" id="crv-prog-label">Question 1 / 1</div>
+
+          <div class="crv-q-card">
+            <div class="crv-q-label">📌 Question</div>
+            <div class="crv-q-text" id="crv-q-text">—</div>
+          </div>
+
+          <div class="crv-a-card" id="crv-a-card">
+            <div class="crv-a-label">✏️ Answer</div>
+            <div class="crv-a-lines" id="crv-a-lines"></div>
+          </div>
+
+          <div class="crv-kp-card" id="crv-kp-card">
+            <div class="crv-kp-label">⭐ Key Points to Remember</div>
+            <div id="crv-kp-list"></div>
+          </div>
+
+          <div class="crv-ctrl-row">
+            <button class="crv-pause-btn" id="crv-pause-btn" onclick="crvTogglePause()">⏸ Pause</button>
+            <button class="crv-next-btn"  id="crv-next-btn"  onclick="crvNext()">Next Question →</button>
+          </div>
+
+          <div class="crv-done-card" id="crv-done-card">
+            <div class="crv-done-icon">🎉</div>
+            <div class="crv-done-title">Revision Complete!</div>
+            <div class="crv-done-sub">All <span id="crv-done-n"></span> questions revised successfully.</div>
+            <button class="crv-restart-btn" onclick="crvRestart()">🔄 Revise Again</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend',h);
+}
+
+/* ══════════════════════════════════════════
+   STATE
+══════════════════════════════════════════ */
+var _crvQA=[], _crvIdx=0, _crvPaused=false, _crvPdfRaw='';
+
+/* ── open / close ── */
+function openRevisionPage(){
+  _crvBuildDOM();
+  document.getElementById('crv-overlay').classList.add('open');
+}
+function closeRevision(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  var ov=document.getElementById('crv-overlay');
+  if(ov) ov.classList.remove('open');
+}
+
+/* ── file handler ── */
+function crvHandleFile(e){
+  var file=e.target.files[0]; if(!file) return;
+  var nm=document.getElementById('crv-file-name');
+  nm.textContent='📄 '+file.name; nm.style.display='block';
+  document.getElementById('crv-paste').value='';
+  _crvPdfRaw='';
+
+  if(file.name.toLowerCase().endsWith('.txt')){
+    var fr=new FileReader();
+    fr.onload=function(ev){_crvPdfRaw=ev.target.result;};
+    fr.readAsText(file);
+  } else if(file.name.toLowerCase().endsWith('.pdf')){
+    var fr2=new FileReader();
+    fr2.onload=function(ev){
+      var bytes=new Uint8Array(ev.target.result);
+      if(window.pdfjsLib){
+        pdfjsLib.getDocument({data:bytes}).promise.then(function(pdf){
+          var promises=[];
+          for(var p=1;p<=pdf.numPages;p++){
+            promises.push(pdf.getPage(p).then(function(pg){
+              return pg.getTextContent().then(function(tc){
+                return tc.items.map(function(it){return it.str;}).join(' ');
+              });
+            }));
+          }
+          Promise.all(promises).then(function(pages){_crvPdfRaw=pages.join('\n');});
+        });
+      } else {
+        nm.textContent='⚠️ PDF.js not loaded — please paste text directly.';
+        _crvPdfRaw='';
+      }
+    };
+    fr2.readAsArrayBuffer(file);
+  }
+}
+
+/* ── parse Q&A ── */
+function crvParse(raw){
+  var qa=[];
+
+  /* Format 1: Q1: ... A1: ... */
+  var re1=/[Qq]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Aa]\s*\d+\s*[.:\)])\s*[Aa]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Qq]\s*\d+\s*[.:\)]|$)/g;
+  var m;
+  while((m=re1.exec(raw))!==null){
+    var q=m[1].trim(), a=m[2].trim();
+    if(q&&a) qa.push({question:q,answer:a});
+  }
+  if(qa.length) return qa;
+
+  /* Format 2: numbered "1. Question\nAnswer text" */
+  var lines=raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
+  var i=0;
+  while(i<lines.length){
+    var qm=lines[i].match(/^(\d+)[.:\)]\s+(.+)/);
+    if(qm){
+      var qtxt=qm[2], alines=[], j=i+1;
+      while(j<lines.length && !lines[j].match(/^(\d+)[.:\)]\s+/) && !lines[j].match(/^[Qq]\d+/)){
+        alines.push(lines[j]); j++;
+      }
+      if(alines.length) qa.push({question:qtxt, answer:alines.join(' ')});
+      i=j;
+    } else { i++; }
+  }
+  if(qa.length) return qa;
+
+  /* Format 3: blank-line separated blocks — odd=question, even=answer */
+  var blocks=raw.split(/\n\s*\n/).map(function(b){return b.replace(/\n/g,' ').trim();}).filter(function(b){return b.length>10;});
+  for(var k=0;k+1<blocks.length;k+=2) qa.push({question:blocks[k],answer:blocks[k+1]});
+  return qa;
+}
+
+/* ── start session ── */
+function crvStart(){
+  var raw=_crvPdfRaw||document.getElementById('crv-paste').value.trim();
+  if(!raw){alert('Please upload a file or paste Q&A text first.');return;}
+
+  var parseEl=document.getElementById('crv-parsing');
+  var startBtn=document.getElementById('crv-start-btn');
+  parseEl.style.display='flex'; startBtn.disabled=true;
+
+  setTimeout(function(){
+    _crvQA=crvParse(raw);
+    parseEl.style.display='none'; startBtn.disabled=false;
+
+    if(!_crvQA.length){
+      alert('Could not find Q&A pairs.\n\nTry this format:\nQ1: What is...?\nA1: It is...\n\nQ2: ...\nA2: ...');
+      return;
+    }
+    _crvIdx=0; _crvPaused=false;
+    document.getElementById('crv-input').style.display='none';
+    document.getElementById('crv-revision').style.display='block';
+    crvShowQ();
+  },350);
+}
+
+/* ── show one question ── */
+function crvShowQ(){
+  if(_crvIdx>=_crvQA.length){crvDone();return;}
+  var total=_crvQA.length, qa=_crvQA[_crvIdx];
+
+  /* progress */
+  document.getElementById('crv-prog-fill').style.width=((_crvIdx/total)*100)+'%';
+  document.getElementById('crv-prog-label').textContent='Question '+(_crvIdx+1)+' / '+total;
+
+  /* reset cards */
+  document.getElementById('crv-q-text').textContent=qa.question;
+  document.getElementById('crv-a-card').style.display='none';
+  document.getElementById('crv-kp-card').style.display='none';
+  document.getElementById('crv-done-card').style.display='none';
+  document.getElementById('crv-a-lines').innerHTML='';
+  document.getElementById('crv-kp-list').innerHTML='';
+  document.getElementById('crv-next-btn').style.display='none';
+  var pb=document.getElementById('crv-pause-btn');
+  pb.style.display='inline-block'; pb.textContent='⏸ Pause'; _crvPaused=false;
+
+  /* Step 1: read question aloud */
+  crvSpeak('Question '+(_crvIdx+1)+'... '+qa.question, function(){
+    if(_crvPaused) return;
+    setTimeout(function(){crvRevealAnswer(qa.answer,function(){
+      if(_crvPaused) return;
+      crvKeyPoints(qa.question, qa.answer);
+    });},500);
+  });
+}
+
+/* ── reveal answer line by line ── */
+function crvRevealAnswer(ansText, onDone){
+  var card=document.getElementById('crv-a-card');
+  var linesEl=document.getElementById('crv-a-lines');
+  card.style.display='block'; linesEl.innerHTML='';
+
+  /* split into sentences */
+  var sents=(ansText.match(/[^.!?]+[.!?]*/g)||[ansText])
+    .map(function(s){return s.trim();}).filter(function(s){return s.length>3;});
+
+  sents.forEach(function(s,idx){
+    var sp=document.createElement('span');
+    sp.className='crv-a-line'; sp.id='crv-al-'+idx; sp.textContent=s+' ';
+    linesEl.appendChild(sp);
+  });
+
+  crvReadLines(sents,'Answer… ',0,onDone);
+}
+
+function crvReadLines(sents,prefix,idx,onDone){
+  if(_crvPaused) return;
+  if(idx>=sents.length){if(onDone)onDone();return;}
+
+  var el=document.getElementById('crv-al-'+idx);
+  if(el){
+    el.classList.add('vis','reading');
+    setTimeout(function(){if(el)el.classList.remove('reading');},2000);
+  }
+  crvSpeak((idx===0?prefix:'')+sents[idx],function(){
+    setTimeout(function(){crvReadLines(sents,prefix,idx+1,onDone);},280);
+  });
+}
+
+/* ── AI key points ── */
+function crvKeyPoints(q,a){
+  if(_crvPaused) return;
+  var kpCard=document.getElementById('crv-kp-card');
+  var kpList=document.getElementById('crv-kp-list');
+  kpCard.style.display='block';
+  kpList.innerHTML='<div style="color:#C9A84C;font-size:0.85rem;padding:4px 0;">⏳ Generating key points…</div>';
+
+  fetch(API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload:{
+      model:'claude-sonnet-4-5',
+      max_tokens:300,
+      system:'You are a revision teacher. Return ONLY a JSON array of 2-4 short key point strings (max 12 words each). No preamble, no markdown, no extra text. Example: ["Key point one","Key point two"]',
+      messages:[{role:'user',content:'Question: '+q+'\nAnswer: '+a+'\n\nGive 2-4 key memory points as a JSON array.'}]
+    }})
+  })
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var txt='';
+    if(data.content&&data.content[0]) txt=(data.content[0].text||'').trim();
+    else if(data.text) txt=String(data.text).trim();
+    txt=txt.replace(/```json|```/g,'').trim();
+    var pts=[];
+    try{pts=JSON.parse(txt);}catch(e){
+      pts=txt.split('\n').map(function(l){return l.replace(/^[-•*\d.]+\s*/,'').trim();}).filter(Boolean).slice(0,4);
+    }
+    kpList.innerHTML='';
+    pts.forEach(function(pt,i){
+      var el=document.createElement('div');
+      el.className='crv-kp-item'; el.textContent=pt;
+      kpList.appendChild(el);
+      setTimeout(function(){el.classList.add('vis');},i*200);
+    });
+    var kpSpeech='Important points. '+pts.join('. ');
+    setTimeout(function(){
+      if(_crvPaused){_crvShowNext();return;}
+      crvSpeak(kpSpeech,_crvShowNext);
+    },400);
+  })
+  .catch(function(){
+    kpList.innerHTML='<div class="crv-kp-item vis" style="opacity:1;">Review the answer above carefully.</div>';
+    _crvShowNext();
+  });
+}
+
+function _crvShowNext(){
+  document.getElementById('crv-pause-btn').style.display='none';
+  var nb=document.getElementById('crv-next-btn');
+  if(_crvIdx<_crvQA.length-1){
+    nb.textContent='Next Question →';
+  } else {
+    nb.textContent='Finish Revision ✓';
+  }
+  nb.style.display='inline-block';
+}
+
+/* ── next / pause / restart / done ── */
+function crvNext(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  _crvIdx++;
+  if(_crvIdx>=_crvQA.length){crvDone();}else{crvShowQ();}
+}
+
+function crvTogglePause(){
+  var btn=document.getElementById('crv-pause-btn');
+  if(_crvPaused){
+    _crvPaused=false; btn.textContent='⏸ Pause';
+    if(window.speechSynthesis) window.speechSynthesis.resume();
+  } else {
+    _crvPaused=true; btn.textContent='▶ Resume';
+    if(window.speechSynthesis) window.speechSynthesis.pause();
+  }
+}
+
+function crvDone(){
+  document.getElementById('crv-pause-btn').style.display='none';
+  document.getElementById('crv-next-btn').style.display='none';
+  document.getElementById('crv-done-n').textContent=_crvQA.length;
+  document.getElementById('crv-done-card').style.display='block';
+  document.getElementById('crv-prog-fill').style.width='100%';
+  crvSpeak('Revision complete! Well done, students! You have revised all '+_crvQA.length+' questions.',null);
+}
+
+function crvRestart(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  _crvIdx=0; _crvPaused=false; _crvPdfRaw='';
+  document.getElementById('crv-revision').style.display='none';
+  document.getElementById('crv-input').style.display='block';
+  document.getElementById('crv-file-name').style.display='none';
+  document.getElementById('crv-paste').value='';
+  document.getElementById('crv-file-inp').value='';
+}
+
+/* ── speech ── */
+function crvSpeak(text,onEnd){
+  if(!window.speechSynthesis){if(onEnd)onEnd();return;}
+  window.speechSynthesis.cancel();
+  var utt=new SpeechSynthesisUtterance(text);
+  utt.rate=0.82; utt.pitch=1.0; utt.lang='en-IN';
+  var voices=window.speechSynthesis.getVoices();
+  var v=voices.find(function(vx){return vx.lang==='en-IN';})
+     ||voices.find(function(vx){return vx.lang.startsWith('en');});
+  if(v) utt.voice=v;
+  utt.onend=function(){if(onEnd)onEnd();};
+  utt.onerror=function(){if(onEnd)onEnd();};
+  window.speechSynthesis.speak(utt);
 }
 
 // Auto-activate Student TeachBot tab when returning from Blackboard AI
