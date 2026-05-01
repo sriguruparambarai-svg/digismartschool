@@ -313,7 +313,15 @@ input[type=range]{flex:1;accent-color:var(--gold);height:3px;cursor:pointer;}
         <input type="range" id="spd" min=".6" max="1.1" step=".05" value=".85" oninput="setSpd(this.value)"/>
         <span class="spd-val" id="spd-val">.85×</span>
       </div>
-      <select class="voice-sel" id="voice-sel"></select>
+      <select class="voice-sel" id="voice-sel" style="display:none"></select>
+      <div style="margin-top:6px;">
+        <div style="font-size:.6rem;font-weight:800;color:rgba(255,255,255,.35);text-transform:uppercase;letter-spacing:1px;margin-bottom:5px;">🎙 Voice Style</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap;">
+          <button id="vs-narrator" onclick="tmSetVoice('narrator',this)" style="flex:1;padding:5px 6px;font-size:.68rem;font-weight:800;font-family:'Nunito',sans-serif;border-radius:8px;cursor:pointer;border:1.5px solid var(--gold);background:rgba(201,168,76,0.25);color:#FFD700;transition:all .2s;">📖 Narrator</button>
+          <button id="vs-educator" onclick="tmSetVoice('educator',this)" style="flex:1;padding:5px 6px;font-size:.68rem;font-weight:800;font-family:'Nunito',sans-serif;border-radius:8px;cursor:pointer;border:1.5px solid rgba(201,168,76,.25);background:transparent;color:rgba(255,255,255,.45);transition:all .2s;">🧑‍🏫 Educator</button>
+          <button id="vs-convo" onclick="tmSetVoice('conversational',this)" style="flex:1;padding:5px 6px;font-size:.68rem;font-weight:800;font-family:'Nunito',sans-serif;border-radius:8px;cursor:pointer;border:1.5px solid rgba(201,168,76,.25);background:transparent;color:rgba(255,255,255,.45);transition:all .2s;">💬 Convo</button>
+        </div>
+      </div>
     </div>
     <div class="script-list" id="script-list"></div>
   </div>
@@ -327,6 +335,7 @@ input[type=range]{flex:1;accent-color:var(--gold);height:3px;cursor:pointer;}
 var S={subject:'',cls:'',topic:'',lessonText:'',lang:'en',mode:'',diagId:''};
 var segs=[],idx=-1,playing=false,paused=false,ptimer=null;
 var spd=.85,waitNext=false,nextCb=null;
+var tmVoiceStyle='narrator'; // narrator | educator | conversational
 var keypoints=[],diagParts=[],diagIdx=-1,curAudio=null;
 var mathsSt={ans:null,formula:null,steps:[],rough:null,shown:0};
 var _paras=[];
@@ -422,24 +431,11 @@ async function buildScript(){
       .replace(/^#+\s.*$/gm,'')        // remove # headings
       .replace(/^\*\*.*\*\*$/gm,'')    // remove bold lines
       .replace(/^---+$/gm,'')          // remove dividers
-      .replace(/\r\n/g,' ').replace(/\r/g,' ').replace(/\n/g,' ')  // flatten all line breaks
-      .replace(/\s{2,}/g,' ')
       .trim();
-
-    // Split into sentences, group every 3 into a "paragraph"
-    var allSents=(cleaned.match(/[^.!?]+[.!?]+/g)||[])
-      .map(function(s){return s.trim();})
-      .filter(function(s){return s.length>30 && !/^(page\s*\d+)/i.test(s);});
-    if(allSents.length===0){
-      _paras=cleaned.split(/[;।]+/).map(function(s){return s.trim();}).filter(function(s){return s.length>40;});
-    } else {
-      var grp=3;
-      for(var gi=0;gi<allSents.length;gi+=grp){
-        var chunk=allSents.slice(gi,gi+grp).join(' ').trim();
-        if(chunk.length>60) _paras.push(chunk);
-      }
-    }
-    _paras=_paras.slice(0,15);
+    _paras=cleaned.split(/\n{2,}/)
+      .map(function(p){return p.replace(/\n/g,' ').replace(/\s{2,}/g,' ').trim();})
+      .filter(function(p){return p.length>30 && !/^(page\s*\d+|#|##)/i.test(p);})
+      .slice(0,15); // up to 15 paragraphs
   }
 
   var lr=S.lang==='ta'?'Explain ONLY in Tamil.':S.lang==='bi'?'Explain in English. Add Tamil meaning for key terms.':'Explain ONLY in English.';
@@ -472,10 +468,9 @@ async function buildScript(){
     // No text — generate full lesson from topic
     var genPrompt='You are an experienced Tamil Nadu school teacher.\n'
       +'Class: '+S.cls+' | Subject: '+S.subject+' | Chapter: '+S.topic+'\n\n'
-      +'Generate a complete lesson. For each paragraph use ONLY:\n'
-      +'show_para → read_line (one sentence per segment, actual lesson text) → keypoint (max 1, only if important) → wait_next\n'
-      +'NO explain segments. NO emphasis segments. NO summaries inside paragraphs.\n'
-      +'End with one summary segment.\n'+lr+'\n\n'
+      +'Generate a complete lesson. For each concept, use:\n'
+      +'show_para → read_line (write the actual lesson text) → explain → keypoint → emphasis → wait_next\n'
+      +'End with summary.\n'+lr+'\n\n'
       +'Return ONLY valid JSON array []. Fields: text, tone, pause, lang, type, para_index, keypoint';
     await callAI(genPrompt);
     return;
@@ -517,21 +512,21 @@ async function buildScript(){
     var exp=explainData[i]||{};
     var keypointTxt=(exp.keypoint||'').trim();
 
-    // a) show_para
+    // a) show_para — announce paragraph, store full para text
     segs.push({
       text:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.',
-      tone:'strict',pause:1.2,lang:'en',type:'show_para',para_index:pNum,
+      tone:'strict',pause:0.8,lang:'en',type:'show_para',para_index:pNum,para_text:para,
       _orig:'Students, look at paragraph '+pNum+'. Put your finger on the first word and follow as I read.'
     });
 
-    // b) read_line — one segment per sentence, EXACT book text
+    // b) read_line — one segment per sentence, store para_text so book panel can show full paragraph
     var sentences=(para.match(/[^.!?]+[.!?]+/g)||[para])
-      .map(function(s){return s.trim();})
-      .filter(function(s){return s.length>5;});
+      .map(function(s){return s.trim();}).filter(function(s){return s.length>5;});
+    if(sentences.length===0) sentences=[para];
     for(var si=0;si<sentences.length;si++){
       var sent=sentences[si].trim();
       if(!sent) continue;
-      segs.push({text:sent,tone:'normal',pause:0.8,lang:'en',type:'read_line',para_index:pNum,_orig:sent});
+      segs.push({text:sent,tone:'normal',pause:0.8,lang:'en',type:'read_line',para_index:pNum,para_text:para,_orig:sent});
     }
 
     // c) keypoint — ONLY if meaningful, max 1 per paragraph
@@ -623,16 +618,27 @@ function playSeg(i){
   idx=i;var seg=segs[i];
   updateProg(i);hlScript(i);
 
-  // Book panel
+  // Book panel — show FULL paragraph, highlight current sentence
   var bp=document.getElementById('book-panel');
-  if(seg.para_index>0&&_paras&&_paras[seg.para_index-1]){
-    document.getElementById('bp-text').textContent=_paras[seg.para_index-1];
+  var paraText=seg.para_text||(_paras&&seg.para_index>0?_paras[seg.para_index-1]:null);
+  if(seg.para_index>0&&paraText){
     document.getElementById('bp-badge').textContent='📖 Paragraph '+seg.para_index+' of '+_paras.length;
+    if(seg.type==='read_line'){
+      var sentEsc=escH(seg._orig||seg.text);
+      var paraEsc=escH(paraText);
+      var hilited=paraEsc.replace(sentEsc,'<mark style="background:rgba(201,168,76,0.35);color:#3A0010;border-radius:3px;padding:0 2px;font-weight:700;">'+sentEsc+'</mark>');
+      document.getElementById('bp-text').innerHTML=hilited;
+      setTimeout(function(){var m=document.querySelector('#bp-text mark');if(m)m.scrollIntoView({block:'nearest',behavior:'smooth'});},80);
+    } else {
+      document.getElementById('bp-text').innerHTML=escH(paraText);
+    }
     bp.hidden=false;
   } else if(seg.type==='summary'){
     document.getElementById('bp-badge').textContent='📝 Lesson Summary';
     document.getElementById('bp-text').textContent='Summarising today\'s lesson…';
     bp.hidden=false;
+  } else if(seg.type==='open'){
+    bp.hidden=true;
   }
 
   // Maths board
@@ -737,8 +743,105 @@ function stopAudio(){if(curAudio){curAudio.pause();curAudio.src='';curAudio=null
 async function fetchEL(t,tone,lang){var c=cTxt(t);if(!c)throw new Error('empty');var r=await fetch('/api/voice',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:c,tone,lang})});if(!r.ok)throw new Error('voice '+r.status);var d=await r.json();if(!d.audio)throw new Error('no audio');return d.audio;}
 function pb64(b64){return new Promise(function(res){stopAudio();var a=new Audio('data:audio/mpeg;base64,'+b64);curAudio=a;a.playbackRate=Math.max(.5,Math.min(2,spd));a.onended=function(){curAudio=null;res();};a.onerror=function(){curAudio=null;res();};a.play().catch(function(){curAudio=null;res();});});}
 async function spkChunk(t,tone,l){try{var b=await fetchEL(t,tone,l);await pb64(b);return;}catch(e){}if(l==='ta'){try{var p=tPh(t);var b2=await fetchEL(p,tone,'en');await pb64(b2);return;}catch(e){}}await new Promise(function(r){brTTS(t,tone,r,l);});}
-async function speakSeg(seg,onEnd){stopAudio();var sel=document.getElementById('voice-sel');var useBr=sel&&sel.value==='browser';var txt=seg.text||'';var tone=seg.tone||'normal';var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));try{if(!useBr){if(fl==='mixed'){var cs=splitL(txt);for(var i=0;i<cs.length;i++){if(!playing&&paused)break;await spkChunk(cs[i].text,tone,cs[i].lang);if(i<cs.length-1)await new Promise(r=>setTimeout(r,80));}}else{await spkChunk(txt,tone,fl);}}else{await new Promise(function(r){brTTS(txt,tone,r,fl);});}}catch(e){try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}}if(onEnd)onEnd();}
-function brTTS(txt,tone,onEnd,l){if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}speechSynthesis.cancel();var cfg=TONES[tone]||TONES.normal;var bv=speechSynthesis.getVoices();var isTa=(l==='ta');var v=null,st=txt;if(isTa){v=bv.find(v=>v.lang&&v.lang.startsWith('ta'))||null;if(!v){st=tPh(txt);v=bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}}else{v=bv.find(v=>v.lang==='en-IN'&&(v.name.includes('Natural')||v.name.includes('Neural')))||bv.find(v=>v.lang==='en-IN')||bv.find(v=>v.lang&&v.lang.startsWith('en'))||bv[0]||null;}if(!st||!st.trim()){if(onEnd)onEnd();return;}var u=new SpeechSynthesisUtterance(st);if(v)u.voice=v;u.rate=Math.max(.5,Math.min(2,cfg.rate*spd));u.pitch=cfg.pitch;u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';u.onend=onEnd||function(){};u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};speechSynthesis.speak(u);}
+async function speakSeg(seg,onEnd){
+  stopAudio();
+  var sel=document.getElementById('voice-sel');
+  var useBr=sel&&sel.value==='browser';
+  var rawTxt=seg.text||'';
+  var txt=tmCleanSpeak(rawTxt);  // strip markdown + fix dots before speaking
+  var tone=seg.tone||'normal';
+  var fl=dLang(txt)==='mixed'?'mixed':(seg.lang==='ta'?'ta':(seg.lang==='en'?'en':dLang(txt)));
+  try{
+    if(!useBr){
+      if(fl==='mixed'){
+        var cs=splitL(txt);
+        for(var i=0;i<cs.length;i++){
+          if(!playing&&paused) break;
+          await spkChunk(cs[i].text,tone,cs[i].lang);
+          if(i<cs.length-1) await new Promise(function(r){setTimeout(r,80);});
+        }
+      } else {
+        await spkChunk(txt,tone,fl);
+      }
+    } else {
+      await new Promise(function(r){brTTS(txt,tone,r,fl);});
+    }
+  } catch(e){
+    try{await new Promise(function(r){brTTS(txt,tone,r,fl);});}catch(e2){}
+  }
+  if(onEnd) onEnd();
+}
+// Voice style profiles
+var TM_VOICE={
+  narrator:    {rate:.84, pitch:.97, desc:'Steady audiobook narrator — clear, calm'},
+  educator:    {rate:.80, pitch:1.04, desc:'Warm classroom teacher — natural emphasis'},
+  conversational:{rate:.96, pitch:1.08, desc:'Friendly conversational — natural flow'}
+};
+
+function tmSetVoice(style, btn){
+  tmVoiceStyle=style;
+  ['vs-narrator','vs-educator','vs-convo'].forEach(function(id){
+    var b=document.getElementById(id);
+    if(!b) return;
+    b.style.background='transparent';
+    b.style.color='rgba(255,255,255,.45)';
+    b.style.borderColor='rgba(201,168,76,.25)';
+  });
+  if(btn){
+    btn.style.background='rgba(201,168,76,0.25)';
+    btn.style.color='#FFD700';
+    btn.style.borderColor='var(--gold,#C9A84C)';
+  }
+}
+
+// Clean text before speaking — removes symbols that TTS reads aloud
+function tmCleanSpeak(txt){
+  return String(txt||'')
+    .replace(/\*\*([^*]+)\*\*/g,'$1')
+    .replace(/\*([^*]+)\*/g,'$1')
+    .replace(/#{1,6}\s*/g,'')
+    // Remove isolated periods that TTS reads as "full stop" or "dot"
+    .replace(/\s\.\s/g,' ')      // space.space → space
+    .replace(/\.\s*\./g,'.')     // double periods
+    // Replace "." at end of abbreviations like "Dr." "St." "No." — keep them
+    // But remove lone period pauses between sentences when already handled
+    .replace(/([a-z])\.\s+([a-z])/gi, function(m,a,b){ return a+'. '+b; }) // keep sentence dots
+    .trim();
+}
+
+function brTTS(txt,tone,onEnd,l){
+  if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}
+  speechSynthesis.cancel();
+  var cfg=TONES[tone]||TONES.normal;
+  var vp=TM_VOICE[tmVoiceStyle]||TM_VOICE.narrator;
+  var bv=speechSynthesis.getVoices();
+  var isTa=(l==='ta');
+  var v=null,st=tmCleanSpeak(txt);
+  if(isTa){
+    v=bv.find(function(x){return x.lang&&x.lang.startsWith('ta');})||null;
+    if(!v){st=tPh(st);v=bv.find(function(x){return x.lang==='en-IN';})||bv.find(function(x){return x.lang&&x.lang.startsWith('en');})||bv[0]||null;}
+  } else {
+    v=bv.find(function(x){return x.lang==='en-IN'&&(x.name.includes('Natural')||x.name.includes('Neural'));})
+      ||bv.find(function(x){return x.lang==='en-IN';})
+      ||bv.find(function(x){return x.lang==='en-GB';})
+      ||bv.find(function(x){return x.lang&&x.lang.startsWith('en');})||bv[0]||null;
+  }
+  if(!st||!st.trim()){if(onEnd)onEnd();return;}
+  var u=new SpeechSynthesisUtterance(st);
+  if(v) u.voice=v;
+  // Combine tone rate × speed slider × voice profile rate
+  u.rate=Math.max(.5,Math.min(2, cfg.rate * spd * (vp.rate/0.85) ));
+  u.pitch=cfg.pitch * (vp.pitch/1.0);
+  u.lang=(isTa&&v&&v.lang&&v.lang.startsWith('ta'))?'ta-IN':'en-IN';
+  // Conversational: slight random variation so it doesn't sound robotic
+  if(tmVoiceStyle==='conversational'){
+    u.pitch+=Math.random()*0.1-0.05;
+    u.rate +=Math.random()*0.06-0.03;
+  }
+  u.onend=onEnd||function(){};
+  u.onerror=function(e){console.warn('TTS:',e.error);if(onEnd)onEnd();};
+  speechSynthesis.speak(u);
+}
 
 // LOAD/ERR UI
 function showLoad(t,s){document.getElementById('l-txt').textContent=t;document.getElementById('l-sub').textContent=s;document.getElementById('loading').classList.add('show');}
