@@ -35,7 +35,34 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
 .expired-banner{background:linear-gradient(135deg,#dc3545,#c82333);color:white;border-radius:14px;padding:18px 24px;text-align:center;margin-bottom:20px;}
 .expired-banner h3{font-size:1.2rem;margin-bottom:6px;}
 @media(max-width:600px){.tools-grid{grid-template-columns:1fr 1fr;}.info-grid{grid-template-columns:1fr;}.main{padding:14px;}}
+
+/* Student Management */
+.students-section{background:white;border-radius:16px;padding:22px;margin-top:20px;box-shadow:0 2px 12px rgba(0,0,0,0.06);}
+.sec-title{font-family:"Cinzel",serif;font-size:1rem;color:var(--m);margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--sd);display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.class-tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px;}
+.class-tab{padding:6px 14px;border-radius:20px;font-size:0.82rem;font-weight:700;cursor:pointer;border:2px solid var(--sd);background:var(--w);color:var(--m);transition:all 0.15s;font-family:"Nunito",sans-serif;}
+.class-tab.active{background:var(--m);color:var(--gl);border-color:var(--m);}
+.add-student-form{display:grid;grid-template-columns:1fr 120px 1fr 120px;gap:8px;margin-bottom:12px;align-items:end;}
+.add-student-form input,.add-student-form select{padding:9px 11px;font-size:0.88rem;border:1.5px solid var(--sd);border-radius:9px;font-family:"Nunito",sans-serif;font-weight:600;outline:none;}
+.add-student-form input:focus,.add-student-form select:focus{border-color:var(--m);}
+.btn-add{padding:9px 16px;background:linear-gradient(135deg,var(--m),var(--mm));color:var(--gl);border:none;border-radius:9px;font-family:"Nunito",sans-serif;font-weight:800;font-size:0.85rem;cursor:pointer;white-space:nowrap;}
+.btn-add:hover{transform:translateY(-1px);}
+.bulk-area{margin-top:10px;padding:12px;background:rgba(201,168,76,0.06);border-radius:10px;border:1.5px dashed var(--sd);}
+.bulk-area textarea{width:100%;padding:9px;font-size:0.82rem;border:1.5px solid var(--sd);border-radius:8px;font-family:"Nunito",sans-serif;min-height:90px;resize:vertical;margin-top:6px;}
+.bulk-hint{font-size:0.75rem;color:#888;line-height:1.6;}
+.btn-bulk{padding:8px 16px;background:linear-gradient(135deg,var(--gd),var(--y));color:var(--md);border:none;border-radius:8px;font-family:"Nunito",sans-serif;font-weight:800;font-size:0.82rem;cursor:pointer;margin-top:8px;width:100%;}
+.st-table{width:100%;border-collapse:collapse;margin-top:10px;font-size:0.88rem;}
+.st-table th{background:var(--m);color:var(--gl);padding:9px 12px;text-align:left;font-size:0.78rem;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;}
+.st-table td{padding:9px 12px;border-bottom:1px solid #f0f0f0;color:var(--t);}
+.st-table tr:hover td{background:#fafafa;}
+.st-empty{text-align:center;padding:24px;color:#888;font-style:italic;}
+.del-btn{background:none;border:none;color:#dc3545;cursor:pointer;font-weight:700;font-size:0.82rem;padding:2px 6px;border-radius:5px;}
+.del-btn:hover{background:rgba(220,53,69,0.08);}
+.st-status{font-size:0.82rem;font-weight:700;padding:6px 0;min-height:22px;}
+.badge-count{background:var(--m);color:var(--gl);font-size:0.65rem;padding:2px 7px;border-radius:10px;margin-left:6px;font-weight:800;}
+@media(max-width:600px){.add-student-form{grid-template-columns:1fr 1fr;}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <div class="topbar">
@@ -86,6 +113,11 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="tool-name">My Teachers</div>
       <div class="tool-desc">View teacher accounts</div>
     </div>
+    <div class="tool-card" onclick="scrollToStudents()">
+      <div class="tool-icon">👨‍🎓</div>
+      <div class="tool-name">My Students</div>
+      <div class="tool-desc">Add & manage student diary access</div>
+    </div>
   </div>
 
   <!-- INFO -->
@@ -103,6 +135,74 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="info-row"><span class="info-label">Valid Until</span><span class="info-val" id="inf-end">-</span></div>
       <div class="info-row"><span class="info-label">Max Teachers</span><span class="info-val" id="inf-teachers">5</span></div>
       <div class="info-row"><span class="info-label">Support</span><span class="info-val">sriguruparambarai@gmail.com</span></div>
+    </div>
+  </div>
+
+
+  <!-- ══════ MY STUDENTS ══════ -->
+  <div class="students-section" id="students-section">
+    <div class="sec-title">
+      <span>👨‍🎓 My Students <span class="badge-count" id="total-count">0</span></span>
+      <button class="btn-add" onclick="toggleBulkArea()" style="background:transparent;color:var(--m);border:2px solid var(--m);">📋 Bulk Add</button>
+    </div>
+
+    <!-- Class filter tabs -->
+    <div class="class-tabs" id="class-tabs">
+      <div class="class-tab active" onclick="filterClass('all',this)">All Classes</div>
+    </div>
+
+    <!-- Add single student -->
+    <div class="add-student-form">
+      <select id="new-class">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <input type="text" id="new-roll" placeholder="Roll No"/>
+      <input type="text" id="new-name" placeholder="Student Name"/>
+      <button class="btn-add" onclick="addOneStudent()">➕ Add</button>
+    </div>
+    <div class="st-status" id="st-msg"></div>
+
+    <!-- Bulk add area -->
+    <div class="bulk-area" id="bulk-area" style="display:none;">
+      <div class="bulk-hint">
+        📋 <strong>Bulk Add</strong> — paste your class list (one student per line):<br/>
+        Format: <code>RollNo, Student Name</code><br/>
+        Example:<br/>
+        1, Kayal Vizhi<br/>
+        2, Arun Kumar<br/>
+        3, Priya Dharshini
+      </div>
+      <select id="bulk-class" style="width:100%;padding:9px;margin-top:8px;font-size:0.88rem;border:1.5px solid var(--sd);border-radius:9px;font-family:Nunito,sans-serif;">
+        <option value="">Select Class for bulk add</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <textarea id="bulk-text" placeholder="1, Kayal Vizhi&#10;2, Arun Kumar&#10;3, Priya Dharshini"></textarea>
+      <button class="btn-bulk" onclick="bulkAddStudents()">📋 Add All Students</button>
+    </div>
+
+    <!-- Students table -->
+    <div id="st-table-wrap">
+      <table class="st-table" id="st-table" style="display:none;">
+        <thead>
+          <tr>
+            <th>Roll No</th>
+            <th>Name</th>
+            <th>Class</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody id="st-tbody"></tbody>
+      </table>
+      <div class="st-empty" id="st-empty">No students added yet. Add above or use Bulk Add.</div>
     </div>
   </div>
 
@@ -166,6 +266,187 @@ async function showTeachers() {
 function doLogout() {
   localStorage.clear();
   window.location.href = '/login.html';
+}
+
+// ══════════════════════════════════════════════
+// SUPABASE SETUP
+// ══════════════════════════════════════════════
+var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+var sb = null;
+function getDB(){
+  if(sb) return sb;
+  if(window.supabase) sb = window.supabase.createClient(SB_URL, SB_KEY);
+  return sb;
+}
+
+var schoolId = user.school_id || user.id || '';
+var allStudents = [];
+var activeClass = 'all';
+
+// ── Load students on page load ──
+window.addEventListener('load', function(){ loadStudents(); });
+
+function scrollToStudents(){
+  document.getElementById('students-section').scrollIntoView({behavior:'smooth'});
+}
+
+function toggleBulkArea(){
+  var el = document.getElementById('bulk-area');
+  el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── LOAD ALL STUDENTS ──
+async function loadStudents(){
+  var db = getDB();
+  if(!db || !schoolId) return;
+
+  try{
+    var {data, error} = await db.from('diary_students')
+      .select('*')
+      .eq('school_id', schoolId)
+      .order('class')
+      .order('roll_no');
+
+    if(error) throw error;
+    allStudents = data || [];
+    renderClassTabs();
+    renderTable('all');
+    document.getElementById('total-count').textContent = allStudents.length;
+  }catch(e){
+    console.error('Load students error:', e);
+  }
+}
+
+// ── CLASS FILTER TABS ──
+function renderClassTabs(){
+  var classes = [...new Set(allStudents.map(function(s){ return s.class; }))].sort();
+  var tabsEl = document.getElementById('class-tabs');
+  tabsEl.innerHTML = '<div class="class-tab active" onclick="filterClass('all',this)">All Classes</div>'
+    + classes.map(function(c){
+        var count = allStudents.filter(function(s){ return s.class === c; }).length;
+        return '<div class="class-tab" onclick="filterClass(''+c+'',this)">'+c+' <small>('+count+')</small></div>';
+      }).join('');
+}
+
+function filterClass(cls, el){
+  activeClass = cls;
+  document.querySelectorAll('.class-tab').forEach(function(t){ t.classList.remove('active'); });
+  if(el) el.classList.add('active');
+  renderTable(cls);
+}
+
+// ── RENDER TABLE ──
+function renderTable(cls){
+  var filtered = cls === 'all' ? allStudents : allStudents.filter(function(s){ return s.class === cls; });
+  var tbody = document.getElementById('st-tbody');
+  var table = document.getElementById('st-table');
+  var empty = document.getElementById('st-empty');
+
+  if(!filtered.length){
+    table.style.display = 'none';
+    empty.style.display = 'block';
+    empty.textContent = cls === 'all' ? 'No students added yet.' : 'No students in '+cls+' yet.';
+    return;
+  }
+
+  table.style.display = 'table';
+  empty.style.display = 'none';
+  tbody.innerHTML = filtered.map(function(s){
+    return '<tr>'
+      +'<td><strong>'+escH(s.roll_no)+'</strong></td>'
+      +'<td>'+escH(s.name)+'</td>'
+      +'<td>'+escH(s.class)+'</td>'
+      +'<td><button class="del-btn" onclick="deleteStudent(''+s.id+'')">✕ Remove</button></td>'
+      +'</tr>';
+  }).join('');
+}
+
+// ── ADD ONE STUDENT ──
+async function addOneStudent(){
+  var cls  = document.getElementById('new-class').value;
+  var roll = document.getElementById('new-roll').value.trim();
+  var name = document.getElementById('new-name').value.trim();
+  var msg  = document.getElementById('st-msg');
+
+  if(!cls || !roll || !name){
+    showMsg('⚠️ Please fill Class, Roll Number and Name.', 'red'); return;
+  }
+
+  var db = getDB();
+  showMsg('⏳ Adding '+name+'…', 'var(--m)');
+
+  try{
+    var {error} = await db.from('diary_students').upsert(
+      {school_id: schoolId, class: cls, roll_no: roll, name: name},
+      {onConflict: 'school_id,class,roll_no'}
+    );
+    if(error) throw error;
+    document.getElementById('new-roll').value = '';
+    document.getElementById('new-name').value = '';
+    showMsg('✅ '+name+' added to '+cls+'!', 'green');
+    await loadStudents();
+    filterClass(cls, null);
+  }catch(e){
+    showMsg('❌ '+e.message, 'red');
+  }
+}
+
+// ── BULK ADD ──
+async function bulkAddStudents(){
+  var cls  = document.getElementById('bulk-class').value;
+  var text = document.getElementById('bulk-text').value.trim();
+
+  if(!cls){ showMsg('⚠️ Please select a Class for bulk add.', 'red'); return; }
+  if(!text){ showMsg('⚠️ Please paste student list.', 'red'); return; }
+
+  var lines = text.split('
+').map(function(l){ return l.trim(); }).filter(Boolean);
+  var rows = [];
+  lines.forEach(function(line){
+    var m = line.match(/^(\d+)[,\s]+(.+)$/);
+    if(m) rows.push({school_id: schoolId, class: cls, roll_no: m[1].trim(), name: m[2].trim()});
+  });
+
+  if(!rows.length){ showMsg('⚠️ Could not read list. Use format: 1, Student Name', 'red'); return; }
+
+  showMsg('⏳ Adding '+rows.length+' students…', 'var(--m)');
+  var db = getDB();
+
+  try{
+    var {error} = await db.from('diary_students')
+      .upsert(rows, {onConflict:'school_id,class,roll_no'});
+    if(error) throw error;
+    document.getElementById('bulk-text').value = '';
+    document.getElementById('bulk-area').style.display = 'none';
+    showMsg('✅ '+rows.length+' students added to '+cls+'!', 'green');
+    await loadStudents();
+    filterClass(cls, null);
+  }catch(e){
+    showMsg('❌ '+e.message, 'red');
+  }
+}
+
+// ── DELETE STUDENT ──
+async function deleteStudent(id){
+  if(!confirm('Remove this student from the diary?')) return;
+  var db = getDB();
+  var {error} = await db.from('diary_students').delete().eq('id', id);
+  if(error){ alert('Error: '+error.message); return; }
+  await loadStudents();
+  filterClass(activeClass, null);
+}
+
+// ── HELPERS ──
+function showMsg(text, color){
+  var el = document.getElementById('st-msg');
+  el.textContent = text;
+  el.style.color = color;
+  if(color === 'green') setTimeout(function(){ el.textContent=''; }, 3000);
+}
+
+function escH(t){
+  return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 </script>
 </body>
