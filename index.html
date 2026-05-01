@@ -422,6 +422,8 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 .subj-panel textarea{min-height:80px;}
 
 </style>
+<!-- Supabase for saving to student diary -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
@@ -759,7 +761,7 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         payload: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-20250514',
           max_tokens: 4000,
           messages: [{
             role: 'user',
@@ -1313,6 +1315,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <button class="btn btn-gold btn-sm" onclick="copyOutput('out-bookback')">📋 Copy</button>
     <button class="btn btn-outline btn-sm" onclick="printOutput('out-bookback')">🖨️ Print</button>
   </div>
+  <div id="bb-save-wrap" style="display:none;margin-top:10px;">
+    <button id="bb-save-btn" class="btn btn-full" style="background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:0.95rem;" onclick="saveBookBackToDiary()">💾 Save to Student Diary</button>
+    <div style="font-size:0.75rem;color:#888;margin-top:4px;text-align:center;">Students in this class can view these answers in their diary app</div>
+  </div>
 </div>
 
 <!-- ═══════════ REPORT CARD ═══════════ -->
@@ -1591,6 +1597,10 @@ document.addEventListener('DOMContentLoaded', function() {
   </div>
 
   <!-- ── FORM 2: PRINT / DIARY FORMAT ── -->
+  <div id="diary-save-wrap" style="display:none;margin:12px 0;">
+    <button id="diary-save-btn" class="btn btn-full" style="background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:0.95rem;" onclick="saveDiaryToDB()">💾 Save to Student Diary</button>
+    <div style="font-size:0.75rem;color:#888;margin-top:4px;text-align:center;">Students in this class can view homework & classwork in their diary app</div>
+  </div>
   <div id="print-diary-section" style="display:none;margin-top:24px;">
     <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:12px;">
       <div>
@@ -1667,6 +1677,9 @@ async function generateDiary() {
   document.getElementById('print-diary-section').style.display='block';
 
   document.getElementById('wa-diary-section').scrollIntoView({behavior:'smooth'});
+  // Show save button
+  document.getElementById('diary-save-wrap').style.display='block';
+  window._lastDiaryData = {cls:cls, date:date, subjectData:subjectData, announce:announce};
 }
 
 // ══════════════════════════════════════════════
@@ -1882,7 +1895,7 @@ async function callAI(prompt, loadId, maxTok) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         payload: {
-          model: 'claude-sonnet-4-5',
+          model: 'claude-sonnet-4-20250514',
           max_tokens: maxTok || 4000,
           messages: [{ role: 'user', content: prompt }]
         }
@@ -1916,6 +1929,11 @@ function showOutput(outId, actionsId, text, tool) {
   }
   out.classList.add('show');
   document.getElementById(actionsId).style.display = 'flex';
+  // Show save button for bookback
+  if(tool === 'bookback'){
+    var wrap = document.getElementById('bb-save-wrap');
+    if(wrap) wrap.style.display = 'block';
+  }
   out.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
@@ -2298,3 +2316,143 @@ function whatsappOutput(id) {
 
 // ── INIT ──
 document.getElementById('hd-date').valueAsDate = new Date();
+
+// ══════════════════════════════════════════════════════
+// SUPABASE — Save to Student Diary
+// ══════════════════════════════════════════════════════
+var _sbClient = null;
+function getDB(){
+  if(_sbClient) return _sbClient;
+  if(window.supabase && window.supabase.createClient){
+    _sbClient = window.supabase.createClient(
+      'https://pzxosqukijwpjdlfdfst.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY'
+    );
+  }
+  return _sbClient;
+}
+
+function getSchoolId(){
+  try{
+    var u=JSON.parse(localStorage.getItem('dss_user')||'{}');
+    // dss_user may store school_id directly or nested
+    return u.school_id || u.id || u.email || 'unknown';
+  }catch(e){ return 'unknown'; }
+}
+
+function getSchoolName(){
+  try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); return u.school_name||u.name||''; }catch(e){ return ''; }
+}
+
+// ── Save Book Back Answers ──
+async function saveBookBackToDiary(){
+  var cls = document.getElementById('bb-class').value;
+  var sub = document.getElementById('bb-subject').value;
+  var answers = document.getElementById('out-bookback').textContent || '';
+  var lesson = document.getElementById('bb-content').value.substring(0,80) || 'Book Back';
+
+  if(!cls || !sub){ alert('Please select Class and Subject first.'); return; }
+  if(!answers.trim()){ alert('Please generate answers first.'); return; }
+
+  var btn = document.getElementById('bb-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Saving…'; }
+
+  var db = getDB();
+  if(!db){ alert('Database not connected.'); if(btn){btn.disabled=false;btn.textContent='💾 Save to Student Diary';} return; }
+
+  var schoolId = getSchoolId();
+  var today = new Date().toISOString().split('T')[0];
+
+  // Check if entry exists for this class+subject+date, update or insert
+  try{
+    var {data:existing} = await db.from('diary_entries')
+      .select('id')
+      .eq('school_id', schoolId)
+      .eq('class_name', cls)
+      .eq('subject', sub)
+      .eq('lesson_date', today)
+      .limit(1);
+
+    var payload = {
+      school_id: schoolId,
+      class_name: cls,
+      subject: sub,
+      lesson_title: lesson.trim() || sub + ' — ' + today,
+      lesson_date: today,
+      book_back_answers: answers,
+      updated_at: new Date().toISOString()
+    };
+
+    var error;
+    if(existing && existing.length > 0){
+      var res = await db.from('diary_entries').update({book_back_answers: answers, updated_at: new Date().toISOString()}).eq('id', existing[0].id);
+      error = res.error;
+    } else {
+      var res = await db.from('diary_entries').insert(payload);
+      error = res.error;
+    }
+
+    if(error) throw new Error(error.message);
+    if(btn){ btn.textContent='✅ Saved! Students can now view these answers.'; }
+    setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }
+    alert('Save failed: ' + e.message);
+  }
+}
+
+// ── Save Homework Diary ──
+async function saveDiaryToDB(){
+  var d = window._lastDiaryData;
+  if(!d){ alert('Please generate diary first.'); return; }
+
+  var btn = document.getElementById('diary-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Saving…'; }
+
+  var db = getDB();
+  if(!db){ alert('Database not connected.'); if(btn){btn.disabled=false;btn.textContent='💾 Save to Student Diary';} return; }
+
+  var schoolId = getSchoolId();
+  var date = d.date || new Date().toISOString().split('T')[0];
+
+  try{
+    // Save one diary entry per subject
+    for(var i=0; i<d.subjectData.length; i++){
+      var s = d.subjectData[i];
+      var {data:existing} = await db.from('diary_entries')
+        .select('id')
+        .eq('school_id', schoolId)
+        .eq('class_name', d.cls)
+        .eq('subject', s.name)
+        .eq('lesson_date', date)
+        .limit(1);
+
+      var payload = {
+        school_id: schoolId,
+        class_name: d.cls,
+        subject: s.name,
+        lesson_title: s.cw ? s.cw.substring(0,60) : s.name + ' — ' + date,
+        lesson_date: date,
+        class_notes: s.cw || '',
+        homework: s.hw || '',
+        announcements: d.announce || '',
+        updated_at: new Date().toISOString()
+      };
+
+      if(existing && existing.length > 0){
+        await db.from('diary_entries').update({
+          class_notes: s.cw||'', homework: s.hw||'',
+          announcements: d.announce||'', updated_at: new Date().toISOString()
+        }).eq('id', existing[0].id);
+      } else {
+        await db.from('diary_entries').insert(payload);
+      }
+    }
+
+    if(btn){ btn.textContent='✅ Saved! Students can view in their diary app.'; }
+    setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }
+    alert('Save failed: ' + e.message);
+  }
+}

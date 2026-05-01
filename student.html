@@ -169,10 +169,11 @@ html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);m
       </select>
     </div>
     <div class="lf">
-      <label>Roll Number (Password)</label>
-      <input type="number" id="l-roll" placeholder="e.g. 15" autocomplete="off"/>
+      <label>Admission Number</label>
+      <input type="text" id="l-roll" placeholder="e.g. 1001" autocomplete="off"/>
     </div>
     <button class="btn-login" onclick="doLogin()">📖 Open My Diary</button>
+    <div style="font-size:0.72rem;color:var(--dim);text-align:center;margin-top:8px;">School Code is given by your school. Admission Number is your student ID.</div>
     <div class="login-err" id="login-err">Invalid school code, class or roll number.</div>
   </div>
 </div>
@@ -326,34 +327,37 @@ async function doLogin(){
     err.style.display = 'block'; return;
   }
 
-  // Look up student in Supabase
+  // Look up student using real column names: school_id, class, admission_no, parent_password
   try{
     var {data, error} = await sb.from('students')
-      .select('*')
-      .ilike('school_id', schoolCode)
-      .eq('class_name', cls)
-      .eq('roll_no', roll)
+      .select('id, school_id, admission_no, full_name, full_name_tamil, class, section, photo_url, parent_password, status')
+      .eq('school_id', schoolCode)
+      .eq('class', cls)
+      .eq('admission_no', roll)
       .single();
 
     if(error || !data){
-      // Fallback: allow login if school has diary entries (demo mode)
-      var {data:entries} = await sb.from('diary_entries')
-        .select('id')
-        .ilike('school_id', schoolCode)
-        .eq('class_name', cls)
-        .limit(1);
-
-      if(entries && entries.length > 0){
-        // School exists, allow login with roll number as name
-        data = {school_id: schoolCode, class_name: cls, roll_no: roll, name: 'Student '+roll, school_name: schoolCode};
-      } else {
-        err.textContent = 'School not found. Please check your school code.';
-        err.style.display = 'block'; return;
-      }
+      err.textContent = 'Student not found. Please check school code, class and admission number.';
+      err.style.display = 'block'; return;
     }
 
-    currentStudent = data;
-    sessionStorage.setItem('student_session', JSON.stringify(data));
+    // Check status
+    if(data.status && data.status === 'inactive'){
+      err.textContent = 'Your account is inactive. Please contact your school.';
+      err.style.display = 'block'; return;
+    }
+
+    currentStudent = {
+      id:          data.id,
+      school_id:   data.school_id,
+      class_name:  data.class,        // map 'class' → 'class_name' for internal use
+      roll_no:     data.admission_no,
+      name:        data.full_name || 'Student',
+      section:     data.section || '',
+      photo_url:   data.photo_url || '',
+      school_name: schoolCode
+    };
+    sessionStorage.setItem('student_session', JSON.stringify(currentStudent));
     startApp();
 
   }catch(e){
@@ -377,9 +381,12 @@ function doLogout(){
 function startApp(){
   var s = currentStudent;
   document.getElementById('hdr-school').textContent = s.school_name || s.school_id || 'My School';
-  document.getElementById('hdr-student').textContent = s.name || 'Student';
+  document.getElementById('hdr-student').textContent = s.name + (s.section ? ' | Sec ' + s.section : '') + ' | Adm: ' + s.roll_no;
   document.getElementById('hdr-class').textContent = s.class_name;
   document.getElementById('greet-name').textContent = greetByTime() + ', ' + (s.name || 'Student') + '!';
+  // Show photo if available
+  var logoEl = document.querySelector('.hdr-logo');
+  if(logoEl && s.photo_url){ logoEl.src = s.photo_url; logoEl.style.display='block'; }
   document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
 
   document.getElementById('login-wrap').style.display = 'none';
