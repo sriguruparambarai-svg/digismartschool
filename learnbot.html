@@ -4522,6 +4522,14 @@ async function handleSlidePDF(event) {
   .crv-next-btn:hover{transform:translateY(-2px);}
   .crv-pause-btn{padding:10px 18px;font-size:0.9rem;font-weight:700;font-family:"Nunito",sans-serif;background:rgba(201,168,76,0.12);color:#E8C96A;border:2px solid rgba(201,168,76,0.35);border-radius:12px;cursor:pointer;transition:all 0.2s;display:none;}
   .crv-pause-btn:hover{background:rgba(201,168,76,0.28);}
+  .crv-repeat-btn{padding:10px 18px;font-size:0.9rem;font-weight:700;font-family:"Nunito",sans-serif;background:rgba(255,255,255,0.07);color:#F5E6C8;border:2px solid rgba(245,230,200,0.25);border-radius:12px;cursor:pointer;transition:all 0.2s;display:none;}
+  .crv-repeat-btn:hover{background:rgba(255,255,255,0.15);}
+  /* Voice style bar */
+  .crv-voice-bar{display:flex;align-items:center;gap:8px;justify-content:center;flex-wrap:wrap;padding:10px 0 4px;}
+  .crv-voice-label{color:rgba(245,230,200,0.55);font-size:0.75rem;font-weight:700;text-transform:uppercase;letter-spacing:1px;}
+  .crv-vstyle-btn{padding:6px 14px;font-size:0.78rem;font-weight:800;font-family:"Nunito",sans-serif;background:rgba(201,168,76,0.08);color:rgba(232,201,106,0.6);border:1.5px solid rgba(201,168,76,0.2);border-radius:20px;cursor:pointer;transition:all 0.2s;}
+  .crv-vstyle-btn:hover{background:rgba(201,168,76,0.2);color:#E8C96A;}
+  .crv-vstyle-btn.active{background:rgba(201,168,76,0.25);color:#FFD700;border-color:#C9A84C;}
 
   /* Done card */
   .crv-done-card{background:linear-gradient(135deg,#3A0810,#6B0F1A);border-radius:18px;padding:28px;text-align:center;border:3px solid #C9A84C;display:none;}
@@ -4605,9 +4613,18 @@ A2: It occurs in the chloroplasts of green plant cells."></textarea>
             <div id="crv-kp-list"></div>
           </div>
 
+          <div class="crv-voice-bar">
+            <span class="crv-voice-label">🎙 Voice Style:</span>
+            <button class="crv-vstyle-btn active" onclick="crvSetVoiceStyle('educator',this)">🧑‍🏫 Educator</button>
+            <button class="crv-vstyle-btn" onclick="crvSetVoiceStyle('conversational',this)">💬 Conversational</button>
+            <button class="crv-vstyle-btn" onclick="crvSetVoiceStyle('reader',this)">📖 Content Reader</button>
+            <button class="crv-vstyle-btn" onclick="crvSetVoiceStyle('slow',this)">🐢 Slow & Clear</button>
+          </div>
+
           <div class="crv-ctrl-row">
-            <button class="crv-pause-btn" id="crv-pause-btn" onclick="crvTogglePause()">⏸ Pause</button>
-            <button class="crv-next-btn"  id="crv-next-btn"  onclick="crvNext()">Next Question →</button>
+            <button class="crv-pause-btn"  id="crv-pause-btn"  onclick="crvTogglePause()">⏸ Pause</button>
+            <button class="crv-repeat-btn" id="crv-repeat-btn" onclick="crvRepeat()">🔁 Repeat</button>
+            <button class="crv-next-btn"   id="crv-next-btn"   onclick="crvNext()">Next Question →</button>
           </div>
 
           <div class="crv-done-card" id="crv-done-card">
@@ -4628,6 +4645,53 @@ A2: It occurs in the chloroplasts of green plant cells."></textarea>
    STATE
 ══════════════════════════════════════════ */
 var _crvQA=[], _crvIdx=0, _crvPaused=false, _crvPdfRaw='';
+var _crvVoiceStyle='educator'; // educator | conversational | reader | slow
+
+/* ── Voice style profiles ── */
+var _crvVoiceProfiles={
+  educator:{
+    // Warm teacher: moderate pace, clear, slight emphasis on key words
+    rate:0.88, pitch:1.05,
+    questionPrefix:'Question {n}. ',
+    answerPrefix:'The answer is. ',
+    pointPrefix:'', // just reads the point naturally
+    kpPrefix:'Remember these important points. ',
+    pauseBetweenPoints:550
+  },
+  conversational:{
+    // Natural chat style: faster, varied pitch, friendly
+    rate:1.0, pitch:1.1,
+    questionPrefix:'Okay, question {n}. ',
+    answerPrefix:'So, ',
+    pointPrefix:'',
+    kpPrefix:'And the key things to remember are. ',
+    pauseBetweenPoints:350
+  },
+  reader:{
+    // Clear content reader: steady, neutral, like an audiobook
+    rate:0.92, pitch:0.98,
+    questionPrefix:'Question number {n}. ',
+    answerPrefix:'Answer. ',
+    pointPrefix:'Point. ',
+    kpPrefix:'Key points. ',
+    pauseBetweenPoints:600
+  },
+  slow:{
+    // Very slow and clear — for younger students / difficult content
+    rate:0.72, pitch:1.0,
+    questionPrefix:'Question {n}. ',
+    answerPrefix:'Answer. ',
+    pointPrefix:'',
+    kpPrefix:'Important points. ',
+    pauseBetweenPoints:900
+  }
+};
+
+function crvSetVoiceStyle(style, btn){
+  _crvVoiceStyle=style;
+  document.querySelectorAll('.crv-vstyle-btn').forEach(function(b){b.classList.remove('active');});
+  if(btn) btn.classList.add('active');
+}
 
 /* ── open / close ── */
 function openRevisionPage(){
@@ -4978,8 +5042,8 @@ function crvStart(){
 function crvShowQ(){
   if(_crvIdx>=_crvQA.length){crvDone();return;}
   var total=_crvQA.length, qa=_crvQA[_crvIdx];
+  var prof=_crvVoiceProfiles[_crvVoiceStyle]||_crvVoiceProfiles.educator;
 
-  // Clean markdown from question and answer
   var qClean=crvClean(qa.question);
   var aClean=crvClean(qa.answer);
 
@@ -4995,12 +5059,16 @@ function crvShowQ(){
   document.getElementById('crv-a-lines').innerHTML='';
   document.getElementById('crv-kp-list').innerHTML='';
   document.getElementById('crv-next-btn').style.display='none';
+  document.getElementById('crv-repeat-btn').style.display='none';
   var pb=document.getElementById('crv-pause-btn');
   pb.style.display='inline-block'; pb.textContent='⏸ Pause'; _crvPaused=false;
 
-  /* Step 1: speak question slowly and clearly */
-  crvSpeak('Question '+(_crvIdx+1)+'.   '+qClean, function(){
+  /* speak question with profile prefix */
+  var qSpeech=prof.questionPrefix.replace('{n}',_crvIdx+1)+qClean;
+  crvSpeak(qSpeech, function(){
     if(_crvPaused) return;
+    // Show repeat button after question is read
+    document.getElementById('crv-repeat-btn').style.display='inline-block';
     setTimeout(function(){
       crvRevealAnswer(aClean, function(){
         if(_crvPaused) return;
@@ -5012,64 +5080,46 @@ function crvShowQ(){
 
 /* ── reveal answer point by point ── */
 function crvRevealAnswer(ansText, onDone){
+  var prof=_crvVoiceProfiles[_crvVoiceStyle]||_crvVoiceProfiles.educator;
   var card=document.getElementById('crv-a-card');
   var linesEl=document.getElementById('crv-a-lines');
   card.style.display='block'; linesEl.innerHTML='';
 
-  // Split on numbered points (1. 2. 3.) if present, else by sentence
   var points=[];
   var numberedSplit=ansText.split(/(?=\d+\.\s+[A-Z])/);
   if(numberedSplit.length>1){
-    numberedSplit.forEach(function(p){
-      var t=p.trim(); if(t.length>5) points.push(t);
-    });
+    numberedSplit.forEach(function(p){var t=p.trim();if(t.length>5)points.push(t);});
   } else {
-    // Fall back to sentence splitting
     points=(ansText.match(/[^.!?]+[.!?]*/g)||[ansText])
-      .map(function(s){return s.trim();})
-      .filter(function(s){return s.length>5;});
+      .map(function(s){return s.trim();}).filter(function(s){return s.length>5;});
   }
 
-  // Build display elements
   points.forEach(function(pt,idx){
     var sp=document.createElement('span');
-    sp.className='crv-a-line'; sp.id='crv-al-'+idx;
-    sp.textContent=pt;
+    sp.className='crv-a-line'; sp.id='crv-al-'+idx; sp.textContent=pt;
     linesEl.appendChild(sp);
-    // Add a small gap between points
-    linesEl.appendChild(document.createTextNode(' '));
   });
 
-  // Speak "Answer" prefix once, then read each point with a pause
-  crvSpeak('Answer.', function(){
-    setTimeout(function(){
-      crvReadPoints(points, 0, onDone);
-    }, 400);
+  crvSpeak(prof.answerPrefix, function(){
+    setTimeout(function(){crvReadPoints(points,prof,0,onDone);},300);
   });
 }
 
-function crvReadPoints(points, idx, onDone){
+function crvReadPoints(points,prof,idx,onDone){
   if(_crvPaused) return;
-  if(idx>=points.length){if(onDone) onDone(); return;}
+  if(idx>=points.length){if(onDone)onDone();return;}
 
   var el=document.getElementById('crv-al-'+idx);
   if(el){
-    // Scroll into view
     el.scrollIntoView({block:'nearest',behavior:'smooth'});
     el.classList.add('vis','reading');
-    setTimeout(function(){if(el) el.classList.remove('reading');},2200);
+    setTimeout(function(){if(el)el.classList.remove('reading');},2200);
   }
 
-  // Clean the point text before speaking
-  var speakText=crvClean(points[idx]);
-  // Remove leading "1. " numbering from speech
-  speakText=speakText.replace(/^\d+\.\s+/,'');
-
-  crvSpeak(speakText, function(){
-    // Natural pause between points — longer pause = more teacher-like
-    setTimeout(function(){
-      crvReadPoints(points, idx+1, onDone);
-    }, 500);
+  var speakText=crvClean(points[idx]).replace(/^\d+\.\s+/,'');
+  var prefix=prof.pointPrefix&&idx>0?prof.pointPrefix:'';
+  crvSpeak(prefix+speakText, function(){
+    setTimeout(function(){crvReadPoints(points,prof,idx+1,onDone);},prof.pauseBetweenPoints);
   });
 }
 
@@ -5108,7 +5158,8 @@ function crvKeyPoints(q,a){
       kpList.appendChild(el);
       setTimeout(function(){el.classList.add('vis');},i*200);
     });
-    var kpSpeech='Important points. '+pts.join('. ');
+    var prof=_crvVoiceProfiles[_crvVoiceStyle]||_crvVoiceProfiles.educator;
+    var kpSpeech=prof.kpPrefix+pts.join('. ');
     setTimeout(function(){
       if(_crvPaused){_crvShowNext();return;}
       crvSpeak(kpSpeech,_crvShowNext);
@@ -5122,20 +5173,25 @@ function crvKeyPoints(q,a){
 
 function _crvShowNext(){
   document.getElementById('crv-pause-btn').style.display='none';
+  document.getElementById('crv-repeat-btn').style.display='inline-block';
   var nb=document.getElementById('crv-next-btn');
-  if(_crvIdx<_crvQA.length-1){
-    nb.textContent='Next Question →';
-  } else {
-    nb.textContent='Finish Revision ✓';
-  }
+  nb.textContent=_crvIdx<_crvQA.length-1?'Next Question →':'Finish Revision ✓';
   nb.style.display='inline-block';
 }
 
-/* ── next / pause / restart / done ── */
+/* ── next / repeat / pause / restart / done ── */
 function crvNext(){
   if(window.speechSynthesis) window.speechSynthesis.cancel();
   _crvIdx++;
   if(_crvIdx>=_crvQA.length){crvDone();}else{crvShowQ();}
+}
+
+function crvRepeat(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  // Hide next/repeat, replay current question from the top
+  document.getElementById('crv-next-btn').style.display='none';
+  document.getElementById('crv-repeat-btn').style.display='none';
+  crvShowQ();
 }
 
 function crvTogglePause(){
@@ -5152,10 +5208,17 @@ function crvTogglePause(){
 function crvDone(){
   document.getElementById('crv-pause-btn').style.display='none';
   document.getElementById('crv-next-btn').style.display='none';
+  document.getElementById('crv-repeat-btn').style.display='none';
   document.getElementById('crv-done-n').textContent=_crvQA.length;
   document.getElementById('crv-done-card').style.display='block';
   document.getElementById('crv-prog-fill').style.width='100%';
-  crvSpeak('Revision complete! Well done, students! You have revised all '+_crvQA.length+' questions.',null);
+  var endings={
+    educator:'Excellent work, students! You have revised all '+_crvQA.length+' questions. Well done!',
+    conversational:'Great job! You just went through all '+_crvQA.length+' questions. That was awesome!',
+    reader:'Revision complete. All '+_crvQA.length+' questions have been covered.',
+    slow:'Very good. You finished all '+_crvQA.length+' questions. Well done!'
+  };
+  crvSpeak(endings[_crvVoiceStyle]||endings.educator, null);
 }
 
 function crvRestart(){
@@ -5168,16 +5231,33 @@ function crvRestart(){
   document.getElementById('crv-file-inp').value='';
 }
 
-/* ── speech ── */
+/* ── speech — uses current voice profile ── */
 function crvSpeak(text,onEnd){
+  if(!text||!text.trim()){if(onEnd)onEnd();return;}
   if(!window.speechSynthesis){if(onEnd)onEnd();return;}
   window.speechSynthesis.cancel();
+
+  var prof=_crvVoiceProfiles[_crvVoiceStyle]||_crvVoiceProfiles.educator;
   var utt=new SpeechSynthesisUtterance(text);
-  utt.rate=0.82; utt.pitch=1.0; utt.lang='en-IN';
+
+  // Pick best available voice
   var voices=window.speechSynthesis.getVoices();
-  var v=voices.find(function(vx){return vx.lang==='en-IN';})
+  var v=voices.find(function(vx){return vx.lang==='en-IN'&&(vx.name.includes('Neural')||vx.name.includes('Natural'));})
+     ||voices.find(function(vx){return vx.lang==='en-IN';})
+     ||voices.find(function(vx){return vx.lang==='en-GB';})
      ||voices.find(function(vx){return vx.lang.startsWith('en');});
   if(v) utt.voice=v;
+
+  utt.rate=prof.rate;
+  utt.pitch=prof.pitch;
+  utt.lang='en-IN';
+
+  // Add natural variation: conversational style gets slight random pitch shift per utterance
+  if(_crvVoiceStyle==='conversational'){
+    utt.pitch=prof.pitch+(Math.random()*0.12-0.06); // ±0.06 variation
+    utt.rate=prof.rate+(Math.random()*0.08-0.04);   // ±0.04 variation
+  }
+
   utt.onend=function(){if(onEnd)onEnd();};
   utt.onerror=function(){if(onEnd)onEnd();};
   window.speechSynthesis.speak(utt);
