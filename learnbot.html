@@ -1175,6 +1175,51 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     <!-- Active Lessons Panel -->
     <div id="active-lessons-panel" style="display:none;margin-top:16px;padding:14px;background:rgba(201,168,76,0.07);border:2px solid var(--gold-dark);border-radius:12px;"></div>
   </div>
+
+  <!-- ── MANAGE STUDENTS ── -->
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">👨‍🎓 Manage Students</div>
+    <p style="font-size:0.82rem;color:var(--maroon-mid);margin-bottom:12px;">Add students so they can login to their diary with their roll number.</p>
+
+    <!-- Add single student -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);">Class</label>
+        <select id="st-class" style="width:100%;padding:9px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;">
+          <option value="">Select</option>
+          <option>Pre KG</option><option>LKG</option><option>UKG</option>
+          <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+          <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+          <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+          <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);">Roll Number</label>
+        <input type="text" id="st-roll" placeholder="e.g. 15" style="width:100%;padding:9px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;"/>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);">Student Name</label>
+      <input type="text" id="st-name" placeholder="e.g. Kayal Vizhi" style="width:100%;padding:9px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;"/>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="addStudent()">➕ Add Student</button>
+      <button class="btn btn-outline" style="flex:1;" onclick="loadStudentsList()">👁 View Students</button>
+    </div>
+    <div id="st-status" style="margin-top:8px;font-size:0.82rem;font-weight:700;display:none;"></div>
+
+    <!-- Bulk add hint -->
+    <div style="margin-top:12px;padding:10px;background:rgba(201,168,76,0.08);border-radius:8px;font-size:0.78rem;color:var(--maroon-mid);line-height:1.6;">
+      💡 <strong>Tip:</strong> Add students one by one. Or use bulk upload — paste all names as:<br/>
+      <code style="background:rgba(0,0,0,0.06);padding:2px 5px;border-radius:4px;">1, Kayal Vizhi<br/>2, Arun Kumar<br/>3, Priya</code>
+      <br/><textarea id="st-bulk" placeholder="Paste here: RollNo, Name (one per line)&#10;e.g.&#10;1, Kayal Vizhi&#10;2, Arun Kumar" style="width:100%;margin-top:8px;padding:8px;font-size:0.82rem;border:1.5px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;min-height:80px;resize:vertical;"></textarea>
+      <button class="btn btn-gold btn-sm" style="width:100%;margin-top:6px;" onclick="bulkAddStudents()">📋 Bulk Add Students</button>
+    </div>
+
+    <!-- Students list -->
+    <div id="st-list" style="display:none;margin-top:12px;"></div>
+  </div>
 </div>
 
 <div id="tab-student" class="panel">
@@ -5476,6 +5521,142 @@ function crvSpeak(text,onEnd){
     activateStudentTab();
   }
 })();
+
+
+
+// ══════════════════════════════════════════════════════
+// STUDENT MANAGEMENT — diary_students table
+// ══════════════════════════════════════════════════════
+function getTeacherSchoolId(){
+  // Get school_id from session (set during teacher login)
+  try{
+    var sess = JSON.parse(sessionStorage.getItem('tm_activated')||'{}');
+    if(sess.school_id) return sess.school_id;
+  }catch(e){}
+  // Fallback: from dss_user in localStorage
+  try{
+    var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
+    return u.school_id || u.id || '';
+  }catch(e){ return ''; }
+}
+
+async function addStudent(){
+  var cls  = document.getElementById('st-class').value;
+  var roll = document.getElementById('st-roll').value.trim();
+  var name = document.getElementById('st-name').value.trim();
+  var stat = document.getElementById('st-status');
+
+  if(!cls || !roll || !name){
+    stat.style.display='block'; stat.style.color='#c0392b';
+    stat.textContent='⚠️ Please fill Class, Roll Number and Name.'; return;
+  }
+
+  var sb = getSB();
+  if(!sb){ stat.style.display='block'; stat.textContent='Database not connected.'; return; }
+
+  var schoolId = getTeacherSchoolId();
+  if(!schoolId){ stat.style.display='block'; stat.style.color='#c0392b'; stat.textContent='⚠️ School ID not found. Please login again.'; return; }
+
+  stat.style.display='block'; stat.style.color='var(--maroon)'; stat.textContent='⏳ Adding…';
+
+  try{
+    var {error} = await sb.from('diary_students').upsert(
+      {school_id: schoolId, class: cls, roll_no: roll, name: name},
+      {onConflict: 'school_id,class,roll_no'}
+    );
+    if(error) throw new Error(error.message);
+    stat.style.color='#1a5c2a';
+    stat.textContent='✅ '+name+' (Roll '+roll+') added to '+cls+'!';
+    document.getElementById('st-roll').value='';
+    document.getElementById('st-name').value='';
+  }catch(e){
+    stat.style.color='#c0392b';
+    stat.textContent='❌ Error: '+e.message;
+  }
+}
+
+async function bulkAddStudents(){
+  var cls  = document.getElementById('st-class').value;
+  var bulk = document.getElementById('st-bulk').value.trim();
+  var stat = document.getElementById('st-status');
+
+  if(!cls){ stat.style.display='block'; stat.style.color='#c0392b'; stat.textContent='⚠️ Please select Class first.'; return; }
+  if(!bulk){ stat.style.display='block'; stat.style.color='#c0392b'; stat.textContent='⚠️ Please paste student list.'; return; }
+
+  var sb = getSB();
+  var schoolId = getTeacherSchoolId();
+  if(!schoolId){ stat.style.display='block'; stat.style.color='#c0392b'; stat.textContent='⚠️ School ID not found.'; return; }
+
+  // Parse lines: "1, Kayal Vizhi" or "1 Kayal Vizhi"
+  var lines = bulk.split('\n').map(function(l){ return l.trim(); }).filter(Boolean);
+  var rows = [];
+  lines.forEach(function(line){
+    var m = line.match(/^(\d+)[,\s]+(.+)$/);
+    if(m) rows.push({school_id: schoolId, class: cls, roll_no: m[1].trim(), name: m[2].trim()});
+  });
+
+  if(!rows.length){ stat.style.display='block'; stat.style.color='#c0392b'; stat.textContent='⚠️ Could not parse any students. Use format: RollNo, Name'; return; }
+
+  stat.style.display='block'; stat.style.color='var(--maroon)'; stat.textContent='⏳ Adding '+rows.length+' students…';
+
+  try{
+    var {error} = await sb.from('diary_students').upsert(rows, {onConflict:'school_id,class,roll_no'});
+    if(error) throw new Error(error.message);
+    stat.style.color='#1a5c2a';
+    stat.textContent='✅ '+rows.length+' students added to '+cls+'!';
+    document.getElementById('st-bulk').value='';
+  }catch(e){
+    stat.style.color='#c0392b';
+    stat.textContent='❌ Error: '+e.message;
+  }
+}
+
+async function loadStudentsList(){
+  var cls = document.getElementById('st-class').value;
+  var listEl = document.getElementById('st-list');
+  var sb = getSB();
+  var schoolId = getTeacherSchoolId();
+
+  if(!cls){ alert('Please select a Class first.'); return; }
+  if(!schoolId){ alert('School ID not found.'); return; }
+
+  listEl.style.display='block';
+  listEl.innerHTML='<div style="font-size:0.82rem;color:var(--maroon);">Loading…</div>';
+
+  try{
+    var {data, error} = await sb.from('diary_students')
+      .select('*')
+      .eq('school_id', schoolId)
+      .eq('class', cls)
+      .order('roll_no');
+
+    if(error) throw error;
+
+    if(!data || !data.length){
+      listEl.innerHTML='<div style="font-size:0.82rem;color:var(--maroon-mid);padding:10px 0;">No students in '+cls+' yet. Add above.</div>';
+      return;
+    }
+
+    listEl.innerHTML='<div style="font-size:0.72rem;font-weight:800;color:var(--maroon);margin-bottom:8px;text-transform:uppercase;letter-spacing:1px;">'+cls+' — '+data.length+' Students</div>'
+      + '<div style="display:grid;grid-template-columns:50px 1fr 80px;gap:4px 8px;font-size:0.82rem;">'
+      + '<div style="font-weight:800;color:var(--maroon-mid);">Roll</div><div style="font-weight:800;color:var(--maroon-mid);">Name</div><div></div>'
+      + data.map(function(s){
+          return '<div style="color:var(--maroon);font-weight:700;">'+s.roll_no+'</div>'
+            +'<div>'+s.name+'</div>'
+            +'<div><button onclick="deleteStudent(''+s.id+'')" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:0.75rem;font-weight:700;">✕ Remove</button></div>';
+        }).join('')
+      + '</div>';
+  }catch(e){
+    listEl.innerHTML='<div style="font-size:0.82rem;color:#c0392b;">Error: '+e.message+'</div>';
+  }
+}
+
+async function deleteStudent(id){
+  if(!confirm('Remove this student?')) return;
+  var sb = getSB();
+  await sb.from('diary_students').delete().eq('id', id);
+  loadStudentsList();
+}
 
 </script>
 </body>

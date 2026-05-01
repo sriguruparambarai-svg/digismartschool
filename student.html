@@ -169,11 +169,11 @@ html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);m
       </select>
     </div>
     <div class="lf">
-      <label>Admission Number</label>
-      <input type="text" id="l-roll" placeholder="e.g. 1001" autocomplete="off"/>
+      <label>Roll Number</label>
+      <input type="text" id="l-roll" placeholder="e.g. 15" autocomplete="off"/>
     </div>
     <button class="btn-login" onclick="doLogin()">📖 Open My Diary</button>
-    <div style="font-size:0.72rem;color:var(--dim);text-align:center;margin-top:8px;">School Code is given by your school. Admission Number is your student ID.</div>
+    <div style="font-size:0.72rem;color:var(--dim);text-align:center;margin-top:8px;">School Code is given by your teacher. Roll Number is your class roll number.</div>
     <div class="login-err" id="login-err">Invalid school code, class or roll number.</div>
   </div>
 </div>
@@ -328,39 +328,30 @@ async function doLogin(){
   }
 
   try{
-    // Step 1: Look up school by school_code (short code like ARK2024)
-    var realSchoolId = schoolCode; // default: use as-is (UUID fallback)
-    var schoolDisplayName = schoolCode;
-
-    var {data:schoolRow} = await sb.from('schools')
+    // Step 1: Look up school by school_code
+    var {data:schoolRow, error:schoolErr} = await sb.from('schools')
       .select('id, name, school_code')
       .or('school_code.eq.'+schoolCode+',id.eq.'+schoolCode)
-      .single();
+      .maybeSingle();
 
-    if(schoolRow){
-      realSchoolId = schoolRow.id;
-      schoolDisplayName = schoolRow.name || schoolCode;
-    } else {
-      err.textContent = 'School code not found. Please check with your school.';
-      err.style.display = 'block'; return;
+    if(!schoolRow){
+      err.textContent = 'School code not found. Please check with your teacher.';
+      err.style.display='block'; return;
     }
+    var realSchoolId = schoolRow.id;
+    var schoolDisplayName = schoolRow.name || schoolCode;
 
-    // Step 2: Look up student in that school
-    var {data, error} = await sb.from('students')
-      .select('id, school_id, admission_no, full_name, class, section, photo_url, status')
+    // Step 2: Look up student in diary_students (simple TeachBot table)
+    var {data, error} = await sb.from('diary_students')
+      .select('id, school_id, class, roll_no, name')
       .eq('school_id', realSchoolId)
       .eq('class', cls)
-      .eq('admission_no', roll)
-      .single();
+      .eq('roll_no', roll)
+      .maybeSingle();
 
-    if(error || !data){
-      err.textContent = 'Student not found. Check your class and admission number.';
-      err.style.display = 'block'; return;
-    }
-
-    if(data.status === 'inactive'){
-      err.textContent = 'Your account is inactive. Contact your school.';
-      err.style.display = 'block'; return;
+    if(!data){
+      err.textContent = 'Roll number not found in '+cls+'. Please ask your teacher to add you.';
+      err.style.display='block'; return;
     }
 
     currentStudent = {
@@ -368,17 +359,15 @@ async function doLogin(){
       school_id:   realSchoolId,
       school_name: schoolDisplayName,
       class_name:  data.class,
-      roll_no:     data.admission_no,
-      name:        data.full_name || 'Student',
-      section:     data.section || '',
-      photo_url:   data.photo_url || ''
+      roll_no:     data.roll_no,
+      name:        data.name || 'Student'
     };
     sessionStorage.setItem('student_session', JSON.stringify(currentStudent));
     startApp();
 
   }catch(e){
     err.textContent = 'Connection error. Please try again.';
-    err.style.display = 'block';
+    err.style.display='block';
     console.error(e);
   }
 }
