@@ -337,8 +337,7 @@ var segs=[],idx=-1,playing=false,paused=false,ptimer=null;
 var spd=.85,waitNext=false,nextCb=null;
 var tmVoiceStyle='narrator'; // narrator | educator | conversational
 var keypoints=[],diagParts=[],diagIdx=-1,curAudio=null;
-var mathsSt={ans:null,formula:null,steps:[],rough:null,shown:0};
-var _paras=[];
+var mathsSt={question:null,ans:null,formula:null,steps:[],rough:null,shown:0};var _paras=[];
 const API='/api/ai';
 
 // Subject config
@@ -444,20 +443,59 @@ async function buildScript(){
   // MATHS — still fully AI generated
   // ══════════════════════════════════════════
   if(S.mode==='maths'){
-    var mathsPrompt='You are an experienced Tamil Nadu school teacher.\n'
-      +'Class: '+S.cls+' | Subject: Maths | Chapter: '+S.topic+'\n\n'
-      +(S.lessonText?'TEXTBOOK:\n'+S.lessonText.substring(0,2000):'Generate lesson for: '+S.topic)+'\n\n'
-      +'MATHS TEACHING — TWO FIELDS:\n'
-      +'• "display" = SYMBOLS on screen (e.g. "9 - 1 = 8")\n'
-      +'• "text"    = WORDS spoken aloud (e.g. "nine minus one equals eight")\n'
-      +'NEVER put symbols in text. NEVER put words in display.\n'
-      +'Segments: maths_answer → maths_formula → maths_step (×N) → maths_rough → summary\n\n'
-      +lr+'\n\n'
-      +'Return ONLY valid JSON array []. No markdown.\n'
-      +'Fields: text, display, tone, pause, lang, type, para_index';
-    await callAI(mathsPrompt);
-    return;
-  }
+  var mathsPrompt = `
+You are a strict and clear Maths teacher.
+
+Class: ${S.cls}
+Chapter: ${S.topic}
+
+${S.lessonText ? 'EXERCISE:\n' + S.lessonText.substring(0,2000) : ''}
+
+VERY IMPORTANT RULES:
+
+1. Solve EACH question separately.
+2. For EVERY question, ALWAYS follow this EXACT structure:
+
+[
+  maths_question,
+  maths_formula,
+  maths_step (multiple),
+  maths_answer
+]
+
+3. FORMAT:
+
+- maths_question:
+  Display the full question clearly
+
+- maths_formula:
+  MUST include the correct formula used
+
+- maths_step:
+  Step-by-step solving
+  One small step at a time
+
+- maths_answer:
+  Final answer only
+
+4. DO NOT SKIP FORMULA
+5. DO NOT COMBINE STEPS
+
+Return ONLY JSON array.
+No extra text.
+
+Fields:
+{
+  "type": "maths_question | maths_formula | maths_step | maths_answer",
+  "text": "...",
+  "display": "...",
+  "tone": "normal"
+}
+`;
+
+  await callAI(mathsPrompt);
+  return;
+}
 
   // ══════════════════════════════════════════
   // THEORY/SCIENCE/ENGLISH/TAMIL/SOCIAL
@@ -574,6 +612,10 @@ async function callAI(prompt){
     else{var tc=(String(seg.text||'').match(/[\u0B80-\u0BFF]/g)||[]).length;l=tc>2?'ta':'en';}
     return{text:String(seg.text||'').trim(),display:seg.display||null,tone:vt.includes(seg.tone)?seg.tone:'normal',pause:typeof seg.pause==='number'?Math.max(.3,Math.min(4,seg.pause)):1.0,lang:l,type:seg.type||'explain',para_index:typeof seg.para_index==='number'?seg.para_index:0,keypoint:seg.keypoint||null,_orig:String(seg.text||'').trim()};
   }).filter(function(s){return s.text.length>0;});
+  var hasFormula = var hasFormula = segs.some(function(s){ return s.type === 'maths_formula'; });;
+  if(S.mode==='maths' && !hasFormula){
+  throw new Error("Formula missing. Try again.");
+} 
   if(!segs.length)throw new Error('No valid segments. Try again.');
 }
 
@@ -642,6 +684,10 @@ function playSeg(i){
   }
 
   // Maths board
+  if(seg.type==='maths_question'){
+  mathsSt.question = seg.display || seg._orig;
+  renderMaths();
+  }
   if(seg.type==='maths_answer'){mathsSt={ans:seg.display||seg._orig,formula:null,steps:[],rough:null,shown:0};renderMaths();}
   else if(seg.type==='maths_formula'){mathsSt.formula=seg.display||seg._orig;renderMaths();}
   else if(seg.type==='maths_step'){mathsSt.steps.push({exp:seg._orig,sym:seg.display||null});mathsSt.shown=mathsSt.steps.length;renderMaths();}
@@ -705,9 +751,12 @@ function jumpTo(i){stopAudio();clearTimeout(ptimer);hideNextBar();idx=i;if(playi
 // ══════════════════════════════════════════════════
 function renderMaths(){
   var bd=document.getElementById('maths-board'),h='';
+  if(mathsSt.question){
+  h += '<div class="mb-sec"><div class="mb-hdr">📘 Question</div><div class="mb-body">'+escH(mathsSt.question)+'</div></div>';
+}
   if(mathsSt.ans)h+='<div class="mb-sec mb-ans"><div class="mb-hdr">✅ Final Answer</div><div class="mb-body"><div class="ans-disp">'+escH(mathsSt.ans)+'</div></div></div>';
   if(mathsSt.formula)h+='<div class="mb-sec mb-form"><div class="mb-hdr">📐 Formula</div><div class="mb-body">'+escH(mathsSt.formula)+'</div></div>';
-  if(mathsSt.steps.length){var sh=mathsSt.steps.slice(0,mathsSt.shown).map(function(s,i){return '<div class="step-row"><div class="step-num">'+(i+1)+'</div><div><div class="step-exp">'+escH(s.exp)+'</div>'+(s.sym?'<div class="step-sym">'+escH(s.sym)+'</div>':'')+'</div></div>';}).join('');h+='<div class="mb-sec mb-steps"><div class="mb-hdr">📝 Steps ('+mathsSt.shown+'/'+mathsSt.steps.length+')</div><div class="mb-body">'+sh+'</div></div>';}
+  if(mathsSt.steps.length){var sh=mathsSt.steps.slice(0,mathsSt.shown).map(function(s,i){return '<div class="step-row"><div class="step-num">'+(i+1)+'</div><div><div class="step-exp">👉 '+escH(s.exp)+'</div>'+(s.sym?'<div class="step-sym">'+escH(s.sym)+'</div>':'')+'</div></div>';}).join('');h+='<div class="mb-sec mb-steps"><div class="mb-hdr">📝 Steps ('+mathsSt.shown+'/'+mathsSt.steps.length+')</div><div class="mb-body">'+sh+'</div></div>';}
   if(mathsSt.rough)h+='<div class="mb-sec mb-rough"><div class="mb-hdr">📋 Rough Work</div><div class="mb-body">'+escH(mathsSt.rough)+'</div></div>';
   bd.innerHTML=h;bd.hidden=false;
 }
