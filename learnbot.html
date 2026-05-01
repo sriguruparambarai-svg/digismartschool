@@ -4560,7 +4560,7 @@ function _crvBuildDOM(){
               <input type="file" id="crv-file-inp" accept=".pdf,.txt" onchange="crvHandleFile(event)"/>
               <div class="crv-upload-icon">📤</div>
               <div class="crv-upload-label">Upload PDF or Text File</div>
-              <div class="crv-upload-hint">Questions &amp; Answers — Q1/A1 format or numbered</div>
+              <div class="crv-upload-hint">Text or scanned PDFs supported · .txt files · Q&amp;A format</div>
             </div>
             <div id="crv-file-name"></div>
 
@@ -4647,33 +4647,162 @@ function crvHandleFile(e){
   document.getElementById('crv-paste').value='';
   _crvPdfRaw='';
 
+  // ── plain text file ──
   if(file.name.toLowerCase().endsWith('.txt')){
     var fr=new FileReader();
     fr.onload=function(ev){_crvPdfRaw=ev.target.result;};
     fr.readAsText(file);
-  } else if(file.name.toLowerCase().endsWith('.pdf')){
+    return;
+  }
+
+  // ── PDF file — handle BOTH text-based AND scanned (image) PDFs ──
+  if(file.name.toLowerCase().endsWith('.pdf')){
+    nm.textContent='⏳ Reading PDF… please wait';
+    _crvPdfRaw='';
+
+    // Load PDF.js worker
+    if(window.pdfjsLib){
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    }
+
     var fr2=new FileReader();
     fr2.onload=function(ev){
       var bytes=new Uint8Array(ev.target.result);
-      if(window.pdfjsLib){
-        pdfjsLib.getDocument({data:bytes}).promise.then(function(pdf){
-          var promises=[];
-          for(var p=1;p<=pdf.numPages;p++){
-            promises.push(pdf.getPage(p).then(function(pg){
-              return pg.getTextContent().then(function(tc){
-                return tc.items.map(function(it){return it.str;}).join(' ');
-              });
-            }));
-          }
-          Promise.all(promises).then(function(pages){_crvPdfRaw=pages.join('\n');});
-        });
-      } else {
-        nm.textContent='⚠️ PDF.js not loaded — please paste text directly.';
-        _crvPdfRaw='';
+
+      if(!window.pdfjsLib){
+        // No PDF.js — send raw base64 to Claude Vision directly
+        var b64=btoa(String.fromCharCode.apply(null,bytes));
+        _crvOcrViaAPI(b64, file.name, nm);
+        return;
       }
+
+      pdfjsLib.getDocument({data:bytes}).promise.then(function(pdf){
+        // Step 1: Try text extraction first
+        var textPromises=[];
+        for(var p=1;p<=pdf.numPages;p++){
+          textPromises.push(pdf.getPage(p).then(function(pg){
+            return pg.getTextContent().then(function(tc){
+              return tc.items.map(function(it){return it.str;}).join(' ').trim();
+            });
+          }));
+        }
+        Promise.all(textPromises).then(function(pages){
+          var combined=pages.join('\n').trim();
+          var hasRealText=combined.replace(/\s/g,'').length>80;
+
+          if(hasRealText){
+            // Text PDF — use directly
+            _crvPdfRaw=combined;
+            nm.textContent='✅ '+file.name+' — text extracted';
+          } else {
+            // Scanned image PDF — render pages to canvas → base64 → Claude Vision OCR
+            nm.textContent='🔍 Scanned PDF detected — using AI to read…';
+            _crvOcrPages(pdf, nm, file.name);
+          }
+        });
+      }).catch(function(){
+        nm.textContent='⚠️ Could not read PDF — please paste text manually.';
+      });
     };
     fr2.readAsArrayBuffer(file);
   }
+}
+
+/* ── Render PDF pages to images and OCR via Claude Vision ── */
+function _crvOcrPages(pdfDoc, nm, fileName){
+  var canvas=document.createElement('canvas');
+  var ctx=canvas.getContext('2d');
+  var pageImages=[];
+  var total=Math.min(pdfDoc.numPages, 5); // max 5 pages
+
+  function renderPage(pageNum){
+    if(pageNum>total){
+      // All pages rendered — send to Claude for OCR
+      _crvOcrViaVision(pageImages, nm, fileName);
+      return;
+    }
+    pdfDoc.getPage(pageNum).then(function(page){
+      var viewport=page.getViewport({scale:2.0}); // scale=2 for better OCR quality
+      canvas.width=viewport.width;
+      canvas.height=viewport.height;
+      page.render({canvasContext:ctx,viewport:viewport}).promise.then(function(){
+        var imgData=canvas.toDataURL('image/jpeg',0.85).split(',')[1]; // base64 only
+        pageImages.push(imgData);
+        nm.textContent='🔍 Reading page '+pageNum+' of '+total+'…';
+        renderPage(pageNum+1);
+      });
+    });
+  }
+  renderPage(1);
+}
+
+/* ── Send page images to Claude Vision API for OCR ── */
+function _crvOcrViaVision(pageImages, nm, fileName){
+  nm.textContent='🤖 AI reading handwritten/printed content…';
+
+  // Build message content — one image per page
+  var content=[];
+  pageImages.forEach(function(b64,i){
+    content.push({type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}});
+    content.push({type:'text',text:'Page '+(i+1)+':'});
+  });
+  content.push({type:'text',text:'Extract ALL text from these pages exactly as written. Preserve question numbers, bold text, and answer structure. Output plain text only.'});
+
+  fetch(API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload:{
+      model:'claude-sonnet-4-5',
+      max_tokens:4000,
+      messages:[{role:'user',content:content}]
+    }})
+  })
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var txt='';
+    if(data.content&&data.content[0]) txt=(data.content[0].text||'').trim();
+    else if(data.text) txt=String(data.text).trim();
+    if(txt&&txt.length>20){
+      _crvPdfRaw=txt;
+      nm.textContent='✅ '+fileName+' — AI extracted '+txt.length+' characters';
+    } else {
+      nm.textContent='⚠️ Could not extract text — please paste manually.';
+    }
+  })
+  .catch(function(){
+    nm.textContent='⚠️ AI extraction failed — please paste text manually.';
+  });
+}
+
+/* ── Fallback: send raw PDF base64 directly to Claude ── */
+function _crvOcrViaAPI(b64, fileName, nm){
+  nm.textContent='🤖 AI reading PDF…';
+  fetch(API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload:{
+      model:'claude-sonnet-4-5',
+      max_tokens:4000,
+      messages:[{role:'user',content:[
+        {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}},
+        {type:'text',text:'Extract ALL text from this document exactly as written. Preserve question numbers and answer structure. Output plain text only.'}
+      ]}]
+    }})
+  })
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var txt='';
+    if(data.content&&data.content[0]) txt=(data.content[0].text||'').trim();
+    if(txt&&txt.length>20){
+      _crvPdfRaw=txt;
+      nm.textContent='✅ '+fileName+' — ready';
+    } else {
+      nm.textContent='⚠️ Could not read PDF — please paste text manually.';
+    }
+  })
+  .catch(function(){
+    nm.textContent='⚠️ Failed — please paste text manually.';
+  });
 }
 
 /* ── parse Q&A ── */
@@ -4713,7 +4842,15 @@ function crvParse(raw){
 
 /* ── start session ── */
 function crvStart(){
-  var raw=_crvPdfRaw||document.getElementById('crv-paste').value.trim();
+  var pasteVal=document.getElementById('crv-paste').value.trim();
+  var raw=_crvPdfRaw||pasteVal;
+  var nm=document.getElementById('crv-file-name');
+
+  // If PDF was chosen but OCR is still running (nm shows loading message)
+  if(!raw && nm.style.display!=='none' && nm.textContent.includes('…')){
+    alert('⏳ Still reading your PDF — please wait a few seconds and try again.');
+    return;
+  }
   if(!raw){alert('Please upload a file or paste Q&A text first.');return;}
 
   var parseEl=document.getElementById('crv-parsing');
