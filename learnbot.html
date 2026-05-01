@@ -1082,6 +1082,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 </style>
 <!-- PDF.js for client-side text extraction (fallback when server extraction fails) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!-- Supabase for class-wise lesson storage -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <div class="header">
@@ -1170,6 +1172,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     <div id="img-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
     <br/>
     <button class="btn btn-primary btn-full" onclick="activateLesson()">✅ Activate Lesson for Students</button>
+    <!-- Active Lessons Panel -->
+    <div id="active-lessons-panel" style="display:none;margin-top:16px;padding:14px;background:rgba(201,168,76,0.07);border:2px solid var(--gold-dark);border-radius:12px;"></div>
   </div>
 </div>
 
@@ -2160,46 +2164,150 @@ function handleTxt(inp){
 
 function handleImgs(inp){teacherImgs=[];document.getElementById('img-preview').innerHTML='';Array.from(inp.files).slice(0,5).forEach(f=>{const r=new FileReader();r.onload=e=>{teacherImgs.push(e.target.result);const i=document.createElement('img');i.src=e.target.result;i.style.cssText='width:70px;height:55px;object-fit:cover;border-radius:6px;border:2px solid var(--gold-dark);';document.getElementById('img-preview').appendChild(i);};r.readAsDataURL(f);});}
 
-function activateLesson(){
+// ══════════════════════════════════════════════════════
+// SUPABASE — Class-wise lesson storage
+// ══════════════════════════════════════════════════════
+var SB_URL  = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+var SB_KEY  = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+var sbClient = null;
+function getSB(){
+  if(sbClient) return sbClient;
+  if(window.supabase && window.supabase.createClient){
+    sbClient = window.supabase.createClient(SB_URL, SB_KEY);
+  }
+  return sbClient;
+}
+
+// Save lesson to Supabase under class+subject key
+async function saveLessonToDB(cls, sub, ch, lessonText){
+  var sb = getSB();
+  if(!sb){ console.warn('Supabase not loaded'); return false; }
+  var key = cls.replace(/\s+/g,'-').toLowerCase() + '_' + sub.replace(/\s+/g,'-').toLowerCase();
+  var payload = {
+    class_id:    key,
+    class_name:  cls,
+    subject:     sub,
+    chapter:     ch,
+    lesson_text: lessonText.substring(0, 8000),
+    updated_at:  new Date().toISOString()
+  };
+  try {
+    var { error } = await sb.from('active_lessons').upsert(payload, { onConflict: 'class_id' });
+    if(error){ console.error('Supabase save error:', error); return false; }
+    return true;
+  } catch(e){ console.error('Supabase error:', e); return false; }
+}
+
+// Load lesson from Supabase for a class+subject
+async function loadLessonFromDB(cls, sub){
+  var sb = getSB();
+  if(!sb) return null;
+  var key = cls.replace(/\s+/g,'-').toLowerCase() + '_' + sub.replace(/\s+/g,'-').toLowerCase();
+  try {
+    var { data, error } = await sb.from('active_lessons').select('*').eq('class_id', key).single();
+    if(error || !data) return null;
+    return data;
+  } catch(e){ return null; }
+}
+
+// Load ALL active lessons (for teacher to see what is activated)
+async function loadAllLessons(){
+  var sb = getSB();
+  if(!sb) return [];
+  try {
+    var { data, error } = await sb.from('active_lessons').select('*').order('updated_at', {ascending:false});
+    if(error || !data) return [];
+    return data;
+  } catch(e){ return []; }
+}
+
+async function activateLesson(){
   const cls=document.getElementById('t-class').value;
   const sub=document.getElementById('t-subject').value;
   const ch=document.getElementById('t-chapter').value;
   const txt=document.getElementById('t-text').value;
   if(!cls||!sub||!ch){alert('Please select Class, Subject and enter Chapter name.');return;}
 
-  // Block if PDF extraction is still running
   if(window.pdfExtracting){
-    alert('⏳ PDF is still being extracted. Please wait until you see "Ready to activate" before clicking Activate.');
+    alert('⏳ PDF is still being extracted. Please wait until you see "Ready to activate".');
     return;
   }
 
   const hasPDF = window.pdfBase64 && window.pdfBase64.length > 0;
   const hasText = txt.trim().length > 20 && !txt.startsWith('PDF file loaded:');
-
-  // Always allow activation — class + subject + chapter is enough for AI to teach
-  // If no text: AI will generate lesson from topic name
   lessonTxt = hasText ? txt.trim() : '';
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
 
-  // Save everything to sessionStorage at activation time
   var activatedData = {
-    subject:    sub,
-    cls:        cls,
-    topic:      ch,
+    subject: sub, cls: cls, topic: ch,
     lessonText: lessonTxt.substring(0, 4000),
-    hasPDF:     hasPDF,
-    lang:       'en'
+    hasPDF: hasPDF, lang: 'en'
   };
   try { sessionStorage.setItem('tm_activated', JSON.stringify(activatedData)); } catch(e){}
 
+  // ── Save to Supabase so all students can access ──
+  var btn = document.querySelector('[onclick="activateLesson()"]');
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Saving to classroom…'; }
+
+  var saved = await saveLessonToDB(cls, sub, ch, lessonTxt);
+
+  if(btn){ btn.disabled=false; btn.textContent='✅ Activate Lesson for Students'; }
+
   var msg;
-  if(hasText)      msg='✅ Lesson Activated!\n\nAI Teacher has studied the lesson and is ready to teach!';
-  else if(hasPDF)  msg='✅ Lesson Activated!\n\nAI Teacher is ready. Topic: '+ch;
-  else             msg='✅ Lesson Activated!\n\nAI Teacher will generate a lesson for '+sub+' — '+ch+'\n(No textbook text — AI will teach from topic knowledge)';
+  if(saved){
+    msg='✅ Lesson Activated for '+cls+' — '+sub+'!\n\n📡 Saved to cloud — all '+cls+' students can now access this lesson from any device.';
+  } else {
+    msg='✅ Lesson Activated!\n\n(Saved locally — Supabase connection needed for multi-device access)';
+  }
 
   alert(msg);
-  showTab('student',document.querySelectorAll('.tab-btn')[1]);
+  showTab('student', document.querySelectorAll('.tab-btn')[1]);
+  showActiveLessonsPanel();
+}
+
+// Show panel of all active lessons after teacher activates
+async function showActiveLessonsPanel(){
+  var panel = document.getElementById('active-lessons-panel');
+  if(!panel) return;
+  panel.style.display='block';
+  panel.innerHTML='<div style="font-weight:700;color:var(--maroon);margin-bottom:8px;">📋 Currently Active Lessons</div><div style="color:var(--maroon-mid);font-size:0.9rem;">Loading…</div>';
+  var lessons = await loadAllLessons();
+  if(!lessons.length){ panel.innerHTML='<div style="color:var(--maroon-mid);font-size:0.9rem;">No active lessons yet.</div>'; return; }
+  panel.innerHTML='<div style="font-weight:700;color:var(--maroon);margin-bottom:8px;">📋 Currently Active Lessons ('+lessons.length+')</div>'
+    + lessons.map(function(l){
+      return '<div style="background:var(--white);border:1.5px solid var(--gold-dark);border-radius:10px;padding:10px 14px;margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;gap:10px;">'
+        +'<div><div style="font-weight:800;color:var(--maroon);font-size:1rem;">'+l.class_name+' — '+l.subject+'</div>'
+        +'<div style="font-size:0.85rem;color:var(--maroon-mid);">📖 '+l.chapter+'</div>'
+        +'<div style="font-size:0.75rem;color:#888;margin-top:2px;">Updated: '+new Date(l.updated_at).toLocaleString('en-IN')+'</div></div>'
+        +'<button onclick="deactivateLesson(''+l.class_id+'')" style="background:rgba(139,26,26,0.08);border:1.5px solid rgba(139,26,26,0.2);color:var(--maroon);border-radius:8px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;">Remove</button>'
+        +'</div>';
+    }).join('');
+}
+
+async function deactivateLesson(classId){
+  if(!confirm('Remove this lesson? Students will no longer see it.')) return;
+  var sb = getSB();
+  if(!sb) return;
+  await sb.from('active_lessons').delete().eq('class_id', classId);
+  showActiveLessonsPanel();
+}
+
+// ── Student side: load lesson from Supabase when student selects class+subject ──
+async function loadStudentLesson(cls, sub){
+  if(!cls || !sub) return null;
+  // First check sessionStorage (teacher on same device)
+  try {
+    var raw = sessionStorage.getItem('tm_activated');
+    if(raw){
+      var d = JSON.parse(raw);
+      if(d.cls===cls && d.subject===sub) return d;
+    }
+  } catch(e){}
+  // Then load from Supabase (teacher on different device)
+  var row = await loadLessonFromDB(cls, sub);
+  if(!row) return null;
+  return { cls: row.class_name, subject: row.subject, topic: row.chapter, lessonText: row.lesson_text };
 }
 
 function selMode(m,el){document.querySelectorAll('.mode-card').forEach(x=>x.classList.remove('selected'));el.classList.add('selected');selectedMode=m;}
@@ -2310,12 +2418,33 @@ function launchTeachingMode(subjectOverride){
   window.location.href = 'teaching-mode.html';
 }
 
-function startStudent(){
+async function startStudent(){
   const cls=document.getElementById('s-class').value;
   const sub=document.getElementById('s-subject').value;
   if(!cls||!sub){alert('Please select Class and Subject.');return;}
   if(!selectedMode){alert('Please choose a mode.');return;}
-  if(!lessonTxt&&!window.pdfBase64){alert('No lesson found!\n\nPlease go to Teacher Panel, paste lesson text and click Activate.');return;}
+
+  // ── Load lesson from Supabase if not already in memory ──
+  if(!lessonTxt || lessonTxt.length < 20){
+    var btn=document.getElementById('ssp-start-btn');
+    if(btn){btn.disabled=true;btn.textContent='⏳ Loading lesson…';}
+    var loaded = await loadStudentLesson(cls, sub);
+    if(loaded){
+      lessonTxt = loaded.lessonText || '';
+      window.AL = { cls: loaded.cls, sub: loaded.subject, ch: loaded.topic };
+      // Also update sessionStorage for teaching-mode.html
+      try{ sessionStorage.setItem('tm_activated', JSON.stringify({
+        subject: loaded.subject, cls: loaded.cls, topic: loaded.topic,
+        lessonText: loaded.lessonText, lang: 'en'
+      })); }catch(e){}
+    }
+    if(btn){btn.disabled=false;btn.textContent='▶ Start Learning';}
+    if(!lessonTxt && !window.pdfBase64){
+      alert('⚠️ No lesson found for '+cls+' — '+sub+'\n\nPlease ask your teacher to activate a lesson first.');
+      return;
+    }
+  }
+
   if(selectedMode==='teaching'||selectedMode==='slides'||selectedMode==='maths'||selectedMode==='diagram'||selectedMode==='map'||selectedMode==='exam'||selectedMode==='english'){H('student-setup');S('lang-choice');}
   else if(selectedMode==='chat'){H('student-setup');S('chat-mode');chatHist=[];var tNameC='AI Teacher'; document.getElementById('chat-mode-title').textContent='💬 Ask AI Teacher'; document.getElementById('chat-box').innerHTML='<div class="msg teacher"><div class="bubble">Good morning, students! I am '+tNameC+'. Ask me anything about today\'s lesson — I am here to help you understand!</div></div>';}
   else if(selectedMode==='quiz'){H('student-setup');S('quiz-mode');startQuiz();}
@@ -3973,6 +4102,8 @@ async function callAI(payload){
 document.getElementById('n-date').valueAsDate=new Date();
 // Init subject tab on load
 showSubject('maths', document.getElementById('subj-maths-btn'));
+// Show active lessons on load
+window.addEventListener('load', function(){ showActiveLessonsPanel(); });
 
 // ══════════════════════════════════════════
 // STUDENT PANEL — SINGLE SCREEN
