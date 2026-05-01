@@ -327,35 +327,51 @@ async function doLogin(){
     err.style.display = 'block'; return;
   }
 
-  // Look up student using real column names: school_id, class, admission_no, parent_password
   try{
+    // Step 1: Look up school by school_code (short code like ARK2024)
+    var realSchoolId = schoolCode; // default: use as-is (UUID fallback)
+    var schoolDisplayName = schoolCode;
+
+    var {data:schoolRow} = await sb.from('schools')
+      .select('id, name, school_code')
+      .or('school_code.eq.'+schoolCode+',id.eq.'+schoolCode)
+      .single();
+
+    if(schoolRow){
+      realSchoolId = schoolRow.id;
+      schoolDisplayName = schoolRow.name || schoolCode;
+    } else {
+      err.textContent = 'School code not found. Please check with your school.';
+      err.style.display = 'block'; return;
+    }
+
+    // Step 2: Look up student in that school
     var {data, error} = await sb.from('students')
-      .select('id, school_id, admission_no, full_name, full_name_tamil, class, section, photo_url, parent_password, status')
-      .eq('school_id', schoolCode)
+      .select('id, school_id, admission_no, full_name, class, section, photo_url, status')
+      .eq('school_id', realSchoolId)
       .eq('class', cls)
       .eq('admission_no', roll)
       .single();
 
     if(error || !data){
-      err.textContent = 'Student not found. Please check school code, class and admission number.';
+      err.textContent = 'Student not found. Check your class and admission number.';
       err.style.display = 'block'; return;
     }
 
-    // Check status
-    if(data.status && data.status === 'inactive'){
-      err.textContent = 'Your account is inactive. Please contact your school.';
+    if(data.status === 'inactive'){
+      err.textContent = 'Your account is inactive. Contact your school.';
       err.style.display = 'block'; return;
     }
 
     currentStudent = {
       id:          data.id,
-      school_id:   data.school_id,
-      class_name:  data.class,        // map 'class' → 'class_name' for internal use
+      school_id:   realSchoolId,
+      school_name: schoolDisplayName,
+      class_name:  data.class,
       roll_no:     data.admission_no,
       name:        data.full_name || 'Student',
       section:     data.section || '',
-      photo_url:   data.photo_url || '',
-      school_name: schoolCode
+      photo_url:   data.photo_url || ''
     };
     sessionStorage.setItem('student_session', JSON.stringify(currentStudent));
     startApp();
