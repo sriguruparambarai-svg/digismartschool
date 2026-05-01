@@ -1808,6 +1808,10 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <button class="btn btn-primary btn-sm" onclick="window.open('https://wa.me/?text='+encodeURIComponent(document.getElementById('n-out').textContent))">📱 WhatsApp</button>
       <button class="btn btn-outline btn-sm" onclick="window.print()">🖨️ Print</button>
     </div>
+    <div style="margin-top:10px;">
+      <button id="n-save-btn" class="btn btn-full" style="display:none;background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:1rem;" onclick="saveNotesToDiary()">💾 Save to Student Diary</button>
+      <div style="font-size:0.78rem;color:var(--maroon-mid);margin-top:5px;text-align:center;">Saved notes will appear in the student's digital diary</div>
+    </div>
   </div>
 </div><!-- /main -->
 </div><!-- /app-layout -->
@@ -2860,16 +2864,21 @@ function showFinal(){
 }
 
 async function genNotes(){
+  const cls=document.getElementById('n-cls').value;
+  const sub=document.getElementById('n-sub').value;
   const topic=document.getElementById('n-topic').value;
   const notes=document.getElementById('n-notes').value;
+  const hw=document.getElementById('n-hw').value||'';
+  const date=document.getElementById('n-date').value;
+  if(!cls||!sub){alert('Please select Class and Subject.');return;}
   if(!topic||!notes){alert('Please fill Topic and Notes.');return;}
   document.getElementById('n-load').classList.add('on');
   document.getElementById('n-out-card').style.display='none';
   const lg=document.getElementById('n-lang').value;
   const li=lg==='tamil'?'Write entirely in Tamil.':lg==='both'?'Write in English then Tamil translation.':'Write in clear English.';
   const p=`Professional school diary message for parents.
-Class: ${document.getElementById('n-cls').value} | Subject: ${document.getElementById('n-sub').value} | Date: ${document.getElementById('n-date').value}
-Topic: ${topic} | Teacher: ${document.getElementById('n-teacher').value} | Homework: ${document.getElementById('n-hw').value||'None'}
+Class: ${cls} | Subject: ${sub} | Date: ${date}
+Topic: ${topic} | Teacher: ${document.getElementById('n-teacher').value} | Homework: ${hw||'None'}
 Notes: ${notes}
 ${li}
 Create a warm professional parent message with: learning summary, key concepts, homework, encouraging closing.`;
@@ -2877,8 +2886,53 @@ Create a warm professional parent message with: learning summary, key concepts, 
     const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:700,messages:[{role:'user',content:p}]});
     document.getElementById('n-load').classList.remove('on');
     document.getElementById('n-out-card').style.display='block';
-    const o=document.getElementById('n-out');o.style.display='block';o.textContent=d.content[0].text;
+    const o=document.getElementById('n-out');o.style.display='block';
+    const generatedText=d.content[0].text;
+    o.textContent=generatedText;
+
+    // ── Save to Student Diary in Supabase ──
+    var saveBtn=document.getElementById('n-save-btn');
+    if(saveBtn){ saveBtn.style.display='inline-flex'; saveBtn.disabled=false; saveBtn.textContent='💾 Save to Student Diary'; }
+    window._lastNotes={cls,sub,topic,date,hw,notes:generatedText};
+
   }catch(e){document.getElementById('n-load').classList.remove('on');alert('Error: '+e.message);}
+}
+
+// ── Save class notes to Supabase diary_entries table ──
+async function saveNotesToDiary(){
+  var d=window._lastNotes;
+  if(!d){alert('Please generate notes first.');return;}
+  var saveBtn=document.getElementById('n-save-btn');
+  if(saveBtn){saveBtn.disabled=true;saveBtn.textContent='⏳ Saving…';}
+
+  var sb=getSB();
+  if(!sb){alert('Database not connected. Please check Supabase setup.');return;}
+
+  // Get school_id from session
+  var schoolId='';
+  try{var sess=JSON.parse(sessionStorage.getItem('dss_session')||'{}');schoolId=sess.school_id||'';}catch(e){}
+
+  var payload={
+    school_id: schoolId,
+    class_name: d.cls,
+    subject:    d.sub,
+    lesson_title: d.topic,
+    lesson_date:  d.date||new Date().toISOString().split('T')[0],
+    class_notes:  d.notes,
+    homework:     d.hw||'',
+    book_back_answers: '',
+    created_at:   new Date().toISOString()
+  };
+
+  try{
+    var {error}=await sb.from('diary_entries').insert(payload);
+    if(error) throw new Error(error.message);
+    if(saveBtn){saveBtn.textContent='✅ Saved to Student Diary!';}
+    setTimeout(function(){if(saveBtn){saveBtn.style.display='none';}},3000);
+  }catch(e){
+    if(saveBtn){saveBtn.disabled=false;saveBtn.textContent='💾 Save to Student Diary';}
+    alert('Save failed: '+e.message);
+  }
 }
 
 // ── VIDEO MODE ──

@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0"/>
+<title>DigiSmartSchool — Student Diary</title>
+<link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&family=Cinzel:wght@600;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<style>
+:root{
+  --maroon:#6B0F1A;--maroon-dark:#4A0A12;--maroon-mid:#8B1A2A;
+  --gold:#C9A84C;--gold-light:#E8C96A;--gold-dark:#A07830;
+  --sandal:#F5E6C8;--sandal-light:#FDF6E8;--white:#FFFDF5;
+  --text:#2A0A0F;--text2:#5A2030;--dim:#8A6040;
+  --green:#1a5c2a;--blue:#1a3a7a;--teal:#1a6b6b;
+  --shadow:0 4px 20px rgba(107,15,26,0.12);
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);min-height:100vh;-webkit-tap-highlight-color:transparent;}
+::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:rgba(107,15,26,.2);border-radius:2px;}
+
+/* ── LOGIN SCREEN ── */
+.login-wrap{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;background:linear-gradient(160deg,var(--maroon-dark),var(--maroon));}
+.login-logo{font-family:'Cinzel',serif;font-size:1.6rem;color:var(--gold-light);letter-spacing:2px;margin-bottom:4px;text-align:center;}
+.login-sub{font-size:.78rem;color:rgba(232,201,154,.65);margin-bottom:28px;text-align:center;}
+.login-card{background:var(--sandal-light);border-radius:20px;padding:28px 24px;width:100%;max-width:360px;box-shadow:0 16px 40px rgba(0,0,0,.3);}
+.login-card h2{font-family:'Cinzel',serif;font-size:1.1rem;color:var(--maroon);margin-bottom:18px;text-align:center;}
+.lf{margin-bottom:14px;}
+.lf label{display:block;font-size:.72rem;font-weight:800;color:var(--maroon);text-transform:uppercase;letter-spacing:.8px;margin-bottom:5px;}
+.lf input,.lf select{width:100%;padding:11px 13px;font-size:.95rem;border:1.5px solid rgba(160,120,48,.35);border-radius:10px;background:#fff;color:var(--text);font-family:'Nunito',sans-serif;font-weight:700;outline:none;transition:border .2s;}
+.lf input:focus,.lf select:focus{border-color:var(--maroon);}
+.btn-login{width:100%;padding:13px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:11px;font-family:'Nunito',sans-serif;font-size:1rem;font-weight:800;cursor:pointer;margin-top:6px;transition:all .2s;}
+.btn-login:hover{transform:translateY(-2px);box-shadow:0 6px 18px rgba(107,15,26,.35);}
+.login-err{color:#c0392b;font-size:.82rem;font-weight:700;text-align:center;margin-top:8px;display:none;}
+
+/* ── MAIN APP ── */
+.app{display:none;flex-direction:column;min-height:100vh;}
+.app.show{display:flex;}
+
+/* Header */
+.app-hdr{background:linear-gradient(90deg,var(--maroon-dark),var(--maroon));padding:11px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:100;border-bottom:2px solid rgba(201,168,76,.3);}
+.hdr-logo{width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid var(--gold);flex-shrink:0;}
+.hdr-school{font-family:'Cinzel',serif;font-size:.8rem;color:var(--gold-light);font-weight:600;}
+.hdr-student{font-size:.68rem;color:rgba(232,201,154,.7);margin-top:1px;}
+.hdr-right{margin-left:auto;display:flex;align-items:center;gap:8px;}
+.hdr-badge{background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);border-radius:10px;padding:3px 9px;font-size:.65rem;font-weight:800;color:var(--gold-light);}
+.logout-btn{background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:rgba(232,201,154,.8);padding:4px 10px;border-radius:7px;font-size:.65rem;font-weight:700;cursor:pointer;font-family:'Nunito',sans-serif;}
+
+/* Bottom nav */
+.bottom-nav{position:fixed;bottom:0;left:0;right:0;background:var(--white);border-top:2px solid var(--sandal);display:flex;z-index:100;box-shadow:0 -4px 16px rgba(107,15,26,.08);}
+.bnav-btn{flex:1;padding:9px 4px 7px;display:flex;flex-direction:column;align-items:center;gap:2px;border:none;background:transparent;cursor:pointer;transition:all .15s;font-family:'Nunito',sans-serif;}
+.bnav-btn.active{background:rgba(107,15,26,.05);}
+.bnav-icon{font-size:1.3rem;line-height:1;}
+.bnav-label{font-size:.58rem;font-weight:800;color:var(--dim);text-transform:uppercase;letter-spacing:.3px;}
+.bnav-btn.active .bnav-label{color:var(--maroon);}
+
+/* Page wrapper */
+.page{display:none;flex:1;padding:14px 14px 80px;overflow-y:auto;}
+.page.show{display:block;}
+
+/* ── HOME PAGE ── */
+.home-greeting{background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));border-radius:var(--radius);padding:16px;margin-bottom:14px;color:var(--sandal);}
+.home-greeting h2{font-family:'Cinzel',serif;font-size:1.1rem;color:var(--gold-light);margin-bottom:3px;}
+.home-greeting p{font-size:.78rem;opacity:.8;line-height:1.5;}
+.today-badge{display:inline-flex;align-items:center;gap:5px;background:rgba(201,168,76,.15);border:1px solid rgba(201,168,76,.3);border-radius:20px;padding:3px 10px;font-size:.65rem;font-weight:700;color:var(--gold-light);margin-top:8px;}
+
+.section-title{font-size:.68rem;font-weight:900;color:var(--maroon);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.section-title::after{content:'';flex:1;height:1px;background:rgba(107,15,26,.1);}
+
+/* Today's updates */
+.today-card{background:var(--white);border-radius:var(--radius);padding:14px;border:1.5px solid var(--sandal);box-shadow:var(--shadow);margin-bottom:10px;}
+.today-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.today-card-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;}
+.today-card-icon.green{background:rgba(26,92,42,.1);}
+.today-card-icon.blue{background:rgba(26,58,122,.1);}
+.today-card-icon.gold{background:rgba(201,168,76,.15);}
+.today-card-title{font-size:.88rem;font-weight:800;color:var(--text);}
+.today-card-sub{font-size:.68rem;color:var(--dim);margin-top:1px;}
+.today-card-body{font-size:.82rem;line-height:1.7;color:var(--text2);background:var(--sandal-light);border-radius:8px;padding:9px 11px;}
+
+/* ── SUBJECTS PAGE ── */
+.subj-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.subj-card{background:var(--white);border-radius:var(--radius);padding:16px 12px;text-align:center;border:1.5px solid var(--sandal);box-shadow:var(--shadow);cursor:pointer;transition:all .2s;position:relative;}
+.subj-card:active{transform:scale(.97);}
+.subj-card:hover{border-color:var(--gold);transform:translateY(-2px);}
+.subj-icon{font-size:2rem;margin-bottom:8px;display:block;}
+.subj-name{font-size:.9rem;font-weight:800;color:var(--maroon);margin-bottom:3px;}
+.subj-count{font-size:.65rem;color:var(--dim);font-weight:600;}
+.subj-badge{position:absolute;top:8px;right:8px;background:var(--maroon);color:var(--gold-light);font-size:.55rem;font-weight:800;padding:2px 6px;border-radius:8px;}
+
+/* ── LESSONS LIST ── */
+.back-btn{display:flex;align-items:center;gap:5px;background:rgba(107,15,26,.07);border:1.5px solid rgba(107,15,26,.15);color:var(--maroon);padding:6px 13px;border-radius:8px;font-size:.75rem;font-weight:800;cursor:pointer;margin-bottom:14px;font-family:'Nunito',sans-serif;width:fit-content;}
+.lesson-list{display:flex;flex-direction:column;gap:8px;}
+.lesson-item{background:var(--white);border-radius:var(--radius);padding:13px 14px;border:1.5px solid var(--sandal);box-shadow:var(--shadow);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:11px;}
+.lesson-item:active{transform:scale(.98);}
+.lesson-item:hover{border-color:var(--gold);}
+.lesson-dot{width:10px;height:10px;border-radius:50%;background:var(--maroon);flex-shrink:0;}
+.lesson-info{flex:1;}
+.lesson-name{font-size:.9rem;font-weight:800;color:var(--text);}
+.lesson-date{font-size:.65rem;color:var(--dim);margin-top:2px;}
+.lesson-pills{display:flex;gap:4px;margin-top:5px;flex-wrap:wrap;}
+.pill{font-size:.55rem;font-weight:800;padding:2px 7px;border-radius:8px;text-transform:uppercase;letter-spacing:.4px;}
+.pill-notes{background:rgba(26,92,42,.1);color:var(--green);}
+.pill-hw{background:rgba(26,58,122,.08);color:var(--blue);}
+.pill-bb{background:rgba(201,168,76,.15);color:var(--gold-dark);}
+.lesson-arrow{color:var(--dim);font-size:1rem;}
+
+/* ── LESSON DETAIL ── */
+.lesson-detail-hdr{background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));border-radius:var(--radius);padding:14px;margin-bottom:14px;}
+.lesson-detail-subj{font-size:.65rem;font-weight:800;color:rgba(232,201,154,.7);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;}
+.lesson-detail-title{font-family:'Cinzel',serif;font-size:1rem;color:var(--gold-light);margin-bottom:3px;}
+.lesson-detail-date{font-size:.68rem;color:rgba(232,201,154,.6);}
+
+.detail-section{background:var(--white);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1.5px solid var(--sandal);box-shadow:var(--shadow);}
+.detail-sec-hdr{display:flex;align-items:center;gap:7px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid var(--sandal);}
+.detail-sec-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem;flex-shrink:0;}
+.detail-sec-icon.green{background:rgba(26,92,42,.1);}
+.detail-sec-icon.blue{background:rgba(26,58,122,.1);}
+.detail-sec-icon.gold{background:rgba(201,168,76,.15);}
+.detail-sec-title{font-size:.82rem;font-weight:900;color:var(--text);text-transform:uppercase;letter-spacing:.5px;}
+.detail-sec-body{font-size:.85rem;line-height:1.85;color:var(--text2);white-space:pre-wrap;}
+.detail-sec-empty{font-size:.8rem;color:var(--dim);font-style:italic;padding:6px 0;}
+
+/* Loading spinner */
+.spin-wrap{text-align:center;padding:32px;color:var(--maroon);}
+.spinner{width:36px;height:36px;border:3px solid var(--sandal);border-top:3px solid var(--maroon);border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 10px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.spin-txt{font-size:.82rem;font-weight:700;}
+
+/* Empty state */
+.empty-state{text-align:center;padding:36px 20px;}
+.empty-icon{font-size:2.8rem;margin-bottom:12px;}
+.empty-title{font-size:.95rem;font-weight:800;color:var(--maroon);margin-bottom:5px;}
+.empty-sub{font-size:.78rem;color:var(--dim);line-height:1.6;}
+
+/* Announcement banner */
+.announce-card{background:linear-gradient(135deg,rgba(26,92,42,.08),rgba(26,92,42,.03));border:1.5px solid rgba(26,92,42,.2);border-radius:var(--radius);padding:11px 13px;margin-bottom:10px;display:flex;align-items:flex-start;gap:8px;}
+.announce-icon{font-size:1.1rem;flex-shrink:0;margin-top:1px;}
+.announce-text{font-size:.8rem;line-height:1.6;color:var(--text2);}
+
+@media(max-width:360px){
+  .subj-grid{grid-template-columns:1fr;}
+  .login-card{padding:22px 18px;}
+}
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════ LOGIN ══════════════════════ -->
+<div class="login-wrap" id="login-wrap">
+  <div class="login-logo">DigiSmartSchool</div>
+  <div class="login-sub">Student Digital Diary</div>
+  <div class="login-card">
+    <h2>📓 Student Login</h2>
+    <div class="lf">
+      <label>School Code</label>
+      <input type="text" id="l-school" placeholder="e.g. ARK2024" autocomplete="off"/>
+    </div>
+    <div class="lf">
+      <label>Class</label>
+      <select id="l-class">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+    </div>
+    <div class="lf">
+      <label>Roll Number (Password)</label>
+      <input type="number" id="l-roll" placeholder="e.g. 15" autocomplete="off"/>
+    </div>
+    <button class="btn-login" onclick="doLogin()">📖 Open My Diary</button>
+    <div class="login-err" id="login-err">Invalid school code, class or roll number.</div>
+  </div>
+</div>
+
+<!-- ══════════════════════ MAIN APP ══════════════════════ -->
+<div class="app" id="app">
+
+  <!-- Header -->
+  <div class="app-hdr">
+    <img class="hdr-logo" src="logo.png" onerror="this.style.display='none'" alt=""/>
+    <div>
+      <div class="hdr-school" id="hdr-school">School</div>
+      <div class="hdr-student" id="hdr-student">Student</div>
+    </div>
+    <div class="hdr-right">
+      <span class="hdr-badge" id="hdr-class">Class</span>
+      <button class="logout-btn" onclick="doLogout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- Pages -->
+
+  <!-- HOME -->
+  <div class="page show" id="page-home">
+    <div class="home-greeting">
+      <h2 id="greet-name">Good Morning!</h2>
+      <p>Here is what happened in school today.</p>
+      <div class="today-badge">📅 <span id="today-date"></span></div>
+    </div>
+
+    <div class="section-title">📌 Today's Updates</div>
+    <div id="today-updates">
+      <div class="spin-wrap"><div class="spinner"></div><div class="spin-txt">Loading today's updates…</div></div>
+    </div>
+
+    <div class="section-title" style="margin-top:16px;">📢 Announcements</div>
+    <div id="today-announcements">
+      <div class="empty-state" style="padding:16px 0;">
+        <div class="empty-sub">No announcements today</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUBJECTS -->
+  <div class="page" id="page-subjects">
+    <div class="section-title">📚 My Subjects</div>
+    <div class="subj-grid" id="subj-grid">
+      <div class="spin-wrap" style="grid-column:1/-1"><div class="spinner"></div><div class="spin-txt">Loading…</div></div>
+    </div>
+  </div>
+
+  <!-- LESSONS LIST -->
+  <div class="page" id="page-lessons">
+    <button class="back-btn" onclick="showSubjects()">← Back to Subjects</button>
+    <div class="section-title" id="lessons-title">Lessons</div>
+    <div class="lesson-list" id="lesson-list">
+      <div class="spin-wrap"><div class="spinner"></div><div class="spin-txt">Loading lessons…</div></div>
+    </div>
+  </div>
+
+  <!-- LESSON DETAIL -->
+  <div class="page" id="page-detail">
+    <button class="back-btn" onclick="showLessons()">← Back to Lessons</button>
+    <div class="lesson-detail-hdr">
+      <div class="lesson-detail-subj" id="detail-subj"></div>
+      <div class="lesson-detail-title" id="detail-title"></div>
+      <div class="lesson-detail-date" id="detail-date"></div>
+    </div>
+
+    <!-- Class Notes -->
+    <div class="detail-section">
+      <div class="detail-sec-hdr">
+        <div class="detail-sec-icon green">📝</div>
+        <div class="detail-sec-title">Class Notes</div>
+      </div>
+      <div id="detail-notes" class="detail-sec-body"></div>
+    </div>
+
+    <!-- Homework -->
+    <div class="detail-section">
+      <div class="detail-sec-hdr">
+        <div class="detail-sec-icon blue">📋</div>
+        <div class="detail-sec-title">Homework</div>
+      </div>
+      <div id="detail-hw" class="detail-sec-body"></div>
+    </div>
+
+    <!-- Book Back Answers -->
+    <div class="detail-section" id="detail-bb-section">
+      <div class="detail-sec-hdr">
+        <div class="detail-sec-icon gold">📚</div>
+        <div class="detail-sec-title">Book Back Answers</div>
+      </div>
+      <div id="detail-bb" class="detail-sec-body"></div>
+    </div>
+  </div>
+
+  <!-- DIARY (all entries chronologically) -->
+  <div class="page" id="page-diary">
+    <div class="section-title">📓 My Diary</div>
+    <div id="diary-list">
+      <div class="spin-wrap"><div class="spinner"></div><div class="spin-txt">Loading diary…</div></div>
+    </div>
+  </div>
+
+  <!-- Bottom Navigation -->
+  <div class="bottom-nav">
+    <button class="bnav-btn active" id="bnav-home" onclick="showPage('home')">
+      <span class="bnav-icon">🏠</span>
+      <span class="bnav-label">Home</span>
+    </button>
+    <button class="bnav-btn" id="bnav-subjects" onclick="showPage('subjects')">
+      <span class="bnav-icon">📚</span>
+      <span class="bnav-label">Subjects</span>
+    </button>
+    <button class="bnav-btn" id="bnav-diary" onclick="showPage('diary')">
+      <span class="bnav-icon">📓</span>
+      <span class="bnav-label">Diary</span>
+    </button>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ══════════════════════════════════════════
+// SUPABASE SETUP
+// ══════════════════════════════════════════
+var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+var sb = window.supabase.createClient(SB_URL, SB_KEY);
+
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+var currentStudent = null;
+var currentSubject = '';
+var allEntries = [];
+
+// ══════════════════════════════════════════
+// LOGIN
+// ══════════════════════════════════════════
+async function doLogin(){
+  var schoolCode = document.getElementById('l-school').value.trim();
+  var cls        = document.getElementById('l-class').value;
+  var roll       = document.getElementById('l-roll').value.trim();
+  var err        = document.getElementById('login-err');
+  err.style.display = 'none';
+
+  if(!schoolCode || !cls || !roll){
+    err.textContent = 'Please fill all fields.';
+    err.style.display = 'block'; return;
+  }
+
+  // Look up student in Supabase
+  try{
+    var {data, error} = await sb.from('students')
+      .select('*')
+      .ilike('school_id', schoolCode)
+      .eq('class_name', cls)
+      .eq('roll_no', roll)
+      .single();
+
+    if(error || !data){
+      // Fallback: allow login if school has diary entries (demo mode)
+      var {data:entries} = await sb.from('diary_entries')
+        .select('id')
+        .ilike('school_id', schoolCode)
+        .eq('class_name', cls)
+        .limit(1);
+
+      if(entries && entries.length > 0){
+        // School exists, allow login with roll number as name
+        data = {school_id: schoolCode, class_name: cls, roll_no: roll, name: 'Student '+roll, school_name: schoolCode};
+      } else {
+        err.textContent = 'School not found. Please check your school code.';
+        err.style.display = 'block'; return;
+      }
+    }
+
+    currentStudent = data;
+    sessionStorage.setItem('student_session', JSON.stringify(data));
+    startApp();
+
+  }catch(e){
+    err.textContent = 'Connection error. Please try again.';
+    err.style.display = 'block';
+    console.error(e);
+  }
+}
+
+function doLogout(){
+  sessionStorage.removeItem('student_session');
+  currentStudent = null;
+  allEntries = [];
+  document.getElementById('login-wrap').style.display = 'flex';
+  document.getElementById('app').classList.remove('show');
+}
+
+// ══════════════════════════════════════════
+// APP INIT
+// ══════════════════════════════════════════
+function startApp(){
+  var s = currentStudent;
+  document.getElementById('hdr-school').textContent = s.school_name || s.school_id || 'My School';
+  document.getElementById('hdr-student').textContent = s.name || 'Student';
+  document.getElementById('hdr-class').textContent = s.class_name;
+  document.getElementById('greet-name').textContent = greetByTime() + ', ' + (s.name || 'Student') + '!';
+  document.getElementById('today-date').textContent = new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
+
+  document.getElementById('login-wrap').style.display = 'none';
+  document.getElementById('app').classList.add('show');
+
+  loadAllEntries();
+}
+
+function greetByTime(){
+  var h = new Date().getHours();
+  if(h < 12) return 'Good Morning';
+  if(h < 17) return 'Good Afternoon';
+  return 'Good Evening';
+}
+
+// ══════════════════════════════════════════
+// LOAD ALL DIARY ENTRIES
+// ══════════════════════════════════════════
+async function loadAllEntries(){
+  var s = currentStudent;
+  try{
+    var {data, error} = await sb.from('diary_entries')
+      .select('*')
+      .ilike('school_id', s.school_id)
+      .eq('class_name', s.class_name)
+      .order('lesson_date', {ascending: false});
+
+    if(error) throw error;
+    allEntries = data || [];
+    renderHome();
+    renderSubjects();
+    renderDiary();
+  }catch(e){
+    console.error('Failed to load entries:', e);
+    document.getElementById('today-updates').innerHTML = '<div class="empty-state"><div class="empty-icon">😔</div><div class="empty-title">Could not load data</div><div class="empty-sub">'+e.message+'</div></div>';
+  }
+}
+
+// ══════════════════════════════════════════
+// HOME PAGE
+// ══════════════════════════════════════════
+function renderHome(){
+  var today = new Date().toISOString().split('T')[0];
+  var todayEntries = allEntries.filter(function(e){ return e.lesson_date === today; });
+
+  var upEl = document.getElementById('today-updates');
+  var anEl = document.getElementById('today-announcements');
+
+  if(!todayEntries.length){
+    upEl.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No updates today</div><div class="empty-sub">Check back after school hours</div></div>';
+  } else {
+    upEl.innerHTML = todayEntries.map(function(e){
+      return '<div class="today-card" onclick="openLesson(\''+e.id+'\')">'
+        +'<div class="today-card-hdr">'
+        +'<div class="today-card-icon green">📝</div>'
+        +'<div><div class="today-card-title">'+escH(e.subject)+' — '+escH(e.lesson_title)+'</div>'
+        +'<div class="today-card-sub">'+escH(e.class_name)+'</div></div></div>'
+        +(e.class_notes?'<div class="today-card-body">'+escH(e.class_notes.substring(0,120))+(e.class_notes.length>120?'…':'')+'</div>':'')
+        +'</div>';
+    }).join('');
+  }
+
+  // Announcements
+  var announces = allEntries.filter(function(e){ return e.lesson_date === today && e.announcements && e.announcements.trim(); });
+  if(!announces.length){
+    anEl.innerHTML = '<div class="empty-state" style="padding:12px 0;"><div class="empty-sub">No announcements today</div></div>';
+  } else {
+    anEl.innerHTML = announces.map(function(e){
+      return '<div class="announce-card"><span class="announce-icon">📢</span><div class="announce-text">'+escH(e.announcements)+'</div></div>';
+    }).join('');
+  }
+}
+
+// ══════════════════════════════════════════
+// SUBJECTS PAGE
+// ══════════════════════════════════════════
+var SUBJ_ICONS = {
+  'English':'📖','Tamil':'அ','Maths':'📐','Science':'🔬',
+  'Social Science':'🗺️','EVS':'🌿','Computer Science':'💻',
+  'Hindi':'🇮🇳','default':'📚'
+};
+
+function renderSubjects(){
+  // Group entries by subject
+  var subjects = {};
+  allEntries.forEach(function(e){
+    if(!subjects[e.subject]) subjects[e.subject] = 0;
+    subjects[e.subject]++;
+  });
+
+  var grid = document.getElementById('subj-grid');
+  if(!Object.keys(subjects).length){
+    grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon">📚</div><div class="empty-title">No lessons yet</div><div class="empty-sub">Your teacher hasn\'t uploaded any lessons yet</div></div>';
+    return;
+  }
+
+  grid.innerHTML = Object.keys(subjects).map(function(sub){
+    var count = subjects[sub];
+    var icon = SUBJ_ICONS[sub] || SUBJ_ICONS.default;
+    return '<div class="subj-card" onclick="openSubject(\''+escH(sub)+'\')">'
+      +'<span class="subj-icon">'+icon+'</span>'
+      +'<div class="subj-name">'+escH(sub)+'</div>'
+      +'<div class="subj-count">'+count+' lesson'+(count>1?'s':'')+'</div>'
+      +'</div>';
+  }).join('');
+}
+
+// ══════════════════════════════════════════
+// LESSONS LIST
+// ══════════════════════════════════════════
+function openSubject(sub){
+  currentSubject = sub;
+  showPage('lessons');
+  var icon = SUBJ_ICONS[sub] || '📚';
+  document.getElementById('lessons-title').innerHTML = icon+' '+sub+' Lessons';
+
+  var lessons = allEntries.filter(function(e){ return e.subject === sub; });
+  var list = document.getElementById('lesson-list');
+
+  if(!lessons.length){
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-title">No lessons yet</div><div class="empty-sub">Your teacher hasn\'t uploaded '+sub+' lessons yet</div></div>';
+    return;
+  }
+
+  list.innerHTML = lessons.map(function(e){
+    var pills = '';
+    if(e.class_notes && e.class_notes.trim()) pills += '<span class="pill pill-notes">Notes</span>';
+    if(e.homework && e.homework.trim()) pills += '<span class="pill pill-hw">HW</span>';
+    if(e.book_back_answers && e.book_back_answers.trim()) pills += '<span class="pill pill-bb">Book Back</span>';
+    var dateStr = e.lesson_date ? new Date(e.lesson_date).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'}) : '';
+    return '<div class="lesson-item" onclick="openLesson(\''+e.id+'\')">'
+      +'<div class="lesson-dot"></div>'
+      +'<div class="lesson-info">'
+      +'<div class="lesson-name">'+escH(e.lesson_title)+'</div>'
+      +'<div class="lesson-date">📅 '+dateStr+'</div>'
+      +(pills?'<div class="lesson-pills">'+pills+'</div>':'')
+      +'</div><span class="lesson-arrow">›</span></div>';
+  }).join('');
+}
+
+function showSubjects(){
+  showPage('subjects');
+}
+
+function showLessons(){
+  showPage('lessons');
+}
+
+// ══════════════════════════════════════════
+// LESSON DETAIL
+// ══════════════════════════════════════════
+function openLesson(id){
+  var entry = allEntries.find(function(e){ return String(e.id) === String(id); });
+  if(!entry) return;
+
+  var dateStr = entry.lesson_date ? new Date(entry.lesson_date).toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'}) : '';
+  document.getElementById('detail-subj').textContent = entry.subject;
+  document.getElementById('detail-title').textContent = entry.lesson_title;
+  document.getElementById('detail-date').textContent = '📅 ' + dateStr;
+
+  var notesEl = document.getElementById('detail-notes');
+  var hwEl = document.getElementById('detail-hw');
+  var bbEl = document.getElementById('detail-bb');
+  var bbSec = document.getElementById('detail-bb-section');
+
+  notesEl.innerHTML = entry.class_notes && entry.class_notes.trim()
+    ? escH(entry.class_notes)
+    : '<span class="detail-sec-empty">Class notes not available yet</span>';
+
+  hwEl.innerHTML = entry.homework && entry.homework.trim()
+    ? escH(entry.homework)
+    : '<span class="detail-sec-empty">No homework assigned</span>';
+
+  if(entry.book_back_answers && entry.book_back_answers.trim()){
+    bbSec.style.display = 'block';
+    bbEl.innerHTML = escH(entry.book_back_answers);
+  } else {
+    bbSec.style.display = 'none';
+  }
+
+  showPage('detail');
+}
+
+// ══════════════════════════════════════════
+// DIARY PAGE — chronological all entries
+// ══════════════════════════════════════════
+function renderDiary(){
+  var list = document.getElementById('diary-list');
+  if(!allEntries.length){
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📓</div><div class="empty-title">Diary is empty</div><div class="empty-sub">Your diary will fill up as your teachers upload lessons</div></div>';
+    return;
+  }
+
+  // Group by date
+  var byDate = {};
+  allEntries.forEach(function(e){
+    var d = e.lesson_date || 'Unknown';
+    if(!byDate[d]) byDate[d] = [];
+    byDate[d].push(e);
+  });
+
+  var html = '';
+  Object.keys(byDate).forEach(function(date){
+    var dateStr = date !== 'Unknown' ? new Date(date).toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'}) : 'Unknown Date';
+    html += '<div style="margin-bottom:14px;">';
+    html += '<div class="section-title" style="margin-bottom:8px;">'+dateStr+'</div>';
+    byDate[date].forEach(function(e){
+      html += '<div class="lesson-item" onclick="openLesson(\''+e.id+'\')" style="margin-bottom:6px;">'
+        +'<div class="lesson-dot"></div>'
+        +'<div class="lesson-info">'
+        +'<div class="lesson-name">'+escH(e.subject)+' — '+escH(e.lesson_title)+'</div>'
+        +(e.homework&&e.homework.trim()?'<div class="lesson-date">📋 HW: '+escH(e.homework.substring(0,50))+'</div>':'')
+        +'</div><span class="lesson-arrow">›</span></div>';
+    });
+    html += '</div>';
+  });
+  list.innerHTML = html;
+}
+
+// ══════════════════════════════════════════
+// NAVIGATION
+// ══════════════════════════════════════════
+function showPage(name){
+  document.querySelectorAll('.page').forEach(function(p){ p.classList.remove('show'); });
+  document.querySelectorAll('.bnav-btn').forEach(function(b){ b.classList.remove('active'); });
+  document.getElementById('page-'+name).classList.add('show');
+  var nb = document.getElementById('bnav-'+name);
+  if(nb) nb.classList.add('active');
+  window.scrollTo(0,0);
+}
+
+function escH(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// ══════════════════════════════════════════
+// INIT — check existing session
+// ══════════════════════════════════════════
+window.addEventListener('load', function(){
+  var saved = null;
+  try{ saved = JSON.parse(sessionStorage.getItem('student_session')||'null'); }catch(e){}
+  if(saved && saved.school_id && saved.class_name){
+    currentStudent = saved;
+    startApp();
+  }
+});
+</script>
+</body>
+</html>
