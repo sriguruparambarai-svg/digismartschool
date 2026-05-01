@@ -4820,98 +4820,112 @@ function crvClean(txt){
     .trim();
 }
 
-/* ── parse Q&A from OCR/pasted text ── */
+/* ── parse Q&A — tries regex first, then sends to Claude if it fails ── */
 function crvParse(raw){
   var qa=[];
-
-  // Clean markdown from the whole raw text first
-  var cleaned=crvClean(raw);
-
-  // ── STRATEGY 1: Bold questions (OCR from exam paper like Xavier)
-  // Pattern: "8. What is...?\nAnswer text\n\n1. What are...?\nAnswer"
-  // Detect: numbered main questions followed by numbered/point answers
   var lines=raw.split('\n').map(function(l){return l.trim();}).filter(Boolean);
 
-  // Find bold/heading style questions — lines that are short, end with ? or are ALL CAPS or bold
-  // In OCR output from scanned PDFs, questions often appear as standalone bold lines
-  // Strategy: find lines matching "N. Question text?" pattern at section level
-  var mainQPattern=/^(\d+)\.\s{0,3}([A-Z][^.]{15,}[\?\.])\s*$/;
-  var secQPattern=/^[IVX]+\.\s+/; // Roman numeral sections like "IV. Long answers:"
-
-  // Try to detect document structure — exam paper format
-  // Questions are bold lines (marked ** in OCR), answers are numbered points below
-  var boldQLines=[];
-  for(var li=0;li<lines.length;li++){
-    var l=lines[li];
-    // Bold question in OCR = **text** or standalone question line
-    if(/^\*\*(.+)\*\*$/.test(l)||(/\?/.test(l)&&l.length<150&&!(/^\d+\./.test(l))&&l.length>20)){
-      boldQLines.push({idx:li, q:crvClean(l)});
-    }
-  }
-
-  if(boldQLines.length>=2){
-    // Build Q&A from bold questions + following content as answers
-    for(var bi=0;bi<boldQLines.length;bi++){
-      var startIdx=boldQLines[bi].idx+1;
-      var endIdx=bi+1<boldQLines.length ? boldQLines[bi+1].idx : lines.length;
-      var ansLines=[];
-      for(var ai=startIdx;ai<endIdx;ai++){
-        var al=crvClean(lines[ai]);
-        if(al.length>3 && !secQPattern.test(lines[ai])) ansLines.push(al);
-      }
-      var ans=ansLines.join(' ').trim();
-      if(boldQLines[bi].q&&ans.length>10){
-        qa.push({question:boldQLines[bi].q, answer:ans});
-      }
-    }
-    if(qa.length>=2) return qa;
-    qa=[];
-  }
-
-  // ── STRATEGY 2: Numbered main questions (1. Q text\n numbered points below)
-  // Detect top-level numbered questions (not sub-points like "  1. point")
-  // Top-level = line starting with single digit + period + capital letter question
-  var topQs=[];
-  for(var ti=0;ti<lines.length;ti++){
-    var tl=crvClean(lines[ti]);
-    // Match: "1. Explain the role..." or "2. What are the goals..."
-    var tm=tl.match(/^(\d+)\.\s+([A-Z].{20,})/);
-    if(tm && !lines[ti].match(/^\s+/)){
-      topQs.push({idx:ti, num:parseInt(tm[1]), q:tm[2]});
-    }
-  }
-
-  if(topQs.length>=2){
-    for(var tqi=0;tqi<topQs.length;tqi++){
-      var tStart=topQs[tqi].idx+1;
-      var tEnd=tqi+1<topQs.length ? topQs[tqi+1].idx : lines.length;
-      var tAns=[];
-      for(var tai=tStart;tai<tEnd;tai++){
-        var tal=crvClean(lines[tai]);
-        if(tal.length>3) tAns.push(tal);
-      }
-      var tAnsStr=tAns.join(' ').trim();
-      if(topQs[tqi].q&&tAnsStr.length>10){
-        qa.push({question:topQs[tqi].q, answer:tAnsStr});
-      }
-    }
-    if(qa.length>=2) return qa;
-    qa=[];
-  }
-
-  // ── STRATEGY 3: Q1:/A1: explicit labels
+  // ── STRATEGY 1: explicit Q1/A1 labels ──
   var re1=/[Qq]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Aa]\s*\d+\s*[.:\)])\s*[Aa]\s*\d+\s*[.:\)]\s*([\s\S]*?)(?=[Qq]\s*\d+\s*[.:\)]|$)/g;
   var m;
-  while((m=re1.exec(cleaned))!==null){
-    var q2=m[1].trim(), a2=m[2].trim();
-    if(q2&&a2) qa.push({question:crvClean(q2),answer:crvClean(a2)});
+  while((m=re1.exec(raw))!==null){
+    var q=crvClean(m[1].trim()), a=crvClean(m[2].trim());
+    if(q&&a) qa.push({question:q,answer:a});
   }
-  if(qa.length) return qa;
+  if(qa.length>=1) return qa;
 
-  // ── STRATEGY 4: blank-line separated blocks
-  var blocks=cleaned.split(/\n\s*\n/).map(function(b){return b.replace(/\n/g,' ').trim();}).filter(function(b){return b.length>15;});
+  // ── STRATEGY 2: bold lines are questions (**Question text**)  ──
+  var boldQs=[];
+  lines.forEach(function(l,li){
+    if(/^\*\*(.+)\*\*$/.test(l)){
+      boldQs.push({idx:li, q:crvClean(l)});
+    }
+  });
+  if(boldQs.length>=2){
+    boldQs.forEach(function(bq,bi){
+      var end=bi+1<boldQs.length?boldQs[bi+1].idx:lines.length;
+      var ans=lines.slice(bq.idx+1,end).map(crvClean).filter(function(x){return x.length>3;}).join(' ');
+      if(bq.q&&ans.length>10) qa.push({question:bq.q,answer:ans});
+    });
+    if(qa.length>=2) return qa;
+    qa=[];
+  }
+
+  // ── STRATEGY 3: numbered top-level questions  ──
+  // Xavier paper style: "1. Explain... \n 1. point\n 2. point\n\n2. What are..."
+  // Top-level question = line matching /^\d+\.\s+[A-Z]/ AND question ends with ? or has >25 chars
+  var topQs=[];
+  lines.forEach(function(l,li){
+    var tl=crvClean(l);
+    var tm=tl.match(/^(\d+)\.\s+([A-Z].{15,})/);
+    if(tm) topQs.push({idx:li,num:parseInt(tm[1]),q:tm[2],line:tl});
+  });
+
+  // Filter: keep only lines where the NEXT numbered item is a HIGHER number
+  // (eliminates sub-point lines like "1. Pandithar..." which are answer points)
+  var mainQs=[];
+  for(var ti=0;ti<topQs.length;ti++){
+    var curr=topQs[ti], next=topQs[ti+1];
+    // A main question: number resets to 1 after previous group, OR has ? OR starts new section
+    if(curr.num===1||(curr.q.indexOf('?')>=0)||(next&&next.num===curr.num+1&&curr.num<=5)){
+      // Confirm it's not a sub-answer-point by checking if line is question-like
+      if(curr.q.match(/\?|Explain|What|How|Why|Compare|Describe|Write|Define|State|List|Discuss/i)){
+        mainQs.push(curr);
+      }
+    }
+  }
+
+  if(mainQs.length>=2){
+    mainQs.forEach(function(mq,mi){
+      var end=mi+1<mainQs.length?mainQs[mi+1].idx:lines.length;
+      var ansLines=lines.slice(mq.idx+1,end)
+        .map(function(l){return crvClean(l);})
+        .filter(function(x){return x.length>3 && !x.match(/^[IVX]+\.\s/);});
+      var ans=ansLines.join(' ').trim();
+      if(mq.q&&ans.length>10) qa.push({question:mq.q,answer:ans});
+    });
+    if(qa.length>=2) return qa;
+    qa=[];
+  }
+
+  // ── STRATEGY 4: blank-line blocks (odd=Q, even=A) ──
+  var blocks=raw.split(/\n\s*\n/).map(function(b){return crvClean(b.replace(/\n/g,' '));}).filter(function(b){return b.length>15;});
   for(var k=0;k+1<blocks.length;k+=2) qa.push({question:blocks[k],answer:blocks[k+1]});
-  return qa;
+  if(qa.length>=1) return qa;
+
+  // ── STRATEGY 5: single block — ask Claude to extract Q&A ──
+  return null; // signal to crvStart to use AI parsing
+}
+
+/* ── ask Claude to extract Q&A from raw text ── */
+function crvParseWithAI(raw, onDone){
+  fetch(API_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({payload:{
+      model:'claude-sonnet-4-5',
+      max_tokens:3000,
+      system:'You extract questions and answers from exam papers and study material. Return ONLY a valid JSON array. No markdown, no explanation. Format: [{"question":"...","answer":"..."},...]',
+      messages:[{role:'user',content:'Extract all questions and their answers from this text. Each numbered question (like "1. Explain..." or "What is...") is one item. The answer includes all the numbered points below it.\n\nText:\n'+raw.substring(0,6000)}]
+    }})
+  })
+  .then(function(r){return r.json();})
+  .then(function(data){
+    var txt='';
+    if(data.content&&data.content[0]) txt=(data.content[0].text||'').trim();
+    txt=txt.replace(/^```json\s*/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+    var parsed=null;
+    try{parsed=JSON.parse(txt);}catch(e){
+      var a=txt.indexOf('['),b=txt.lastIndexOf(']');
+      if(a>=0&&b>a) try{parsed=JSON.parse(txt.substring(a,b+1));}catch(e2){}
+    }
+    if(parsed&&Array.isArray(parsed)&&parsed.length>0){
+      onDone(parsed.map(function(p){return {question:crvClean(p.question||''),answer:crvClean(p.answer||'')};}).filter(function(p){return p.question&&p.answer;}));
+    } else {
+      onDone([]);
+    }
+  })
+  .catch(function(){onDone([]);});
 }
 
 /* ── start session ── */
@@ -4920,7 +4934,6 @@ function crvStart(){
   var raw=_crvPdfRaw||pasteVal;
   var nm=document.getElementById('crv-file-name');
 
-  // If PDF was chosen but OCR is still running (nm shows loading message)
   if(!raw && nm.style.display!=='none' && nm.textContent.includes('…')){
     alert('⏳ Still reading your PDF — please wait a few seconds and try again.');
     return;
@@ -4930,20 +4943,35 @@ function crvStart(){
   var parseEl=document.getElementById('crv-parsing');
   var startBtn=document.getElementById('crv-start-btn');
   parseEl.style.display='flex'; startBtn.disabled=true;
+  parseEl.querySelector('span').textContent='Finding questions and answers…';
 
   setTimeout(function(){
-    _crvQA=crvParse(raw);
-    parseEl.style.display='none'; startBtn.disabled=false;
+    var result=crvParse(raw);
 
-    if(!_crvQA.length){
-      alert('Could not find Q&A pairs.\n\nTry this format:\nQ1: What is...?\nA1: It is...\n\nQ2: ...\nA2: ...');
+    if(result===null || result.length===0){
+      // Regex failed — use Claude AI to extract Q&A
+      parseEl.querySelector('span').textContent='Using AI to read your content…';
+      crvParseWithAI(raw, function(aiQA){
+        parseEl.style.display='none'; startBtn.disabled=false;
+        if(!aiQA||aiQA.length===0){
+          alert('Could not find Q&A pairs even with AI.\n\nPlease check your PDF has questions and answers, or paste the text manually.');
+          return;
+        }
+        _crvQA=aiQA; _crvIdx=0; _crvPaused=false;
+        document.getElementById('crv-input').style.display='none';
+        document.getElementById('crv-revision').style.display='block';
+        crvShowQ();
+      });
       return;
     }
-    _crvIdx=0; _crvPaused=false;
+
+    // Regex parsing succeeded
+    parseEl.style.display='none'; startBtn.disabled=false;
+    _crvQA=result; _crvIdx=0; _crvPaused=false;
     document.getElementById('crv-input').style.display='none';
     document.getElementById('crv-revision').style.display='block';
     crvShowQ();
-  },350);
+  },300);
 }
 
 /* ── show one question ── */
