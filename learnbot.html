@@ -2039,9 +2039,9 @@ function handleTxt(inp){
           if(b4){b4.disabled=false;b4.style.opacity='1';b4.textContent='✅ Activate Lesson for Students';}
 
         }catch(e2){
-          // TIER 3: Scanned PDF — render pages to canvas → send to Claude Vision API (1 page at a time)
-          console.log('Text extraction failed, trying Vision API for scanned PDF…');
-          status.textContent='⏳ Scanned PDF detected — reading with AI Vision (may take 30-60 seconds)…';
+          // TIER 3: Scanned PDF — render pages → send DIRECTLY to Anthropic API (bypasses Vercel size limit)
+          console.log('Text extraction failed, trying direct Vision API for scanned PDF…');
+          status.textContent='⏳ Scanned PDF detected — reading with AI Vision…';
           status.style.color='var(--maroon)';
           try{
             if(typeof pdfjsLib==='undefined') throw new Error('PDF.js not loaded');
@@ -2050,53 +2050,67 @@ function handleTxt(inp){
               var r3=new FileReader();r3.onload=function(e3){res3(e3.target.result);};r3.onerror=rej3;r3.readAsArrayBuffer(f);
             });
             var pdfDoc2=await pdfjsLib.getDocument({data:arrBuf2}).promise;
-            var maxPages=Math.min(pdfDoc2.numPages, 10); // max 10 pages
+            var maxPages=Math.min(pdfDoc2.numPages, 10);
             var totalPages=maxPages;
             var allText=[];
 
-            // Process ONE page at a time to stay under Vercel 4.5MB limit
+            // Get API key from our own /api/ai endpoint first
+            var apiKey='';
+            try{
+              var keyRes=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({getKey:true})});
+              var keyData=await keyRes.json();
+              apiKey=keyData.key||'';
+            }catch(ke){console.warn('Could not get key:',ke);}
+
+            // Process ONE page at a time — direct to Anthropic (no Vercel size limit)
             for(var pi=1;pi<=totalPages;pi++){
               status.textContent='⏳ AI reading page '+pi+' of '+totalPages+'…';
 
-              // Render page to small image — scale 0.8, quality 0.5 to keep size small
               var page=await pdfDoc2.getPage(pi);
-              var viewport=page.getViewport({scale:0.8});
+              var viewport=page.getViewport({scale:1.5});
               var canvas=document.createElement('canvas');
               canvas.width=viewport.width; canvas.height=viewport.height;
               var ctx=canvas.getContext('2d');
               await page.render({canvasContext:ctx,viewport:viewport}).promise;
-              var imgData=canvas.toDataURL('image/jpeg',0.5).split(',')[1];
-
-              // Check size — skip if still too large (>800KB base64)
-              if(imgData.length > 800000){
-                // Try lower quality
-                imgData=canvas.toDataURL('image/jpeg',0.3).split(',')[1];
-              }
+              var imgData=canvas.toDataURL('image/jpeg',0.85).split(',')[1];
 
               var vc=[
                 {type:'image',source:{type:'base64',media_type:'image/jpeg',data:imgData}},
                 {type:'text',text:'Extract ALL text from this textbook page exactly as it appears. Include every number, formula, equation, heading, sentence and paragraph. Output extracted text only — no commentary.'}
               ];
 
-              var bRes=await fetch('/api/ai',{
-                method:'POST',headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({payload:{
-                  model:'claude-sonnet-4-20250514',
-                  max_tokens:4000,
-                  system:'You are a text extraction assistant. Extract all text from the textbook page images exactly as it appears. Preserve equations, numbers, headings and paragraph breaks. Output extracted text only — no commentary.',
-                  messages:[{role:'user',content:vc}]
-                }})
-              });
-              if(!bRes.ok){
-                var errTxt=await bRes.text().catch(function(){return '';});
-                console.error('Vision API HTTP error '+bRes.status+':',errTxt.substring(0,200));
-                throw new Error('Vision API HTTP '+bRes.status);
-              }
-              var bData=await bRes.json();
+              // Try direct Anthropic API first (no size limit)
               var bText='';
-              if(bData.content&&bData.content[0]) bText=(bData.content[0].text||'').trim();
-              else if(bData.text) bText=String(bData.text).trim();
-              else if(bData.error) throw new Error('API error: '+(bData.error.message||JSON.stringify(bData.error)));
+              if(apiKey){
+                try{
+                  var dRes=await fetch('https://api.anthropic.com/v1/messages',{
+                    method:'POST',
+                    headers:{'Content-Type':'application/json','x-api-key':apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+                    body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:4000,system:'Extract all text from textbook page images exactly as they appear. Output text only.',messages:[{role:'user',content:vc}]})
+                  });
+                  var dData=await dRes.json();
+                  if(dData.content&&dData.content[0]) bText=(dData.content[0].text||'').trim();
+                }catch(de){console.warn('Direct API failed, trying proxy:',de);}
+              }
+
+              // Fallback: proxy through /api/ai with small image
+              if(!bText){
+                var smallImg=canvas.toDataURL('image/jpeg',0.3).split(',')[1];
+                var vc2=[
+                  {type:'image',source:{type:'base64',media_type:'image/jpeg',data:smallImg}},
+                  {type:'text',text:'Extract ALL text from this textbook page. Output text only.'}
+                ];
+                var bRes=await fetch('/api/ai',{
+                  method:'POST',headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({payload:{model:'claude-sonnet-4-20250514',max_tokens:4000,
+                    system:'Extract all text from textbook page images exactly as they appear. Output text only.',
+                    messages:[{role:'user',content:vc2}]}})
+                });
+                var bData=await bRes.json();
+                if(bData.content&&bData.content[0]) bText=(bData.content[0].text||'').trim();
+                else if(bData.text) bText=String(bData.text).trim();
+              }
+
               if(bText) allText.push(bText);
             }
 
