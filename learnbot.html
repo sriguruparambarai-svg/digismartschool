@@ -1086,18 +1086,70 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
+<!-- ── ROLE CHECK — runs immediately on page load ── -->
+<script>
+(function(){
+  var role = '';
+  var token = '';
+  try{ role = localStorage.getItem('dss_role') || ''; }catch(e){}
+  try{ token = localStorage.getItem('dss_token') || ''; }catch(e){}
+
+  // If student opens this page — redirect to student diary
+  if(role === 'student'){
+    window.location.href = 'student.html';
+    return;
+  }
+
+  // If not logged in at all — still allow (for demo/direct access)
+  // But hide Teacher Panel tabs for non-teachers
+  window._userRole = role || 'teacher'; // default to teacher for backward compat
+
+  document.addEventListener('DOMContentLoaded', function(){
+    applyRoleUI(window._userRole);
+  });
+
+  function applyRoleUI(r){
+    var teacherTab  = document.getElementById('tab-btn-teacher');
+    var notesTab    = document.getElementById('tab-btn-notes');
+    var teacherPanel = document.getElementById('tab-teacher');
+    var notesPanel  = document.getElementById('tab-notes');
+    var deniedBar   = document.getElementById('access-denied-bar');
+
+    if(r === 'student'){
+      // Students: hide teacher tabs + panel completely
+      if(teacherTab)  teacherTab.style.display  = 'none';
+      if(notesTab)    notesTab.style.display    = 'none';
+      if(teacherPanel)teacherPanel.style.display = 'none';
+      if(notesPanel)  notesPanel.style.display  = 'none';
+      if(deniedBar)   deniedBar.style.display   = 'block';
+      // Auto-switch to student tab
+      var studentBtn = document.getElementById('tab-btn-student');
+      if(studentBtn) studentBtn.click();
+    } else {
+      // Teachers/admins: show everything, hide denied bar
+      if(deniedBar) deniedBar.style.display = 'none';
+    }
+  }
+})();
+</script>
+
 <div class="header">
   <img class="header-logo" src="logo.png" onerror="this.style.display='none'" alt=""/>
   <div><h1>TeachBot</h1><p>AI Smart Teacher — Understands, Teaches, Inspires</p></div>
   <div class="header-right"><span class="ai-badge">✨ AI Powered</span></div>
 </div>
 
-<!-- ROLE TABS — top bar shows 4 tabs -->
+<!-- ROLE TABS — shown based on role -->
 <div class="tabs" id="role-tabs">
-  <button class="tab-btn active" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
-  <button class="tab-btn" onclick="showTab('student',this)">🎓 Student TeachBot</button>
-  <button class="tab-btn" onclick="showTab('notes',this)">📋 Class Notes</button>
-  <button class="tab-btn" onclick="openRevisionPage()">🔁 Class Revision</button>
+  <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
+  <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Student TeachBot</button>
+  <button class="tab-btn" id="tab-btn-notes" onclick="showTab('notes',this)">📋 Class Notes</button>
+  <button class="tab-btn" id="tab-btn-revision" onclick="openRevisionPage()">🔁 Class Revision</button>
+</div>
+
+<!-- ROLE ACCESS BANNER — shown to students/parents who try to access teacher panel -->
+<div id="access-denied-bar" style="display:none;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#F5E6C8;padding:12px 18px;font-size:0.9rem;font-weight:700;text-align:center;">
+  🔒 Teacher Panel is only for teachers. <a href="student.html" style="color:#FFD700;text-decoration:underline;">Go to Student Diary →</a>
 </div>
 
 <!-- Subject context banner — hidden, IDs kept for JS -->
