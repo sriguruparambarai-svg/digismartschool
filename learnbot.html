@@ -2090,15 +2090,22 @@ function handleTxt(inp){
               var bRes=await fetch('/api/ai',{
                 method:'POST',headers:{'Content-Type':'application/json'},
                 body:JSON.stringify({payload:{
-                  model:'claude-sonnet-4-5',
-                  max_tokens:3000,
+                  model:'claude-sonnet-4-20250514',
+                  max_tokens:4000,
+                  system:'You are a text extraction assistant. Extract all text from the textbook page images exactly as it appears. Preserve equations, numbers, headings and paragraph breaks. Output extracted text only — no commentary.',
                   messages:[{role:'user',content:vc}]
                 }})
               });
+              if(!bRes.ok){
+                var errTxt=await bRes.text().catch(function(){return '';});
+                console.error('Vision API HTTP error '+bRes.status+':',errTxt.substring(0,200));
+                throw new Error('Vision API HTTP '+bRes.status);
+              }
               var bData=await bRes.json();
               var bText='';
               if(bData.content&&bData.content[0]) bText=(bData.content[0].text||'').trim();
               else if(bData.text) bText=String(bData.text).trim();
+              else if(bData.error) throw new Error('API error: '+(bData.error.message||JSON.stringify(bData.error)));
               if(bText) allText.push(bText);
             }
 
@@ -2115,7 +2122,8 @@ function handleTxt(inp){
 
           }catch(e3){
             console.error('Vision API also failed:',e3);
-            status.textContent='⚠️ Could not read this PDF automatically. Please paste the lesson text in the box above, then click Activate.';
+            status.textContent='⚠️ PDF reading failed. Tip: Take a screenshot of the textbook page and upload as an image, OR paste the text manually above.';
+status.style.color='orange';
             status.style.color='orange';
             document.getElementById('t-text').value='';
             window.pdfExtracting=false;
@@ -2548,7 +2556,7 @@ ${lessonTxt.substring(0,2500)}`;
   let messages = [{role:'user', content:prompt.replace(lessonTxt.substring(0,2500), safeText)}];
 
   try{
-    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:2000,messages});
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:2000,messages});
     const txt=d.content[0].text;
     pts=[];
     for(let i=1;i<=10;i++){const re=new RegExp('POINT '+i+'[:\\s]+([\\s\\S]*?)(?=POINT '+(i+1)+'|$)','i');const m=txt.match(re);if(m)pts.push(m[1].trim());}
@@ -2664,7 +2672,7 @@ async function sendChat(){
   const li=lg==='tamil'?'Answer ONLY in Tamil.':lg==='both'?'Answer in Tamil first, then English.':'Answer in simple English.';
   const sys=`You are an AI Teacher. Answer questions based ONLY on this lesson: ${lessonTxt.substring(0,2000)}. Do NOT answer outside this lesson. ${li} Use simple language for ${document.getElementById('s-class').value} students. Be warm and encouraging.`;
   try{
-    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:500,system:sys,messages:chatHist});
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:500,system:sys,messages:chatHist});
     const rep=d.content[0].text;
     chatHist.push({role:'assistant',content:rep});
     addMsg('teacher',rep);spkChat(rep);
@@ -2683,7 +2691,7 @@ async function startQuiz(){
 [{"q":"Question?","opts":["A","B","C","D"],"ans":0},...]
 Lesson: ${lessonTxt.substring(0,2000)}`;
   try{
-    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:1000,messages:[{role:'user',content:p}]});
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:p}]});
     const txt=d.content[0].text.replace(/\`\`\`json|\`\`\`/g,'').trim();
     quizQs=JSON.parse(txt);
     document.getElementById('qz-load').classList.remove('on');
@@ -2733,7 +2741,7 @@ Notes: ${notes}
 ${li}
 Create a warm professional parent message with: learning summary, key concepts, homework, encouraging closing.`;
   try{
-    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:700,messages:[{role:'user',content:p}]});
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:700,messages:[{role:'user',content:p}]});
     document.getElementById('n-load').classList.remove('on');
     document.getElementById('n-out-card').style.display='block';
     const o=document.getElementById('n-out');o.style.display='block';o.textContent=d.content[0].text;
@@ -2751,7 +2759,7 @@ async function genVideoSlides(){
   var li=teachLang==='tamil'?'Write ONLY in Tamil language.':teachLang==='both'?'Write in Tamil first then English.':'Write in clear simple English.';
   var prompt='Create an educational video lesson for '+document.getElementById('s-class').value+' students.\nSubject: '+(info.sub||'')+' | Chapter: "'+(info.ch||'')+'"\n\n'+li+'\n\nCreate exactly 8 video slides. Each teaches one concept.\n\nReturn ONLY a JSON array:\n[{"title":"Short Title","content":"2-3 sentences in simple language","keyword":"one English word for image search"},...]\n\nLesson:\n'+lessonTxt.substring(0,2500);
   try{
-    const d=await callAI({model:'claude-sonnet-4-5',max_tokens:1500,messages:[{role:'user',content:prompt}]});
+    const d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]});
     const raw=d.content[0].text.replace(/```json|```/g,'').trim();
     vSlides=JSON.parse(raw);
     document.getElementById('vloading').style.display='none';
@@ -2835,7 +2843,7 @@ async function genMathsLesson(){
   var prompt='You are an excellent Maths teacher for '+cls+' students in Tamil Nadu.\nChapter: "'+ch+'"\n\n'+li+'\n\nCreate a complete step-by-step Maths lesson:\n\nReturn ONLY JSON:\n{\n"formula": "Main formula or rule",\n"formula_explained": "What each part means",\n"steps": [\n{"num":1,"title":"Step title","content":"explanation","working":"mathematical working if any"}\n],\n"example": {"problem":"A worked example problem","solution_steps":["step1","step2","step3"],"answer":"Final answer"},\n"practice": [\n{"q":"Practice question","hint":"A helpful hint","answer":"Answer"},\n{"q":"Harder question","hint":"Hint","answer":"Answer"}\n],\n"real_life": "Real life example from Tamil Nadu"\n}\n\nLesson text:\n'+lessonTxt.substring(0,2000);
 
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1500,messages:[{role:'user',content:prompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1500,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
     var data;
     try{ data=JSON.parse(raw); }
@@ -3222,7 +3230,7 @@ ${lessonTxt.substring(0,2000)}`;
 
   try{
     var cls2=document.getElementById('s-class').value;
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:3000,messages:[{role:'user',content:prompt.replace('${cls}',cls2)}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:3000,messages:[{role:'user',content:prompt.replace('${cls}',cls2)}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
     var data;
     try{ data=JSON.parse(raw); }
@@ -3416,7 +3424,7 @@ async function genMap(){
   var prompt='You are a Social Science teacher for Tamil Nadu school students.\nTopic: "'+ch+'"\n\n'+li+'\n\nReturn ONLY JSON:\n{\n"topic_type": "geography/history/civics/economics",\n"map_needed": true,\n"map_description": "What map to show",\n"wikipedia_search": "search term for Wikipedia image",\n"terms": [\n{"term":"Geographic/historical term","definition":"Clear explanation","example":"Tamil Nadu or India example"}\n],\n"youtube_search": "YouTube search for this topic with visual",\n"key_points": ["Key point 1","Key point 2","Key point 3"],\n"images_to_show": ["Wikipedia search term 1","Wikipedia search term 2"]\n}\n\nLesson:\n'+lessonTxt.substring(0,2000);
 
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1000,messages:[{role:'user',content:prompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1000,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
     var data=JSON.parse(raw);
     window._mapData=data;
@@ -3498,7 +3506,7 @@ async function genExamQuestions(){
 
   var prompt='Create 10 competitive exam MCQ questions for "'+ch+'" for '+cls+' students in Tamil Nadu.\nMix difficulty: 3 Easy, 4 Medium, 3 Hard.\nStyle similar to TNPSC/NEET/Board exams.\n\nReturn ONLY JSON:\n[{"q":"Question?","opts":["A","B","C","D"],"ans":0,"difficulty":"easy","explanation":"Why this answer is correct"},...]\n\nLesson:\n'+lessonTxt.substring(0,2000);
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:1200,messages:[{role:'user',content:prompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:1200,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
     examQs=JSON.parse(raw);
     document.getElementById('exam-loading').classList.remove('on');
@@ -3592,7 +3600,7 @@ async function genEnglishLSRW(){
   var prompt='You are an expert English teacher using the LSRW method for '+cls+' students in Tamil Nadu.\nLesson: "'+ch+'"\n\nCreate a complete LSRW English lesson. Return ONLY JSON:\n{\n  "listening": {\n    "audio_text": "A natural 5-6 sentence passage about the lesson topic spoken in clear simple English",\n    "questions": [\n      {"q":"Listening comprehension question?","opts":["A","B","C","D"],"ans":0}\n    ]\n  },\n  "speaking": [\n    {"activity":"Activity name","task":"What student should speak about (2-3 sentences as instruction)","model_answer":"A model 3-4 sentence answer in simple clear English that student can listen to and learn from"},\n    {"activity":"Activity name","task":"Another speaking task","model_answer":"Model answer"}\n  ],\n  "reading": {\n    "passage": "A clear 80-100 word reading passage about the lesson with simple language suitable for the class level",\n    "new_words": [\n      {"word":"difficult word from passage","meaning":"simple meaning","pronunciation":"how to say it","example":"example sentence"}\n    ],\n    "questions": [\n      {"q":"Reading comprehension question?","opts":["A","B","C","D"],"ans":0}\n    ]\n  },\n  "writing": [\n    {\n      "task": "Writing task instruction",\n      "type": "paragraph/letter/description",\n      "scaffold": ["First, write about...","Then explain...","Finally conclude by..."],\n      "useful_phrases": ["To begin with","In addition","Furthermore","In conclusion","For example"]\n    }\n  ]\n}\n\nLesson text:\n'+lessonTxt.substring(0,2500);
 
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:2000,messages:[{role:'user',content:prompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:2000,messages:[{role:'user',content:prompt}]});
     var raw=d.content[0].text.replace(/```json|```/g,'').trim();
     lsrwData=JSON.parse(raw);
 
@@ -3753,7 +3761,7 @@ async function checkEngSpeaking(){
   var cls=document.getElementById('s-class').value;
   var aiPrompt='You are an English speaking teacher for '+cls+' students in Tamil Nadu.\nTask: "'+task+'"\nModel answer: "'+model+'"\nStudent said: "'+engSpeakTranscript+'"\n\nEvaluate briefly:\n1. Pronunciation & Clarity (out of 5)\n2. Grammar (out of 5)\n3. Content & Confidence (out of 5)\n4. Total: X/15\n5. One specific improvement tip\n6. One sentence they said well (give direct quote from student)\nBe very encouraging! These are Tamil medium students learning English.';
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:350,messages:[{role:'user',content:aiPrompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:350,messages:[{role:'user',content:aiPrompt}]});
     var fb=document.getElementById('eng-speak-feedback');
     var text=d.content[0].text;
     var isGood=text.match(/Total.*?(\d+)\/15/);
@@ -3935,7 +3943,7 @@ async function checkEngWriting(){
   var cls=document.getElementById('s-class').value;
   var aiPrompt='You are a kind English writing teacher for '+cls+' students in Tamil Nadu.\nTask: "'+task+'"\nStudent wrote:\n'+text+'\n\nCheck and give friendly feedback:\n1. Score out of 10\n2. Grammar errors (show correction)\n3. Good vocabulary used (highlight 2-3 words)\n4. One sentence that could be improved (show better version)\n5. Overall encouragement\nRemember: These are Tamil medium students learning English — be very encouraging!';
   try{
-    var d=await callAI({model:'claude-sonnet-4-5',max_tokens:400,messages:[{role:'user',content:aiPrompt}]});
+    var d=await callAI({model:'claude-sonnet-4-20250514',max_tokens:400,messages:[{role:'user',content:aiPrompt}]});
     document.getElementById('write-eng-spin').classList.remove('on');
     var fb=document.getElementById('eng-writing-feedback');
     var text2=d.content[0].text;
@@ -4185,7 +4193,7 @@ async function genSlidesMode() {
 
   try {
     var d = await callAI({
-      model:'claude-sonnet-4-5', max_tokens:2500,
+      model:'claude-sonnet-4-20250514', max_tokens:2500,
       messages:[{role:'user', content:prompt}]
     });
     var raw = d.content[0].text.replace(/```json|```/g,'').trim();
@@ -4381,7 +4389,7 @@ async function handleSlidePDF(event) {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ payload: {
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 800,
         messages: [{
           role: 'user',
@@ -4817,7 +4825,7 @@ function _crvOcrViaVision(pageImages, nm, fileName){
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({payload:{
-      model:'claude-sonnet-4-5',
+      model:'claude-sonnet-4-20250514',
       max_tokens:4000,
       messages:[{role:'user',content:content}]
     }})
@@ -4846,7 +4854,7 @@ function _crvOcrViaAPI(b64, fileName, nm){
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({payload:{
-      model:'claude-sonnet-4-5',
+      model:'claude-sonnet-4-20250514',
       max_tokens:4000,
       messages:[{role:'user',content:[
         {type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}},
@@ -4967,7 +4975,7 @@ function crvParseWithAI(raw, onDone){
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({payload:{
-      model:'claude-sonnet-4-5',
+      model:'claude-sonnet-4-20250514',
       max_tokens:3000,
       system:'You extract questions and answers from exam papers and study material. Return ONLY a valid JSON array. No markdown, no explanation. Format: [{"question":"...","answer":"..."},...]',
       messages:[{role:'user',content:'Extract all questions and their answers from this text. Each numbered question (like "1. Explain..." or "What is...") is one item. The answer includes all the numbered points below it.\n\nText:\n'+raw.substring(0,6000)}]
@@ -5135,7 +5143,7 @@ function crvKeyPoints(q,a){
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({payload:{
-      model:'claude-sonnet-4-5',
+      model:'claude-sonnet-4-20250514',
       max_tokens:300,
       system:'You are a revision teacher. Return ONLY a JSON array of 2-4 short key point strings (max 12 words each). No preamble, no markdown, no extra text. Example: ["Key point one","Key point two"]',
       messages:[{role:'user',content:'Question: '+q+'\nAnswer: '+a+'\n\nGive 2-4 key memory points as a JSON array.'}]
