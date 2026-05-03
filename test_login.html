@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"/><title>Student Login Test</title></head>
+<body style="font-family:sans-serif;padding:20px;background:#f5e6c8;">
+<h2 style="color:#6B0F1A;">Student Login API Test</h2>
+<button onclick="test1()" style="padding:10px 20px;background:#6B0F1A;color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;margin:5px;">Test 1: Check auth.js version</button>
+<br/><br/>
+<button onclick="test2()" style="padding:10px 20px;background:#6B0F1A;color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;margin:5px;">Test 2: Try student_login</button>
+<br/><br/>
+<button onclick="test3()" style="padding:10px 20px;background:#6B0F1A;color:white;border:none;border-radius:8px;cursor:pointer;font-size:1rem;margin:5px;">Test 3: Check schools table</button>
+
+<pre id="out" style="background:white;padding:16px;border-radius:10px;margin-top:16px;white-space:pre-wrap;font-size:13px;min-height:100px;"></pre>
+
+<script>
+var out = document.getElementById('out');
+function log(msg){ out.textContent += msg + '\n'; }
+function clear(){ out.textContent = ''; }
+
+async function test1(){
+  clear();
+  log('Testing if auth.js has student_login action...');
+  try{
+    var r = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'student_login', school_code:'TEST', class_name:'TEST', roll_no:'TEST'})
+    });
+    var d = await r.json();
+    log('Response: ' + JSON.stringify(d));
+    if(d.error && d.error.includes('not found')){
+      log('✅ student_login action EXISTS in auth.js (got school not found error as expected)');
+    } else if(d.error && d.error.includes('Unknown action')){
+      log('❌ student_login NOT in auth.js — old version is running!');
+      log('   → You need to re-upload api/auth.js to GitHub');
+    } else {
+      log('Response received: ' + JSON.stringify(d));
+    }
+  }catch(e){ log('Error: '+e.message); }
+}
+
+async function test2(){
+  clear();
+  log('Testing real student login: ARK2024 + UKG + 06...');
+  try{
+    var r = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'student_login', school_code:'ARK2024', class_name:'UKG', roll_no:'06'})
+    });
+    var d = await r.json();
+    log('Full response: ' + JSON.stringify(d, null, 2));
+  }catch(e){ log('Error: '+e.message); }
+}
+
+async function test3(){
+  clear();
+  log('Checking get_school_info for arkglobalschool5@gmail.com...');
+  try{
+    var r = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'get_school_info', email:'arkglobalschool5@gmail.com', role:'school_admin'})
+    });
+    var d = await r.json();
+    log('School info: ' + JSON.stringify(d, null, 2));
+  }catch(e){ log('Error: '+e.message); }
+}
+</script>
+</body>
+</html>
