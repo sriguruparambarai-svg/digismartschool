@@ -36,6 +36,7 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
 .expired-banner h3{font-size:1.2rem;margin-bottom:6px;}
 @media(max-width:600px){.tools-grid{grid-template-columns:1fr 1fr;}.info-grid{grid-template-columns:1fr;}.main{padding:14px;}}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 <div class="topbar">
@@ -81,6 +82,11 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="tool-name">Parent Portal</div>
       <div class="tool-desc">Share notes & reports</div>
     </div>
+    <div class="tool-card" onclick="scrollToStudents()">
+      <div class="tool-icon">&#x1F393;</div>
+      <div class="tool-name">My Students</div>
+      <div class="tool-desc">Add and manage student diary access</div>
+    </div>
     <div class="tool-card" onclick="showTeachers()">
       <div class="tool-icon">👩‍🏫</div>
       <div class="tool-name">My Teachers</div>
@@ -104,6 +110,57 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="info-row"><span class="info-label">Max Teachers</span><span class="info-val" id="inf-teachers">5</span></div>
       <div class="info-row"><span class="info-label">Support</span><span class="info-val">sriguruparambarai@gmail.com</span></div>
     </div>
+  </div>
+
+  <div id="students-section" style="background:white;border-radius:16px;padding:22px;margin-top:20px;box-shadow:0 2px 12px rgba(0,0,0,.06);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">
+      <span style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;">My Students <span id="st-total" style="background:#6B0F1A;color:#E8C96A;font-size:.65rem;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></span>
+      <button onclick="toggleBulk()" style="padding:6px 14px;background:transparent;color:#6B0F1A;border:2px solid #6B0F1A;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;font-size:.82rem;cursor:pointer;">Bulk Add</button>
+    </div>
+
+    <div id="class-tabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
+      <div onclick="filterClass2(this)" data-class="all" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #6B0F1A;background:#6B0F1A;color:#E8C96A;">All Classes</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 100px 1fr 100px;gap:8px;margin-bottom:8px;">
+      <select id="new-cls" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <input type="text" id="new-roll" placeholder="Roll No" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      <input type="text" id="new-name" placeholder="Student Name" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      <button onclick="addOneStudent()" style="padding:9px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">+ Add</button>
+    </div>
+    <div id="st-msg" style="font-size:.82rem;font-weight:700;min-height:20px;padding:3px 0;"></div>
+
+    <div id="bulk-box" style="display:none;margin-top:10px;padding:12px;background:rgba(201,168,76,.06);border-radius:10px;border:1.5px dashed #EDD9A3;">
+      <div style="font-size:.75rem;color:#888;line-height:1.8;">Format: RollNo, Name (one per line)<br/>Example: 1, Kayal Vizhi</div>
+      <select id="bulk-cls" style="width:100%;padding:9px;margin-top:8px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <textarea id="bulk-text" placeholder="1, Kayal Vizhi&#10;2, Arun Kumar" style="width:100%;padding:9px;margin-top:8px;font-size:.82rem;border:1.5px solid #EDD9A3;border-radius:8px;font-family:Nunito,sans-serif;min-height:80px;resize:vertical;"></textarea>
+      <button onclick="bulkAddStudents()" style="width:100%;padding:9px;margin-top:8px;background:linear-gradient(135deg,#A07830,#FFD700);color:#4A0A12;border:none;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">Add All Students</button>
+    </div>
+
+    <table id="st-table" style="display:none;width:100%;border-collapse:collapse;margin-top:12px;font-size:.88rem;">
+      <thead><tr style="background:#6B0F1A;color:#E8C96A;">
+        <th style="padding:9px 12px;text-align:left;">Roll</th>
+        <th style="padding:9px 12px;text-align:left;">Name</th>
+        <th style="padding:9px 12px;text-align:left;">Class</th>
+        <th style="padding:9px 12px;"></th>
+      </tr></thead>
+      <tbody id="st-tbody"></tbody>
+    </table>
+    <div id="st-empty" style="text-align:center;padding:20px;color:#888;font-style:italic;">No students yet. Add above or use Bulk Add.</div>
   </div>
 
 </div>
@@ -178,6 +235,80 @@ function doLogout() {
   localStorage.clear();
   window.location.href = '/login.html';
 }
+// Student Management
+var _sid = ''; var _stu = []; var _ac = 'all';
+function scrollToStudents(){ document.getElementById('students-section').scrollIntoView({behavior:'smooth'}); }
+function toggleBulk(){ var e=document.getElementById('bulk-box'); e.style.display=e.style.display==='none'?'block':'none'; }
+function filterClass2(el){
+  _ac = el.getAttribute('data-class')||'all';
+  document.querySelectorAll('#class-tabs div').forEach(function(t){t.style.background='white';t.style.color='#6B0F1A';});
+  el.style.background='#6B0F1A'; el.style.color='#E8C96A';
+  renderTable(_ac);
+}
+function renderTable(cls){
+  var list = cls==='all'?_stu:_stu.filter(function(s){return s.class===cls;});
+  var tb=document.getElementById('st-tbody'), tbl=document.getElementById('st-table'), em=document.getElementById('st-empty');
+  if(!list.length){tbl.style.display='none';em.style.display='block';return;}
+  tbl.style.display='table';em.style.display='none';
+  tb.innerHTML=list.map(function(s){
+    return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;"><b>'+esc(s.roll_no)+'</b></td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;">'+esc(s.name)+'</td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;">'+esc(s.class)+'</td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;"><button data-sid="'+s.id+'" onclick="delStu(this.dataset.sid)" style="background:none;border:none;color:#dc3545;cursor:pointer;font-weight:700;">Remove</button></td></tr>';
+  }).join('');
+}
+function renderTabs(){
+  var cls=[...new Set(_stu.map(function(s){return s.class;}))].sort();
+  var el=document.getElementById('class-tabs');
+  el.innerHTML='<div onclick="filterClass2(this)" data-class="all" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #6B0F1A;background:#6B0F1A;color:#E8C96A;">All Classes</div>'
+    +cls.map(function(c){var n=_stu.filter(function(s){return s.class===c;}).length;
+      return '<div onclick="filterClass2(this)" data-class="'+c+'" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #EDD9A3;background:white;color:#6B0F1A;">'+c+' ('+n+')</div>';
+    }).join('');
+}
+async function loadStudents(){
+  if(!_sid) return;
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'get_diary_students',school_id:_sid})});
+    var d=await r.json(); _stu=d.students||[];
+    document.getElementById('st-total').textContent=_stu.length;
+    renderTabs(); renderTable(_ac);
+  }catch(e){console.error(e);}
+}
+async function addOneStudent(){
+  var cls=document.getElementById('new-cls').value, roll=document.getElementById('new-roll').value.trim(), name=document.getElementById('new-name').value.trim();
+  if(!cls||!roll||!name){stMsg('Please fill Class, Roll No and Name','#c0392b');return;}
+  if(!_sid){stMsg('School ID loading... try again','#c0392b');return;}
+  stMsg('Adding...','#6B0F1A');
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add_diary_student',school_id:_sid,class_name:cls,roll_no:roll,name:name})});
+    var d=await r.json(); if(d.error)throw new Error(d.error);
+    document.getElementById('new-roll').value=''; document.getElementById('new-name').value='';
+    stMsg(name+' added to '+cls+'!','#1a5c2a'); await loadStudents();
+  }catch(e){stMsg(e.message,'#c0392b');}
+}
+async function bulkAddStudents(){
+  var cls=document.getElementById('bulk-cls').value, text=document.getElementById('bulk-text').value.trim();
+  if(!cls){stMsg('Select Class','#c0392b');return;} if(!text){stMsg('Paste list first','#c0392b');return;}
+  if(!_sid){stMsg('School ID loading... try again','#c0392b');return;}
+  var students=[];
+  text.split('\n').forEach(function(line){var i=line.indexOf(',');if(i>0){var r=line.substring(0,i).trim(),n=line.substring(i+1).trim();if(r&&n)students.push({roll_no:r,name:n});}});
+  if(!students.length){stMsg('Format: RollNo, Name','#c0392b');return;}
+  stMsg('Adding '+students.length+' students...','#6B0F1A');
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'bulk_add_diary_students',school_id:_sid,class_name:cls,students:students})});
+    var d=await r.json(); if(d.error)throw new Error(d.error);
+    document.getElementById('bulk-text').value=''; document.getElementById('bulk-box').style.display='none';
+    stMsg(students.length+' students added!','#1a5c2a'); await loadStudents();
+  }catch(e){stMsg(e.message,'#c0392b');}
+}
+async function delStu(id){
+  if(!confirm('Remove this student?'))return;
+  await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete_diary_student',id:id})});
+  await loadStudents();
+}
+function stMsg(t,c){var e=document.getElementById('st-msg');e.textContent=t;e.style.color=c;if(c==='#1a5c2a')setTimeout(function(){e.textContent='';},3000);}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+window.addEventListener('load',function(){setTimeout(function(){_sid=window._schoolId||'';loadStudents();},2000);});
 </script>
 </body>
 </html>
