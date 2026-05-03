@@ -200,38 +200,89 @@ const user = JSON.parse(localStorage.getItem('dss_user') || '{}');
 
 if (!role || !user) window.location.href = '/login.html';
 
-// Fill info
-document.getElementById('school-name').textContent = user.name || 'DigiSmartSchool';
+// Debug — check what user object contains
+console.log('DSS Role:', role);
+console.log('DSS User keys:', Object.keys(user));
+console.log('DSS User:', JSON.stringify(user).substring(0, 300));
+
+// Fill what we have immediately from localStorage
+document.getElementById('school-name').textContent = user.name || user.school_name || 'DigiSmartSchool';
 document.getElementById('user-email').textContent = user.email || '';
 document.getElementById('role-badge').textContent = role === 'teacher' ? '👩‍🏫 Teacher' : '🏫 School Admin';
 
-if (role === 'school_admin') {
-  document.getElementById('inf-name').textContent = user.name || '-';
-  document.getElementById('inf-city').textContent = user.city || '-';
-  document.getElementById('inf-email').textContent = user.email || '-';
-  document.getElementById('inf-phone').textContent = user.phone || '-';
-  document.getElementById('inf-teachers').textContent = user.max_teachers || 5;
+// Fill from localStorage first (may be partial)
+function fillInfoFromUser(u) {
+  // school_admin: user IS the schools row (from auth.js: user: sr.data[0])
+  // teacher: user is teachers row with schools(*) joined
+  const school = (role === 'teacher') ? (u.schools || u.school || {}) : u;
+  const name   = school.name   || u.name   || u.school_name  || '';
+  const city   = school.city   || u.city   || '';
+  const phone  = school.phone  || u.phone  || '';
+  const email  = u.email       || school.email || '';
+  const status = school.subscription_status || u.subscription_status || 'active';
+  const endDate= school.subscription_end    || u.subscription_end    || '';
+  const maxT   = school.max_teachers        || u.max_teachers        || 5;
 
-  const status = user.subscription_status || 'trial';
+  // Update header
+  if(name) document.getElementById('school-name').textContent = name;
+
+  // Update info cards
+  if(name)    document.getElementById('inf-name').textContent  = name;
+  if(city)    document.getElementById('inf-city').textContent  = city;
+  if(email)   document.getElementById('inf-email').textContent = email;
+  if(phone)   document.getElementById('inf-phone').textContent = phone;
+  document.getElementById('inf-teachers').textContent = maxT;
+
   const statusEl = document.getElementById('inf-status');
   statusEl.textContent = status.toUpperCase();
   statusEl.className = 'info-val status-' + status;
-  document.getElementById('inf-end').textContent = user.subscription_end || '-';
-
-  if (status === 'expired') {
-    document.getElementById('expired-banner').style.display = 'block';
-  }
-} else if (role === 'teacher') {
-  const school = user.schools || {};
-  document.getElementById('inf-name').textContent = school.name || '-';
-  document.getElementById('inf-city').textContent = school.city || '-';
-  document.getElementById('inf-email').textContent = user.email || '-';
-  const status = school.subscription_status || 'trial';
-  const statusEl = document.getElementById('inf-status');
-  statusEl.textContent = status.toUpperCase();
-  statusEl.className = 'info-val status-' + status;
-  document.getElementById('inf-end').textContent = school.subscription_end || '-';
+  if(endDate) document.getElementById('inf-end').textContent = endDate;
+  if(status === 'expired') document.getElementById('expired-banner').style.display = 'block';
 }
+
+fillInfoFromUser(user);
+
+// Always fetch fresh data from Supabase to fill any missing fields
+(async function fetchSchoolData() {
+  try {
+    const _sb = window.supabase
+      ? window.supabase.createClient(
+          'https://pzxosqukijwpjdlfdfst.supabase.co',
+          'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY'
+        )
+      : null;
+    if (!_sb || !user.email) return;
+
+    const { data: school } = await _sb.from('schools')
+      .select('id, name, city, phone, email, subscription_status, subscription_end, max_teachers')
+      .eq('email', role === 'teacher' ? (user.school_email || user.email) : user.email)
+      .maybeSingle();
+
+    if (!school) return;
+
+    // Update display with fresh data
+    document.getElementById('school-name').textContent = school.name || user.name || 'DigiSmartSchool';
+    document.getElementById('inf-name').textContent = school.name || '-';
+    document.getElementById('inf-city').textContent = school.city || '-';
+    document.getElementById('inf-email').textContent = school.email || user.email || '-';
+    document.getElementById('inf-phone').textContent = school.phone || '-';
+    document.getElementById('inf-teachers').textContent = school.max_teachers || 5;
+
+    const status = school.subscription_status || 'active';
+    const statusEl = document.getElementById('inf-status');
+    statusEl.textContent = status.toUpperCase();
+    statusEl.className = 'info-val status-' + status;
+    document.getElementById('inf-end').textContent = school.subscription_end || '-';
+
+    if (status === 'expired') {
+      document.getElementById('expired-banner').style.display = 'block';
+    }
+
+    // Store school id for student management
+    window._fetchedSchoolId = school.id;
+
+  } catch(e) { console.warn('School fetch failed:', e); }
+})();
 
 async function showTeachers() {
   const schoolId = user.id;
@@ -274,17 +325,20 @@ var _activeClass = 'all';
 
 // Get school ID — from localStorage or Supabase lookup
 async function initSchoolId(){
+  // First try window._fetchedSchoolId (set by fetchSchoolData above)
+  if(window._fetchedSchoolId){ _schoolId = window._fetchedSchoolId; return _schoolId; }
+
   var u = {};
   try{ u = JSON.parse(localStorage.getItem('dss_user')||'{}'); }catch(e){}
   _schoolId = u.school_id || u.id || '';
 
-  // If not found, look up by email
+  // If not found, look up by email from Supabase
   if(!_schoolId && u.email){
     try{
       var db = getDB2();
       if(db){
         var {data} = await db.from('schools').select('id').eq('email', u.email).maybeSingle();
-        if(data) _schoolId = data.id;
+        if(data){ _schoolId = data.id; window._fetchedSchoolId = data.id; }
       }
     }catch(e){ console.warn('School lookup:', e); }
   }
