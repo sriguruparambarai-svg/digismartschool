@@ -2281,22 +2281,31 @@ function getSB(){
 
 // Save lesson to Supabase under class+subject key
 async function saveLessonToDB(cls, sub, ch, lessonText){
-  var sb = getSB();
-  if(!sb){ console.warn('Supabase not loaded'); return false; }
-  var key = cls.replace(/\s+/g,'-').toLowerCase() + '_' + sub.replace(/\s+/g,'-').toLowerCase();
-  var payload = {
-    class_id:    key,
-    class_name:  cls,
-    subject:     sub,
-    chapter:     ch,
-    lesson_text: lessonText.substring(0, 8000),
-    updated_at:  new Date().toISOString()
-  };
-  try {
-    var { error } = await sb.from('active_lessons').upsert(payload, { onConflict: 'class_id' });
-    if(error){ console.error('Supabase save error:', error); return false; }
+  // Get school_id from session
+  var schoolId = '';
+  try{
+    var sess=JSON.parse(sessionStorage.getItem('tm_activated')||'{}');
+    if(sess.school_id) schoolId=sess.school_id;
+    if(!schoolId){ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=u.school_id||u.id||''; }
+    if(!schoolId && window._fetchedSchoolId) schoolId=window._fetchedSchoolId;
+  }catch(e){}
+
+  try{
+    var res = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action: 'save_active_lesson',
+        school_id: schoolId,
+        class_name: cls,
+        subject: sub,
+        chapter: ch,
+        lesson_text: lessonText ? lessonText.substring(0,8000) : ''
+      })
+    });
+    var d = await res.json();
+    if(d.error){ console.error('Save lesson error:', d.error); return false; }
     return true;
-  } catch(e){ console.error('Supabase error:', e); return false; }
+  }catch(e){ console.error('Save lesson error:', e); return false; }
 }
 
 // Load lesson from Supabase for a class+subject
@@ -2313,13 +2322,12 @@ async function loadLessonFromDB(cls, sub){
 
 // Load ALL active lessons (for teacher to see what is activated)
 async function loadAllLessons(){
-  var sb = getSB();
-  if(!sb) return [];
-  try {
-    var { data, error } = await sb.from('active_lessons').select('*').order('updated_at', {ascending:false});
-    if(error || !data) return [];
-    return data;
-  } catch(e){ return []; }
+  try{
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'get_active_lessons'})});
+    var d = await r.json();
+    return d.lessons || [];
+  }catch(e){ return []; }
 }
 
 async function activateLesson(){
@@ -2381,16 +2389,17 @@ async function showActiveLessonsPanel(){
         +'<div><div style="font-weight:800;color:var(--maroon);font-size:1rem;">'+l.class_name+' — '+l.subject+'</div>'
         +'<div style="font-size:0.85rem;color:var(--maroon-mid);">📖 '+l.chapter+'</div>'
         +'<div style="font-size:0.75rem;color:#888;margin-top:2px;">Updated: '+new Date(l.updated_at).toLocaleString('en-IN')+'</div></div>'
-        +'<button onclick="deactivateLesson(''+l.class_id+'')" style="background:rgba(139,26,26,0.08);border:1.5px solid rgba(139,26,26,0.2);color:var(--maroon);border-radius:8px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;">Remove</button>'
+        +'<button data-cid="'+l.class_id+'" onclick="deactivateLesson(this.dataset.cid)" style="background:rgba(139,26,26,0.08);border:1.5px solid rgba(139,26,26,0.2);color:var(--maroon);border-radius:8px;padding:6px 12px;font-size:0.8rem;font-weight:700;cursor:pointer;font-family:Nunito,sans-serif;">Remove</button>'
         +'</div>';
     }).join('');
 }
 
 async function deactivateLesson(classId){
   if(!confirm('Remove this lesson? Students will no longer see it.')) return;
-  var sb = getSB();
-  if(!sb) return;
-  await sb.from('active_lessons').delete().eq('class_id', classId);
+  try{
+    await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'delete_active_lesson',class_id:classId})});
+  }catch(e){console.error(e);}
   showActiveLessonsPanel();
 }
 
@@ -5695,7 +5704,7 @@ async function loadStudentsList(){
       + data.map(function(s){
           return '<div style="color:var(--maroon);font-weight:700;">'+s.roll_no+'</div>'
             +'<div>'+s.name+'</div>'
-            +'<div><button onclick="deleteStudent(''+s.id+'')" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:0.75rem;font-weight:700;">✕ Remove</button></div>';
+            +'<div><button data-sid="'+s.id+'" onclick="deleteStudent(this.dataset.sid)" style="background:none;border:none;color:#c0392b;cursor:pointer;font-size:0.75rem;font-weight:700;">✕ Remove</button></div>';
         }).join('')
       + '</div>';
   }catch(e){
