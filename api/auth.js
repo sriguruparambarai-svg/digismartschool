@@ -199,6 +199,35 @@ module.exports = async function(req2, res) {
       }
     }
 
+    // ── STUDENT LOGIN ──
+    if (action === 'student_login') {
+      const { school_code, class_name, roll_no } = body;
+      if (!school_code || !class_name || !roll_no)
+        return res.json({ error: 'Please fill all fields.' });
+
+      // Step 1: Find school by school_code or id
+      const sr = await req('GET',
+        `/rest/v1/schools?or=(school_code.eq.${encodeURIComponent(school_code)},id.eq.${encodeURIComponent(school_code)})&select=id,name,school_code&limit=1`
+      );
+      if (!sr.data || !sr.data.length)
+        return res.json({ error: 'School code not found. Please check with your teacher.' });
+
+      const school = sr.data[0];
+
+      // Step 2: Find student in diary_students
+      const dr = await req('GET',
+        `/rest/v1/diary_students?school_id=eq.${school.id}&class=eq.${encodeURIComponent(class_name)}&roll_no=eq.${encodeURIComponent(roll_no)}&select=*&limit=1`
+      );
+      if (!dr.data || !dr.data.length)
+        return res.json({ error: 'Roll number '+roll_no+' not found in '+class_name+'. Ask your teacher to add you.' });
+
+      return res.json({
+        success: true,
+        school_name: school.name,
+        student: dr.data[0]
+      });
+    }
+
     // ── DIARY STUDENT OPERATIONS ──
     if (action === 'add_diary_student') {
       const { school_id, class_name, roll_no, name } = body;
