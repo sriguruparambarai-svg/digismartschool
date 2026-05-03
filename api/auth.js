@@ -205,10 +205,16 @@ module.exports = async function(req2, res) {
       if (!school_code || !class_name || !roll_no)
         return res.json({ error: 'Please fill all fields.' });
 
-      // Step 1: Find school by school_code or id
-      const sr = await req('GET',
-        `/rest/v1/schools?or=(school_code.eq.${encodeURIComponent(school_code)},id.eq.${encodeURIComponent(school_code)})&select=id,name,school_code&limit=1`
+      // Step 1: Find school by school_code first, then try by id
+      let sr = await req('GET',
+        `/rest/v1/schools?school_code=eq.${encodeURIComponent(school_code)}&select=id,name,school_code&limit=1`
       );
+      // If not found by school_code, try by UUID id
+      if (!sr.data || !sr.data.length) {
+        sr = await req('GET',
+          `/rest/v1/schools?id=eq.${encodeURIComponent(school_code)}&select=id,name,school_code&limit=1`
+        );
+      }
       if (!sr.data || !sr.data.length)
         return res.json({ error: 'School code not found. Please check with your teacher.' });
 
