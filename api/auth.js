@@ -199,6 +199,52 @@ module.exports = async function(req2, res) {
       }
     }
 
+    // ── ACTIVE LESSONS (TeachBot) ──
+    if (action === 'save_active_lesson') {
+      const { school_id, class_name, subject, chapter, lesson_text } = body;
+      const key = (class_name||'').replace(/\s+/g,'-').toLowerCase()+'_'+(subject||'').replace(/\s+/g,'-').toLowerCase();
+      const payload = {
+        class_id: key, class_name, subject, chapter,
+        lesson_text: lesson_text||'',
+        school_id: school_id||'',
+        updated_at: new Date().toISOString()
+      };
+
+      // First try to update existing record
+      const checkR = await req('GET', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&select=id`);
+      let r;
+      if (checkR.data && checkR.data.length > 0) {
+        // Record exists — update it
+        r = await req('PATCH', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}`, {
+          class_name, subject, chapter,
+          lesson_text: lesson_text||'',
+          school_id: school_id||'',
+          updated_at: new Date().toISOString()
+        });
+      } else {
+        // New record — insert it
+        r = await req('POST', '/rest/v1/active_lessons', payload);
+      }
+
+      if (r.status !== 200 && r.status !== 201 && r.status !== 204) {
+        const errMsg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+        console.error('save_active_lesson error:', r.status, errMsg);
+        return res.json({ error: 'Failed to save: ' + errMsg });
+      }
+      return res.json({ success: true });
+    }
+
+    if (action === 'delete_active_lesson') {
+      const { class_id } = body;
+      await req('DELETE', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}`, null);
+      return res.json({ success: true });
+    }
+
+    if (action === 'get_active_lessons') {
+      const r = await req('GET', '/rest/v1/active_lessons?select=*&order=updated_at.desc');
+      return res.json({ success: true, lessons: Array.isArray(r.data) ? r.data : [] });
+    }
+
     // ── STUDENT LOGIN ──
     if (action === 'student_login') {
       const { school_code, class_name, roll_no } = body;
