@@ -204,69 +204,59 @@ if (!role || !user.email) { window.location.href = '/login.html'; }
 document.getElementById('user-email').textContent = user.email || '';
 document.getElementById('role-badge').textContent = role === 'teacher' ? 'Teacher' : 'School Admin';
 
-// Always load school data fresh from Supabase — most reliable approach
+// Load school data via /api/auth (uses service key — most reliable)
 (async function loadDashboard() {
   try {
-    // Wait for Supabase to load
-    let attempts = 0;
-    while (!window.supabase && attempts < 20) {
-      await new Promise(r => setTimeout(r, 100));
-      attempts++;
+    // First — fill from localStorage immediately (fast)
+    var u = user;
+    var localSchool = (role === 'teacher') ? (u.schools || u.school || u) : u;
+    if (localSchool.name) {
+      document.getElementById('school-name').textContent = localSchool.name;
+      document.getElementById('inf-name').textContent    = localSchool.name;
     }
-    if (!window.supabase) { console.error('Supabase not loaded'); return; }
-
-    const db = window.supabase.createClient(
-      'https://pzxosqukijwpjdlfdfst.supabase.co',
-      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY'
-    );
-
-    let school = null;
-
-    if (role === 'school_admin') {
-      // Look up school by email
-      const { data } = await db.from('schools')
-        .select('*')
-        .eq('email', user.email)
-        .maybeSingle();
-      school = data;
-    } else if (role === 'teacher') {
-      // Look up teacher → get their school
-      const { data } = await db.from('teachers')
-        .select('*, schools(*)')
-        .eq('email', user.email)
-        .maybeSingle();
-      if (data) school = data.schools || null;
+    if (localSchool.city)  document.getElementById('inf-city').textContent  = localSchool.city;
+    if (localSchool.phone) document.getElementById('inf-phone').textContent = localSchool.phone;
+    if (u.email)           document.getElementById('inf-email').textContent = u.email;
+    if (localSchool.subscription_status) {
+      var s = localSchool.subscription_status;
+      var el = document.getElementById('inf-status');
+      el.textContent = s.toUpperCase(); el.className = 'info-val status-'+s;
     }
+    if (localSchool.subscription_end)
+      document.getElementById('inf-end').textContent = localSchool.subscription_end;
+    if (localSchool.max_teachers)
+      document.getElementById('inf-teachers').textContent = localSchool.max_teachers;
 
-    if (!school) {
-      console.warn('School not found for email:', user.email);
-      document.getElementById('school-name').textContent = user.name || user.email || 'DigiSmartSchool';
-      return;
-    }
+    // Store school id from localStorage immediately
+    if (localSchool.id) window._fetchedSchoolId = localSchool.id;
 
-    // ── Update ALL school info ──
+    // Second — fetch fresh from server to fill any gaps
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_school_info', email: u.email, role: role })
+    });
+    const d = await res.json();
+    const school = d.school;
+    if (!school) return;
+
+    // Update with fresh server data
     window._fetchedSchoolId = school.id;
-
-    document.getElementById('school-name').textContent = school.name || 'DigiSmartSchool';
-    document.getElementById('inf-name').textContent    = school.name || '-';
-    document.getElementById('inf-city').textContent    = school.city || '-';
-    document.getElementById('inf-email').textContent   = school.email || user.email || '-';
-    document.getElementById('inf-phone').textContent   = school.phone || '-';
-    document.getElementById('inf-teachers').textContent = school.max_teachers || 5;
-
+    document.getElementById('school-name').textContent   = school.name || localSchool.name || 'DigiSmartSchool';
+    document.getElementById('inf-name').textContent      = school.name || '-';
+    document.getElementById('inf-city').textContent      = school.city || '-';
+    document.getElementById('inf-email').textContent     = school.email || u.email || '-';
+    document.getElementById('inf-phone').textContent     = school.phone || '-';
+    document.getElementById('inf-teachers').textContent  = school.max_teachers || 5;
     const status = school.subscription_status || 'active';
     const statusEl = document.getElementById('inf-status');
     statusEl.textContent = status.toUpperCase();
     statusEl.className = 'info-val status-' + status;
     document.getElementById('inf-end').textContent = school.subscription_end || '-';
-
-    if (status === 'expired') {
-      document.getElementById('expired-banner').style.display = 'block';
-    }
+    if (status === 'expired') document.getElementById('expired-banner').style.display = 'block';
 
   } catch(e) {
     console.error('Dashboard load error:', e);
-    document.getElementById('school-name').textContent = user.name || 'DigiSmartSchool';
   }
 })();
 
