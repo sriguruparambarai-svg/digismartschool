@@ -328,42 +328,38 @@ async function doLogin(){
   }
 
   try{
-    // Step 1: Look up school by school_code
-    var {data:schoolRow, error:schoolErr} = await sb.from('schools')
-      .select('id, name, school_code')
-      .or('school_code.eq.'+schoolCode+',id.eq.'+schoolCode)
-      .maybeSingle();
+    // Use /api/auth to look up school + student (avoids RLS issues with anon key)
+    var loginBtn = document.querySelector('.btn-login');
+    if(loginBtn){ loginBtn.disabled=true; loginBtn.textContent='Opening...'; }
 
-    if(!schoolRow){
-      err.textContent = 'School code not found. Please check with your teacher.';
-      err.style.display='block'; return;
-    }
-    var realSchoolId = schoolRow.id;
-    var schoolDisplayName = schoolRow.name || schoolCode;
+    var res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action: 'student_login',
+        school_code: schoolCode,
+        class_name: cls,
+        roll_no: roll
+      })
+    });
+    var d = await res.json();
 
-    // Step 2: Look up student in diary_students (simple TeachBot table)
-    var {data, error} = await sb.from('diary_students')
-      .select('id, school_id, class, roll_no, name')
-      .eq('school_id', realSchoolId)
-      .eq('class', cls)
-      .eq('roll_no', roll)
-      .maybeSingle();
+    if(loginBtn){ loginBtn.disabled=false; loginBtn.textContent='Open My Diary'; }
 
-    if(!data){
-      err.textContent = 'Roll number not found in '+cls+'. Please ask your teacher to add you.';
+    if(d.error){
+      err.textContent = d.error;
       err.style.display='block'; return;
     }
 
     currentStudent = {
-      id:          data.id,
-      school_id:   realSchoolId,
-      school_name: schoolDisplayName,
-      class_name:  data.class,
-      roll_no:     data.roll_no,
-      name:        data.name || 'Student'
+      id:          d.student.id,
+      school_id:   d.student.school_id,
+      school_name: d.school_name || schoolCode,
+      class_name:  d.student.class,
+      roll_no:     d.student.roll_no,
+      name:        d.student.name || 'Student'
     };
     sessionStorage.setItem('student_session', JSON.stringify(currentStudent));
-    // Mark as student role — blocks access to Teacher Panel in learnbot.html
     try{ localStorage.setItem('dss_role', 'student'); }catch(e){}
     startApp();
 
