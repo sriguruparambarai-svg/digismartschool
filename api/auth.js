@@ -180,6 +180,25 @@ module.exports = async function(req2, res) {
       return res.json({ success: true, teachers: Array.isArray(r.data) ? r.data : [] });
     }
 
+    // ── GET SCHOOL INFO (for dashboard) ──
+    if (action === 'get_school_info') {
+      const { email, role: userRole } = body;
+      if (!email) return res.json({ error: 'Email required' });
+      if (userRole === 'teacher') {
+        const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
+        if (tr.data && tr.data.length > 0 && tr.data[0].schools) {
+          return res.json({ success: true, school: tr.data[0].schools });
+        }
+        return res.json({ school: null });
+      } else {
+        const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
+        if (sr.data && sr.data.length > 0) {
+          return res.json({ success: true, school: sr.data[0] });
+        }
+        return res.json({ school: null });
+      }
+    }
+
     // ── UPDATE SUBSCRIPTION ──
     if (action === 'update_subscription') {
       const { school_id, status, end_date } = body;
