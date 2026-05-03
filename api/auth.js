@@ -199,6 +199,61 @@ module.exports = async function(req2, res) {
       }
     }
 
+    // ── DIARY STUDENT OPERATIONS ──
+    if (action === 'add_diary_student') {
+      const { school_id, class_name, roll_no, name } = body;
+      if (!school_id || !class_name || !roll_no || !name)
+        return res.json({ error: 'Missing fields' });
+      const r = await req('POST', '/rest/v1/diary_students', {
+        school_id, class: class_name, roll_no, name
+      });
+      if (r.status === 201 || r.status === 200) {
+        return res.json({ success: true });
+      }
+      // Try upsert if duplicate
+      if (r.status === 409 || (r.data && r.data.code === '23505')) {
+        const u = await req('PATCH',
+          `/rest/v1/diary_students?school_id=eq.${school_id}&class=eq.${encodeURIComponent(class_name)}&roll_no=eq.${encodeURIComponent(roll_no)}`,
+          { name }
+        );
+        return res.json({ success: true });
+      }
+      const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+      return res.json({ error: 'Failed to add student: ' + msg });
+    }
+
+    if (action === 'bulk_add_diary_students') {
+      const { school_id, class_name, students } = body;
+      if (!school_id || !class_name || !students || !students.length)
+        return res.json({ error: 'Missing fields' });
+      const rows = students.map(s => ({
+        school_id, class: class_name, roll_no: s.roll_no, name: s.name
+      }));
+      // Insert in batches of 20
+      const batchSize = 20;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        await req('POST', '/rest/v1/diary_students?on_conflict=school_id,class,roll_no', batch);
+      }
+      return res.json({ success: true, count: rows.length });
+    }
+
+    if (action === 'get_diary_students') {
+      const { school_id } = body;
+      if (!school_id) return res.json({ students: [] });
+      const r = await req('GET',
+        `/rest/v1/diary_students?school_id=eq.${school_id}&select=*&order=class.asc,roll_no.asc`
+      );
+      return res.json({ success: true, students: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    if (action === 'delete_diary_student') {
+      const { id } = body;
+      if (!id) return res.json({ error: 'ID required' });
+      await req('DELETE', `/rest/v1/diary_students?id=eq.${id}`, null);
+      return res.json({ success: true });
+    }
+
     // ── UPDATE SUBSCRIPTION ──
     if (action === 'update_subscription') {
       const { school_id, status, end_date } = body;
