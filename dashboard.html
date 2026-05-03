@@ -338,16 +338,18 @@ function toggleBulk(){
 }
 
 async function loadStudents(){
-  var db = getDB2();
-  if(!db || !_schoolId) return;
+  if(!_schoolId) return;
   try{
-    var {data,error} = await db.from('diary_students').select('*').eq('school_id',_schoolId).order('class').order('roll_no');
-    if(error) throw error;
-    _allStudents = data || [];
+    var res = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'get_diary_students', school_id:_schoolId})
+    });
+    var d = await res.json();
+    _allStudents = d.students || [];
     document.getElementById('st-total').textContent = _allStudents.length;
     renderClassTabs2();
     renderTable2('all');
-  }catch(e){ console.error(e); }
+  }catch(e){ console.error('Load students error:', e); }
 }
 
 function renderClassTabs2(){
@@ -394,10 +396,25 @@ async function addOneStudent(){
   var cls  = document.getElementById('new-cls').value;
   var roll = document.getElementById('new-roll').value.trim();
   var name = document.getElementById('new-name').value.trim();
-  var msg  = document.getElementById('st-msg');
 
-  if(!cls||!roll||!name){ showStMsg('⚠️ Please fill Class, Roll No and Name.','#c0392b'); return; }
-  if(!_schoolId){ showStMsg('⚠️ School not found. Please logout and login again.','#c0392b'); return; }
+  if(!cls||!roll||!name){ showStMsg('Please fill Class, Roll No and Name.','#c0392b'); return; }
+  if(!_schoolId){ showStMsg('School ID not ready. Please wait a moment.','#c0392b'); return; }
+
+  showStMsg('Adding...','var(--m)');
+  try{
+    var res = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'add_diary_student', school_id:_schoolId, class_name:cls, roll_no:roll, name:name})
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    document.getElementById('new-roll').value='';
+    document.getElementById('new-name').value='';
+    showStMsg(name+' added to '+cls+'!','#1a5c2a');
+    await loadStudents();
+    filterClass(cls, null);
+  }catch(e){ showStMsg(e.message,'#c0392b'); }
+}
 
   showStMsg('⏳ Adding…','var(--m)');
   var db = getDB2();
@@ -418,8 +435,39 @@ async function addOneStudent(){
 async function bulkAddStudents(){
   var cls  = document.getElementById('bulk-cls').value;
   var text = document.getElementById('bulk-text').value.trim();
-  if(!cls){ showStMsg('⚠️ Select Class for bulk add.','#c0392b'); return; }
-  if(!text){ showStMsg('⚠️ Paste student list first.','#c0392b'); return; }
+  if(!cls){ showStMsg('Select Class for bulk add.','#c0392b'); return; }
+  if(!text){ showStMsg('Paste student list first.','#c0392b'); return; }
+  if(!_schoolId){ showStMsg('School ID not ready. Please wait.','#c0392b'); return; }
+
+  var lines2 = text.split('
+').map(function(l){return l.trim();}).filter(Boolean);
+  var students = [];
+  lines2.forEach(function(line){
+    var comma = line.indexOf(',');
+    if(comma > 0){
+      var roll = line.substring(0,comma).trim();
+      var sname = line.substring(comma+1).trim();
+      if(roll && sname) students.push({roll_no:roll, name:sname});
+    }
+  });
+
+  if(!students.length){ showStMsg('Format: RollNo, Name (one per line)','#c0392b'); return; }
+  showStMsg('Adding '+students.length+' students...','var(--m)');
+
+  try{
+    var res = await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'bulk_add_diary_students', school_id:_schoolId, class_name:cls, students:students})
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    document.getElementById('bulk-text').value='';
+    document.getElementById('bulk-box').style.display='none';
+    showStMsg(students.length+' students added to '+cls+'!','#1a5c2a');
+    await loadStudents();
+    filterClass(cls, null);
+  }catch(e){ showStMsg(e.message,'#c0392b'); }
+}
 
   var lines = text.split('\n').map(function(l){return l.trim();}).filter(Boolean);
   var rows = [];
@@ -449,10 +497,14 @@ async function bulkAddStudents(){
 
 async function delStudent(id){
   if(!confirm('Remove this student?')) return;
-  var db = getDB2();
-  await db.from('diary_students').delete().eq('id',id);
-  await loadStudents();
-  filterClass(_activeClass, null);
+  try{
+    await fetch('/api/auth', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({action:'delete_diary_student', id:id})
+    });
+    await loadStudents();
+    filterClass(_activeClass, null);
+  }catch(e){ alert('Error: '+e.message); }
 }
 
 function showStMsg(t,c){ var e=document.getElementById('st-msg'); e.textContent=t; e.style.color=c; if(c.includes('1a5c')) setTimeout(function(){e.textContent='';},3000); }
