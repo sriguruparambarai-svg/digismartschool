@@ -77,17 +77,13 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="tool-name">Student Progress</div>
       <div class="tool-desc">Track student performance</div>
     </div>
-    <div class="tool-card" onclick="alert('Coming Soon! Parent communication portal.')">
-      <div class="tool-icon">👨‍👩‍👧</div>
-      <div class="tool-name">Parent Portal</div>
-      <div class="tool-desc">Share notes & reports</div>
-    </div>
+    
     <div class="tool-card" onclick="showStudents()">
       <div class="tool-icon">&#x1F393;</div>
       <div class="tool-name">My Students</div>
       <div class="tool-desc">Add and manage student diary access</div>
     </div>
-    <div class="tool-card" onclick="showTeachers()">
+    <div class="tool-card" onclick="showTeachersPage()">
       <div class="tool-icon">👩‍🏫</div>
       <div class="tool-name">My Teachers</div>
       <div class="tool-desc">View teacher accounts</div>
@@ -110,6 +106,44 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="info-row"><span class="info-label">Max Teachers</span><span class="info-val" id="inf-teachers">5</span></div>
       <div class="info-row"><span class="info-label">Support</span><span class="info-val">sriguruparambarai@gmail.com</span></div>
     </div>
+  </div>
+
+
+  <!-- MY TEACHERS FULL PAGE -->
+  <div id="teachers-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f2f5;z-index:1000;overflow-y:auto;padding:16px;">
+  <div style="max-width:700px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <button onclick="hideTeachersPage()" style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:8px;padding:8px 16px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">&#8592; Back</button>
+    <h2 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.1rem;margin:0;">My Teachers</h2>
+  </div>
+
+  <!-- Add Teacher Form -->
+  <div style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px;">
+    <div style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">&#x2795; Add New Teacher</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Teacher Name</label>
+        <input type="text" id="t-name" placeholder="e.g. Mrs. Shalini" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Email</label>
+        <input type="email" id="t-email" placeholder="teacher@school.com" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Password</label>
+      <input type="password" id="t-pass" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+    </div>
+    <button onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
+    <div id="t-msg" style="font-size:0.82rem;font-weight:700;min-height:22px;padding:6px 0;"></div>
+  </div>
+
+  <!-- Teachers List -->
+  <div style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);">
+    <div style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">&#x1F9D1;&#x200D;&#x1F3EB; Current Teachers <span id="t-count" style="background:#6B0F1A;color:#E8C96A;font-size:.65rem;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></div>
+    <div id="t-list"><div style="text-align:center;padding:20px;color:#888;font-style:italic;">Loading teachers...</div></div>
+  </div>
+  </div>
   </div>
 
   <!-- MY STUDENTS FULL PAGE -->
@@ -229,7 +263,53 @@ if (localSchool.max_teachers)
   } catch(e) { console.error('School info error:', e); }
 })();
 
-async function showTeachers() {
+function showTeachersPage(){
+  document.getElementById('teachers-page').style.display='block';
+  document.body.style.overflow='hidden';
+  setTimeout(function(){ loadTeachers(); }, 500);
+}
+function hideTeachersPage(){
+  document.getElementById('teachers-page').style.display='none';
+  document.body.style.overflow='';
+}
+async function loadTeachers(){
+  var listEl=document.getElementById('t-list');
+  var countEl=document.getElementById('t-count');
+  if(!window._schoolId){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;">Loading...</div>'; return; }
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'get_teachers',school_id:window._schoolId})});
+    var d=await r.json();
+    var teachers=d.teachers||[];
+    countEl.textContent=teachers.length;
+    if(!teachers.length){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;font-style:italic;">No teachers added yet.</div>'; return; }
+    listEl.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:.88rem;">'
+      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th></tr></thead><tbody>'
+      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td></tr>'; }).join('')
+      +'</tbody></table>';
+  }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
+}
+async function addTeacher(){
+  var name=document.getElementById('t-name').value.trim();
+  var email=document.getElementById('t-email').value.trim();
+  var pass=document.getElementById('t-pass').value;
+  var msg=document.getElementById('t-msg');
+  if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent='Please fill all fields.'; return; }
+  if(!window._schoolId){ msg.style.color='#c0392b'; msg.textContent='School ID not ready. Please wait.'; return; }
+  msg.style.color='#6B0F1A'; msg.textContent='Adding...';
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'add_teacher',school_id:window._schoolId,teacher_name:name,teacher_email:email,teacher_password:pass})});
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    msg.style.color='#1a5c2a'; msg.textContent='✅ '+name+' added!';
+    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value='';
+    setTimeout(function(){msg.textContent='';},3000);
+    loadTeachers();
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
+}
+function showTeachers(){ showTeachersPage(); }
+async function showTeachers_old() {
   const schoolId = user.id || window._schoolId;
   if (!schoolId) { alert('Loading... please try again in a moment.'); return; }
   const r = await fetch('/api/auth', {
