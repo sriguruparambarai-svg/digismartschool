@@ -310,6 +310,7 @@
   ::-webkit-scrollbar-track { background:transparent; }
   ::-webkit-scrollbar-thumb { background:var(--gold); border-radius:10px; }
 </style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
 
@@ -464,6 +465,26 @@ let students = JSON.parse(localStorage.getItem('dss_students') || '[]');
 
 let attendanceLog = JSON.parse(localStorage.getItem('dss_attendance') || '[]');
 // Each: { date, records:[{studentId,status}] }
+
+// ── Supabase connection ──
+var _sb = null;
+function getSB(){
+  if(_sb) return _sb;
+  if(window.supabase){
+    _sb = window.supabase.createClient(
+      'https://pzxosqukijwpjdlfdfst.supabase.co',
+      'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY'
+    );
+  }
+  return _sb;
+}
+
+function getSchoolId(){
+  try{
+    var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
+    return u.school_id || u.id || '';
+  }catch(e){ return ''; }
+}
 
 let regStream = null, attendStream = null;
 let capturedImageData = null;
@@ -738,7 +759,7 @@ function renderAttendResults(recognized, pool) {
 // ══════════════════════════════════════════════════
 //  SAVE ATTENDANCE
 // ══════════════════════════════════════════════════
-function saveAttendance() {
+async function saveAttendance() {
   if (Object.keys(todayMarked).length === 0) { toast('⚠️ Scan faces first!'); return; }
   const date = new Date().toISOString().split('T')[0];
   const existing = attendanceLog.findIndex(a=>a.date===date);
@@ -753,8 +774,48 @@ function saveAttendance() {
   if (existing >= 0) attendanceLog[existing] = entry;
   else attendanceLog.push(entry);
 
+  // Save to localStorage (always)
   localStorage.setItem('dss_attendance', JSON.stringify(attendanceLog));
-  toast('💾 Attendance saved!');
+
+  // Also save to Supabase
+  try {
+    var sb = getSB();
+    var schoolId = getSchoolId();
+    if (sb) {
+      // Get class from first student
+      var cls = students.length > 0 ? students[0].cls : '';
+
+      // Save each student's attendance
+      var rows = records.map(function(r){
+        return {
+          school_id: schoolId,
+          date: date,
+          class_name: r.cls || cls,
+          roll_no: r.roll,
+          student_name: r.name,
+          status: r.status
+        };
+      });
+
+      // Delete existing records for this date+class then insert fresh
+      if (rows.length > 0) {
+        await sb.from('face_attendance')
+          .delete()
+          .eq('school_id', schoolId)
+          .eq('date', date)
+          .eq('class_name', rows[0].class_name);
+
+        await sb.from('face_attendance').insert(rows);
+        toast('💾 Attendance saved to cloud! ☁️');
+      }
+    } else {
+      toast('💾 Attendance saved locally!');
+    }
+  } catch(e) {
+    console.error('Supabase save error:', e);
+    toast('💾 Saved locally (cloud sync failed)');
+  }
+
   renderReport();
 }
 
