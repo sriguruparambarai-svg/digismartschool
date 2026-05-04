@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Bulk Report Cards — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<style>
+:root{
+  --m:#6B0F1A;--md:#4A0A12;--mm:#8B1A2A;
+  --g:#C9A84C;--gl:#E8C96A;--gd:#A07830;
+  --s:#F5E6C8;--sd:#EDD9A3;--w:#FFFDF5;
+  --t:#2A0A0F;--dim:#888;
+  --green:#1a5c2a;--blue:#1a3a7a;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:#f0f2f5;color:var(--t);min-height:100vh;}
+
+/* Header */
+.hdr{background:linear-gradient(90deg,var(--md),var(--m));padding:14px 24px;display:flex;align-items:center;gap:14px;}
+.hdr h1{font-family:'Cinzel',serif;color:var(--gl);font-size:1.2rem;}
+.hdr p{color:var(--s);font-size:.82rem;margin-top:2px;}
+.back-btn{background:rgba(255,255,255,.15);color:var(--s);border:1px solid rgba(201,168,76,.3);padding:7px 14px;border-radius:8px;cursor:pointer;font-family:'Nunito',sans-serif;font-weight:700;font-size:.85rem;text-decoration:none;display:inline-flex;align-items:center;gap:5px;}
+.back-btn:hover{background:rgba(255,255,255,.25);}
+
+.main{max-width:900px;margin:0 auto;padding:24px;}
+
+/* Cards */
+.card{background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:20px;}
+.card-title{font-family:'Cinzel',serif;font-size:1rem;color:var(--m);margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--sd);}
+
+/* Steps */
+.steps{display:flex;gap:0;margin-bottom:24px;}
+.step{flex:1;text-align:center;position:relative;}
+.step::after{content:'';position:absolute;top:18px;left:50%;right:-50%;height:2px;background:var(--sd);z-index:0;}
+.step:last-child::after{display:none;}
+.step-num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:.9rem;margin:0 auto 6px;position:relative;z-index:1;background:var(--sd);color:var(--dim);}
+.step.done .step-num{background:var(--green);color:white;}
+.step.active .step-num{background:var(--m);color:var(--gl);}
+.step-label{font-size:.7rem;font-weight:700;color:var(--dim);text-transform:uppercase;letter-spacing:.5px;}
+.step.active .step-label{color:var(--m);}
+.step.done .step-label{color:var(--green);}
+
+/* Upload area */
+.upload-area{border:2.5px dashed var(--sd);border-radius:12px;padding:32px;text-align:center;cursor:pointer;transition:all .2s;position:relative;}
+.upload-area:hover,.upload-area.drag{border-color:var(--m);background:rgba(107,15,26,.03);}
+.upload-icon{font-size:2.5rem;margin-bottom:10px;}
+.upload-title{font-size:1rem;font-weight:800;color:var(--m);margin-bottom:4px;}
+.upload-sub{font-size:.8rem;color:var(--dim);}
+.upload-area input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;}
+
+/* Settings grid */
+.settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.field label{display:block;font-size:.72rem;font-weight:800;color:var(--m);text-transform:uppercase;letter-spacing:.7px;margin-bottom:5px;}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;font-size:.92rem;border:1.5px solid var(--sd);border-radius:9px;font-family:'Nunito',sans-serif;font-weight:600;outline:none;transition:border .2s;}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--m);}
+
+/* Preview table */
+.preview-wrap{overflow-x:auto;border-radius:10px;border:1.5px solid var(--sd);}
+.preview-table{width:100%;border-collapse:collapse;font-size:.82rem;}
+.preview-table th{background:var(--m);color:var(--gl);padding:8px 12px;text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.5px;white-space:nowrap;}
+.preview-table td{padding:8px 12px;border-bottom:1px solid #f5f5f5;white-space:nowrap;}
+.preview-table tr:hover td{background:#fafafa;}
+.badge{padding:2px 8px;border-radius:8px;font-size:.68rem;font-weight:800;}
+.badge-a{background:rgba(26,92,42,.1);color:var(--green);}
+.badge-b{background:rgba(26,58,122,.08);color:var(--blue);}
+.badge-c{background:rgba(201,168,76,.15);color:var(--gd);}
+.badge-d{background:rgba(220,53,69,.1);color:#c0392b;}
+
+/* Buttons */
+.btn{padding:11px 22px;border:none;border-radius:10px;font-family:'Nunito',sans-serif;font-weight:800;font-size:.92rem;cursor:pointer;transition:all .2s;display:inline-flex;align-items:center;gap:7px;}
+.btn:hover{transform:translateY(-2px);}
+.btn-primary{background:linear-gradient(135deg,var(--m),var(--mm));color:var(--gl);}
+.btn-gold{background:linear-gradient(135deg,var(--gd),#FFD700);color:var(--md);}
+.btn-outline{background:transparent;color:var(--m);border:2px solid var(--m);}
+.btn-full{width:100%;justify-content:center;padding:13px;}
+.btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+
+/* Progress */
+.progress-bar{background:var(--sd);border-radius:10px;height:8px;overflow:hidden;margin:10px 0;}
+.progress-fill{height:100%;background:linear-gradient(90deg,var(--m),var(--mm));border-radius:10px;transition:width .3s;}
+
+/* Report cards output */
+.reports-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(380px,1fr));gap:16px;}
+
+/* Individual report card */
+.report-card{background:white;border-radius:14px;border:2px solid var(--sd);overflow:hidden;box-shadow:0 4px 16px rgba(107,15,26,.08);}
+.rc-header{background:linear-gradient(135deg,var(--m),var(--mm));padding:14px 16px;text-align:center;}
+.rc-school{font-family:'Cinzel',serif;font-size:.85rem;color:var(--gl);margin-bottom:2px;}
+.rc-title{font-size:.65rem;color:rgba(232,201,154,.7);text-transform:uppercase;letter-spacing:1px;}
+.rc-student{background:var(--s);padding:10px 16px;display:flex;align-items:center;justify-content:space-between;}
+.rc-name{font-family:'Cinzel',serif;font-size:.95rem;color:var(--m);font-weight:700;}
+.rc-info{font-size:.7rem;color:var(--dim);margin-top:2px;}
+.rc-grade-badge{width:44px;height:44px;border-radius:50%;background:var(--m);color:var(--gl);font-family:'Cinzel',serif;font-size:1.2rem;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.rc-marks{padding:12px 16px;}
+.rc-subject-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;}
+.rc-subj-name{font-size:.75rem;font-weight:700;color:var(--t);min-width:100px;}
+.rc-bar-wrap{flex:1;background:var(--sd);border-radius:4px;height:6px;overflow:hidden;}
+.rc-bar{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--m),var(--mm));}
+.rc-mark{font-family:'JetBrains Mono',monospace;font-size:.75rem;font-weight:700;color:var(--m);min-width:45px;text-align:right;}
+.rc-total{padding:8px 16px;background:var(--s);display:flex;justify-content:space-between;align-items:center;font-size:.8rem;}
+.rc-total-label{font-weight:700;color:var(--t);}
+.rc-total-val{font-family:'JetBrains Mono',monospace;font-weight:800;color:var(--m);}
+.rc-remarks{padding:10px 16px;border-top:1px solid var(--sd);}
+.rc-remarks-label{font-size:.65rem;font-weight:800;color:var(--m);text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px;}
+.rc-remarks-text{font-size:.78rem;line-height:1.6;color:var(--t);}
+.rc-footer{padding:8px 16px;background:var(--md);display:flex;justify-content:space-between;align-items:center;}
+.rc-teacher{font-size:.68rem;color:rgba(232,201,154,.7);}
+.rc-date{font-size:.68rem;color:rgba(232,201,154,.5);}
+.rc-print-btn{background:rgba(255,255,255,.15);color:var(--gl);border:1px solid rgba(201,168,76,.3);padding:4px 10px;border-radius:6px;font-family:'Nunito',sans-serif;font-size:.68rem;font-weight:700;cursor:pointer;}
+
+/* Status message */
+.status-msg{padding:12px 16px;border-radius:10px;font-weight:700;font-size:.88rem;margin-bottom:14px;display:none;}
+.status-msg.show{display:block;}
+.status-msg.error{background:rgba(220,53,69,.1);color:#c0392b;border:1px solid rgba(220,53,69,.2);}
+.status-msg.success{background:rgba(26,92,42,.1);color:var(--green);border:1px solid rgba(26,92,42,.2);}
+.status-msg.info{background:rgba(107,15,26,.05);color:var(--m);border:1px solid rgba(107,15,26,.1);}
+
+/* Template download */
+.template-box{background:rgba(201,168,76,.07);border:1.5px solid var(--sd);border-radius:10px;padding:14px;display:flex;align-items:center;gap:12px;margin-bottom:16px;}
+.template-icon{font-size:1.8rem;flex-shrink:0;}
+.template-text h4{font-size:.88rem;font-weight:800;color:var(--m);margin-bottom:3px;}
+.template-text p{font-size:.75rem;color:var(--dim);line-height:1.5;}
+
+@media(max-width:600px){
+  .settings-grid{grid-template-columns:1fr;}
+  .reports-grid{grid-template-columns:1fr;}
+  .steps{display:none;}
+  .main{padding:14px;}
+}
+@media print{
+  .hdr,.steps,.card:not(.print-card),.back-btn{display:none!important;}
+  .report-card{break-inside:avoid;box-shadow:none;border:1px solid #ccc;}
+  .rc-print-btn{display:none!important;}
+  body{background:white;}
+}
+</style>
+</head>
+<body>
+
+<div class="hdr">
+  <div style="flex:1">
+    <h1>📊 Bulk Report Cards</h1>
+    <p>Upload Excel → AI generates all report cards instantly</p>
+  </div>
+  <a href="/dashboard.html" class="back-btn">← Dashboard</a>
+</div>
+
+<div class="main">
+
+  <!-- Progress steps -->
+  <div class="steps" id="steps">
+    <div class="step active" id="step1"><div class="step-num">1</div><div class="step-label">Upload Excel</div></div>
+    <div class="step" id="step2"><div class="step-num">2</div><div class="step-label">Settings</div></div>
+    <div class="step" id="step3"><div class="step-num">3</div><div class="step-label">Generate</div></div>
+    <div class="step" id="step4"><div class="step-num">4</div><div class="step-label">Download</div></div>
+  </div>
+
+  <!-- Status -->
+  <div class="status-msg" id="status-msg"></div>
+
+  <!-- STEP 1: Upload -->
+  <div class="card" id="card-upload">
+    <div class="card-title">📁 Step 1 — Upload Student Marks Excel</div>
+
+    <div class="template-box">
+      <div class="template-icon">📋</div>
+      <div class="template-text">
+        <h4>Download Template First</h4>
+        <p>Use our Excel template to fill student marks. Columns: Roll No, Name, English, Tamil, Maths, Science, Social Science, Total (optional)</p>
+      </div>
+      <button class="btn btn-gold" onclick="downloadTemplate()" style="flex-shrink:0;">⬇ Template</button>
+    </div>
+
+    <div class="upload-area" id="upload-area">
+      <input type="file" id="excel-file" accept=".xlsx,.xls,.csv" onchange="handleFile(this)"/>
+      <div class="upload-icon">📊</div>
+      <div class="upload-title">Click to upload Excel file</div>
+      <div class="upload-sub">Supports .xlsx, .xls, .csv files</div>
+    </div>
+  </div>
+
+  <!-- STEP 2: Preview + Settings -->
+  <div class="card" id="card-settings" style="display:none;">
+    <div class="card-title">⚙️ Step 2 — Settings & Preview</div>
+
+    <div class="settings-grid" style="margin-bottom:16px;">
+      <div class="field">
+        <label>School Name</label>
+        <input type="text" id="s-school" placeholder="ARK Global School"/>
+      </div>
+      <div class="field">
+        <label>Class</label>
+        <input type="text" id="s-class" placeholder="e.g. Class 6 A"/>
+      </div>
+      <div class="field">
+        <label>Exam Name</label>
+        <input type="text" id="s-exam" placeholder="e.g. Term 1 Examination 2025"/>
+      </div>
+      <div class="field">
+        <label>Class Teacher</label>
+        <input type="text" id="s-teacher" placeholder="e.g. Mrs. Shalini"/>
+      </div>
+      <div class="field">
+        <label>Maximum Marks per Subject</label>
+        <input type="number" id="s-maxmarks" value="100"/>
+      </div>
+      <div class="field">
+        <label>Report Date</label>
+        <input type="date" id="s-date"/>
+      </div>
+    </div>
+
+    <div class="card-title" style="margin-top:8px;">👀 Preview — <span id="preview-count">0</span> students found</div>
+    <div class="preview-wrap">
+      <table class="preview-table" id="preview-table">
+        <thead id="preview-head"></thead>
+        <tbody id="preview-body"></tbody>
+      </table>
+    </div>
+
+    <div style="display:flex;gap:10px;margin-top:16px;">
+      <button class="btn btn-outline" onclick="resetUpload()">← Re-upload</button>
+      <button class="btn btn-primary" onclick="startGenerate()" style="flex:1;" id="gen-btn">✨ Generate All Report Cards</button>
+    </div>
+  </div>
+
+  <!-- STEP 3: Generating -->
+  <div class="card" id="card-generating" style="display:none;">
+    <div class="card-title">⏳ Generating Report Cards...</div>
+    <div style="text-align:center;padding:16px 0;">
+      <div style="font-size:2rem;margin-bottom:10px;">🤖</div>
+      <div style="font-weight:700;color:var(--m);margin-bottom:12px;" id="gen-status">Preparing...</div>
+      <div class="progress-bar"><div class="progress-fill" id="progress-fill" style="width:0%"></div></div>
+      <div style="font-size:.82rem;color:var(--dim);margin-top:6px;" id="gen-count">0 / 0 completed</div>
+    </div>
+  </div>
+
+  <!-- STEP 4: Results -->
+  <div id="card-results" style="display:none;">
+    <div class="card print-card">
+      <div class="card-title">✅ Report Cards Ready — <span id="results-count">0</span> generated</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;">
+        <button class="btn btn-primary" onclick="printAll()">🖨️ Print All</button>
+        <button class="btn btn-gold" onclick="downloadAll()">⬇ Download Summary</button>
+        <button class="btn btn-outline" onclick="resetAll()">🔄 New Batch</button>
+      </div>
+    </div>
+    <div class="reports-grid" id="reports-grid"></div>
+  </div>
+
+</div>
+
+<script>
+// ─────────────────────────────────────────
+// DATA
+// ─────────────────────────────────────────
+var students = [];
+var headers = [];
+var reportCards = [];
+var subjectCols = [];
+
+// ─────────────────────────────────────────
+// DOWNLOAD TEMPLATE
+// ─────────────────────────────────────────
+function downloadTemplate(){
+  if(typeof XLSX === 'undefined'){ alert('Please wait for page to load.'); return; }
+  var wb = XLSX.utils.book_new();
+  var data = [
+    ['Roll No','Student Name','English','Tamil','Maths','Science','Social Science','Computer','Total'],
+    [1,'Kayal Vizhi',85,90,92,88,87,95,''],
+    [2,'Arun Kumar',72,68,95,70,75,80,''],
+    [3,'Priya Dharshini',91,85,78,88,92,89,''],
+    [4,'Mohammed Rafi',78,72,88,92,70,85,''],
+  ];
+  var ws = XLSX.utils.aoa_to_sheet(data);
+  // Set column widths
+  ws['!cols'] = [{wch:8},{wch:20},{wch:10},{wch:8},{wch:8},{wch:10},{wch:16},{wch:10},{wch:8}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Students');
+  XLSX.writeFile(wb, 'ReportCard_Template.xlsx');
+}
+
+// ─────────────────────────────────────────
+// FILE UPLOAD
+// ─────────────────────────────────────────
+function handleFile(input){
+  var file = input.files[0];
+  if(!file){ return; }
+
+  showStatus('Reading Excel file...', 'info');
+
+  var reader = new FileReader();
+  reader.onload = function(e){
+    try{
+      var data = new Uint8Array(e.target.result);
+      var wb = XLSX.read(data, {type:'array'});
+      var ws = wb.Sheets[wb.SheetNames[0]];
+      var rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+
+      if(!rows || rows.length < 2){
+        showStatus('Excel file is empty or has no data rows.', 'error'); return;
+      }
+
+      headers = rows[0].map(function(h){ return String(h).trim(); });
+      students = [];
+
+      for(var i=1; i<rows.length; i++){
+        var row = rows[i];
+        if(!row || !row[0] || !row[1]) continue; // skip empty rows
+        var student = {};
+        headers.forEach(function(h, idx){ student[h] = row[idx] !== undefined ? String(row[idx]).trim() : ''; });
+        students.push(student);
+      }
+
+      if(!students.length){
+        showStatus('No valid student rows found. Check the template format.', 'error'); return;
+      }
+
+      // Detect subject columns (numeric columns except Roll No and Total)
+      subjectCols = headers.filter(function(h){
+        var lower = h.toLowerCase();
+        return lower !== 'roll no' && lower !== 'roll' && lower !== 'name' &&
+               lower !== 'student name' && lower !== 'total' && lower !== 'grade' &&
+               lower !== 'rank' && h !== '';
+      });
+
+      // Calculate totals if not present
+      students.forEach(function(s){
+        var total = 0;
+        var count = 0;
+        subjectCols.forEach(function(sub){
+          var val = parseFloat(s[sub]);
+          if(!isNaN(val)){ total += val; count++; }
+        });
+        if(!s['Total'] || s['Total'] === '') s['Total'] = total;
+        s['_total'] = total;
+        s['_count'] = count;
+        s['_percent'] = count > 0 ? (total / (count * parseFloat(document.getElementById('s-maxmarks').value||100) )) * 100 : 0;
+        s['_grade'] = calcGrade(s['_percent']);
+      });
+
+      // Calculate ranks
+      var sorted = students.slice().sort(function(a,b){ return b['_total'] - a['_total']; });
+      sorted.forEach(function(s, idx){ s['_rank'] = idx + 1; });
+
+      showStep(2);
+      document.getElementById('card-upload').style.display='none';
+      document.getElementById('card-settings').style.display='block';
+      document.getElementById('preview-count').textContent = students.length;
+
+      // Fill school name from localStorage
+      try{
+        var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
+        if(u.name) document.getElementById('s-school').value = u.name;
+      }catch(e){}
+
+      // Set today's date
+      document.getElementById('s-date').valueAsDate = new Date();
+
+      renderPreview();
+      showStatus('✅ Found ' + students.length + ' students. Configure settings and generate.', 'success');
+
+    }catch(err){
+      showStatus('Error reading file: ' + err.message, 'error');
+      console.error(err);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// ─────────────────────────────────────────
+// PREVIEW TABLE
+// ─────────────────────────────────────────
+function renderPreview(){
+  var head = document.getElementById('preview-head');
+  var body = document.getElementById('preview-body');
+
+  var displayCols = headers.filter(function(h){ return h !== ''; }).slice(0, 9);
+
+  head.innerHTML = '<tr>' + displayCols.map(function(h){
+    return '<th>' + esc(h) + '</th>';
+  }).join('') + '<th>Grade</th></tr>';
+
+  body.innerHTML = students.slice(0, 10).map(function(s){
+    var grade = s['_grade'] || calcGrade(s['_percent']);
+    var badgeClass = grade==='A+'||grade==='A' ? 'badge-a' : grade==='B' ? 'badge-b' : grade==='C' ? 'badge-c' : 'badge-d';
+    return '<tr>' + displayCols.map(function(h){
+      return '<td>' + esc(s[h]||'') + '</td>';
+    }).join('') + '<td><span class="badge '+badgeClass+'">'+grade+'</span></td></tr>';
+  }).join('');
+
+  if(students.length > 10){
+    body.innerHTML += '<tr><td colspan="'+(displayCols.length+1)+'" style="text-align:center;padding:10px;color:var(--dim);font-style:italic;">... and '+(students.length-10)+' more students</td></tr>';
+  }
+}
+
+// ─────────────────────────────────────────
+// GENERATE REPORT CARDS
+// ─────────────────────────────────────────
+async function startGenerate(){
+  var school = document.getElementById('s-school').value || 'DigiSmartSchool';
+  var cls    = document.getElementById('s-class').value || 'Class';
+  var exam   = document.getElementById('s-exam').value || 'Examination';
+  var teacher = document.getElementById('s-teacher').value || '';
+  var maxMarks = parseInt(document.getElementById('s-maxmarks').value) || 100;
+  var date   = document.getElementById('s-date').value || new Date().toLocaleDateString('en-IN');
+
+  if(!students.length){ showStatus('No students loaded.', 'error'); return; }
+
+  showStep(3);
+  document.getElementById('card-settings').style.display = 'none';
+  document.getElementById('card-generating').style.display = 'block';
+
+  reportCards = [];
+  var total = students.length;
+
+  for(var i=0; i<students.length; i++){
+    var s = students[i];
+    var studentName = s['Student Name'] || s['Name'] || s['name'] || 'Student';
+    var rollNo = s['Roll No'] || s['Roll'] || s['roll_no'] || (i+1);
+
+    document.getElementById('gen-status').textContent = 'Generating report for ' + studentName + '...';
+    document.getElementById('gen-count').textContent = i + ' / ' + total + ' completed';
+    document.getElementById('progress-fill').style.width = (i/total*100) + '%';
+
+    // Build marks summary for AI
+    var marksSummary = subjectCols.map(function(sub){
+      var marks = parseFloat(s[sub]) || 0;
+      var pct = (marks/maxMarks*100).toFixed(0);
+      return sub + ': ' + marks + '/' + maxMarks + ' (' + pct + '%)';
+    }).join(', ');
+
+    var totalMarks = s['_total'] || 0;
+    var totalPct = s['_percent'] || 0;
+    var grade = s['_grade'] || calcGrade(totalPct);
+    var rank = s['_rank'] || (i+1);
+
+    // Generate AI remarks
+    var remarks = '';
+    try{
+      var prompt = 'Write a brief 2-sentence school report card remark for this student.\nStudent: ' + studentName + '\nClass: ' + cls + '\nMarks: ' + marksSummary + '\nTotal: ' + totalMarks.toFixed(0) + '/' + (subjectCols.length * maxMarks) + ' (' + totalPct.toFixed(0) + '%) Grade: ' + grade + ' Rank: ' + rank + '/' + total + '\nWrite a warm, encouraging remark for parents. Be specific about strengths. Keep it to 2 sentences only.';
+
+      var res = await fetch('/api/ai', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({payload:{
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 120,
+          messages: [{role:'user', content: prompt}]
+        }})
+      });
+      var d = await res.json();
+      if(d.content && d.content[0]) remarks = d.content[0].text.trim();
+    }catch(e){
+      remarks = grade === 'A+' || grade === 'A'
+        ? studentName + ' has performed excellently this term. Keep up the outstanding work!'
+        : grade === 'B'
+        ? studentName + ' has shown good progress this term. With continued effort, even better results are possible.'
+        : studentName + ' has completed the term examination. Regular study and practice will help improve performance.';
+    }
+
+    reportCards.push({
+      rollNo, name: studentName, school, cls, exam, teacher, date,
+      maxMarks, marks: s, subjects: subjectCols,
+      total: totalMarks, percent: totalPct, grade, rank, totalStudents: total,
+      remarks
+    });
+  }
+
+  document.getElementById('gen-status').textContent = '✅ All done!';
+  document.getElementById('gen-count').textContent = total + ' / ' + total + ' completed';
+  document.getElementById('progress-fill').style.width = '100%';
+
+  setTimeout(function(){
+    document.getElementById('card-generating').style.display = 'none';
+    showResults();
+  }, 600);
+}
+
+// ─────────────────────────────────────────
+// RENDER RESULTS
+// ─────────────────────────────────────────
+function showResults(){
+  showStep(4);
+  document.getElementById('card-results').style.display = 'block';
+  document.getElementById('results-count').textContent = reportCards.length;
+
+  var grid = document.getElementById('reports-grid');
+  grid.innerHTML = reportCards.map(function(rc, idx){
+    var badgeClass = rc.grade==='A+'||rc.grade==='A' ? 'badge-a' : rc.grade==='B' ? 'badge-b' : rc.grade==='C' ? 'badge-c' : 'badge-d';
+    var subjectRows = rc.subjects.map(function(sub){
+      var marks = parseFloat(rc.marks[sub]) || 0;
+      var pct = Math.min(100, (marks / rc.maxMarks) * 100);
+      return '<div class="rc-subject-row">'
+        +'<div class="rc-subj-name">'+esc(sub)+'</div>'
+        +'<div class="rc-bar-wrap"><div class="rc-bar" style="width:'+pct+'%"></div></div>'
+        +'<div class="rc-mark">'+marks+'/'+rc.maxMarks+'</div>'
+        +'</div>';
+    }).join('');
+
+    var totalMax = rc.subjects.length * rc.maxMarks;
+
+    return '<div class="report-card" id="rc-'+idx+'">'
+      +'<div class="rc-header">'
+      +'<div class="rc-school">'+esc(rc.school)+'</div>'
+      +'<div class="rc-title">'+esc(rc.exam)+' — '+esc(rc.cls)+'</div>'
+      +'</div>'
+      +'<div class="rc-student">'
+      +'<div><div class="rc-name">'+esc(rc.name)+'</div>'
+      +'<div class="rc-info">Roll No: '+esc(String(rc.rollNo))+' &nbsp;|&nbsp; Rank: '+rc.rank+'/'+rc.totalStudents+'</div></div>'
+      +'<div class="rc-grade-badge">'+rc.grade+'</div>'
+      +'</div>'
+      +'<div class="rc-marks">'+subjectRows+'</div>'
+      +'<div class="rc-total">'
+      +'<span class="rc-total-label">Total Marks</span>'
+      +'<span class="rc-total-val">'+rc.total.toFixed(0)+'/'+totalMax+' ('+rc.percent.toFixed(1)+'%)</span>'
+      +'</div>'
+      +'<div class="rc-remarks">'
+      +'<div class="rc-remarks-label">Teacher\'s Remarks</div>'
+      +'<div class="rc-remarks-text">'+esc(rc.remarks)+'</div>'
+      +'</div>'
+      +'<div class="rc-footer">'
+      +'<span class="rc-teacher">'+(rc.teacher?'Class Teacher: '+esc(rc.teacher):'')+'</span>'
+      +'<span class="rc-date">'+esc(rc.date)+'</span>'
+      +'<button class="rc-print-btn" onclick="printOne('+idx+')">🖨️ Print</button>'
+      +'</div>'
+      +'</div>';
+  }).join('');
+}
+
+// ─────────────────────────────────────────
+// PRINT
+// ─────────────────────────────────────────
+function printOne(idx){
+  var card = document.getElementById('rc-'+idx);
+  var win = window.open('','_blank','width=600,height=800');
+  win.document.write('<html><head><title>Report Card</title><style>');
+  win.document.write('body{font-family:Nunito,sans-serif;padding:20px;background:white;}');
+  win.document.write('.report-card{border:2px solid #EDD9A3;border-radius:14px;overflow:hidden;max-width:500px;margin:0 auto;}');
+  win.document.write('.rc-header{background:#6B0F1A;padding:14px;text-align:center;} .rc-school{font-size:1rem;color:#E8C96A;font-weight:700;} .rc-title{font-size:.7rem;color:rgba(232,201,154,.7);}');
+  win.document.write('.rc-student{background:#F5E6C8;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;} .rc-name{font-size:.95rem;font-weight:800;color:#6B0F1A;} .rc-info{font-size:.7rem;color:#888;}');
+  win.document.write('.rc-grade-badge{width:44px;height:44px;border-radius:50%;background:#6B0F1A;color:#E8C96A;font-size:1.1rem;font-weight:700;display:flex;align-items:center;justify-content:center;}');
+  win.document.write('.rc-marks{padding:12px 16px;} .rc-subject-row{display:flex;align-items:center;gap:8px;margin-bottom:5px;} .rc-subj-name{font-size:.75rem;font-weight:700;min-width:100px;} .rc-bar-wrap{flex:1;background:#EDD9A3;border-radius:3px;height:5px;} .rc-bar{height:100%;background:#6B0F1A;border-radius:3px;} .rc-mark{font-size:.75rem;font-weight:700;color:#6B0F1A;min-width:45px;text-align:right;}');
+  win.document.write('.rc-total{padding:8px 16px;background:#F5E6C8;display:flex;justify-content:space-between;font-size:.8rem;font-weight:700;}');
+  win.document.write('.rc-remarks{padding:10px 16px;border-top:1px solid #EDD9A3;} .rc-remarks-label{font-size:.65rem;font-weight:800;color:#6B0F1A;text-transform:uppercase;margin-bottom:3px;} .rc-remarks-text{font-size:.78rem;line-height:1.6;}');
+  win.document.write('.rc-footer{padding:8px 16px;background:#4A0A12;display:flex;justify-content:space-between;} .rc-teacher,.rc-date{font-size:.68rem;color:rgba(232,201,154,.7);}');
+  win.document.write('</style></head><body>');
+  win.document.write(card.outerHTML.replace(/<button[^>]*>.*?<\/button>/g,''));
+  win.document.write('</body></html>');
+  win.document.close();
+  win.focus();
+  setTimeout(function(){ win.print(); }, 500);
+}
+
+function printAll(){
+  window.print();
+}
+
+// ─────────────────────────────────────────
+// DOWNLOAD SUMMARY EXCEL
+// ─────────────────────────────────────────
+function downloadAll(){
+  if(!reportCards.length) return;
+  var rows = [['Roll No','Name','Total','Percentage','Grade','Rank','Remarks']];
+  reportCards.forEach(function(rc){
+    rows.push([rc.rollNo, rc.name, rc.total.toFixed(0), rc.percent.toFixed(1)+'%', rc.grade, rc.rank, rc.remarks]);
+  });
+  var wb = XLSX.utils.book_new();
+  var ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:8},{wch:20},{wch:8},{wch:12},{wch:6},{wch:6},{wch:60}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Report Cards');
+  XLSX.writeFile(wb, 'ReportCards_Summary.xlsx');
+}
+
+// ─────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────
+function calcGrade(percent){
+  if(percent >= 90) return 'A+';
+  if(percent >= 75) return 'A';
+  if(percent >= 60) return 'B';
+  if(percent >= 45) return 'C';
+  return 'D';
+}
+
+function showStep(n){
+  for(var i=1;i<=4;i++){
+    var el = document.getElementById('step'+i);
+    if(!el) continue;
+    el.className = 'step' + (i<n?' done':i===n?' active':'');
+  }
+}
+
+function showStatus(msg, type){
+  var el = document.getElementById('status-msg');
+  el.textContent = msg;
+  el.className = 'status-msg show ' + type;
+  if(type === 'success') setTimeout(function(){ el.classList.remove('show'); }, 4000);
+}
+
+function resetUpload(){
+  students = []; headers = []; reportCards = []; subjectCols = [];
+  document.getElementById('card-upload').style.display = 'block';
+  document.getElementById('card-settings').style.display = 'none';
+  document.getElementById('excel-file').value = '';
+  showStep(1);
+  showStatus('', 'info');
+}
+
+function resetAll(){
+  resetUpload();
+  document.getElementById('card-results').style.display = 'none';
+  document.getElementById('card-generating').style.display = 'none';
+}
+
+function esc(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+// Drag and drop
+var ua = document.getElementById('upload-area');
+ua.addEventListener('dragover', function(e){ e.preventDefault(); ua.classList.add('drag'); });
+ua.addEventListener('dragleave', function(){ ua.classList.remove('drag'); });
+ua.addEventListener('drop', function(e){
+  e.preventDefault(); ua.classList.remove('drag');
+  var file = e.dataTransfer.files[0];
+  if(file){ document.getElementById('excel-file').files = e.dataTransfer.files; handleFile(document.getElementById('excel-file')); }
+});
+</script>
+</body>
+</html>
