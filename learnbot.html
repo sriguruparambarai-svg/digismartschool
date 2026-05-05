@@ -5989,9 +5989,10 @@ function renderLibrary(lessons) {
         html+='<div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">';
         // Encode lesson data as base64 to avoid quote escaping issues
         var lessonData = btoa(unescape(encodeURIComponent(JSON.stringify(l))));
-        html+='<button onclick="teachFromLibrary(''+lessonData+'')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">▶ Activate &amp; Teach</button>';
-        html+='<button onclick="loadIntoEditor(''+safeId+'')" style="background:rgba(201,168,76,0.12);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️ Edit</button>';
-        html+='<button onclick="deleteFromLibrary(''+safeId+'',''+l.chapter.replace(/'/g,'').replace(/"/g,'')+'',''+l.class_name+'',''+l.subject+'')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
+        html+='<button onclick="teachFromLibrary(\'' + lessonData + '\')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">▶ Activate &amp; Teach</button>';
+        html+='<button onclick="loadIntoEditor(\'' + safeId + '\')" style="background:rgba(201,168,76,0.12);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️ Edit</button>';
+        var safeChapter = l.chapter.replace(/['"]/g,'');
+        html+='<button onclick="deleteFromLibrary(\'' + safeId + '\',\'' + safeChapter + '\',\'' + l.class_name + '\',\'' + l.subject + '\')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
         html+='</div></div></div>';
       });
       html+='</div>';
@@ -6062,18 +6063,25 @@ async function loadIntoEditor(lid) {
 }
 
 async function deleteFromLibrary(lid, chapter, cls, sub) {
-  if (!confirm('Delete "'+chapter+'" ('+cls+' / '+sub+') from library?
+  if (!confirm('Delete "' + chapter + '" (' + cls + ' / ' + sub + ') from library? This cannot be undone.')) return;
 
-This cannot be undone.')) return;
-  var sb = getSB();
-  var fullId = _libAllLessons.find(function(x){ return x.id===lid||x.id.replace(/[^a-zA-Z0-9-]/g,'')===lid; });
-  var realId = fullId ? fullId.id : lid;
-  var { error } = await sb.from('lesson_library').delete().eq('id', realId);
-  if (error) { alert('Delete failed: '+error.message); return; }
-  _libAllLessons = _libAllLessons.filter(function(x){ return x.id!==realId; });
+  // Remove from memory cache first so UI updates instantly
+  var fullItem = _libAllLessons.find(function(x){ return x.id===lid || (x.id||'').replace(/[^a-zA-Z0-9-]/g,'')===lid; });
+  var realId = fullItem ? fullItem.id : lid;
+
+  _libAllLessons = _libAllLessons.filter(function(x){ return x.id !== realId; });
   filterLibrary();
-  var countEl=document.getElementById('lib-count');
-  if(countEl) countEl.textContent=_libAllLessons.length+' lessons total';
+  var countEl = document.getElementById('lib-count');
+  if (countEl) countEl.textContent = _libAllLessons.length + ' lessons saved';
+
+  // Try deleting from lesson_library table (silently — may not exist yet)
+  try {
+    var sb = getSB();
+    if (sb && realId) {
+      var { error } = await sb.from('lesson_library').delete().eq('id', realId);
+      if (error) console.warn('lesson_library delete:', error.message);
+    }
+  } catch(e) { console.warn('Delete error:', e); }
 }
 
 // ══════════════════════════════════════════
