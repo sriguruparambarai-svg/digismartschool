@@ -559,31 +559,62 @@ Subject: ${subject}
 
 Generate the complete bilingual teaching script now. Return ONLY the JSON array.`;
 
-  var resp = await fetch('/api/ai', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      system: systemPrompt,
-      message: userPrompt,
-      max_tokens: 3000
-    })
-  });
+  // Use same format as callAI() in learnbot — wraps payload key
+  var rawText = '';
+  try {
+    var resp = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        payload: {
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 3000,
+          system: systemPrompt,
+          messages: [{ role: 'user', content: userPrompt }]
+        }
+      })
+    });
+    rawText = await resp.text();
+  } catch(fetchErr) {
+    throw new Error('Network error: ' + fetchErr.message);
+  }
 
-  if (!resp.ok) throw new Error('API error: ' + resp.status);
-  var data = await resp.json();
-  var raw = (data.response || data.text || '').trim();
+  if (!rawText) throw new Error('Empty response from server.');
+
+  var data;
+  try { data = JSON.parse(rawText); } catch(e) {
+    throw new Error('Server returned non-JSON: ' + rawText.substring(0, 120));
+  }
+
+  if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
+
+  // Standard Anthropic response: data.content[0].text
+  var raw = '';
+  if (data.content && data.content[0] && data.content[0].text) {
+    raw = data.content[0].text;
+  } else if (data.response) {
+    raw = data.response;
+  } else if (data.text) {
+    raw = data.text;
+  } else {
+    throw new Error('Unexpected response format. Keys: ' + Object.keys(data).join(','));
+  }
+  raw = raw.trim();
 
   // Strip markdown fences if present
   raw = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
 
-  // Find JSON array
+  // Find JSON array — be flexible about leading text
   var start = raw.indexOf('[');
   var end = raw.lastIndexOf(']');
-  if (start === -1 || end === -1) throw new Error('No valid script returned from AI.');
+  if (start === -1 || end === -1) throw new Error('AI did not return a JSON array. Got: ' + raw.substring(0, 200));
   raw = raw.substring(start, end + 1);
 
-  var parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed) || !parsed.length) throw new Error('Empty script returned.');
+  var parsed;
+  try { parsed = JSON.parse(raw); } catch(e) {
+    throw new Error('Could not parse AI script JSON: ' + e.message);
+  }
+  if (!Array.isArray(parsed) || !parsed.length) throw new Error('Empty script returned from AI.');
 
   // Normalise type field: english→en, tamil→ta
   parsed = parsed.map(function(s) {
