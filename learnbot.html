@@ -1129,6 +1129,9 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     } else {
       // Teachers/admins: show everything, hide denied bar
       if(deniedBar) deniedBar.style.display = 'none';
+      // Make sure library tab is visible
+      var libTab = document.getElementById('tab-btn-library');
+      if(libTab) libTab.style.display = '';
     }
   }
 })();
@@ -1143,7 +1146,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <!-- ROLE TABS — shown based on role -->
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
-  <button class="tab-btn" id="tab-btn-library" onclick="showTab('library',this);loadLibrary()">📚 Lesson Library</button>
+  <button class="tab-btn" id="tab-btn-library" onclick="openLibraryTab(this)">📚 Lesson Library</button>
   <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Student TeachBot</button>
   <button class="tab-btn" id="tab-btn-notes" onclick="showTab('notes',this)">📋 Class Notes</button>
   <button class="tab-btn" id="tab-btn-revision" onclick="openRevisionPage()">🔁 Class Revision</button>
@@ -1257,7 +1260,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;gap:8px;">
           <button class="btn btn-primary" style="flex:1;padding:11px 8px;font-size:0.9rem;" onclick="saveToLibrary(false)">💾 Save to Library</button>
-          <button class="btn btn-gold" style="flex:1;padding:11px 8px;font-size:0.9rem;" onclick="saveAndTeachNow()">🏫 Teach Now</button>
+          <button class="btn btn-gold" style="flex:1;padding:11px 8px;font-size:0.9rem;" onclick="saveActivateAndTeach()">▶ Activate &amp; Teach</button>
         </div>
         <div id="save-status" style="font-size:0.82rem;font-weight:700;display:none;padding:8px 10px;background:rgba(201,168,76,0.1);border-radius:8px;border:1px solid var(--gold-dark);"></div>
       </div>
@@ -1973,8 +1976,14 @@ function showTab(n,b){
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
   // Only remove active from role tab buttons (not subject buttons)
   document.querySelectorAll('#role-tabs .tab-btn').forEach(x=>x.classList.remove('active'));
-  document.getElementById('tab-'+n).classList.add('active');
-  if(b)b.classList.add('active');
+  var panel = document.getElementById('tab-'+n);
+  if(panel) panel.classList.add('active');
+  if(b) b.classList.add('active');
+}
+
+function openLibraryTab(btn) {
+  showTab('library', btn);
+  loadLibrary();
 }
 
 // Subject info config
@@ -2441,7 +2450,7 @@ async function activateLesson(){
   }
 
   alert(msg);
-  showTab('student', document.querySelectorAll('.tab-btn')[1]);
+  showTab('student', document.getElementById('tab-btn-student'));
   showActiveLessonsPanel();
 }
 
@@ -5717,14 +5726,31 @@ async function saveToLibrary(makeActive) {
 }
 
 async function saveAndTeachNow() {
-  var ok = await saveToLibrary(true);
-  if (!ok) return;
+  // Legacy name kept — now calls saveActivateAndTeach
+  await saveActivateAndTeach();
+}
+
+async function saveActivateAndTeach() {
   var cls = document.getElementById('t-class').value;
   var sub = document.getElementById('t-subject').value;
   var ch  = document.getElementById('t-chapter').value.trim();
   var txt = document.getElementById('t-text').value.trim();
-  sessionStorage.setItem('ait_lesson', JSON.stringify({ class:cls, subject:sub, lesson:ch, content:txt }));
-  setTimeout(function(){ window.open('ai-teacher.html','_blank'); }, 400);
+
+  if (!cls || !sub || !ch) { alert('Please select Class, Subject and enter Chapter name first.'); return; }
+
+  // Save to library as active lesson
+  var ok = await saveToLibrary(true);
+  if (!ok) return;
+
+  // Pre-fill student selector to match this lesson
+  var sClass = document.getElementById('s-class');
+  var sSubj  = document.getElementById('s-subject');
+  if (sClass) sClass.value = cls;
+  if (sSubj)  sSubj.value  = sub;
+
+  // Switch to Student TeachBot tab
+  showTab('student', document.getElementById('tab-btn-student'));
+  window.scrollTo(0,0);
 }
 
 async function loadLibrary() {
@@ -5797,7 +5823,7 @@ function renderLibrary(lessons) {
         html+='<div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">';
         // Encode lesson data as base64 to avoid quote escaping issues
         var lessonData = btoa(unescape(encodeURIComponent(JSON.stringify(l))));
-        html+='<button onclick="teachFromLibrary(''+lessonData+'')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🏫 Teach Now</button>';
+        html+='<button onclick="teachFromLibrary(''+lessonData+'')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">▶ Activate &amp; Teach</button>';
         html+='<button onclick="loadIntoEditor(''+safeId+'')" style="background:rgba(201,168,76,0.12);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️ Edit</button>';
         html+='<button onclick="deleteFromLibrary(''+safeId+'',''+l.chapter.replace(/'/g,'').replace(/"/g,'')+'',''+l.class_name+'',''+l.subject+'')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
         html+='</div></div></div>';
@@ -5827,7 +5853,15 @@ async function teachFromLibrary(b64) {
     var sub=document.getElementById('lib-filter-subject').value;
     return(!cls||x.class_name===cls)&&(!sub||x.subject===sub);
   }));
-  window.open('ai-teacher.html','_blank');
+  // Pre-fill student tab selectors
+  var sClass = document.getElementById('s-class');
+  var sSubj  = document.getElementById('s-subject');
+  if (sClass) sClass.value = l.class_name;
+  if (sSubj)  sSubj.value  = l.subject;
+
+  // Go to Student TeachBot to pick classroom mode
+  showTab('student', document.getElementById('tab-btn-student'));
+  window.scrollTo(0,0);
 }
 
 async function loadIntoEditor(lid) {
@@ -5865,12 +5899,28 @@ This cannot be undone.')) return;
 function openAITeacher() {
   var cls     = (document.getElementById('s-class')   || {}).value || '';
   var subject = (document.getElementById('s-subject') || {}).value || '';
+
+  // Read activated lesson
   var activated = null;
   try { activated = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); } catch(e){}
-  var lesson='', content='';
-  if (activated) { cls=cls||activated.cls||''; subject=subject||activated.subject||''; lesson=activated.topic||''; content=activated.lessonText||''; }
-  sessionStorage.setItem('ait_lesson', JSON.stringify({class:cls,subject:subject,lesson:lesson,content:content}));
-  window.open('ai-teacher.html','_blank');
+
+  var lesson='', lessonContent='';
+  if (activated) {
+    cls     = cls     || activated.cls     || '';
+    subject = subject || activated.subject || '';
+    lesson  = activated.topic       || '';
+    lessonContent = activated.lessonText || '';
+  }
+
+  if (!cls || !lesson) {
+    alert('No lesson activated yet.\n\nPlease go to Teacher Panel → save a lesson first, or pick a lesson from the Lesson Library.');
+    return;
+  }
+
+  sessionStorage.setItem('ait_lesson', JSON.stringify({
+    class: cls, subject: subject, lesson: lesson, content: lessonContent
+  }));
+  window.open('ai-teacher.html', '_blank');
 }
 
 // Auto-activate Student TeachBot tab when returning from Blackboard AI
