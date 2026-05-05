@@ -59,12 +59,49 @@ module.exports = async function(req2, res) {
 
       const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
       if (sr.data && sr.data.length > 0) {
-        return res.json({ success: true, role: 'school_admin', user: sr.data[0], token: access_token });
+        const school = sr.data[0];
+
+        // ── SUBSCRIPTION EXPIRY CHECK ──
+        if (school.subscription_status === 'suspended') {
+          return res.json({ error: 'SUBSCRIPTION_SUSPENDED', message: 'Your subscription has been suspended. Please contact DigiSmartSchool support to renew.' });
+        }
+        if (school.subscription_end) {
+          const today = new Date(); today.setHours(0,0,0,0);
+          const expiry = new Date(school.subscription_end); expiry.setHours(0,0,0,0);
+          if (expiry < today) {
+            await req('PATCH', `/rest/v1/schools?id=eq.${school.id}`, { subscription_status: 'expired' });
+            const daysAgo = Math.floor((today - expiry) / (1000*60*60*24));
+            return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your subscription expired ' + daysAgo + ' day(s) ago. Please contact DigiSmartSchool to renew.', expiry_date: school.subscription_end });
+          }
+          const daysLeft = Math.floor((expiry - today) / (1000*60*60*24));
+          if (daysLeft <= 7) {
+            return res.json({ success: true, role: 'school_admin', user: school, token: access_token, warning: 'Your subscription expires in ' + daysLeft + ' day(s). Please renew to avoid interruption.' });
+          }
+        }
+
+        return res.json({ success: true, role: 'school_admin', user: school, token: access_token });
       }
 
       const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
       if (tr.data && tr.data.length > 0) {
-        return res.json({ success: true, role: 'teacher', user: tr.data[0], token: access_token });
+        const teacher = tr.data[0];
+        const teacherSchool = teacher.schools;
+
+        // ── SUBSCRIPTION CHECK FOR TEACHER ──
+        if (teacherSchool) {
+          if (teacherSchool.subscription_status === 'suspended' || teacherSchool.subscription_status === 'expired') {
+            return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your school subscription has expired. Please ask your principal to contact DigiSmartSchool to renew.' });
+          }
+          if (teacherSchool.subscription_end) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const expiry = new Date(teacherSchool.subscription_end); expiry.setHours(0,0,0,0);
+            if (expiry < today) {
+              return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your school subscription has expired. Please ask your principal to renew with DigiSmartSchool.' });
+            }
+          }
+        }
+
+        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token });
       }
 
       return res.json({ error: 'Account not found. Contact your administrator.' });
