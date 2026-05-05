@@ -87,12 +87,23 @@ async function doLogin() {
     });
     const data = await res.json();
 
+    // Subscription expired or suspended
+    if (data.error === 'SUBSCRIPTION_EXPIRED' || data.error === 'SUBSCRIPTION_SUSPENDED') {
+      showExpiredScreen(data.message, data.expiry_date);
+      return;
+    }
+
     if (data.error) { showErr(data.error); return; }
 
     // Save session
     localStorage.setItem('dss_token', data.token);
     localStorage.setItem('dss_role', data.role);
     localStorage.setItem('dss_user', JSON.stringify(data.user));
+
+    // Show renewal warning if expiring soon
+    if (data.warning) {
+      sessionStorage.setItem('dss_warning', data.warning);
+    }
 
     // Redirect based on role
     if (data.role === 'super_admin') window.location.href = '/admin.html';
@@ -113,6 +124,32 @@ function showErr(msg) {
   err.style.display = 'block';
   document.getElementById('login-btn').disabled = false;
   document.getElementById('spn').style.display = 'none';
+}
+
+function showExpiredScreen(message, expiryDate) {
+  document.getElementById('login-btn').disabled = false;
+  document.getElementById('spn').style.display = 'none';
+  // Hide login box, show expiry screen
+  document.querySelector('.login-box').style.display = 'none';
+  document.querySelector('.features').style.display = 'none';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:white;border-radius:20px;padding:36px 32px;width:100%;max-width:440px;box-shadow:0 20px 60px rgba(0,0,0,0.4);border:3px solid #c0392b;text-align:center;';
+  box.innerHTML = `
+    <div style="font-size:3.5rem;margin-bottom:12px;">🔒</div>
+    <div style="font-family:Cinzel,serif;font-size:1.3rem;color:#c0392b;font-weight:700;margin-bottom:12px;">Subscription Expired</div>
+    <div style="color:#555;font-size:0.95rem;line-height:1.7;margin-bottom:20px;">${message}</div>
+    ${expiryDate ? `<div style="background:#f8d7da;border-radius:8px;padding:8px 14px;font-size:0.85rem;color:#721c24;margin-bottom:20px;">Expired on: <strong>${new Date(expiryDate).toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}</strong></div>` : ''}
+    <a href="https://wa.me/916380907931?text=Hi%2C%20our%20school%20subscription%20for%20DigiSmartSchool%20has%20expired.%20Please%20help%20us%20renew." 
+       target="_blank"
+       style="display:block;background:linear-gradient(135deg,#25d366,#128c7e);color:white;padding:14px;border-radius:12px;text-decoration:none;font-weight:800;font-size:1rem;margin-bottom:12px;">
+      📲 Renew via WhatsApp
+    </a>
+    <button onclick="document.querySelector('.login-box').style.display='block';document.querySelector('.features').style.display='grid';this.parentElement.remove();" 
+      style="background:transparent;border:2px solid #6B0F1A;color:#6B0F1A;padding:10px 20px;border-radius:10px;cursor:pointer;font-family:Nunito,sans-serif;font-weight:700;font-size:0.9rem;">
+      ← Back to Login
+    </button>
+  `;
+  document.querySelector('.logo-area').after(box);
 }
 </script>
 </body>
