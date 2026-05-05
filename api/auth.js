@@ -239,27 +239,26 @@ module.exports = async function(req2, res) {
     // ── ACTIVE LESSONS (TeachBot) ──
     if (action === 'save_active_lesson') {
       const { school_id, class_name, subject, chapter, lesson_text } = body;
-      const key = (class_name||'').replace(/\s+/g,'-').toLowerCase()+'_'+(subject||'').replace(/\s+/g,'-').toLowerCase();
+      if (!school_id) return res.json({ error: 'school_id required' });
+      // Key includes school_id so two schools can have same class without conflict
+      const key = school_id + '_' + (class_name||'').replace(/\s+/g,'-').toLowerCase()+'_'+(subject||'').replace(/\s+/g,'-').toLowerCase();
       const payload = {
         class_id: key, class_name, subject, chapter,
         lesson_text: lesson_text||'',
-        school_id: school_id||'',
+        school_id: school_id,
         updated_at: new Date().toISOString()
       };
 
-      // First try to update existing record
-      const checkR = await req('GET', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&select=id`);
+      // Check existing record for THIS school only
+      const checkR = await req('GET', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&school_id=eq.${encodeURIComponent(school_id)}&select=id`);
       let r;
       if (checkR.data && checkR.data.length > 0) {
-        // Record exists — update it
-        r = await req('PATCH', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}`, {
+        r = await req('PATCH', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&school_id=eq.${encodeURIComponent(school_id)}`, {
           class_name, subject, chapter,
           lesson_text: lesson_text||'',
-          school_id: school_id||'',
           updated_at: new Date().toISOString()
         });
       } else {
-        // New record — insert it
         r = await req('POST', '/rest/v1/active_lessons', payload);
       }
 
@@ -272,13 +271,20 @@ module.exports = async function(req2, res) {
     }
 
     if (action === 'delete_active_lesson') {
-      const { class_id } = body;
-      await req('DELETE', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}`, null);
+      const { class_id, school_id } = body;
+      // Always scope delete to school — never delete another school's lesson
+      const filter = school_id
+        ? `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}&school_id=eq.${encodeURIComponent(school_id)}`
+        : `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}`;
+      await req('DELETE', filter, null);
       return res.json({ success: true });
     }
 
     if (action === 'get_active_lessons') {
-      const r = await req('GET', '/rest/v1/active_lessons?select=*&order=updated_at.desc');
+      const { school_id } = body;
+      // Always filter by school_id — each school sees only their own lessons
+      if (!school_id) return res.json({ success: true, lessons: [] });
+      const r = await req('GET', `/rest/v1/active_lessons?school_id=eq.${encodeURIComponent(school_id)}&select=*&order=updated_at.desc`);
       return res.json({ success: true, lessons: Array.isArray(r.data) ? r.data : [] });
     }
 
