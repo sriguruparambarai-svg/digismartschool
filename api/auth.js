@@ -394,6 +394,16 @@ module.exports = async function(req2, res) {
       return res.json({ success: true });
     }
 
+    // ── GET DIARY ENTRIES FOR STUDENT ──
+    if (action === 'get_diary_entries') {
+      const { school_id, class_name } = body;
+      if (!school_id || !class_name) return res.json({ entries: [] });
+      const r = await req('GET',
+        `/rest/v1/diary_entries?school_id=eq.${encodeURIComponent(school_id)}&class_name=eq.${encodeURIComponent(class_name)}&select=*&order=lesson_date.desc&limit=60`
+      );
+      return res.json({ success: true, entries: Array.isArray(r.data) ? r.data : [] });
+    }
+
     // ── UPDATE SUBSCRIPTION ──
     if (action === 'update_subscription') {
       const { school_id, status, end_date, max_teachers } = body;
