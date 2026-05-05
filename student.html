@@ -302,7 +302,7 @@ html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);m
 // SUPABASE SETUP
 // ══════════════════════════════════════════
 var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
-var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzE3NzksImV4cCI6MjA2MDU0Nzc3OX0.ELmSQcAH3p_SfkCBdGf1Fx8buvMJfFnJ_DGCBVEtN_0';
 var sb = window.supabase.createClient(SB_URL, SB_KEY);
 
 // ══════════════════════════════════════════
@@ -361,6 +361,8 @@ async function doLogin(){
     };
     sessionStorage.setItem('student_session', JSON.stringify(currentStudent));
     try{ localStorage.setItem('dss_role', 'student'); }catch(e){}
+    console.log('Student logged in:', currentStudent);
+    console.log('Will query diary_entries with school_id:', currentStudent.school_id, '| class_name:', currentStudent.class_name);
     startApp();
 
   }catch(e){
@@ -411,21 +413,33 @@ function greetByTime(){
 // ══════════════════════════════════════════
 async function loadAllEntries(){
   var s = currentStudent;
+  console.log('Loading entries for student:', s);
   try{
+    // Use eq (exact match) for school_id UUID — ilike can cause issues with UUIDs
     var {data, error} = await sb.from('diary_entries')
       .select('*')
-      .ilike('school_id', s.school_id)
+      .eq('school_id', s.school_id)
       .eq('class_name', s.class_name)
       .order('lesson_date', {ascending: false});
 
-    if(error) throw error;
+    if(error){
+      console.error('Supabase error:', error);
+      throw error;
+    }
+    console.log('Diary entries loaded:', data ? data.length : 0);
     allEntries = data || [];
     renderHome();
     renderSubjects();
     renderDiary();
   }catch(e){
     console.error('Failed to load entries:', e);
-    document.getElementById('today-updates').innerHTML = '<div class="empty-state"><div class="empty-icon">😔</div><div class="empty-title">Could not load data</div><div class="empty-sub">'+e.message+'</div></div>';
+    document.getElementById('today-updates').innerHTML =
+      '<div class="empty-state">' +
+      '<div class="empty-icon">😔</div>' +
+      '<div class="empty-title">Could not load diary</div>' +
+      '<div class="empty-sub">' + (e.message || 'Unknown error') + '</div>' +
+      '<div class="empty-sub" style="font-size:0.75rem;margin-top:8px;color:#aaa;">School: ' + s.school_id + ' | Class: ' + s.class_name + '</div>' +
+      '</div>';
   }
 }
 
