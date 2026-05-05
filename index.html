@@ -1131,8 +1131,29 @@ document.addEventListener('DOMContentLoaded', function() {
         <textarea id="ap-notes" rows="2" placeholder="e.g. Include project weeks in Term 2, exam revision weeks at end of each term, sports day in December..."></textarea>
       </div>
 
+      <!-- BOOK / SYLLABUS UPLOAD -->
+      <div class="form-group">
+        <label>📖 Upload Syllabus / Table of Contents (Recommended)</label>
+        <div style="background:rgba(107,15,26,0.04);border:1.5px solid rgba(107,15,26,0.12);border-radius:10px;padding:14px 16px;margin-bottom:10px;font-size:0.83rem;color:#555;line-height:1.6;">
+          <strong style="color:var(--primary);">Why upload?</strong> If you upload your school's actual textbook list or table of contents, the AI will use the <em>exact chapter names</em> from your books instead of generic chapter names. This gives a much more accurate and ready-to-use annual plan.
+          <br/>You can upload the table of contents page of each subject book, or paste the chapter list below.
+        </div>
+        <div class="upload-box" onclick="document.getElementById('ap-file').click()" style="margin-bottom:10px;">
+          <div class="u-icon">📄</div>
+          <p>Click to upload PDF or text file (syllabus / table of contents)</p>
+          <input type="file" id="ap-file" accept=".pdf,.txt" onchange="handleUpload(this,'ap-book-content','ap-file-status')"/>
+        </div>
+        <div class="upload-note" id="ap-file-status"></div>
+        <label style="margin-top:10px;display:block;">Or paste chapter list / table of contents here:</label>
+        <textarea id="ap-book-content" rows="5" placeholder="Example:
+Tamil — Ch 1: வணக்கம், Ch 2: என் பள்ளி, Ch 3: விலங்குகள்...
+English — Ch 1: The Fun They Had, Ch 2: The Sound of Music...
+Maths — Ch 1: Number Systems, Ch 2: Polynomials...
+(You can paste all subjects or just one at a time)"></textarea>
+      </div>
+
       <div style="background:rgba(107,15,26,0.05);border:1.5px solid rgba(107,15,26,0.15);border-radius:10px;padding:12px 16px;margin-bottom:16px;font-size:0.85rem;color:#555;">
-        <strong style="color:var(--primary);">💡 How it works:</strong> AI generates a month-by-month plan for the full academic year covering all selected subjects — chapters to be taught each month, exam periods, revision weeks, and activity days.
+        <strong style="color:var(--primary);">💡 How it works:</strong> AI generates a month-by-month plan June to March — covering all selected subjects with exact chapter names, exam weeks, revision periods, and activity days.
       </div>
 
       <button class="btn btn-primary btn-full" onclick="generateAnnualPlan()" id="ap-gen-btn">
@@ -2630,10 +2651,10 @@ async function generateAnnualPlan() {
   var terms  = document.getElementById('ap-terms').value;
   var wdays  = document.getElementById('ap-wdays').value;
   var notes  = document.getElementById('ap-notes').value;
+  var bookContent = document.getElementById('ap-book-content').value.trim();
 
   if (!cls) { alert('Please select a Class.'); return; }
 
-  // Collect selected subjects
   var subjects = [];
   document.querySelectorAll('#ap-subjects-wrap input[type=checkbox]:checked').forEach(function(cb) {
     subjects.push(cb.value);
@@ -2658,40 +2679,37 @@ async function generateAnnualPlan() {
     ? 'Term 1 (June–Oct), Term 2 (Nov–Mar)'
     : 'Q1 (June–Jul), Q2 (Aug–Sep), Q3 (Oct–Dec), Q4 (Jan–Mar)';
 
-  var prompt = `You are a senior academic coordinator for a ${board} school in Tamil Nadu, India.
+  var bookSection = bookContent
+    ? '\n\nSYLLABUS / TABLE OF CONTENTS PROVIDED BY TEACHER:\n' + bookContent.substring(0, 6000) + '\n\nUse the above syllabus as the primary reference for chapter names and order. Do not use generic chapter names if actual chapter names are provided above.'
+    : '\n\nUse standard ' + board + ' syllabus chapter names for ' + cls + '.';
 
-Create a detailed ANNUAL LESSON PLAN for:
-Class: ${cls}
-Academic Year: ${year}
-Board: ${board}
-Medium: ${medium}
-Subjects: ${subjects.join(', ')}
-Terms: ${terms} terms — ${termNames}
-Working Days: ${wdays} days/week
-${notes ? 'Special instructions: ' + notes : ''}
-
-Format the annual plan MONTH BY MONTH from June to March.
-
-For each month, list:
-📅 MONTH NAME (e.g., JUNE 2025)
-Working Days: ~XX days
-
-Then for each subject in that month:
-▸ [Subject Name]
-  Chapters/Units: [List chapter names to be covered]
-  Key Topics: [Main concepts]
-  Assessments: [Any tests, projects, exams]
-
-Also include:
-• Exam/revision weeks clearly marked (Quarterly, Half-Yearly, Annual)
-• Activity weeks (Sports Day, Science Fair, Republic Day preparations etc.)
-• Summer and other holiday periods
-
-Make it realistic and practical for Indian schools following ${board} curriculum.
-Be specific with chapter names for standard ${cls} ${board} syllabus.`;
+  var prompt = 'You are a senior academic coordinator for a ' + board + ' school in Tamil Nadu, India.\n\n' +
+    'Create a detailed ANNUAL LESSON PLAN for:\n' +
+    'Class: ' + cls + '\n' +
+    'Academic Year: ' + year + '\n' +
+    'Board: ' + board + '\n' +
+    'Medium: ' + medium + '\n' +
+    'Subjects: ' + subjects.join(', ') + '\n' +
+    'Terms: ' + terms + ' terms — ' + termNames + '\n' +
+    'Working Days per Week: ' + wdays + '\n' +
+    (notes ? 'Special Instructions: ' + notes + '\n' : '') +
+    bookSection + '\n\n' +
+    'Format the plan MONTH BY MONTH from June to March.\n\n' +
+    'For EACH MONTH use this format:\n' +
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+    '📅 [MONTH YEAR] (~XX working days)\n' +
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+    'For each subject:\n' +
+    '▸ [SUBJECT]\n' +
+    '  • Chapters: [Chapter names]\n' +
+    '  • Key Topics: [Main concepts]\n' +
+    '  • Assessment: [Tests / activities]\n\n' +
+    '⚠️ Mark exam weeks, revision weeks, holidays, and special activity days clearly.\n' +
+    'Make it practical and realistic for Indian ' + board + ' schools.';
 
   try {
     loadTxt.textContent = 'AI is building your full-year plan... this takes about 30 seconds.';
+
     var res = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2701,14 +2719,25 @@ Be specific with chapter names for standard ${cls} ${board} syllabus.`;
         messages: [{ role: 'user', content: prompt }]
       }})
     });
-    var data = await res.json();
-    if (data.error) throw new Error(data.error);
+
+    // Use res.text() + JSON.parse — same pattern as rest of app
+    var rawText = await res.text();
+    var data = JSON.parse(rawText);
+
+    if (data.error) {
+      var errMsg = typeof data.error === 'object'
+        ? (data.error.message || JSON.stringify(data.error))
+        : String(data.error);
+      throw new Error(errMsg);
+    }
+
     var text = data.content && data.content[0] ? data.content[0].text : '';
-    if (!text) throw new Error('No response from AI');
+    if (!text) throw new Error('No response received from AI. Please try again.');
 
     outEl.style.display = 'block';
     outEl.innerHTML = '<pre style="white-space:pre-wrap;font-family:inherit;font-size:0.9rem;line-height:1.8;">' + escapeHtml(text) + '</pre>';
     actEl.style.display = 'flex';
+
   } catch(e) {
     alert('Error generating annual plan: ' + e.message);
   } finally {
