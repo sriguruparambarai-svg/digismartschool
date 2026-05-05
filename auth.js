@@ -59,12 +59,49 @@ module.exports = async function(req2, res) {
 
       const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
       if (sr.data && sr.data.length > 0) {
-        return res.json({ success: true, role: 'school_admin', user: sr.data[0], token: access_token });
+        const school = sr.data[0];
+
+        // ── SUBSCRIPTION EXPIRY CHECK ──
+        if (school.subscription_status === 'suspended') {
+          return res.json({ error: 'SUBSCRIPTION_SUSPENDED', message: 'Your subscription has been suspended. Please contact DigiSmartSchool support to renew.' });
+        }
+        if (school.subscription_end) {
+          const today = new Date(); today.setHours(0,0,0,0);
+          const expiry = new Date(school.subscription_end); expiry.setHours(0,0,0,0);
+          if (expiry < today) {
+            await req('PATCH', `/rest/v1/schools?id=eq.${school.id}`, { subscription_status: 'expired' });
+            const daysAgo = Math.floor((today - expiry) / (1000*60*60*24));
+            return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your subscription expired ' + daysAgo + ' day(s) ago. Please contact DigiSmartSchool to renew.', expiry_date: school.subscription_end });
+          }
+          const daysLeft = Math.floor((expiry - today) / (1000*60*60*24));
+          if (daysLeft <= 7) {
+            return res.json({ success: true, role: 'school_admin', user: school, token: access_token, warning: 'Your subscription expires in ' + daysLeft + ' day(s). Please renew to avoid interruption.' });
+          }
+        }
+
+        return res.json({ success: true, role: 'school_admin', user: school, token: access_token });
       }
 
       const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
       if (tr.data && tr.data.length > 0) {
-        return res.json({ success: true, role: 'teacher', user: tr.data[0], token: access_token });
+        const teacher = tr.data[0];
+        const teacherSchool = teacher.schools;
+
+        // ── SUBSCRIPTION CHECK FOR TEACHER ──
+        if (teacherSchool) {
+          if (teacherSchool.subscription_status === 'suspended' || teacherSchool.subscription_status === 'expired') {
+            return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your school subscription has expired. Please ask your principal to contact DigiSmartSchool to renew.' });
+          }
+          if (teacherSchool.subscription_end) {
+            const today = new Date(); today.setHours(0,0,0,0);
+            const expiry = new Date(teacherSchool.subscription_end); expiry.setHours(0,0,0,0);
+            if (expiry < today) {
+              return res.json({ error: 'SUBSCRIPTION_EXPIRED', message: 'Your school subscription has expired. Please ask your principal to renew with DigiSmartSchool.' });
+            }
+          }
+        }
+
+        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token });
       }
 
       return res.json({ error: 'Account not found. Contact your administrator.' });
@@ -178,6 +215,167 @@ module.exports = async function(req2, res) {
     if (action === 'get_teachers') {
       const r = await req('GET', `/rest/v1/teachers?school_id=eq.${body.school_id}&select=*`);
       return res.json({ success: true, teachers: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    // ── GET SCHOOL INFO (for dashboard) ──
+    if (action === 'get_school_info') {
+      const { email, role: userRole } = body;
+      if (!email) return res.json({ error: 'Email required' });
+      if (userRole === 'teacher') {
+        const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
+        if (tr.data && tr.data.length > 0 && tr.data[0].schools) {
+          return res.json({ success: true, school: tr.data[0].schools });
+        }
+        return res.json({ school: null });
+      } else {
+        const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
+        if (sr.data && sr.data.length > 0) {
+          return res.json({ success: true, school: sr.data[0] });
+        }
+        return res.json({ school: null });
+      }
+    }
+
+    // ── ACTIVE LESSONS (TeachBot) ──
+    if (action === 'save_active_lesson') {
+      const { school_id, class_name, subject, chapter, lesson_text } = body;
+      if (!school_id) return res.json({ error: 'school_id required' });
+      // Key includes school_id so two schools can have same class without conflict
+      const key = school_id + '_' + (class_name||'').replace(/\s+/g,'-').toLowerCase()+'_'+(subject||'').replace(/\s+/g,'-').toLowerCase();
+      const payload = {
+        class_id: key, class_name, subject, chapter,
+        lesson_text: lesson_text||'',
+        school_id: school_id,
+        updated_at: new Date().toISOString()
+      };
+
+      // Check existing record for THIS school only
+      const checkR = await req('GET', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&school_id=eq.${encodeURIComponent(school_id)}&select=id`);
+      let r;
+      if (checkR.data && checkR.data.length > 0) {
+        r = await req('PATCH', `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(key)}&school_id=eq.${encodeURIComponent(school_id)}`, {
+          class_name, subject, chapter,
+          lesson_text: lesson_text||'',
+          updated_at: new Date().toISOString()
+        });
+      } else {
+        r = await req('POST', '/rest/v1/active_lessons', payload);
+      }
+
+      if (r.status !== 200 && r.status !== 201 && r.status !== 204) {
+        const errMsg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+        console.error('save_active_lesson error:', r.status, errMsg);
+        return res.json({ error: 'Failed to save: ' + errMsg });
+      }
+      return res.json({ success: true });
+    }
+
+    if (action === 'delete_active_lesson') {
+      const { class_id, school_id } = body;
+      // Always scope delete to school — never delete another school's lesson
+      const filter = school_id
+        ? `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}&school_id=eq.${encodeURIComponent(school_id)}`
+        : `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}`;
+      await req('DELETE', filter, null);
+      return res.json({ success: true });
+    }
+
+    if (action === 'get_active_lessons') {
+      const { school_id } = body;
+      // Always filter by school_id — each school sees only their own lessons
+      if (!school_id) return res.json({ success: true, lessons: [] });
+      const r = await req('GET', `/rest/v1/active_lessons?school_id=eq.${encodeURIComponent(school_id)}&select=*&order=updated_at.desc`);
+      return res.json({ success: true, lessons: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    // ── STUDENT LOGIN ──
+    if (action === 'student_login') {
+      const { school_code, class_name, roll_no } = body;
+      if (!school_code || !class_name || !roll_no)
+        return res.json({ error: 'Please fill all fields.' });
+
+      // Step 1: Find school by school_code first, then try by id
+      let sr = await req('GET',
+        `/rest/v1/schools?school_code=eq.${encodeURIComponent(school_code)}&select=id,name,school_code&limit=1`
+      );
+      // If not found by school_code, try by UUID id
+      if (!sr.data || !sr.data.length) {
+        sr = await req('GET',
+          `/rest/v1/schools?id=eq.${encodeURIComponent(school_code)}&select=id,name,school_code&limit=1`
+        );
+      }
+      if (!sr.data || !sr.data.length)
+        return res.json({ error: 'School code not found. Please check with your teacher.' });
+
+      const school = sr.data[0];
+
+      // Step 2: Find student in diary_students
+      const dr = await req('GET',
+        `/rest/v1/diary_students?school_id=eq.${school.id}&class=eq.${encodeURIComponent(class_name)}&roll_no=eq.${encodeURIComponent(roll_no)}&select=*&limit=1`
+      );
+      if (!dr.data || !dr.data.length)
+        return res.json({ error: 'Roll number '+roll_no+' not found in '+class_name+'. Ask your teacher to add you.' });
+
+      return res.json({
+        success: true,
+        school_name: school.name,
+        student: dr.data[0]
+      });
+    }
+
+    // ── DIARY STUDENT OPERATIONS ──
+    if (action === 'add_diary_student') {
+      const { school_id, class_name, roll_no, name } = body;
+      if (!school_id || !class_name || !roll_no || !name)
+        return res.json({ error: 'Missing fields' });
+      const r = await req('POST', '/rest/v1/diary_students', {
+        school_id, class: class_name, roll_no, name
+      });
+      if (r.status === 201 || r.status === 200) {
+        return res.json({ success: true });
+      }
+      // Try upsert if duplicate
+      if (r.status === 409 || (r.data && r.data.code === '23505')) {
+        const u = await req('PATCH',
+          `/rest/v1/diary_students?school_id=eq.${school_id}&class=eq.${encodeURIComponent(class_name)}&roll_no=eq.${encodeURIComponent(roll_no)}`,
+          { name }
+        );
+        return res.json({ success: true });
+      }
+      const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+      return res.json({ error: 'Failed to add student: ' + msg });
+    }
+
+    if (action === 'bulk_add_diary_students') {
+      const { school_id, class_name, students } = body;
+      if (!school_id || !class_name || !students || !students.length)
+        return res.json({ error: 'Missing fields' });
+      const rows = students.map(s => ({
+        school_id, class: class_name, roll_no: s.roll_no, name: s.name
+      }));
+      // Insert in batches of 20
+      const batchSize = 20;
+      for (let i = 0; i < rows.length; i += batchSize) {
+        const batch = rows.slice(i, i + batchSize);
+        await req('POST', '/rest/v1/diary_students?on_conflict=school_id,class,roll_no', batch);
+      }
+      return res.json({ success: true, count: rows.length });
+    }
+
+    if (action === 'get_diary_students') {
+      const { school_id } = body;
+      if (!school_id) return res.json({ students: [] });
+      const r = await req('GET',
+        `/rest/v1/diary_students?school_id=eq.${school_id}&select=*&order=class.asc,roll_no.asc`
+      );
+      return res.json({ success: true, students: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    if (action === 'delete_diary_student') {
+      const { id } = body;
+      if (!id) return res.json({ error: 'ID required' });
+      await req('DELETE', `/rest/v1/diary_students?id=eq.${id}`, null);
+      return res.json({ success: true });
     }
 
     // ── UPDATE SUBSCRIPTION ──
