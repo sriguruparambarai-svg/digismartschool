@@ -209,6 +209,8 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
 .cls-logo-wrap { position:relative; flex-shrink:0; }
 .cls-speak-ring { position:absolute; inset:-6px; border-radius:50%; border:3px solid var(--yellow); opacity:0; }
 .cls-speak-ring.on { animation:ring 1.3s ease-out infinite; }
+@keyframes tamPop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes ring{0%{transform:scale(1);opacity:0.9}100%{transform:scale(1.28);opacity:0}}
 
 /* Voice warning */
@@ -523,35 +525,34 @@ LANGUAGE: English only. All segments must be type "en".`;
     : `Teach ${lesson} from your knowledge, appropriate for school students.`;
 
   var systemPrompt = `You are an expert school teacher teaching young students (age 5–12).
-Your job is to generate a teaching script that is:
-- Concept-focused (not textbook style)
-- Simple, clear, and engaging
-- Spoken like a real classroom teacher
+Generate a teaching script that is concept-focused, simple, engaging, spoken like a real classroom teacher.
 ${langInstruction}
 
 CRITICAL OUTPUT FORMAT:
 Return ONLY a valid JSON array. No explanations, no markdown, no backticks.
-Each segment must be broken into small speech units like this:
+Each object has THREE fields: type, text, img
+
 [
-  { "type": "en", "text": "..." },
-  { "type": "ta", "text": "..." }
+  { "type": "en", "text": "...", "img": "search phrase for image" },
+  { "type": "ta", "text": "...", "img": "" }
 ]
 
-RULES FOR SEGMENTATION:
-- Keep each segment SHORT — 5 to 12 words max
-- Split English and Tamil into SEPARATE segments (never mix in one segment)
+RULES:
+- Keep each segment SHORT — 5 to 10 words max
+- Split English and Tamil into SEPARATE objects (never mix)
 - Use Tamil script (தமிழ்), NOT Tanglish
-- Ensure smooth conversational flow
-- Generate 30 to 50 segments total for a complete lesson
+- Generate 30 to 50 segments total
+- "img" field: SHORT 3-5 word image search phrase when a visual would help (e.g. "human brain anatomy 3D", "spinal cord diagram", "neuron structure"). Leave "" for Tamil segments and non-visual sentences.
+- Only add "img" when the sentence introduces a NEW visual concept. Do not repeat the same img twice in a row.
 
 TEACHING STRUCTURE:
-1. Start with a simple real-life hook (2-3 segments)
-2. Introduce the concept clearly
-3. Explain step-by-step with examples
-4. Add 2 understanding check questions at the end
-5. End with an encouraging closing
+1. Opening hook — real life connection (3 segments, img = overall topic image)
+2. Introduce concept clearly
+3. Step-by-step explanation — each key part gets its own img
+4. Two quick understanding check questions
+5. Encouraging closing
 
-TONE: Friendly, encouraging, like a real teacher in class.`;
+TONE: Friendly, encouraging, like a real teacher speaking in class.`;
 
   var userPrompt = `${contentSection}
 
@@ -617,81 +618,95 @@ Generate the complete bilingual teaching script now. Return ONLY the JSON array.
   }
   if (!Array.isArray(parsed) || !parsed.length) throw new Error('Empty script returned from AI.');
 
-  // Normalise type field: english→en, tamil→ta
+  // Normalise type field and preserve img keyword
   parsed = parsed.map(function(s) {
     var t = (s.type || 'en').toLowerCase();
     if (t === 'english') t = 'en';
     if (t === 'tamil')   t = 'ta';
-    return { type: t, text: (s.text || '').trim() };
+    return { type: t, text: (s.text || '').trim(), img: (s.img || '').trim() };
   }).filter(function(s) { return s.text.length > 0; });
 
   return parsed;
 }
 
 // ══════════════════════════════════════════
-// IMAGE LOADING
+// IMAGE SYSTEM — dynamic per segment
 // ══════════════════════════════════════════
-var pendingImageUrl = null;
-var imageReady = false;
+var currentImgKeyword = '';
+var imgChangeTimeout = null;
+var openingImageLoaded = false;
 
-function loadClassroomImage(lesson, subject) {
-  // Build a good 3D educational image prompt
-  var prompts = {
-    'heart': '3D detailed human heart anatomy medical illustration',
-    'blood': '3D human circulatory system blood flow medical',
-    'eye': '3D human eye anatomy cross section medical illustration',
-    'brain': '3D human brain anatomy detailed medical illustration',
-    'plant': '3D plant anatomy photosynthesis illustration',
-    'cell': '3D plant cell animal cell biology illustration',
-    'water cycle': '3D water cycle evaporation condensation precipitation',
-    'solar': '3D solar system planets space illustration',
-    'atom': '3D atom structure nucleus electrons scientific',
-    'digestion': '3D human digestive system anatomy illustration',
-    'respiratory': '3D human respiratory system lungs anatomy',
-    'skeleton': '3D human skeleton anatomy detailed',
-    'fraction': '3D colorful fraction pie chart mathematics visual',
-    'electricity': '3D electric circuit components illustration',
-    'magnet': '3D magnetic field lines bar magnet illustration',
-    'earth': '3D layers of earth crust mantle core cross section',
-    'photosynthesis': '3D photosynthesis process plant leaves sunlight',
-    'dna': '3D DNA double helix structure biology'
-  };
-
-  var lessonLower = lesson.toLowerCase();
-  var imgPrompt = '3D detailed educational illustration ' + lesson + ' ' + subject + ' school science';
-
-  // Check for known topics
-  for (var key in prompts) {
-    if (lessonLower.includes(key)) {
-      imgPrompt = prompts[key];
-      break;
-    }
-  }
-
-  // Use Pollinations AI — free, no key needed
-  imgPrompt = encodeURIComponent(imgPrompt + ', hyperrealistic, dark background, studio lighting, 4K');
-  var imageUrl = 'https://image.pollinations.ai/prompt/' + imgPrompt + '?width=1280&height=720&nologo=true&seed=' + Date.now();
-
-  pendingImageUrl = imageUrl;
+// Build Pollinations URL from a keyword
+function buildImgUrl(keyword) {
+  var prompt = keyword + ', hyperrealistic 3D illustration, educational, dark background, studio lighting, 4K, no text';
+  return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=1280&height=720&nologo=true&seed=' + Math.floor(Math.random()*99999);
 }
 
-function applyPendingImage() {
-  if (!pendingImageUrl) return;
+// Load opening image — called before class starts
+function loadOpeningImage(lesson, subject) {
+  var openingKeyword = lesson + ' ' + subject + ' educational 3D illustration';
+  showImageLoading(true);
   var img = document.getElementById('cls-img');
-  img.src = pendingImageUrl;
+  var url = buildImgUrl(openingKeyword);
+  img.style.opacity = '0';
+  img.onload = function() {
+    document.getElementById('img-loading').style.display = 'none';
+    img.style.display = 'block';
+    img.style.transition = 'opacity 1s ease';
+    img.style.opacity = '0.85';
+    openingImageLoaded = true;
+    currentImgKeyword = openingKeyword;
+  };
+  img.onerror = function() {
+    document.getElementById('img-loading').style.display = 'none';
+    openingImageLoaded = true; // continue even without image
+  };
+  img.src = url;
+}
+
+function showImageLoading(show) {
+  var el = document.getElementById('img-loading');
+  if (el) el.style.display = show ? 'flex' : 'none';
+}
+
+// Called per segment — swap image if segment has a new img keyword
+function updateImageForSegment(seg) {
+  if (!seg.img || seg.img === currentImgKeyword) return;
+  currentImgKeyword = seg.img;
+
+  clearTimeout(imgChangeTimeout);
+  imgChangeTimeout = setTimeout(function() {
+    var img = document.getElementById('cls-img');
+    var newImg = new Image();
+    var url = buildImgUrl(seg.img);
+
+    newImg.onload = function() {
+      // Crossfade to new image
+      img.style.transition = 'opacity 0.4s ease';
+      img.style.opacity = '0';
+      setTimeout(function() {
+        img.src = url;
+        img.style.display = 'block';
+        img.style.opacity = '0';
+        setTimeout(function() {
+          img.style.transition = 'opacity 1s ease';
+          img.style.opacity = '0.85';
+        }, 50);
+      }, 400);
+    };
+    newImg.onerror = function() { /* keep current image */ };
+    newImg.src = url;
+  }, 300); // small delay so rapid segments don't thrash
 }
 
 function imageLoaded() {
   document.getElementById('img-loading').style.display = 'none';
   document.getElementById('cls-img').style.display = 'block';
-  imageReady = true;
 }
 
 function imageFailed() {
-  // Show a gradient background instead
   document.getElementById('img-loading').style.display = 'none';
-  document.getElementById('image-area').style.background =
-    'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
+  document.getElementById('image-area').style.background = 'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
 }
 
 // ══════════════════════════════════════════
@@ -701,6 +716,7 @@ function showClassroom() {
   segIdx = 0;
   isPaused = false;
   isSpeaking = false;
+  openingImageLoaded = false;
 
   // Update top bar
   document.getElementById('cls-title').textContent = lessonTitle;
@@ -708,20 +724,44 @@ function showClassroom() {
   var badge = { 'en-ta':'EN + TA', 'en':'EN', 'ta-en':'TA + EN' };
   document.getElementById('cls-lang-badge').textContent = badge[langMode] || 'EN';
 
-  // Render segments
+  // Render segments + progress
   renderSegmentsRow();
   updateProgress();
 
-  // Load voices if not yet
+  // Load voices
   if (!voicesLoaded) loadVoices();
 
   showScreen('classroom');
 
-  // Start image load
-  applyPendingImage();
+  // Start loading opening image
+  loadOpeningImage(lessonTitle, lessonSubject);
 
-  // Small delay then start speaking
-  setTimeout(function() { playFromSegment(0); }, 1200);
+  // Show opening title card for 2.5s, then start teaching
+  showTitleCard(function() {
+    playFromSegment(0);
+  });
+}
+
+// Opening title card — full screen lesson title with animation
+function showTitleCard(onDone) {
+  var overlay = document.createElement('div');
+  overlay.id = 'title-card';
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:200;background:rgba(5,0,16,0.92);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;animation:fadeIn 0.5s ease;';
+  overlay.innerHTML =
+    '<div style="font-size:0.9rem;color:var(--gold);letter-spacing:3px;text-transform:uppercase;opacity:0.7;">' + lessonClass + ' · ' + lessonSubject + '</div>' +
+    '<div style="font-family:Cinzel,serif;font-size:clamp(1.6rem,4vw,2.8rem);color:var(--gold-light);text-align:center;padding:0 24px;line-height:1.3;text-shadow:0 0 40px rgba(201,168,76,0.4);">' + lessonTitle + '</div>' +
+    '<div style="width:60px;height:3px;background:linear-gradient(90deg,transparent,var(--gold),transparent);margin:8px 0;"></div>' +
+    '<div style="font-size:0.85rem;color:var(--sandal);opacity:0.6;">AI Teacher · Bilingual Class</div>';
+  document.body.appendChild(overlay);
+
+  setTimeout(function() {
+    overlay.style.transition = 'opacity 0.6s ease';
+    overlay.style.opacity = '0';
+    setTimeout(function() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      onDone();
+    }, 600);
+  }, 2400);
 }
 
 // ══════════════════════════════════════════
@@ -787,34 +827,50 @@ function playFromSegment(idx) {
   highlightSegment(idx);
   updateProgress();
 
+  var seg = segments[idx];
+
+  // ── Update image if this segment has a new visual keyword ──
+  if (seg.img) updateImageForSegment(seg);
+
+  // ── Visual pop for Tamil segments ──
+  if (seg.type === 'ta') {
+    var activeSeg = document.querySelector('.seg.active');
+    if (activeSeg) {
+      activeSeg.style.fontSize = '1.55rem';
+      activeSeg.style.color = 'var(--yellow)';
+      activeSeg.style.background = 'rgba(255,215,0,0.12)';
+      activeSeg.style.borderBottom = '3px solid var(--yellow)';
+      activeSeg.style.padding = '4px 8px';
+      activeSeg.style.borderRadius = '8px';
+      activeSeg.style.animation = 'tamPop 0.3s ease';
+    }
+  }
+
   // Speaking ring on
   document.getElementById('speak-ring').classList.add('on');
 
-  var seg = segments[idx];
-
-  // Choose voice
+  // ── Voice selection ──
   var voice = null;
   var lang = 'en-IN';
-  var rate = 0.88;
-  var pitch = 1.0;
+  var rate, pitch;
 
   if (seg.type === 'ta') {
     voice = taVoice || enVoice;
-    lang = taVoice ? 'ta-IN' : 'en-IN';
-    rate = 0.82;
-    pitch = 1.05;
+    lang  = taVoice ? 'ta-IN' : 'en-IN';
+    rate  = 0.78;   // slightly slower for Tamil
+    pitch = 1.08;
   } else {
     voice = enVoice;
-    lang = 'en-IN';
-    rate = 0.88;
+    lang  = 'en-IN';
+    rate  = 0.84;   // natural English pace
     pitch = 1.0;
   }
 
   var utt = new SpeechSynthesisUtterance(seg.text);
-  utt.lang = lang;
+  utt.lang   = lang;
   if (voice) utt.voice = voice;
-  utt.rate = rate;
-  utt.pitch = pitch;
+  utt.rate   = rate;
+  utt.pitch  = pitch;
   utt.volume = 1.0;
 
   isSpeaking = true;
@@ -822,8 +878,12 @@ function playFromSegment(idx) {
   utt.onend = function() {
     isSpeaking = false;
     if (!isPaused) {
-      // Small natural pause between segments
-      var pause = seg.type === 'ta' ? 180 : 120;
+      // Natural pause: longer after Tamil, longer after punctuation
+      var pause = 120;
+      if (seg.type === 'ta') pause = 350;
+      else if (/[.?!]$/.test(seg.text.trim())) pause = 420; // sentence end
+      else if (/,$/.test(seg.text.trim())) pause = 200;
+
       speakTimeout = setTimeout(function() {
         playFromSegment(idx + 1);
       }, pause);
@@ -839,7 +899,6 @@ function playFromSegment(idx) {
     }
   };
 
-  // Cancel any current speech first
   window.speechSynthesis.cancel();
   setTimeout(function() {
     if (!isPaused) window.speechSynthesis.speak(utt);
@@ -908,8 +967,20 @@ function goBack() {
 // ══════════════════════════════════════════
 function lessonComplete() {
   document.getElementById('speak-ring').classList.remove('on');
-  document.getElementById('done-sub-text').textContent =
-    lessonTitle + ' — ' + lessonClass + ' ' + lessonSubject + ' completed successfully!';
+  clearTimeout(imgChangeTimeout);
+
+  // Build key concepts from segments that had images
+  var keyConcepts = [];
+  segments.forEach(function(s) {
+    if (s.img && s.type === 'en' && keyConcepts.indexOf(s.img) === -1) {
+      keyConcepts.push(s.img);
+    }
+  });
+  var conceptText = keyConcepts.length
+    ? 'Topics covered: ' + keyConcepts.slice(0, 5).join(' · ')
+    : lessonTitle + ' — ' + lessonClass + ' ' + lessonSubject;
+
+  document.getElementById('done-sub-text').textContent = conceptText;
   document.getElementById('done-overlay').style.display = 'flex';
 }
 
