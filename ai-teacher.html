@@ -123,20 +123,21 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
   overflow:hidden;
 }
 .cls-image-area img {
-  width:100%; height:100%; object-fit:cover;
-  opacity:0.85; transition:opacity 0.8s ease;
-  filter:brightness(0.7) saturate(1.2);
+  width:100%; height:100%; object-fit:contain;
+  opacity:0; transition:opacity 1s ease;
+  background:#0a0010; padding:0;
 }
 .cls-image-overlay {
   position:absolute; inset:0;
   background:linear-gradient(
     180deg,
-    rgba(0,0,0,0.3) 0%,
-    transparent 30%,
-    transparent 55%,
-    rgba(0,0,0,0.6) 75%,
-    rgba(0,0,0,0.92) 100%
+    rgba(0,0,0,0.15) 0%,
+    transparent 20%,
+    transparent 60%,
+    rgba(0,0,0,0.5) 78%,
+    rgba(0,0,0,0.88) 100%
   );
+  pointer-events:none;
 }
 .cls-image-loading {
   position:absolute; inset:0; display:flex; flex-direction:column;
@@ -360,6 +361,9 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
   <div class="cls-caption-area">
     <div class="cls-caption-box">
 
+      <!-- Diagram label -->
+      <div id="diagram-label" style="font-size:0.75rem;font-weight:700;color:var(--gold);opacity:0.7;margin-bottom:8px;letter-spacing:1px;text-transform:uppercase;min-height:16px;"></div>
+
       <!-- Segments text row -->
       <div class="cls-segments-row" id="segments-row">
         <!-- populated dynamically -->
@@ -553,8 +557,16 @@ RULES:
 - Split English and Tamil into SEPARATE objects (never mix)
 - Use Tamil script (தமிழ்), NOT Tanglish
 - Generate 30 to 50 segments total
-- "img" field: SHORT 3-5 word image search phrase when a visual would help (e.g. "human brain anatomy 3D", "spinal cord diagram", "neuron structure"). Leave "" for Tamil segments and non-visual sentences.
-- Only add "img" when the sentence introduces a NEW visual concept. Do not repeat the same img twice in a row.
+- "img" field: Use ONE of these EXACT keywords when introducing a new concept (leave "" otherwise):
+  brain, spinal cord, neuron, nervous system, reflex, synapse,
+  heart, blood, circulatory, lung, respiratory, digestive, stomach, liver,
+  eye, ear, cell, plant cell, dna, chromosome, photosynthesis,
+  atom, magnet, electric circuit, water cycle, solar system, volcano,
+  plant, leaf, flower, seed, fraction, triangle, pythagoras,
+  skeleton, bone, muscle
+- Use ONLY these keywords — they map to real Wikipedia diagrams
+- Leave "" for Tamil segments and sentences with no new visual concept
+- Do NOT repeat the same keyword twice in a row
 
 TEACHING STRUCTURE:
 1. Opening hook — real life connection (3 segments, img = overall topic image)
@@ -641,42 +653,133 @@ Generate the complete bilingual teaching script now. Return ONLY the JSON array.
 }
 
 // ══════════════════════════════════════════
-// IMAGE SYSTEM — dynamic per segment
+// IMAGE SYSTEM — Wikipedia accurate diagrams
 // ══════════════════════════════════════════
 var currentImgKeyword = '';
 var imgChangeTimeout = null;
-var openingImageLoaded = false;
+var openingImageLoaded = true; // never block on images
 
-// Build Pollinations URL from a keyword
-function buildImgUrl(keyword) {
-  var prompt = keyword + ', hyperrealistic 3D illustration, educational, dark background, studio lighting, 4K, no text';
-  return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=1280&height=720&nologo=true&seed=' + Math.floor(Math.random()*99999);
+// ── Wikipedia article → best diagram image ──
+// Maps topic keywords to exact Wikipedia article titles
+var WIKI_TOPICS = {
+  // Nervous system
+  'brain': 'Human brain', 'cerebrum': 'Cerebrum', 'cerebellum': 'Cerebellum',
+  'spinal cord': 'Spinal cord', 'spinal': 'Spinal cord',
+  'neuron': 'Neuron', 'nerve': 'Nervous system', 'nervous system': 'Nervous system',
+  'nervous': 'Nervous system', 'reflex': 'Reflex arc', 'synapse': 'Synapse',
+  // Circulatory
+  'heart': 'Heart', 'blood': 'Blood', 'artery': 'Artery', 'vein': 'Vein',
+  'circulatory': 'Circulatory system', 'pulse': 'Pulse',
+  // Respiratory
+  'lung': 'Lung', 'lungs': 'Lung', 'respiratory': 'Respiratory system',
+  'breathing': 'Respiratory system', 'trachea': 'Trachea', 'bronchi': 'Bronchus',
+  // Digestive
+  'digestive': 'Human digestive system', 'digestion': 'Human digestive system',
+  'stomach': 'Stomach', 'intestine': 'Intestine', 'liver': 'Liver',
+  // Skeletal & Muscular
+  'skeleton': 'Human skeleton', 'bone': 'Bone', 'muscle': 'Muscle',
+  'joint': 'Joint', 'skull': 'Skull',
+  // Sensory
+  'eye': 'Human eye', 'ear': 'Ear', 'skin': 'Skin',
+  // Cell Biology
+  'cell': 'Cell (biology)', 'plant cell': 'Plant cell', 'animal cell': 'Animal cell',
+  'nucleus': 'Cell nucleus', 'mitochondria': 'Mitochondrion',
+  'photosynthesis': 'Photosynthesis', 'chloroplast': 'Chloroplast',
+  // Genetics
+  'dna': 'DNA', 'chromosome': 'Chromosome', 'gene': 'Gene',
+  // Physics
+  'atom': 'Atom', 'electron': 'Electron', 'nucleus atom': 'Atomic nucleus',
+  'magnet': 'Magnet', 'magnetic': 'Magnet', 'electric circuit': 'Electrical network',
+  'electricity': 'Electricity', 'light': 'Light', 'sound': 'Sound',
+  'force': 'Force', 'gravity': 'Gravity', 'friction': 'Friction',
+  'lens': 'Lens', 'mirror': 'Mirror',
+  // Earth Science
+  'water cycle': 'Water cycle', 'evaporation': 'Evaporation',
+  'layers of earth': 'Internal structure of Earth', 'earthquake': 'Earthquake',
+  'volcano': 'Volcano', 'erosion': 'Erosion',
+  // Solar System
+  'solar system': 'Solar System', 'planet': 'Planet', 'moon': 'Moon',
+  'sun': 'Sun', 'eclipse': 'Eclipse',
+  // Plants
+  'plant': 'Plant', 'root': 'Root', 'leaf': 'Leaf', 'flower': 'Flower',
+  'seed': 'Seed', 'germination': 'Germination',
+  // Maths
+  'fraction': 'Fraction', 'triangle': 'Triangle', 'circle': 'Circle',
+  'pythagoras': 'Pythagorean theorem', 'geometry': 'Geometry'
+};
+
+// Fetch best image from Wikipedia for a topic keyword
+async function fetchWikiImage(keyword) {
+  // Find best matching article title
+  var kLower = keyword.toLowerCase();
+  var articleTitle = null;
+
+  // Direct match first
+  for (var k in WIKI_TOPICS) {
+    if (kLower.includes(k)) { articleTitle = WIKI_TOPICS[k]; break; }
+  }
+  // If no match, use keyword directly as article title
+  if (!articleTitle) articleTitle = keyword;
+
+  try {
+    // Wikipedia API — get page images, pick best one
+    var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(articleTitle);
+    var resp = await fetch(url);
+    if (!resp.ok) throw new Error('not found');
+    var data = await resp.json();
+
+    // Use original image (higher quality) if available
+    if (data.originalimage && data.originalimage.source) {
+      return data.originalimage.source;
+    }
+    if (data.thumbnail && data.thumbnail.source) {
+      // Get larger version — replace px size in URL
+      return data.thumbnail.source.replace(/\/\d+px-/, '/800px-');
+    }
+    return null;
+  } catch(e) {
+    return null;
+  }
 }
 
-// Load opening image — completely non-blocking, fires in background
-function loadOpeningImage(lesson, subject) {
-  // Hide the spinner immediately — never show loading state
+// Show an image in the classroom — smooth crossfade, non-blocking
+function showDiagram(imgUrl, label) {
+  if (!imgUrl) return;
+  var el = document.getElementById('cls-img');
+
+  var preload = new Image();
+  preload.onload = function() {
+    el.style.transition = 'opacity 0.4s ease';
+    el.style.opacity = '0';
+    setTimeout(function() {
+      el.src = imgUrl;
+      el.style.display = 'block';
+      el.style.objectFit = 'contain';
+      el.style.background = 'transparent';
+      el.style.transition = 'opacity 1s ease';
+      el.style.opacity = '1';
+      document.getElementById('img-loading').style.display = 'none';
+      var lbl = document.getElementById('diagram-label');
+      if (lbl && label) lbl.textContent = '📊 ' + label.charAt(0).toUpperCase() + label.slice(1);
+    }, 400);
+  };
+  preload.onerror = function() {
+    document.getElementById('image-area').style.background =
+      'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
+  };
+  preload.src = imgUrl;
+}
+
+// Load opening image for lesson topic — non-blocking
+async function loadOpeningImage(lesson, subject) {
   showImageLoading(false);
-  openingImageLoaded = true; // don't wait for it
-
-  var openingKeyword = lesson + ' ' + subject + ' educational 3D illustration';
-  currentImgKeyword = openingKeyword;
-
-  var img = document.getElementById('cls-img');
-  img.style.opacity = '0';
-  img.style.display = 'block';
-
-  // Fire image load in background — appears when ready
-  var url = buildImgUrl(openingKeyword);
-  img.onload = function() {
-    img.style.transition = 'opacity 1.5s ease';
-    img.style.opacity = '0.85';
-  };
-  img.onerror = function() {
-    // No image — just show dark gradient background, class continues fine
-    document.getElementById('image-area').style.background = 'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
-  };
-  img.src = url;
+  // Try lesson title first, then subject
+  var imgUrl = await fetchWikiImage(lesson);
+  if (!imgUrl) imgUrl = await fetchWikiImage(subject);
+  if (imgUrl) {
+    showDiagram(imgUrl, lesson);
+    currentImgKeyword = lesson;
+  }
 }
 
 function showImageLoading(show) {
@@ -684,32 +787,16 @@ function showImageLoading(show) {
   if (el) el.style.display = show ? 'flex' : 'none';
 }
 
-// Called per segment — swap image silently in background, never blocks speech
+// Called per segment — fetch Wikipedia diagram for the concept
 function updateImageForSegment(seg) {
   if (!seg.img || seg.img === currentImgKeyword) return;
   currentImgKeyword = seg.img;
 
   clearTimeout(imgChangeTimeout);
-  // 1 second debounce — so rapid segments don't trigger 10 image loads
-  imgChangeTimeout = setTimeout(function() {
-    var img = document.getElementById('cls-img');
-    var url = buildImgUrl(seg.img);
-
-    // Preload silently — only swap when ready
-    var preload = new Image();
-    preload.onload = function() {
-      // Smooth crossfade — does NOT affect speech
-      img.style.transition = 'opacity 0.5s ease';
-      img.style.opacity = '0';
-      setTimeout(function() {
-        img.src = url;
-        img.style.transition = 'opacity 1.2s ease';
-        img.style.opacity = '0.85';
-      }, 500);
-    };
-    preload.onerror = function() { /* keep current image silently */ };
-    preload.src = url;
-  }, 1000);
+  imgChangeTimeout = setTimeout(async function() {
+    var imgUrl = await fetchWikiImage(seg.img);
+    if (imgUrl) showDiagram(imgUrl, seg.img);
+  }, 800); // debounce 0.8s
 }
 
 function imageLoaded() {
@@ -719,7 +806,8 @@ function imageLoaded() {
 
 function imageFailed() {
   document.getElementById('img-loading').style.display = 'none';
-  document.getElementById('image-area').style.background = 'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
+  document.getElementById('image-area').style.background =
+    'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
 }
 
 // ══════════════════════════════════════════
