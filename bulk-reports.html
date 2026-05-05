@@ -567,10 +567,67 @@ async function startGen(){
   document.getElementById('gen-cnt').textContent=total+' / '+total;
   document.getElementById('prog').style.width='100%';
 
+  // ── SAVE TO SUPABASE ── (Student Progress reads from here)
+  try{
+    document.getElementById('gen-stat').textContent='💾 Saving to database...';
+    var schoolCode = sessionStorage.getItem('school_code') || '';
+    var rows = rcs.map(function(rc){
+      var subMap = {};
+      rc.marksData.forEach(function(m){
+        var key = m.name.toLowerCase().replace(/\s+science$/,'').replace(/\s+/g,'_');
+        subMap[key] = m.obtained;
+      });
+      return {
+        school_code:      schoolCode,
+        school_name:      rc.school,
+        student_name:     rc.name,
+        roll_no:          String(rc.rollNo),
+        class_name:       rc.cls,
+        exam_type:        rc.exam,
+        academic_year:    rc.year,
+        max_marks:        rc.mmax,
+        tamil:            subMap['tamil']||null,
+        english:          subMap['english']||null,
+        maths:            subMap['maths']||subMap['mathematics']||null,
+        science:          subMap['science']||null,
+        social:           subMap['social_science']||subMap['social']||null,
+        hindi:            subMap['hindi']||null,
+        computer:         subMap['computer_science']||subMap['computer']||null,
+        total_marks:      Math.round(rc.total),
+        total_percentage: parseFloat(rc.pct.toFixed(1)),
+        grade:            rc.grade,
+        rank:             rc.rank,
+        days_present:     rc.present ? parseInt(rc.present)||null : null,
+        days_absent:      (rc.workdays&&rc.present) ? (parseInt(rc.workdays)-parseInt(rc.present)) : null,
+        attendance_pct:   (rc.workdays&&rc.present) ? Math.round(parseInt(rc.present)/parseInt(rc.workdays)*100) : null,
+        ai_remarks:       rc.remarks,
+        teacher_name:     rc.teacher,
+        principal_name:   rc.principal
+      };
+    });
+    var ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzE3NzksImV4cCI6MjA2MDU0Nzc3OX0.ELmSQcAH3p_SfkCBdGf1Fx8buvMJfFnJ_DGCBVEtN_0';
+    var saveRes = await fetch('https://pzxosqukijwpjdlfdfst.supabase.co/rest/v1/report_cards',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','apikey':ANON,'Authorization':'Bearer '+ANON,'Prefer':'return=minimal'},
+      body:JSON.stringify(rows)
+    });
+    if(saveRes.ok||saveRes.status===201){
+      document.getElementById('gen-stat').textContent='✅ Saved '+rows.length+' records to database!';
+      console.log('Saved to report_cards:', rows.length);
+    } else {
+      var errTxt = await saveRes.text();
+      console.warn('DB save issue:', saveRes.status, errTxt);
+      document.getElementById('gen-stat').textContent='✅ Done! (DB save skipped — run SQL first)';
+    }
+  }catch(saveErr){
+    console.warn('DB save error:', saveErr);
+    document.getElementById('gen-stat').textContent='✅ Done!';
+  }
+
   setTimeout(function(){
     document.getElementById('c3').style.display='none';
     showResults();
-  },500);
+  },800);
 }
 
 // ── RESULTS ──
