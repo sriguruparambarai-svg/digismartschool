@@ -1142,6 +1142,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <!-- ROLE TABS — shown based on role -->
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
+  <button class="tab-btn" id="tab-btn-library" onclick="showTab('library',this);loadLibrary()">📚 Lesson Library</button>
   <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Student TeachBot</button>
   <button class="tab-btn" id="tab-btn-notes" onclick="showTab('notes',this)">📋 Class Notes</button>
   <button class="tab-btn" id="tab-btn-revision" onclick="openRevisionPage()">🔁 Class Revision</button>
@@ -1223,12 +1224,57 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     </div>
     <div id="img-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
     <br/>
-    <button class="btn btn-primary btn-full" onclick="activateLesson()">✅ Activate Lesson for Students</button>
-    <button class="btn btn-gold btn-full" style="margin-top:8px;" onclick="activateForAITeacher()">🏫 Activate &amp; Open AI Teacher Classroom</button>
-    <!-- Active Lessons Panel -->
-    <div id="active-lessons-panel" style="display:none;margin-top:16px;padding:14px;background:rgba(201,168,76,0.07);border:2px solid var(--gold-dark);border-radius:12px;"></div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px;">
+      <button class="btn btn-primary" style="flex:1;" onclick="saveToLibrary()">💾 Save to Lesson Library</button>
+      <button class="btn btn-gold" style="flex:1;" onclick="saveAndTeachNow()">🏫 Save &amp; Teach Now (AI Teacher)</button>
+    </div>
+    <div id="save-status" style="font-size:0.9rem;font-weight:700;margin-top:8px;display:none;"></div>
   </div>
 
+</div>
+
+<!-- ═══════════════════════════════════════════
+     LESSON LIBRARY TAB
+═══════════════════════════════════════════ -->
+<div id="tab-library" class="panel">
+<div class="card" style="padding:0;overflow:hidden;">
+
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,var(--maroon-dark),var(--maroon));padding:18px 22px;display:flex;align-items:center;gap:14px;">
+    <div style="flex:1;">
+      <div style="font-family:'Cinzel',serif;font-size:1.2rem;color:var(--gold-light);margin-bottom:2px;">📚 Lesson Library</div>
+      <div style="font-size:0.82rem;color:var(--sandal);opacity:0.8;">All saved lessons — click Teach Now to activate any lesson instantly</div>
+    </div>
+    <button onclick="loadLibrary()" style="background:rgba(201,168,76,0.2);border:1px solid var(--gold-dark);color:var(--gold-light);padding:7px 14px;border-radius:8px;cursor:pointer;font-size:0.85rem;font-weight:700;font-family:Nunito,sans-serif;">↻ Refresh</button>
+  </div>
+
+  <!-- Filter bar -->
+  <div style="padding:14px 18px;background:var(--sandal);display:flex;gap:10px;flex-wrap:wrap;align-items:center;border-bottom:2px solid var(--sandal-dark);">
+    <select id="lib-filter-class" onchange="filterLibrary()" style="padding:8px 12px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;background:var(--white);color:var(--text);font-family:Nunito,sans-serif;font-weight:700;outline:none;flex:1;min-width:120px;">
+      <option value="">All Classes</option>
+      <option>Pre KG</option><option>LKG</option><option>UKG</option>
+      <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+      <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+      <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+      <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+    </select>
+    <select id="lib-filter-subject" onchange="filterLibrary()" style="padding:8px 12px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;background:var(--white);color:var(--text);font-family:Nunito,sans-serif;font-weight:700;outline:none;flex:1;min-width:120px;">
+      <option value="">All Subjects</option>
+      <option>English</option><option>Tamil</option><option>Maths</option>
+      <option>Science</option><option>Social Science</option><option>EVS</option>
+      <option>Computer Science</option><option>Hindi</option>
+    </select>
+    <div id="lib-count" style="font-size:0.82rem;font-weight:700;color:var(--maroon-mid);white-space:nowrap;"></div>
+  </div>
+
+  <!-- Lesson list -->
+  <div id="lib-list" style="padding:14px 18px;min-height:200px;">
+    <div style="text-align:center;padding:40px;color:var(--maroon-mid);font-size:0.95rem;font-weight:700;">
+      Loading lessons…
+    </div>
+  </div>
+
+</div>
 </div>
 
 <div id="tab-student" class="panel">
@@ -1308,15 +1354,6 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <span class="ssp-card-icon">🔬</span>
       <div class="ssp-card-name">Diagram Mode</div>
       <div class="ssp-card-desc">Visual science diagrams</div>
-    </div>
-
-    <!-- AI Teacher Classroom Card -->
-    <div class="ssp-card ssp-card-featured mode-card" onclick="openAITeacher()" style="grid-column:span 2; background:linear-gradient(135deg,#0a0020,#1a0010,#2d0f1a); border:2px solid var(--gold); position:relative; overflow:hidden;">
-      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 60% 40%,rgba(201,168,76,0.18),transparent 65%);pointer-events:none;"></div>
-      <span class="ssp-ai-pill" style="background:linear-gradient(135deg,#C9A84C,#FFD700);color:#0a0020;">🎙️ CLASSROOM</span>
-      <span class="ssp-card-icon" style="color:var(--gold-light);">🏫</span>
-      <div class="ssp-card-name" style="color:var(--gold-light);font-family:'Cinzel',serif;">AI Teacher</div>
-      <div class="ssp-card-desc" style="color:var(--sandal);opacity:0.85;">Bilingual classroom teaching with 3D visuals &amp; natural voice</div>
     </div>
 
   </div><!-- /ssp-mode-grid / mode-grid-area -->
@@ -5569,62 +5606,231 @@ function crvSpeak(text,onEnd){
 }
 
 // ══════════════════════════════════════════
-// AI TEACHER — Classroom Mode
+// LESSON LIBRARY — Save, Load, Delete, Filter
 // ══════════════════════════════════════════
-function activateForAITeacher() {
-  var cls     = (document.getElementById('t-class')   || {}).value || '';
-  var subject = (document.getElementById('t-subject') || {}).value || '';
-  var lesson  = (document.getElementById('t-chapter') || {}).value.trim() || '';
-  var content = (document.getElementById('t-text')    || {}).value.trim() || '';
 
-  if (!cls || !subject || !lesson) {
-    alert('Please fill Class, Subject and Chapter/Lesson name first.');
-    return;
-  }
+var _libAllLessons = [];
 
-  // Save lesson for AI Teacher
-  sessionStorage.setItem('ait_lesson', JSON.stringify({
-    class:   cls,
-    subject: subject,
-    lesson:  lesson,
-    content: content
-  }));
-
-  // Also run normal activation
-  activateLesson();
-
-  // Open AI Teacher in new tab
-  setTimeout(function() { window.open('ai-teacher.html', '_blank'); }, 400);
+function getSchoolId() {
+  try {
+    var sess = JSON.parse(sessionStorage.getItem('tm_activated') || '{}');
+    if (sess.school_id) return sess.school_id;
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    return u.school_id || u.id || '';
+  } catch(e) { return ''; }
 }
 
-function openAITeacher() {
-  // Read current class/subject/lesson from Teacher Panel or Student selectors
-  var cls     = (document.getElementById('s-class')   || {}).value || '';
-  var subject = (document.getElementById('s-subject') || {}).value || '';
+async function saveToLibrary(makeActive) {
+  var cls = document.getElementById('t-class').value;
+  var sub = document.getElementById('t-subject').value;
+  var ch  = document.getElementById('t-chapter').value.trim();
+  var txt = document.getElementById('t-text').value.trim();
+  var st  = document.getElementById('save-status');
 
-  // Try to get activated lesson from sessionStorage
-  var activated = null;
-  try { activated = JSON.parse(sessionStorage.getItem('activated_lesson') || 'null'); } catch(e){}
+  if (!cls || !sub || !ch) { alert('Please select Class, Subject and enter Chapter name first.'); return false; }
+  var schoolId = getSchoolId();
+  if (!schoolId) { alert('School ID not found. Please login again.'); return false; }
 
-  var lesson  = '';
-  var content = '';
-  if (activated) {
-    cls     = cls     || activated.class   || '';
-    subject = subject || activated.subject || '';
-    lesson  = activated.chapter || activated.lesson || '';
-    content = activated.text    || '';
+  st.style.display = 'block';
+  st.style.color = 'var(--maroon)';
+  st.textContent = '⏳ Saving to library…';
+
+  var sb = getSB();
+  if (!sb) { st.style.color='#c0392b'; st.textContent='❌ Database not connected.'; return false; }
+
+  // If making active: deactivate others for same class+subject
+  if (makeActive) {
+    await sb.from('lesson_library').update({ is_active: false })
+      .eq('school_id', schoolId).eq('class_name', cls).eq('subject', sub);
   }
 
-  // Save to sessionStorage for ai-teacher.html to pick up
-  sessionStorage.setItem('ait_lesson', JSON.stringify({
-    class:   cls,
-    subject: subject,
-    lesson:  lesson,
-    content: content
+  // Upsert by unique combo school+class+subject+chapter
+  var { error } = await sb.from('lesson_library').upsert({
+    school_id: schoolId, class_name: cls, subject: sub, chapter: ch,
+    lesson_text: (txt||'').substring(0,8000),
+    is_active: makeActive ? true : false,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'school_id,class_name,subject,chapter' });
+
+  if (error) {
+    // Fallback to active_lessons if table not created yet
+    st.style.color='#c0392b';
+    st.textContent='⚠️ Run lesson_library_setup.sql in Supabase first! Falling back to active lessons…';
+    var ok = await saveLessonToDB(cls, sub, ch, txt);
+    if(ok){ st.style.color='#1a5c2a'; st.textContent='✅ Saved to active lessons (fallback).'; }
+    return ok;
+  }
+
+  // Also save to active_lessons so Student TeachBot still works
+  await saveLessonToDB(cls, sub, ch, txt);
+
+  sessionStorage.setItem('tm_activated', JSON.stringify({
+    subject: sub, cls: cls, topic: ch,
+    lessonText: txt.substring(0,4000), lang:'en', school_id: schoolId
   }));
 
-  // Open AI Teacher page
-  window.open('ai-teacher.html', '_blank');
+  st.style.color = '#1a5c2a';
+  st.textContent = makeActive
+    ? '✅ Saved & active for ' + cls + ' — ' + sub + '!'
+    : '✅ Saved to Lesson Library!';
+  return true;
+}
+
+async function saveAndTeachNow() {
+  var ok = await saveToLibrary(true);
+  if (!ok) return;
+  var cls = document.getElementById('t-class').value;
+  var sub = document.getElementById('t-subject').value;
+  var ch  = document.getElementById('t-chapter').value.trim();
+  var txt = document.getElementById('t-text').value.trim();
+  sessionStorage.setItem('ait_lesson', JSON.stringify({ class:cls, subject:sub, lesson:ch, content:txt }));
+  setTimeout(function(){ window.open('ai-teacher.html','_blank'); }, 400);
+}
+
+async function loadLibrary() {
+  var schoolId = getSchoolId();
+  var listEl = document.getElementById('lib-list');
+  var countEl = document.getElementById('lib-count');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--maroon-mid);font-weight:700;">Loading…</div>';
+  if (!schoolId) { listEl.innerHTML='<div style="padding:20px;color:#c0392b;font-weight:700;">⚠️ Not logged in. Please login as teacher.</div>'; return; }
+  var sb = getSB();
+  var { data, error } = await sb.from('lesson_library').select('*')
+    .eq('school_id', schoolId).order('class_name').order('subject').order('updated_at',{ascending:false});
+  if (error) {
+    listEl.innerHTML = '<div style="padding:20px;color:#c0392b;font-weight:700;">⚠️ Lesson Library not set up yet.<br><br>Please run <strong>lesson_library_setup.sql</strong> in your Supabase SQL Editor first.</div>';
+    return;
+  }
+  _libAllLessons = data || [];
+  if (countEl) countEl.textContent = _libAllLessons.length + ' lessons total';
+  renderLibrary(_libAllLessons);
+}
+
+function filterLibrary() {
+  var cls = document.getElementById('lib-filter-class').value;
+  var sub = document.getElementById('lib-filter-subject').value;
+  var f = _libAllLessons.filter(function(l){ return (!cls||l.class_name===cls)&&(!sub||l.subject===sub); });
+  var countEl = document.getElementById('lib-count');
+  if(countEl) countEl.textContent = f.length+' of '+_libAllLessons.length+' lessons';
+  renderLibrary(f);
+}
+
+function renderLibrary(lessons) {
+  var listEl = document.getElementById('lib-list');
+  if (!listEl) return;
+  if (!lessons.length) {
+    listEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--maroon-mid);"><div style="font-size:2.5rem;margin-bottom:8px;">📭</div><div style="font-size:0.95rem;font-weight:700;">No lessons found.</div><div style="font-size:0.82rem;margin-top:4px;opacity:0.7;">Go to Teacher Panel and click "Save to Lesson Library".</div></div>';
+    return;
+  }
+  // Group by class → subject
+  var grouped = {};
+  lessons.forEach(function(l){
+    if(!grouped[l.class_name]) grouped[l.class_name]={};
+    if(!grouped[l.class_name][l.subject]) grouped[l.class_name][l.subject]=[];
+    grouped[l.class_name][l.subject].push(l);
+  });
+  var html='';
+  Object.keys(grouped).sort(function(a,b){
+    var order=['Pre KG','LKG','UKG','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
+    return order.indexOf(a)-order.indexOf(b);
+  }).forEach(function(cls){
+    html+='<div style="margin-bottom:18px;">';
+    html+='<div style="font-family:Cinzel,serif;font-size:1rem;font-weight:700;color:var(--maroon-dark);padding:8px 4px;border-bottom:2px solid var(--sandal-dark);margin-bottom:10px;">🎓 '+cls+'</div>';
+    Object.keys(grouped[cls]).sort().forEach(function(sub){
+      html+='<div style="margin-bottom:10px;">';
+      html+='<div style="font-size:0.78rem;font-weight:800;color:var(--gold-dark);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;padding:0 4px;">📘 '+sub+'</div>';
+      grouped[cls][sub].forEach(function(l){
+        var isActive = l.is_active;
+        var borderStyle = isActive ? 'border-color:#1a7a3a;' : '';
+        var bgStyle = isActive ? 'background:linear-gradient(135deg,#f0fff4,var(--white));' : 'background:var(--white);';
+        var badge = isActive ? '<span style="background:#1a7a3a;color:white;font-size:0.65rem;font-weight:800;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle;">● ACTIVE</span>' : '';
+        var date = new Date(l.updated_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+        var preview = l.lesson_text ? l.lesson_text.substring(0,90)+'…' : 'No content';
+        var safeId = l.id.replace(/[^a-zA-Z0-9-]/g,'');
+        html+='<div style="'+bgStyle+'border:1.5px solid var(--gold-dark);'+borderStyle+'border-radius:12px;padding:12px 14px;margin-bottom:8px;">';
+        html+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
+        html+='<div style="flex:1;min-width:160px;">';
+        html+='<div style="font-weight:800;color:var(--maroon);font-size:0.92rem;">📖 '+l.chapter+badge+'</div>';
+        html+='<div style="font-size:0.76rem;color:#999;margin-top:3px;line-height:1.4;">'+preview+'</div>';
+        html+='<div style="font-size:0.7rem;color:#bbb;margin-top:2px;">Saved: '+date+'</div>';
+        html+='</div>';
+        html+='<div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">';
+        // Encode lesson data as base64 to avoid quote escaping issues
+        var lessonData = btoa(unescape(encodeURIComponent(JSON.stringify(l))));
+        html+='<button onclick="teachFromLibrary(''+lessonData+'')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🏫 Teach Now</button>';
+        html+='<button onclick="loadIntoEditor(''+safeId+'')" style="background:rgba(201,168,76,0.12);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️ Edit</button>';
+        html+='<button onclick="deleteFromLibrary(''+safeId+'',''+l.chapter.replace(/'/g,'').replace(/"/g,'')+'',''+l.class_name+'',''+l.subject+'')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
+        html+='</div></div></div>';
+      });
+      html+='</div>';
+    });
+    html+='</div>';
+  });
+  listEl.innerHTML = html;
+}
+
+async function teachFromLibrary(b64) {
+  var l;
+  try { l = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch(e){ alert('Error reading lesson.'); return; }
+  var schoolId = getSchoolId();
+  var sb = getSB();
+  // Deactivate others, activate this
+  await sb.from('lesson_library').update({is_active:false}).eq('school_id',schoolId).eq('class_name',l.class_name).eq('subject',l.subject);
+  await sb.from('lesson_library').update({is_active:true}).eq('id',l.id);
+  await saveLessonToDB(l.class_name, l.subject, l.chapter, l.lesson_text||'');
+  sessionStorage.setItem('tm_activated', JSON.stringify({subject:l.subject,cls:l.class_name,topic:l.chapter,lessonText:(l.lesson_text||'').substring(0,4000),lang:'en',school_id:schoolId}));
+  sessionStorage.setItem('ait_lesson', JSON.stringify({class:l.class_name,subject:l.subject,lesson:l.chapter,content:l.lesson_text||''}));
+  // Refresh library badges
+  _libAllLessons.forEach(function(x){ if(x.class_name===l.class_name&&x.subject===l.subject) x.is_active=(x.id===l.id); });
+  renderLibrary(_libAllLessons.filter(function(x){
+    var cls=document.getElementById('lib-filter-class').value;
+    var sub=document.getElementById('lib-filter-subject').value;
+    return(!cls||x.class_name===cls)&&(!sub||x.subject===sub);
+  }));
+  window.open('ai-teacher.html','_blank');
+}
+
+async function loadIntoEditor(lid) {
+  var l = _libAllLessons.find(function(x){ return x.id===lid||x.id.replace(/[^a-zA-Z0-9-]/g,'')===lid; });
+  if (!l) { alert('Lesson not found. Try refreshing the library.'); return; }
+  document.getElementById('t-class').value   = l.class_name;
+  document.getElementById('t-subject').value = l.subject;
+  document.getElementById('t-chapter').value = l.chapter;
+  document.getElementById('t-text').value    = l.lesson_text||'';
+  showTab('teacher', document.getElementById('tab-btn-teacher'));
+  var st = document.getElementById('save-status');
+  st.style.display='block'; st.style.color='var(--gold-dark)';
+  st.textContent='✏️ Editing: '+l.chapter+' ('+l.class_name+' / '+l.subject+') — make changes and click Save.';
+  window.scrollTo(0,0);
+}
+
+async function deleteFromLibrary(lid, chapter, cls, sub) {
+  if (!confirm('Delete "'+chapter+'" ('+cls+' / '+sub+') from library?
+
+This cannot be undone.')) return;
+  var sb = getSB();
+  var fullId = _libAllLessons.find(function(x){ return x.id===lid||x.id.replace(/[^a-zA-Z0-9-]/g,'')===lid; });
+  var realId = fullId ? fullId.id : lid;
+  var { error } = await sb.from('lesson_library').delete().eq('id', realId);
+  if (error) { alert('Delete failed: '+error.message); return; }
+  _libAllLessons = _libAllLessons.filter(function(x){ return x.id!==realId; });
+  filterLibrary();
+  var countEl=document.getElementById('lib-count');
+  if(countEl) countEl.textContent=_libAllLessons.length+' lessons total';
+}
+
+// ══════════════════════════════════════════
+// AI TEACHER — Classroom Mode
+// ══════════════════════════════════════════
+function openAITeacher() {
+  var cls     = (document.getElementById('s-class')   || {}).value || '';
+  var subject = (document.getElementById('s-subject') || {}).value || '';
+  var activated = null;
+  try { activated = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); } catch(e){}
+  var lesson='', content='';
+  if (activated) { cls=cls||activated.cls||''; subject=subject||activated.subject||''; lesson=activated.topic||''; content=activated.lessonText||''; }
+  sessionStorage.setItem('ait_lesson', JSON.stringify({class:cls,subject:subject,lesson:lesson,content:content}));
+  window.open('ai-teacher.html','_blank');
 }
 
 // Auto-activate Student TeachBot tab when returning from Blackboard AI
