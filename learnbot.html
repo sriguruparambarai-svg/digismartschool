@@ -1224,6 +1224,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     <div id="img-preview" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;"></div>
     <br/>
     <button class="btn btn-primary btn-full" onclick="activateLesson()">✅ Activate Lesson for Students</button>
+    <button class="btn btn-gold btn-full" style="margin-top:8px;" onclick="activateForAITeacher()">🏫 Activate &amp; Open AI Teacher Classroom</button>
     <!-- Active Lessons Panel -->
     <div id="active-lessons-panel" style="display:none;margin-top:16px;padding:14px;background:rgba(201,168,76,0.07);border:2px solid var(--gold-dark);border-radius:12px;"></div>
   </div>
@@ -1307,6 +1308,15 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <span class="ssp-card-icon">🔬</span>
       <div class="ssp-card-name">Diagram Mode</div>
       <div class="ssp-card-desc">Visual science diagrams</div>
+    </div>
+
+    <!-- AI Teacher Classroom Card -->
+    <div class="ssp-card ssp-card-featured mode-card" onclick="openAITeacher()" style="grid-column:span 2; background:linear-gradient(135deg,#0a0020,#1a0010,#2d0f1a); border:2px solid var(--gold); position:relative; overflow:hidden;">
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 60% 40%,rgba(201,168,76,0.18),transparent 65%);pointer-events:none;"></div>
+      <span class="ssp-ai-pill" style="background:linear-gradient(135deg,#C9A84C,#FFD700);color:#0a0020;">🎙️ CLASSROOM</span>
+      <span class="ssp-card-icon" style="color:var(--gold-light);">🏫</span>
+      <div class="ssp-card-name" style="color:var(--gold-light);font-family:'Cinzel',serif;">AI Teacher</div>
+      <div class="ssp-card-desc" style="color:var(--sandal);opacity:0.85;">Bilingual classroom teaching with 3D visuals &amp; natural voice</div>
     </div>
 
   </div><!-- /ssp-mode-grid / mode-grid-area -->
@@ -5556,6 +5566,65 @@ function crvSpeak(text,onEnd){
   utt.onend=function(){if(onEnd)onEnd();};
   utt.onerror=function(){if(onEnd)onEnd();};
   window.speechSynthesis.speak(utt);
+}
+
+// ══════════════════════════════════════════
+// AI TEACHER — Classroom Mode
+// ══════════════════════════════════════════
+function activateForAITeacher() {
+  var cls     = (document.getElementById('t-class')   || {}).value || '';
+  var subject = (document.getElementById('t-subject') || {}).value || '';
+  var lesson  = (document.getElementById('t-chapter') || {}).value.trim() || '';
+  var content = (document.getElementById('t-text')    || {}).value.trim() || '';
+
+  if (!cls || !subject || !lesson) {
+    alert('Please fill Class, Subject and Chapter/Lesson name first.');
+    return;
+  }
+
+  // Save lesson for AI Teacher
+  sessionStorage.setItem('ait_lesson', JSON.stringify({
+    class:   cls,
+    subject: subject,
+    lesson:  lesson,
+    content: content
+  }));
+
+  // Also run normal activation
+  activateLesson();
+
+  // Open AI Teacher in new tab
+  setTimeout(function() { window.open('ai-teacher.html', '_blank'); }, 400);
+}
+
+function openAITeacher() {
+  // Read current class/subject/lesson from Teacher Panel or Student selectors
+  var cls     = (document.getElementById('s-class')   || {}).value || '';
+  var subject = (document.getElementById('s-subject') || {}).value || '';
+
+  // Try to get activated lesson from sessionStorage
+  var activated = null;
+  try { activated = JSON.parse(sessionStorage.getItem('activated_lesson') || 'null'); } catch(e){}
+
+  var lesson  = '';
+  var content = '';
+  if (activated) {
+    cls     = cls     || activated.class   || '';
+    subject = subject || activated.subject || '';
+    lesson  = activated.chapter || activated.lesson || '';
+    content = activated.text    || '';
+  }
+
+  // Save to sessionStorage for ai-teacher.html to pick up
+  sessionStorage.setItem('ait_lesson', JSON.stringify({
+    class:   cls,
+    subject: subject,
+    lesson:  lesson,
+    content: content
+  }));
+
+  // Open AI Teacher page
+  window.open('ai-teacher.html', '_blank');
 }
 
 // Auto-activate Student TeachBot tab when returning from Blackboard AI

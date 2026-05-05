@@ -1,0 +1,934 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>AI Teacher — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root {
+  --maroon:#6B0F1A; --maroon-dark:#4A0A12; --maroon-mid:#8B1A2A;
+  --gold:#C9A84C; --gold-light:#E8C96A; --gold-dark:#A07830;
+  --yellow:#FFD700; --sandal:#F5E6C8; --sandal-dark:#EDD9A3;
+  --white:#FFFDF5; --text:#2A0A0F;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflow:hidden;}
+
+/* ── SETUP SCREEN ── */
+#setup-screen {
+  display:flex; align-items:center; justify-content:center;
+  min-height:100vh;
+  background:linear-gradient(135deg,var(--maroon-dark),#1a0008,var(--maroon-dark));
+}
+.setup-card {
+  background:linear-gradient(160deg,#fff9f0,var(--white));
+  border:2px solid var(--gold-dark);
+  border-radius:24px; padding:40px 36px;
+  width:100%; max-width:560px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(201,168,76,0.2);
+}
+.setup-logo { text-align:center; margin-bottom:24px; }
+.setup-logo img { width:80px; height:80px; border-radius:50%; border:3px solid var(--gold); }
+.setup-title { font-family:"Cinzel",serif; font-size:1.6rem; color:var(--maroon-dark); text-align:center; margin-bottom:4px; }
+.setup-sub { text-align:center; font-size:0.88rem; color:var(--gold-dark); font-weight:600; margin-bottom:28px; }
+.setup-field { margin-bottom:16px; }
+.setup-field label { display:block; font-weight:800; color:var(--maroon); font-size:0.9rem; margin-bottom:6px; text-transform:uppercase; letter-spacing:0.5px; }
+.setup-field input, .setup-field select, .setup-field textarea {
+  width:100%; padding:12px 14px; font-size:1rem;
+  border:2px solid var(--gold-dark); border-radius:10px;
+  background:var(--white); color:var(--text);
+  font-family:"Nunito",sans-serif; font-weight:600; outline:none;
+}
+.setup-field input:focus, .setup-field select:focus, .setup-field textarea:focus { border-color:var(--maroon); }
+.setup-field textarea { min-height:100px; resize:vertical; }
+.lang-mode-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:6px; }
+.lang-opt {
+  border:2px solid var(--gold-dark); border-radius:12px; padding:12px 8px;
+  text-align:center; cursor:pointer; background:var(--white); transition:all 0.2s;
+}
+.lang-opt:hover, .lang-opt.selected {
+  border-color:var(--maroon);
+  background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));
+  color:var(--gold-light);
+}
+.lang-opt .lo-icon { font-size:1.4rem; margin-bottom:4px; }
+.lang-opt .lo-label { font-size:0.82rem; font-weight:800; }
+.btn-start-class {
+  width:100%; padding:16px; margin-top:20px;
+  font-size:1.15rem; font-weight:800; font-family:"Nunito",sans-serif;
+  background:linear-gradient(135deg,var(--maroon-dark),var(--maroon-mid));
+  color:var(--gold-light); border:none; border-radius:14px; cursor:pointer;
+  box-shadow:0 6px 20px rgba(107,15,26,0.4); transition:all 0.2s;
+  display:flex; align-items:center; justify-content:center; gap:10px;
+}
+.btn-start-class:hover { transform:translateY(-2px); box-shadow:0 10px 28px rgba(107,15,26,0.5); }
+.btn-start-class:disabled { opacity:0.5; cursor:not-allowed; transform:none; }
+.voice-check-bar {
+  background:#FFF3CD; border:1px solid #ffc107; border-radius:10px;
+  padding:10px 14px; font-size:0.85rem; color:#856404; font-weight:700; margin-top:12px;
+  display:none;
+}
+
+/* ── GENERATING SCREEN ── */
+#gen-screen {
+  display:none; align-items:center; justify-content:center;
+  min-height:100vh;
+  background:linear-gradient(135deg,var(--maroon-dark),#0a0005);
+  flex-direction:column; gap:24px;
+}
+.gen-logo img { width:100px; height:100px; border-radius:50%; border:4px solid var(--gold); box-shadow:0 0 40px rgba(201,168,76,0.4); }
+.gen-title { font-family:"Cinzel",serif; font-size:1.8rem; color:var(--gold-light); text-align:center; }
+.gen-sub { color:var(--sandal); font-size:1rem; text-align:center; opacity:0.8; }
+.gen-spinner { width:60px; height:60px; border:5px solid rgba(201,168,76,0.2); border-top:5px solid var(--gold); border-radius:50%; animation:spin 0.9s linear infinite; }
+@keyframes spin{to{transform:rotate(360deg)}}
+.gen-dots { display:flex; gap:8px; }
+.gen-dots span { width:10px; height:10px; background:var(--gold); border-radius:50%; animation:bop 0.8s infinite; }
+.gen-dots span:nth-child(2){animation-delay:0.15s;} .gen-dots span:nth-child(3){animation-delay:0.3s;}
+@keyframes bop{0%,100%{transform:translateY(0)}50%{transform:translateY(-10px)}}
+
+/* ── CLASSROOM SCREEN ── */
+#classroom-screen {
+  display:none; flex-direction:column;
+  height:100vh; background:#050010; position:relative; overflow:hidden;
+}
+
+/* Top bar */
+.cls-topbar {
+  position:absolute; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; padding:10px 16px; gap:12px;
+  background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);
+}
+.cls-logo { width:46px; height:46px; border-radius:50%; border:2px solid var(--gold); }
+.cls-lesson-info { flex:1; }
+.cls-lesson-title { font-family:"Cinzel",serif; font-size:1rem; color:var(--gold-light); letter-spacing:1px; }
+.cls-lesson-sub { font-size:0.78rem; color:var(--sandal); opacity:0.7; }
+.cls-lang-badge {
+  background:rgba(201,168,76,0.2); border:1px solid var(--gold-dark);
+  color:var(--gold-light); font-size:0.75rem; font-weight:800;
+  padding:4px 12px; border-radius:20px; letter-spacing:0.5px;
+}
+.cls-btn-stop {
+  background:rgba(255,50,50,0.2); border:1px solid rgba(255,80,80,0.5);
+  color:#ff8080; padding:7px 14px; border-radius:8px; cursor:pointer;
+  font-size:0.85rem; font-weight:800; font-family:"Nunito",sans-serif;
+  transition:all 0.2s;
+}
+.cls-btn-stop:hover { background:rgba(255,50,50,0.4); }
+
+/* Image area */
+.cls-image-area {
+  position:absolute; inset:0; z-index:1;
+  display:flex; align-items:center; justify-content:center;
+  overflow:hidden;
+}
+.cls-image-area img {
+  width:100%; height:100%; object-fit:cover;
+  opacity:0.85; transition:opacity 0.8s ease;
+  filter:brightness(0.7) saturate(1.2);
+}
+.cls-image-overlay {
+  position:absolute; inset:0;
+  background:linear-gradient(
+    180deg,
+    rgba(0,0,0,0.3) 0%,
+    transparent 30%,
+    transparent 55%,
+    rgba(0,0,0,0.6) 75%,
+    rgba(0,0,0,0.92) 100%
+  );
+}
+.cls-image-loading {
+  position:absolute; inset:0; display:flex; flex-direction:column;
+  align-items:center; justify-content:center; gap:16px;
+  background:linear-gradient(135deg,#0a0005,#1a0010);
+}
+.cls-img-spinner { width:50px; height:50px; border:4px solid rgba(201,168,76,0.15); border-top:4px solid var(--gold); border-radius:50%; animation:spin 0.9s linear infinite; }
+.cls-img-loading-text { color:var(--gold); font-size:0.9rem; font-weight:700; opacity:0.7; }
+
+/* Caption area at bottom */
+.cls-caption-area {
+  position:absolute; bottom:0; left:0; right:0; z-index:50;
+  padding:0 0 16px;
+}
+.cls-caption-box {
+  margin:0 16px;
+  background:rgba(5,0,16,0.88);
+  backdrop-filter:blur(12px);
+  border:1px solid rgba(201,168,76,0.3);
+  border-radius:18px;
+  padding:18px 22px 14px;
+}
+
+/* Segment display */
+.cls-segments-row {
+  display:flex; flex-wrap:wrap; gap:4px 6px;
+  min-height:56px; margin-bottom:12px; align-items:center;
+}
+.seg {
+  font-size:1.35rem; font-weight:700; line-height:1.6;
+  padding:2px 4px; border-radius:6px; transition:all 0.3s;
+  opacity:0.4;
+}
+.seg.active {
+  opacity:1; color:#fff;
+  background:rgba(201,168,76,0.15);
+  border-bottom:2px solid var(--gold);
+}
+.seg.done { opacity:0.35; color:var(--sandal); }
+.seg.en.active { color:#fff; }
+.seg.ta.active { color:var(--gold-light); font-size:1.3rem; }
+
+/* Progress */
+.cls-prog-row { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.cls-prog-wrap { flex:1; height:3px; background:rgba(255,255,255,0.1); border-radius:3px; overflow:hidden; }
+.cls-prog-fill { height:100%; background:linear-gradient(90deg,var(--maroon),var(--gold)); border-radius:3px; transition:width 0.6s ease; }
+.cls-seg-counter { font-size:0.78rem; color:var(--gold); font-weight:700; white-space:nowrap; }
+
+/* Controls */
+.cls-controls {
+  display:flex; align-items:center; justify-content:center; gap:10px; flex-wrap:wrap;
+}
+.ctrl-btn {
+  display:flex; align-items:center; gap:6px;
+  padding:9px 18px; border-radius:10px; cursor:pointer;
+  font-size:0.9rem; font-weight:800; font-family:"Nunito",sans-serif;
+  border:none; transition:all 0.2s;
+}
+.ctrl-btn:disabled { opacity:0.3; cursor:not-allowed; }
+.ctrl-repeat { background:rgba(201,168,76,0.15); border:1px solid rgba(201,168,76,0.3); color:var(--gold-light); }
+.ctrl-repeat:hover:not(:disabled) { background:rgba(201,168,76,0.3); }
+.ctrl-pause { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); color:#fff; min-width:100px; }
+.ctrl-pause:hover:not(:disabled) { background:rgba(255,255,255,0.2); }
+.ctrl-skip { background:rgba(201,168,76,0.15); border:1px solid rgba(201,168,76,0.3); color:var(--gold-light); }
+.ctrl-skip:hover:not(:disabled) { background:rgba(201,168,76,0.3); }
+.ctrl-back { background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.15); color:rgba(255,255,255,0.6); }
+.ctrl-back:hover { background:rgba(255,255,255,0.12); }
+
+/* Speaking ring on logo */
+.cls-logo-wrap { position:relative; flex-shrink:0; }
+.cls-speak-ring { position:absolute; inset:-6px; border-radius:50%; border:3px solid var(--yellow); opacity:0; }
+.cls-speak-ring.on { animation:ring 1.3s ease-out infinite; }
+@keyframes ring{0%{transform:scale(1);opacity:0.9}100%{transform:scale(1.28);opacity:0}}
+
+/* Voice warning */
+#voice-warning {
+  position:fixed; top:20px; left:50%; transform:translateX(-50%);
+  background:#856404; color:#fff; border-radius:12px; padding:12px 20px;
+  font-size:0.9rem; font-weight:700; z-index:9999; display:none;
+  box-shadow:0 4px 20px rgba(0,0,0,0.4); max-width:90vw; text-align:center;
+}
+
+/* Lesson complete overlay */
+#done-overlay {
+  display:none; position:fixed; inset:0; z-index:200;
+  background:rgba(0,0,0,0.85); align-items:center; justify-content:center;
+  flex-direction:column; gap:20px;
+}
+.done-card {
+  background:linear-gradient(135deg,#1a0008,#2d0f1a);
+  border:3px solid var(--gold); border-radius:24px;
+  padding:48px 40px; text-align:center;
+  box-shadow:0 20px 60px rgba(0,0,0,0.6);
+}
+.done-icon { font-size:4rem; margin-bottom:12px; }
+.done-title { font-family:"Cinzel",serif; font-size:2rem; color:var(--gold-light); margin-bottom:8px; }
+.done-sub { color:var(--sandal); font-size:1rem; margin-bottom:24px; opacity:0.8; }
+.done-btns { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+.done-btn {
+  padding:13px 28px; border-radius:12px; cursor:pointer;
+  font-size:1rem; font-weight:800; font-family:"Nunito",sans-serif; border:none;
+}
+.done-btn-primary { background:linear-gradient(135deg,var(--gold-dark),var(--yellow)); color:var(--maroon-dark); }
+.done-btn-sec { background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2); }
+</style>
+</head>
+<body>
+
+<div id="voice-warning"></div>
+
+<!-- ══════════════ SETUP SCREEN ══════════════ -->
+<div id="setup-screen">
+  <div class="setup-card">
+    <div class="setup-logo">
+      <img src="assets/ark-logo.png" onerror="this.style.display='none'" alt="School Logo"/>
+    </div>
+    <div class="setup-title">🎓 AI Teacher</div>
+    <div class="setup-sub">Classroom Mode — Premium Bilingual Teaching</div>
+
+    <div class="setup-field">
+      <label>Class</label>
+      <select id="s-class">
+        <option value="">Select Class</option>
+        <option>PreKG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option>
+      </select>
+    </div>
+
+    <div class="setup-field">
+      <label>Subject</label>
+      <select id="s-subject">
+        <option value="">Select Subject</option>
+        <option>Maths</option><option>Science</option><option>Social Science</option>
+        <option>English</option><option>Tamil</option><option>EVS</option>
+        <option>Computer Science</option>
+      </select>
+    </div>
+
+    <div class="setup-field">
+      <label>Lesson / Topic</label>
+      <input type="text" id="s-lesson" placeholder="e.g. The Water Cycle, Human Heart, Fractions…"/>
+    </div>
+
+    <div class="setup-field">
+      <label>Lesson Content <span style="font-weight:400;color:#a07830;">(paste textbook text — optional)</span></label>
+      <textarea id="s-content" placeholder="Paste lesson text here. If empty, AI will teach from general knowledge about the topic."></textarea>
+    </div>
+
+    <div class="setup-field">
+      <label>🌐 Language Mode</label>
+      <div class="lang-mode-grid">
+        <div class="lang-opt selected" data-lang="en-ta" onclick="selectLang(this,'en-ta')">
+          <div class="lo-icon">🇮🇳</div>
+          <div class="lo-label">English + Tamil</div>
+        </div>
+        <div class="lang-opt" data-lang="en" onclick="selectLang(this,'en')">
+          <div class="lo-icon">🇬🇧</div>
+          <div class="lo-label">English Only</div>
+        </div>
+        <div class="lang-opt" data-lang="ta-en" onclick="selectLang(this,'ta-en')">
+          <div class="lo-icon">🔤</div>
+          <div class="lo-label">Tamil + English</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="voice-check-bar" id="voice-warn-bar">
+      ⚠️ Tamil voice not found on this device. Install it: Settings → Time &amp; Language → Speech → Add Voices → Tamil (India). Using English voice for now.
+    </div>
+
+    <button class="btn-start-class" id="btn-start" onclick="startClass()">
+      🎓 Start AI Teacher Class
+    </button>
+  </div>
+</div>
+
+<!-- ══════════════ GENERATING SCREEN ══════════════ -->
+<div id="gen-screen">
+  <div class="gen-logo">
+    <img src="assets/ark-logo.png" onerror="this.style.background='#6B0F1A'" alt=""/>
+  </div>
+  <div class="gen-title">Preparing Your Class</div>
+  <div class="gen-sub" id="gen-status-text">AI Teacher is studying the lesson…</div>
+  <div class="gen-spinner"></div>
+  <div class="gen-dots"><span></span><span></span><span></span></div>
+</div>
+
+<!-- ══════════════ CLASSROOM SCREEN ══════════════ -->
+<div id="classroom-screen">
+
+  <!-- Top bar -->
+  <div class="cls-topbar">
+    <div class="cls-logo-wrap">
+      <img class="cls-logo" src="assets/ark-logo.png" onerror="this.style.background='#6B0F1A'" alt=""/>
+      <div class="cls-speak-ring" id="speak-ring"></div>
+    </div>
+    <div class="cls-lesson-info">
+      <div class="cls-lesson-title" id="cls-title">—</div>
+      <div class="cls-lesson-sub" id="cls-sub">—</div>
+    </div>
+    <div class="cls-lang-badge" id="cls-lang-badge">EN + TA</div>
+    <button class="cls-btn-stop" onclick="stopClass()">✕ Stop</button>
+  </div>
+
+  <!-- 3D Image -->
+  <div class="cls-image-area" id="image-area">
+    <div class="cls-image-loading" id="img-loading">
+      <div class="cls-img-spinner"></div>
+      <div class="cls-img-loading-text">Loading visual…</div>
+    </div>
+    <img id="cls-img" src="" alt="" style="display:none;" onload="imageLoaded()" onerror="imageFailed()"/>
+    <div class="cls-image-overlay"></div>
+  </div>
+
+  <!-- Caption + Controls -->
+  <div class="cls-caption-area">
+    <div class="cls-caption-box">
+
+      <!-- Segments text row -->
+      <div class="cls-segments-row" id="segments-row">
+        <!-- populated dynamically -->
+      </div>
+
+      <!-- Progress -->
+      <div class="cls-prog-row">
+        <div class="cls-prog-wrap">
+          <div class="cls-prog-fill" id="prog-fill" style="width:0%"></div>
+        </div>
+        <div class="cls-seg-counter" id="seg-counter">0 / 0</div>
+      </div>
+
+      <!-- Controls -->
+      <div class="cls-controls">
+        <button class="ctrl-btn ctrl-back" onclick="goBack()">◀ Back</button>
+        <button class="ctrl-btn ctrl-repeat" id="btn-repeat" onclick="repeatSegment()">⟳ Repeat</button>
+        <button class="ctrl-btn ctrl-pause" id="btn-pause" onclick="togglePause()">⏸ Pause</button>
+        <button class="ctrl-btn ctrl-skip" id="btn-skip" onclick="skipSegment()">Skip ⏭</button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════ DONE OVERLAY ══════════════ -->
+<div id="done-overlay">
+  <div class="done-card">
+    <div class="done-icon">🎓</div>
+    <div class="done-title">Class Complete!</div>
+    <div class="done-sub" id="done-sub-text">Lesson finished successfully.</div>
+    <div class="done-btns">
+      <button class="done-btn done-btn-primary" onclick="restartClass()">🔄 Teach Again</button>
+      <button class="done-btn done-btn-sec" onclick="goBack()">◀ Back to TeachBot</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════
+// STATE
+// ══════════════════════════════════════════
+var langMode = 'en-ta';       // en-ta | en | ta-en
+var segments = [];            // [{type:'en'|'ta', text:'...'}]
+var segIdx = 0;
+var isPaused = false;
+var isSpeaking = false;
+var speakTimeout = null;
+var lessonTitle = '';
+var lessonClass = '';
+var lessonSubject = '';
+
+var enVoice = null;
+var taVoice = null;
+var voicesLoaded = false;
+
+// ══════════════════════════════════════════
+// VOICE SETUP
+// ══════════════════════════════════════════
+function loadVoices() {
+  var voices = window.speechSynthesis.getVoices();
+  if (!voices.length) return;
+  voicesLoaded = true;
+
+  // Find best English (India) voice
+  enVoice = voices.find(v => v.lang === 'en-IN' && v.name.toLowerCase().includes('heera'))
+         || voices.find(v => v.lang === 'en-IN' && v.name.toLowerCase().includes('neerja'))
+         || voices.find(v => v.lang === 'en-IN')
+         || voices.find(v => v.lang.startsWith('en-') && v.name.toLowerCase().includes('india'))
+         || voices.find(v => v.lang.startsWith('en-'));
+
+  // Find best Tamil voice
+  taVoice = voices.find(v => v.lang === 'ta-IN' && v.name.toLowerCase().includes('valluvar'))
+          || voices.find(v => v.lang === 'ta-IN' && v.name.toLowerCase().includes('ayya'))
+          || voices.find(v => v.lang === 'ta-IN' && v.name.toLowerCase().includes('meera'))
+          || voices.find(v => v.lang === 'ta-IN')
+          || voices.find(v => v.lang.startsWith('ta'));
+
+  // Show warning if Tamil voice missing and lang mode needs it
+  if (!taVoice && (langMode === 'en-ta' || langMode === 'ta-en')) {
+    document.getElementById('voice-warn-bar').style.display = 'block';
+  }
+}
+
+window.speechSynthesis.onvoiceschanged = loadVoices;
+setTimeout(loadVoices, 500);
+
+// ══════════════════════════════════════════
+// LANG MODE SELECTION
+// ══════════════════════════════════════════
+function selectLang(el, mode) {
+  document.querySelectorAll('.lang-opt').forEach(x => x.classList.remove('selected'));
+  el.classList.add('selected');
+  langMode = mode;
+  // Hide warning if switching to english only
+  if (mode === 'en') {
+    document.getElementById('voice-warn-bar').style.display = 'none';
+  } else if (!taVoice && voicesLoaded) {
+    document.getElementById('voice-warn-bar').style.display = 'block';
+  }
+}
+
+// ══════════════════════════════════════════
+// START CLASS
+// ══════════════════════════════════════════
+async function startClass() {
+  var cls     = document.getElementById('s-class').value;
+  var subject = document.getElementById('s-subject').value;
+  var lesson  = document.getElementById('s-lesson').value.trim();
+  var content = document.getElementById('s-content').value.trim();
+
+  if (!cls || !subject || !lesson) {
+    alert('Please fill Class, Subject and Lesson name.');
+    return;
+  }
+
+  lessonClass = cls;
+  lessonSubject = subject;
+  lessonTitle = lesson;
+
+  // Show generating screen
+  showScreen('gen');
+  updateGenStatus('AI Teacher is studying the lesson…');
+
+  // Fetch image in parallel
+  loadClassroomImage(lesson, subject);
+
+  // Generate bilingual script
+  try {
+    var script = await generateScript(lesson, subject, content, langMode);
+    segments = script;
+    showClassroom();
+  } catch(e) {
+    alert('Error generating lesson: ' + e.message);
+    showScreen('setup');
+  }
+}
+
+function updateGenStatus(msg) {
+  document.getElementById('gen-status-text').textContent = msg;
+}
+
+// ══════════════════════════════════════════
+// GENERATE SCRIPT VIA CLAUDE API
+// ══════════════════════════════════════════
+async function generateScript(lesson, subject, content, mode) {
+  updateGenStatus('AI Teacher is preparing the teaching script…');
+
+  var langInstruction = '';
+  if (mode === 'en-ta') {
+    langInstruction = `
+LANGUAGE: Primarily English. When introducing a key term or important concept, immediately add a short Tamil equivalent as a separate segment. Tamil is used ONLY for: key word meanings, concept reinforcement. Do NOT translate full sentences to Tamil.`;
+  } else if (mode === 'ta-en') {
+    langInstruction = `
+LANGUAGE: Primarily Tamil. When introducing a technical term or English keyword, immediately add it as a short English segment. Tamil is the main teaching language.`;
+  } else {
+    langInstruction = `
+LANGUAGE: English only. All segments must be type "en".`;
+  }
+
+  var contentSection = content
+    ? `LESSON CONTENT PROVIDED BY TEACHER:\n${content.substring(0, 2000)}\n\nTeach based on this content.`
+    : `Teach ${lesson} from your knowledge, appropriate for school students.`;
+
+  var systemPrompt = `You are an expert school teacher teaching young students (age 5–12).
+Your job is to generate a teaching script that is:
+- Concept-focused (not textbook style)
+- Simple, clear, and engaging
+- Spoken like a real classroom teacher
+${langInstruction}
+
+CRITICAL OUTPUT FORMAT:
+Return ONLY a valid JSON array. No explanations, no markdown, no backticks.
+Each segment must be broken into small speech units like this:
+[
+  { "type": "en", "text": "..." },
+  { "type": "ta", "text": "..." }
+]
+
+RULES FOR SEGMENTATION:
+- Keep each segment SHORT — 5 to 12 words max
+- Split English and Tamil into SEPARATE segments (never mix in one segment)
+- Use Tamil script (தமிழ்), NOT Tanglish
+- Ensure smooth conversational flow
+- Generate 30 to 50 segments total for a complete lesson
+
+TEACHING STRUCTURE:
+1. Start with a simple real-life hook (2-3 segments)
+2. Introduce the concept clearly
+3. Explain step-by-step with examples
+4. Add 2 understanding check questions at the end
+5. End with an encouraging closing
+
+TONE: Friendly, encouraging, like a real teacher in class.`;
+
+  var userPrompt = `${contentSection}
+
+Topic: ${lesson}
+Subject: ${subject}
+
+Generate the complete bilingual teaching script now. Return ONLY the JSON array.`;
+
+  var resp = await fetch('/api/ai', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      system: systemPrompt,
+      message: userPrompt,
+      max_tokens: 3000
+    })
+  });
+
+  if (!resp.ok) throw new Error('API error: ' + resp.status);
+  var data = await resp.json();
+  var raw = (data.response || data.text || '').trim();
+
+  // Strip markdown fences if present
+  raw = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+
+  // Find JSON array
+  var start = raw.indexOf('[');
+  var end = raw.lastIndexOf(']');
+  if (start === -1 || end === -1) throw new Error('No valid script returned from AI.');
+  raw = raw.substring(start, end + 1);
+
+  var parsed = JSON.parse(raw);
+  if (!Array.isArray(parsed) || !parsed.length) throw new Error('Empty script returned.');
+
+  // Normalise type field: english→en, tamil→ta
+  parsed = parsed.map(function(s) {
+    var t = (s.type || 'en').toLowerCase();
+    if (t === 'english') t = 'en';
+    if (t === 'tamil')   t = 'ta';
+    return { type: t, text: (s.text || '').trim() };
+  }).filter(function(s) { return s.text.length > 0; });
+
+  return parsed;
+}
+
+// ══════════════════════════════════════════
+// IMAGE LOADING
+// ══════════════════════════════════════════
+var pendingImageUrl = null;
+var imageReady = false;
+
+function loadClassroomImage(lesson, subject) {
+  // Build a good 3D educational image prompt
+  var prompts = {
+    'heart': '3D detailed human heart anatomy medical illustration',
+    'blood': '3D human circulatory system blood flow medical',
+    'eye': '3D human eye anatomy cross section medical illustration',
+    'brain': '3D human brain anatomy detailed medical illustration',
+    'plant': '3D plant anatomy photosynthesis illustration',
+    'cell': '3D plant cell animal cell biology illustration',
+    'water cycle': '3D water cycle evaporation condensation precipitation',
+    'solar': '3D solar system planets space illustration',
+    'atom': '3D atom structure nucleus electrons scientific',
+    'digestion': '3D human digestive system anatomy illustration',
+    'respiratory': '3D human respiratory system lungs anatomy',
+    'skeleton': '3D human skeleton anatomy detailed',
+    'fraction': '3D colorful fraction pie chart mathematics visual',
+    'electricity': '3D electric circuit components illustration',
+    'magnet': '3D magnetic field lines bar magnet illustration',
+    'earth': '3D layers of earth crust mantle core cross section',
+    'photosynthesis': '3D photosynthesis process plant leaves sunlight',
+    'dna': '3D DNA double helix structure biology'
+  };
+
+  var lessonLower = lesson.toLowerCase();
+  var imgPrompt = '3D detailed educational illustration ' + lesson + ' ' + subject + ' school science';
+
+  // Check for known topics
+  for (var key in prompts) {
+    if (lessonLower.includes(key)) {
+      imgPrompt = prompts[key];
+      break;
+    }
+  }
+
+  // Use Pollinations AI — free, no key needed
+  imgPrompt = encodeURIComponent(imgPrompt + ', hyperrealistic, dark background, studio lighting, 4K');
+  var imageUrl = 'https://image.pollinations.ai/prompt/' + imgPrompt + '?width=1280&height=720&nologo=true&seed=' + Date.now();
+
+  pendingImageUrl = imageUrl;
+}
+
+function applyPendingImage() {
+  if (!pendingImageUrl) return;
+  var img = document.getElementById('cls-img');
+  img.src = pendingImageUrl;
+}
+
+function imageLoaded() {
+  document.getElementById('img-loading').style.display = 'none';
+  document.getElementById('cls-img').style.display = 'block';
+  imageReady = true;
+}
+
+function imageFailed() {
+  // Show a gradient background instead
+  document.getElementById('img-loading').style.display = 'none';
+  document.getElementById('image-area').style.background =
+    'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
+}
+
+// ══════════════════════════════════════════
+// SHOW CLASSROOM
+// ══════════════════════════════════════════
+function showClassroom() {
+  segIdx = 0;
+  isPaused = false;
+  isSpeaking = false;
+
+  // Update top bar
+  document.getElementById('cls-title').textContent = lessonTitle;
+  document.getElementById('cls-sub').textContent = lessonClass + ' — ' + lessonSubject;
+  var badge = { 'en-ta':'EN + TA', 'en':'EN', 'ta-en':'TA + EN' };
+  document.getElementById('cls-lang-badge').textContent = badge[langMode] || 'EN';
+
+  // Render segments
+  renderSegmentsRow();
+  updateProgress();
+
+  // Load voices if not yet
+  if (!voicesLoaded) loadVoices();
+
+  showScreen('classroom');
+
+  // Start image load
+  applyPendingImage();
+
+  // Small delay then start speaking
+  setTimeout(function() { playFromSegment(0); }, 1200);
+}
+
+// ══════════════════════════════════════════
+// RENDER SEGMENTS AS WORD CHIPS
+// ══════════════════════════════════════════
+function renderSegmentsRow() {
+  var row = document.getElementById('segments-row');
+  row.innerHTML = '';
+
+  // Show a window of segments around current
+  var windowStart = Math.max(0, segIdx - 2);
+  var windowEnd = Math.min(segments.length - 1, segIdx + 6);
+
+  for (var i = windowStart; i <= windowEnd; i++) {
+    var seg = segments[i];
+    var div = document.createElement('div');
+    div.className = 'seg ' + seg.type;
+    div.id = 'seg-' + i;
+    div.textContent = seg.text;
+    if (i < segIdx) div.classList.add('done');
+    if (i === segIdx) div.classList.add('active');
+    row.appendChild(div);
+  }
+}
+
+function highlightSegment(idx) {
+  // Update all visible segment chips
+  document.querySelectorAll('.seg').forEach(function(el) {
+    el.classList.remove('active', 'done');
+    var elIdx = parseInt(el.id.replace('seg-', ''));
+    if (elIdx < idx) el.classList.add('done');
+    if (elIdx === idx) el.classList.add('active');
+  });
+
+  // Re-render window if needed
+  var windowStart = Math.max(0, idx - 2);
+  var firstVisible = document.querySelector('.seg');
+  if (firstVisible) {
+    var firstIdx = parseInt(firstVisible.id.replace('seg-', ''));
+    if (idx > firstIdx + 5 || idx < firstIdx) {
+      renderSegmentsRow();
+    }
+  }
+}
+
+function updateProgress() {
+  var pct = segments.length ? (segIdx / segments.length * 100) : 0;
+  document.getElementById('prog-fill').style.width = pct + '%';
+  document.getElementById('seg-counter').textContent = segIdx + ' / ' + segments.length;
+}
+
+// ══════════════════════════════════════════
+// SPEECH ENGINE — bilingual sequential
+// ══════════════════════════════════════════
+function playFromSegment(idx) {
+  if (isPaused) return;
+  if (idx >= segments.length) {
+    lessonComplete();
+    return;
+  }
+
+  segIdx = idx;
+  highlightSegment(idx);
+  updateProgress();
+
+  // Speaking ring on
+  document.getElementById('speak-ring').classList.add('on');
+
+  var seg = segments[idx];
+
+  // Choose voice
+  var voice = null;
+  var lang = 'en-IN';
+  var rate = 0.88;
+  var pitch = 1.0;
+
+  if (seg.type === 'ta') {
+    voice = taVoice || enVoice;
+    lang = taVoice ? 'ta-IN' : 'en-IN';
+    rate = 0.82;
+    pitch = 1.05;
+  } else {
+    voice = enVoice;
+    lang = 'en-IN';
+    rate = 0.88;
+    pitch = 1.0;
+  }
+
+  var utt = new SpeechSynthesisUtterance(seg.text);
+  utt.lang = lang;
+  if (voice) utt.voice = voice;
+  utt.rate = rate;
+  utt.pitch = pitch;
+  utt.volume = 1.0;
+
+  isSpeaking = true;
+
+  utt.onend = function() {
+    isSpeaking = false;
+    if (!isPaused) {
+      // Small natural pause between segments
+      var pause = seg.type === 'ta' ? 180 : 120;
+      speakTimeout = setTimeout(function() {
+        playFromSegment(idx + 1);
+      }, pause);
+    }
+  };
+
+  utt.onerror = function() {
+    isSpeaking = false;
+    if (!isPaused) {
+      speakTimeout = setTimeout(function() {
+        playFromSegment(idx + 1);
+      }, 200);
+    }
+  };
+
+  // Cancel any current speech first
+  window.speechSynthesis.cancel();
+  setTimeout(function() {
+    if (!isPaused) window.speechSynthesis.speak(utt);
+  }, 60);
+}
+
+// ══════════════════════════════════════════
+// CONTROLS
+// ══════════════════════════════════════════
+function togglePause() {
+  if (isPaused) {
+    isPaused = false;
+    document.getElementById('btn-pause').textContent = '⏸ Pause';
+    document.getElementById('speak-ring').classList.add('on');
+    playFromSegment(segIdx);
+  } else {
+    isPaused = true;
+    document.getElementById('btn-pause').textContent = '▶ Resume';
+    document.getElementById('speak-ring').classList.remove('on');
+    window.speechSynthesis.cancel();
+    clearTimeout(speakTimeout);
+    isSpeaking = false;
+  }
+}
+
+function repeatSegment() {
+  window.speechSynthesis.cancel();
+  clearTimeout(speakTimeout);
+  isSpeaking = false;
+  isPaused = false;
+  document.getElementById('btn-pause').textContent = '⏸ Pause';
+  playFromSegment(segIdx);
+}
+
+function skipSegment() {
+  window.speechSynthesis.cancel();
+  clearTimeout(speakTimeout);
+  isSpeaking = false;
+  isPaused = false;
+  document.getElementById('btn-pause').textContent = '⏸ Pause';
+  playFromSegment(segIdx + 1);
+}
+
+function stopClass() {
+  if (!confirm('Stop the class and return to setup?')) return;
+  window.speechSynthesis.cancel();
+  clearTimeout(speakTimeout);
+  isPaused = false; isSpeaking = false;
+  document.getElementById('speak-ring').classList.remove('on');
+  showScreen('setup');
+}
+
+function goBack() {
+  window.speechSynthesis.cancel();
+  clearTimeout(speakTimeout);
+  // Go back to learnbot
+  if (document.referrer && document.referrer.includes('learnbot')) {
+    window.history.back();
+  } else {
+    window.location.href = 'learnbot.html#student';
+  }
+}
+
+// ══════════════════════════════════════════
+// LESSON COMPLETE
+// ══════════════════════════════════════════
+function lessonComplete() {
+  document.getElementById('speak-ring').classList.remove('on');
+  document.getElementById('done-sub-text').textContent =
+    lessonTitle + ' — ' + lessonClass + ' ' + lessonSubject + ' completed successfully!';
+  document.getElementById('done-overlay').style.display = 'flex';
+}
+
+function restartClass() {
+  document.getElementById('done-overlay').style.display = 'none';
+  segIdx = 0;
+  isPaused = false;
+  isSpeaking = false;
+  renderSegmentsRow();
+  updateProgress();
+  setTimeout(function() { playFromSegment(0); }, 500);
+}
+
+// ══════════════════════════════════════════
+// SCREEN SWITCHER
+// ══════════════════════════════════════════
+function showScreen(name) {
+  document.getElementById('setup-screen').style.display = name === 'setup' ? 'flex' : 'none';
+  document.getElementById('gen-screen').style.display   = name === 'gen' ? 'flex' : 'none';
+  document.getElementById('classroom-screen').style.display = name === 'classroom' ? 'flex' : 'none';
+}
+
+// ══════════════════════════════════════════
+// AUTO-LOAD ACTIVATED LESSON FROM SESSION
+// ══════════════════════════════════════════
+(function autoLoad() {
+  try {
+    var activated = JSON.parse(sessionStorage.getItem('ait_lesson') || 'null');
+    if (activated) {
+      document.getElementById('s-class').value   = activated.class   || '';
+      document.getElementById('s-subject').value = activated.subject || '';
+      document.getElementById('s-lesson').value  = activated.lesson  || '';
+      document.getElementById('s-content').value = activated.content || '';
+      if (activated.langMode) {
+        langMode = activated.langMode;
+        document.querySelectorAll('.lang-opt').forEach(function(el) {
+          el.classList.toggle('selected', el.dataset.lang === langMode);
+        });
+      }
+    }
+  } catch(e) {}
+})();
+
+// Fix Chrome bug: speechSynthesis pauses after ~15 seconds in background
+setInterval(function() {
+  if (isSpeaking && !isPaused) {
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
+    }
+  }
+}, 5000);
+</script>
+</body>
+</html>
