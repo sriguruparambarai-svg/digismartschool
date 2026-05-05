@@ -164,6 +164,22 @@ module.exports = async function(req2, res) {
     if (action === 'add_teacher') {
       const { school_id, teacher_name, teacher_email, teacher_password } = body;
 
+      // ── TEACHER LIMIT CHECK ──
+      // Get school's max_teachers setting
+      const schoolR = await req('GET', `/rest/v1/schools?id=eq.${school_id}&select=max_teachers,name`);
+      const schoolData = schoolR.data && schoolR.data.length > 0 ? schoolR.data[0] : null;
+      const maxTeachers = schoolData ? (parseInt(schoolData.max_teachers) || 5) : 5;
+
+      // Count current teachers for this school
+      const countR = await req('GET', `/rest/v1/teachers?school_id=eq.${school_id}&select=id`);
+      const currentCount = Array.isArray(countR.data) ? countR.data.length : 0;
+
+      if (currentCount >= maxTeachers) {
+        return res.json({
+          error: `Teacher limit reached. Your plan allows ${maxTeachers} teacher(s). Currently: ${currentCount}. Please contact DigiSmartSchool to upgrade your plan.`
+        });
+      }
+
       // Check if auth user exists and clean up if orphan
       const existingUsers = await req('GET', `/auth/v1/admin/users?email=${encodeURIComponent(teacher_email)}`);
       if (existingUsers.data && existingUsers.data.users && existingUsers.data.users.length > 0) {
@@ -380,10 +396,14 @@ module.exports = async function(req2, res) {
 
     // ── UPDATE SUBSCRIPTION ──
     if (action === 'update_subscription') {
-      const { school_id, status, end_date } = body;
-      await req('PATCH', `/rest/v1/schools?id=eq.${school_id}`, {
-        subscription_status: status, subscription_end: end_date
-      });
+      const { school_id, status, end_date, max_teachers } = body;
+      const updatePayload = {
+        subscription_status: status,
+        subscription_end: end_date
+      };
+      // Save max_teachers if provided
+      if (max_teachers) updatePayload.max_teachers = parseInt(max_teachers);
+      await req('PATCH', `/rest/v1/schools?id=eq.${school_id}`, updatePayload);
       return res.json({ success: true });
     }
 
