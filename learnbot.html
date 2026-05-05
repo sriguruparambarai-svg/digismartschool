@@ -5676,52 +5676,54 @@ async function saveToLibrary(makeActive) {
   var txt = document.getElementById('t-text').value.trim();
   var st  = document.getElementById('save-status');
 
-  if (!cls || !sub || !ch) { alert('Please select Class, Subject and enter Chapter name first.'); return false; }
-  var schoolId = getSchoolId();
-  if (!schoolId) { alert('School ID not found. Please login again.'); return false; }
-
-  st.style.display = 'block';
-  st.style.color = 'var(--maroon)';
-  st.textContent = '⏳ Saving to library…';
-
-  var sb = getSB();
-  if (!sb) { st.style.color='#c0392b'; st.textContent='❌ Database not connected.'; return false; }
-
-  // If making active: deactivate others for same class+subject
-  if (makeActive) {
-    await sb.from('lesson_library').update({ is_active: false })
-      .eq('school_id', schoolId).eq('class_name', cls).eq('subject', sub);
+  if (!cls || !sub || !ch) {
+    alert('Please select Class, Subject and enter Chapter name first.');
+    return false;
   }
 
-  // Upsert by unique combo school+class+subject+chapter
-  var { error } = await sb.from('lesson_library').upsert({
-    school_id: schoolId, class_name: cls, subject: sub, chapter: ch,
-    lesson_text: (txt||'').substring(0,8000),
-    is_active: makeActive ? true : false,
-    updated_at: new Date().toISOString()
-  }, { onConflict: 'school_id,class_name,subject,chapter' });
+  // Show status
+  if (st) { st.style.display='block'; st.style.color='var(--maroon)'; st.textContent='⏳ Saving lesson…'; }
 
-  if (error) {
-    // Fallback to active_lessons if table not created yet
-    st.style.color='#c0392b';
-    st.textContent='⚠️ Run lesson_library_setup.sql in Supabase first! Falling back to active lessons…';
-    var ok = await saveLessonToDB(cls, sub, ch, txt);
-    if(ok){ st.style.color='#1a5c2a'; st.textContent='✅ Saved to active lessons (fallback).'; }
-    return ok;
+  // ── Step 1: Save to active_lessons via /api/auth (this always works) ──
+  var saved = await saveLessonToDB(cls, sub, ch, txt);
+
+  if (!saved) {
+    if (st) { st.style.color='#c0392b'; st.textContent='❌ Save failed. Check your connection.'; }
+    return false;
   }
 
-  // Also save to active_lessons so Student TeachBot still works
-  await saveLessonToDB(cls, sub, ch, txt);
-
+  // ── Step 2: Update sessionStorage so lesson is immediately accessible ──
+  var schoolId = getTeacherSchoolId();
   sessionStorage.setItem('tm_activated', JSON.stringify({
     subject: sub, cls: cls, topic: ch,
-    lessonText: txt.substring(0,4000), lang:'en', school_id: schoolId
+    lessonText: (txt||'').substring(0,4000),
+    lang: 'en',
+    school_id: schoolId
   }));
 
-  st.style.color = '#1a5c2a';
-  st.textContent = makeActive
-    ? '✅ Saved & active for ' + cls + ' — ' + sub + '!'
-    : '✅ Saved to Lesson Library!';
+  // ── Step 3: Also try saving to lesson_library table (bonus — won't block) ──
+  try {
+    var sb = getSB();
+    if (sb && schoolId) {
+      if (makeActive) {
+        sb.from('lesson_library').update({is_active:false})
+          .eq('school_id',schoolId).eq('class_name',cls).eq('subject',sub);
+      }
+      sb.from('lesson_library').upsert({
+        school_id: schoolId, class_name: cls, subject: sub, chapter: ch,
+        lesson_text: (txt||'').substring(0,8000),
+        is_active: makeActive ? true : false,
+        updated_at: new Date().toISOString()
+      }, {onConflict:'school_id,class_name,subject,chapter'});
+    }
+  } catch(e) { /* silent — lesson_library is bonus */ }
+
+  if (st) {
+    st.style.color = '#1a5c2a';
+    st.textContent = makeActive
+      ? '✅ Lesson activated for ' + cls + ' — ' + sub + '! Now choose a teaching mode.'
+      : '✅ Saved! Find it in Lesson Library anytime.';
+  }
   return true;
 }
 
@@ -5754,30 +5756,70 @@ async function saveActivateAndTeach() {
 }
 
 async function loadLibrary() {
-  var schoolId = getSchoolId();
+  var schoolId = getTeacherSchoolId();
   var listEl = document.getElementById('lib-list');
   var countEl = document.getElementById('lib-count');
   if (!listEl) return;
-  listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--maroon-mid);font-weight:700;">Loading…</div>';
-  if (!schoolId) { listEl.innerHTML='<div style="padding:20px;color:#c0392b;font-weight:700;">⚠️ Not logged in. Please login as teacher.</div>'; return; }
-  var sb = getSB();
-  var { data, error } = await sb.from('lesson_library').select('*')
-    .eq('school_id', schoolId).order('class_name').order('subject').order('updated_at',{ascending:false});
-  if (error) {
-    listEl.innerHTML = '<div style="padding:20px;color:#c0392b;font-weight:700;">⚠️ Lesson Library not set up yet.<br><br>Please run <strong>lesson_library_setup.sql</strong> in your Supabase SQL Editor first.</div>';
-    return;
+
+  listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--maroon-mid);font-weight:700;">⏳ Loading lessons…</div>';
+
+  // Try lesson_library table first
+  var data = null;
+  var usedFallback = false;
+  try {
+    var sb = getSB();
+    if (sb && schoolId) {
+      var res = await sb.from('lesson_library').select('*')
+        .eq('school_id', schoolId)
+        .order('class_name').order('subject').order('updated_at',{ascending:false});
+      if (!res.error) {
+        data = res.data;
+      }
+    }
+  } catch(e) {}
+
+  // Fallback: load from active_lessons via /api/auth
+  if (!data) {
+    usedFallback = true;
+    try {
+      var lessons = await loadAllLessons();
+      // Convert active_lessons format to lesson_library format
+      data = (lessons||[]).map(function(l){
+        return {
+          id: l.class_id || (l.class_name+'_'+l.subject),
+          school_id: l.school_id||schoolId,
+          class_name: l.class_name||l.cls||'',
+          subject: l.subject||'',
+          chapter: l.chapter||l.topic||'',
+          lesson_text: l.lesson_text||l.lessonText||'',
+          is_active: true,
+          updated_at: l.updated_at||new Date().toISOString()
+        };
+      });
+    } catch(e) { data = []; }
   }
+
   _libAllLessons = data || [];
-  if (countEl) countEl.textContent = _libAllLessons.length + ' lessons total';
+  if (countEl) countEl.textContent = _libAllLessons.length + ' lesson' + (_libAllLessons.length!==1?'s':'') + ' saved';
+
+  if (usedFallback && _libAllLessons.length > 0) {
+    var note = document.createElement('div');
+    note.style.cssText = 'padding:10px 18px;background:#FFF3CD;font-size:0.8rem;color:#856404;font-weight:700;border-bottom:1px solid #ffc107;';
+    note.textContent = '💡 Run lesson_library_setup.sql in Supabase to enable full Library features.';
+    if (listEl.parentElement) listEl.parentElement.insertBefore(note, listEl);
+  }
+
   renderLibrary(_libAllLessons);
 }
 
 function filterLibrary() {
-  var cls = document.getElementById('lib-filter-class').value;
-  var sub = document.getElementById('lib-filter-subject').value;
+  var clsEl = document.getElementById('lib-filter-class');
+  var subEl = document.getElementById('lib-filter-subject');
+  var cls = clsEl ? clsEl.value : '';
+  var sub = subEl ? subEl.value : '';
   var f = _libAllLessons.filter(function(l){ return (!cls||l.class_name===cls)&&(!sub||l.subject===sub); });
   var countEl = document.getElementById('lib-count');
-  if(countEl) countEl.textContent = f.length+' of '+_libAllLessons.length+' lessons';
+  if(countEl) countEl.textContent = f.length+' of '+_libAllLessons.length+' lessons saved';
   renderLibrary(f);
 }
 
@@ -5838,15 +5880,32 @@ function renderLibrary(lessons) {
 async function teachFromLibrary(b64) {
   var l;
   try { l = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch(e){ alert('Error reading lesson.'); return; }
-  var schoolId = getSchoolId();
-  var sb = getSB();
-  // Deactivate others, activate this
-  await sb.from('lesson_library').update({is_active:false}).eq('school_id',schoolId).eq('class_name',l.class_name).eq('subject',l.subject);
-  await sb.from('lesson_library').update({is_active:true}).eq('id',l.id);
+
+  var schoolId = getTeacherSchoolId();
+
+  // Save as active lesson via /api/auth (reliable)
   await saveLessonToDB(l.class_name, l.subject, l.chapter, l.lesson_text||'');
-  sessionStorage.setItem('tm_activated', JSON.stringify({subject:l.subject,cls:l.class_name,topic:l.chapter,lessonText:(l.lesson_text||'').substring(0,4000),lang:'en',school_id:schoolId}));
-  sessionStorage.setItem('ait_lesson', JSON.stringify({class:l.class_name,subject:l.subject,lesson:l.chapter,content:l.lesson_text||''}));
-  // Refresh library badges
+
+  // Update sessionStorage
+  sessionStorage.setItem('tm_activated', JSON.stringify({
+    subject:l.subject, cls:l.class_name, topic:l.chapter,
+    lessonText:(l.lesson_text||'').substring(0,4000),
+    lang:'en', school_id:schoolId
+  }));
+  sessionStorage.setItem('ait_lesson', JSON.stringify({
+    class:l.class_name, subject:l.subject, lesson:l.chapter, content:l.lesson_text||''
+  }));
+
+  // Try updating lesson_library active flag (bonus, won't block)
+  try {
+    var sb = getSB();
+    if (sb && schoolId) {
+      sb.from('lesson_library').update({is_active:false}).eq('school_id',schoolId).eq('class_name',l.class_name).eq('subject',l.subject);
+      sb.from('lesson_library').update({is_active:true}).eq('id',l.id);
+    }
+  } catch(e){}
+
+  // Refresh library badges in memory
   _libAllLessons.forEach(function(x){ if(x.class_name===l.class_name&&x.subject===l.subject) x.is_active=(x.id===l.id); });
   renderLibrary(_libAllLessons.filter(function(x){
     var cls=document.getElementById('lib-filter-class').value;
