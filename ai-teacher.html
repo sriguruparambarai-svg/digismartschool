@@ -480,19 +480,30 @@ async function startClass() {
   lessonSubject = subject;
   lessonTitle = lesson;
 
-  // Show generating screen
+  // Show generating screen with animated messages
   showScreen('gen');
-  updateGenStatus('AI Teacher is studying the lesson…');
 
-  // Fetch image in parallel
-  loadClassroomImage(lesson, subject);
+  var genMessages = [
+    'AI Teacher is reading the lesson…',
+    'Preparing bilingual teaching script…',
+    'Adding English and Tamil segments…',
+    'Almost ready — finalising class…'
+  ];
+  var msgIdx = 0;
+  updateGenStatus(genMessages[0]);
+  var msgTimer = setInterval(function() {
+    msgIdx = (msgIdx + 1) % genMessages.length;
+    updateGenStatus(genMessages[msgIdx]);
+  }, 3000);
 
-  // Generate bilingual script
+  // Generate script
   try {
     var script = await generateScript(lesson, subject, content, langMode);
+    clearInterval(msgTimer);
     segments = script;
     showClassroom();
   } catch(e) {
+    clearInterval(msgTimer);
     alert('Error generating lesson: ' + e.message);
     showScreen('setup');
   }
@@ -642,24 +653,28 @@ function buildImgUrl(keyword) {
   return 'https://image.pollinations.ai/prompt/' + encodeURIComponent(prompt) + '?width=1280&height=720&nologo=true&seed=' + Math.floor(Math.random()*99999);
 }
 
-// Load opening image — called before class starts
+// Load opening image — completely non-blocking, fires in background
 function loadOpeningImage(lesson, subject) {
+  // Hide the spinner immediately — never show loading state
+  showImageLoading(false);
+  openingImageLoaded = true; // don't wait for it
+
   var openingKeyword = lesson + ' ' + subject + ' educational 3D illustration';
-  showImageLoading(true);
+  currentImgKeyword = openingKeyword;
+
   var img = document.getElementById('cls-img');
-  var url = buildImgUrl(openingKeyword);
   img.style.opacity = '0';
+  img.style.display = 'block';
+
+  // Fire image load in background — appears when ready
+  var url = buildImgUrl(openingKeyword);
   img.onload = function() {
-    document.getElementById('img-loading').style.display = 'none';
-    img.style.display = 'block';
-    img.style.transition = 'opacity 1s ease';
+    img.style.transition = 'opacity 1.5s ease';
     img.style.opacity = '0.85';
-    openingImageLoaded = true;
-    currentImgKeyword = openingKeyword;
   };
   img.onerror = function() {
-    document.getElementById('img-loading').style.display = 'none';
-    openingImageLoaded = true; // continue even without image
+    // No image — just show dark gradient background, class continues fine
+    document.getElementById('image-area').style.background = 'linear-gradient(135deg,#0a0020,#1a0010,#0a1020)';
   };
   img.src = url;
 }
@@ -669,34 +684,32 @@ function showImageLoading(show) {
   if (el) el.style.display = show ? 'flex' : 'none';
 }
 
-// Called per segment — swap image if segment has a new img keyword
+// Called per segment — swap image silently in background, never blocks speech
 function updateImageForSegment(seg) {
   if (!seg.img || seg.img === currentImgKeyword) return;
   currentImgKeyword = seg.img;
 
   clearTimeout(imgChangeTimeout);
+  // 1 second debounce — so rapid segments don't trigger 10 image loads
   imgChangeTimeout = setTimeout(function() {
     var img = document.getElementById('cls-img');
-    var newImg = new Image();
     var url = buildImgUrl(seg.img);
 
-    newImg.onload = function() {
-      // Crossfade to new image
-      img.style.transition = 'opacity 0.4s ease';
+    // Preload silently — only swap when ready
+    var preload = new Image();
+    preload.onload = function() {
+      // Smooth crossfade — does NOT affect speech
+      img.style.transition = 'opacity 0.5s ease';
       img.style.opacity = '0';
       setTimeout(function() {
         img.src = url;
-        img.style.display = 'block';
-        img.style.opacity = '0';
-        setTimeout(function() {
-          img.style.transition = 'opacity 1s ease';
-          img.style.opacity = '0.85';
-        }, 50);
-      }, 400);
+        img.style.transition = 'opacity 1.2s ease';
+        img.style.opacity = '0.85';
+      }, 500);
     };
-    newImg.onerror = function() { /* keep current image */ };
-    newImg.src = url;
-  }, 300); // small delay so rapid segments don't thrash
+    preload.onerror = function() { /* keep current image silently */ };
+    preload.src = url;
+  }, 1000);
 }
 
 function imageLoaded() {
@@ -733,10 +746,11 @@ function showClassroom() {
 
   showScreen('classroom');
 
-  // Start loading opening image
+  // Fire image load in background (non-blocking)
   loadOpeningImage(lessonTitle, lessonSubject);
 
-  // Show opening title card for 2.5s, then start teaching
+  // Show title card (2.5s) then immediately start speaking
+  // Voice does NOT wait for image
   showTitleCard(function() {
     playFromSegment(0);
   });
