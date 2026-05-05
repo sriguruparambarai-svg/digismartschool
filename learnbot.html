@@ -1259,8 +1259,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
       <!-- Buttons -->
       <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
         <div style="display:flex;gap:8px;">
-          <button class="btn btn-primary" style="flex:1;padding:11px 8px;font-size:0.9rem;" onclick="saveToLibrary(false)">💾 Save to Library</button>
-          <button class="btn btn-gold" style="flex:1;padding:11px 8px;font-size:0.9rem;" onclick="saveActivateAndTeach()">▶ Activate &amp; Teach</button>
+          <button class="btn btn-primary" style="flex:1;padding:11px 8px;font-size:0.9rem;" id="btn-save-lib" onclick="doSaveToLibrary()">💾 Save to Library</button>
+          <button class="btn btn-gold" style="flex:1;padding:11px 8px;font-size:0.9rem;" id="btn-act-teach" onclick="doActivateAndTeach()">▶ Activate &amp; Teach</button>
         </div>
         <div id="save-status" style="font-size:0.82rem;font-weight:700;display:none;padding:8px 10px;background:rgba(201,168,76,0.1);border-radius:8px;border:1px solid var(--gold-dark);"></div>
       </div>
@@ -2449,9 +2449,28 @@ async function activateLesson(){
     msg='✅ Lesson Activated!\n\n(Saved locally — Supabase connection needed for multi-device access)';
   }
 
-  alert(msg);
+  var st = document.getElementById('save-status');
+  if(st){ st.style.display='block'; st.style.color='#1a5c2a'; st.textContent=msg.replace('\n\n','  '); }
+  
+  // Pre-fill student tab class/subject
+  var sClass=document.getElementById('s-class'); if(sClass) sClass.value=cls;
+  var sSubj=document.getElementById('s-subject'); if(sSubj) sSubj.value=sub;
+
+  // Also save to lesson_library silently  
+  try {
+    var schoolId2 = getTeacherSchoolId();
+    var sb2 = getSB();
+    if(sb2 && schoolId2){
+      sb2.from('lesson_library').upsert({
+        school_id:schoolId2, class_name:cls, subject:sub, chapter:ch,
+        lesson_text:(lessonTxt||'').substring(0,8000), is_active:true,
+        updated_at:new Date().toISOString()
+      },{onConflict:'school_id,class_name,subject,chapter'});
+    }
+  } catch(e){}
+
   showTab('student', document.getElementById('tab-btn-student'));
-  showActiveLessonsPanel();
+  window.scrollTo(0,0);
 }
 
 // Show panel of all active lessons after teacher activates
@@ -5669,61 +5688,166 @@ function getSchoolId() {
   return getTeacherSchoolId(); // use the existing reliable function
 }
 
+// ── Simple wrappers — delegate to activateLesson() which is proven to work ──
+async function doSaveToLibrary() {
+  var st = document.getElementById('save-status');
+  if(st){ st.style.display='block'; st.style.color='var(--maroon)'; st.textContent='⏳ Saving…'; }
+  
+  var cls = document.getElementById('t-class').value;
+  var sub = document.getElementById('t-subject').value;
+  var ch  = (document.getElementById('t-chapter').value||'').trim();
+  if (!cls||!sub||!ch){ alert('Please fill Class, Subject and Chapter name.'); return; }
+
+  // Use the proven activateLesson internals directly
+  var txt = (document.getElementById('t-text').value||'').trim();
+  lessonTxt = txt;
+  window.AL = {cls,sub,ch};
+  sessionStorage.setItem('tm_activated', JSON.stringify({subject:sub,cls,topic:ch,lessonText:txt.substring(0,4000),lang:'en'}));
+
+  var btn = document.getElementById('btn-save-lib');
+  if(btn){btn.disabled=true; btn.textContent='⏳ Saving…';}
+  var saved = await saveLessonToDB(cls, sub, ch, txt);
+  if(btn){btn.disabled=false; btn.textContent='💾 Save to Library';}
+
+  if(st){
+    st.style.color = saved ? '#1a5c2a' : '#c0392b';
+    st.textContent = saved ? '✅ Saved to Library! — '+cls+' / '+sub+' / '+ch : '❌ Save failed — check console for details';
+  }
+
+  // Also save to lesson_library silently
+  try {
+    var schoolId = getTeacherSchoolId();
+    var sb = getSB();
+    if(sb && schoolId){
+      await sb.from('lesson_library').upsert({
+        school_id:schoolId, class_name:cls, subject:sub, chapter:ch,
+        lesson_text:txt.substring(0,8000), is_active:false,
+        updated_at:new Date().toISOString()
+      },{onConflict:'school_id,class_name,subject,chapter'});
+    }
+  } catch(e){}
+}
+
+async function doActivateAndTeach() {
+  var cls = document.getElementById('t-class').value;
+  var sub = document.getElementById('t-subject').value;
+  var ch  = (document.getElementById('t-chapter').value||'').trim();
+  if (!cls||!sub||!ch){ alert('Please fill Class, Subject and Chapter name.'); return; }
+
+  var btn = document.getElementById('btn-act-teach');
+  if(btn){btn.disabled=true; btn.textContent='⏳ Activating…';}
+
+  // Call the proven activateLesson function
+  await activateLesson();
+
+  if(btn){btn.disabled=false; btn.textContent='▶ Activate & Teach';}
+}
+
 async function saveToLibrary(makeActive) {
   var cls = document.getElementById('t-class').value;
   var sub = document.getElementById('t-subject').value;
-  var ch  = document.getElementById('t-chapter').value.trim();
-  var txt = document.getElementById('t-text').value.trim();
+  var ch  = (document.getElementById('t-chapter')||{}).value||'';
+  ch = ch.trim();
+  var txt = (document.getElementById('t-text')||{}).value||'';
+  txt = txt.trim();
   var st  = document.getElementById('save-status');
 
+  function showSt(msg, color) {
+    if (!st) return;
+    st.style.display = 'block';
+    st.style.color = color || 'var(--maroon)';
+    st.textContent = msg;
+  }
+
   if (!cls || !sub || !ch) {
-    alert('Please select Class, Subject and enter Chapter name first.');
+    alert('Please fill in: Class, Subject, and Chapter / Lesson Name.');
     return false;
   }
 
-  // Show status
-  if (st) { st.style.display='block'; st.style.color='var(--maroon)'; st.textContent='⏳ Saving lesson…'; }
+  showSt('⏳ Step 1 — Getting school ID…', 'var(--maroon)');
 
-  // ── Step 1: Save to active_lessons via /api/auth (this always works) ──
-  var saved = await saveLessonToDB(cls, sub, ch, txt);
+  // Get school ID — try every possible location
+  var schoolId = '';
+  try {
+    // 1. sessionStorage tm_activated
+    var sess = JSON.parse(sessionStorage.getItem('tm_activated')||'{}');
+    if (sess.school_id) schoolId = sess.school_id;
+  } catch(e){}
+  if (!schoolId) {
+    try {
+      // 2. localStorage dss_user
+      var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
+      schoolId = u.school_id || u.id || '';
+    } catch(e){}
+  }
+  if (!schoolId && window._fetchedSchoolId) schoolId = window._fetchedSchoolId;
 
-  if (!saved) {
-    if (st) { st.style.color='#c0392b'; st.textContent='❌ Save failed. Check your connection.'; }
+  if (!schoolId) {
+    showSt('❌ School ID not found. Please logout and login again as teacher.', '#c0392b');
+    alert('School ID not found. Please logout and login again.');
     return false;
   }
 
-  // ── Step 2: Update sessionStorage so lesson is immediately accessible ──
-  var schoolId = getTeacherSchoolId();
+  showSt('⏳ Step 2 — Saving lesson to database…', 'var(--maroon)');
+
+  // Call /api/auth directly (same as old activateLesson which worked)
+  try {
+    var res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save_active_lesson',
+        school_id: schoolId,
+        class_name: cls,
+        subject: sub,
+        chapter: ch,
+        lesson_text: txt.substring(0, 8000)
+      })
+    });
+
+    var d = await res.json();
+
+    if (d.error) {
+      showSt('❌ API error: ' + (d.error.message||d.error), '#c0392b');
+      alert('Save error: ' + (d.error.message||d.error));
+      return false;
+    }
+  } catch(e) {
+    showSt('❌ Network error: ' + e.message, '#c0392b');
+    alert('Network error: ' + e.message);
+    return false;
+  }
+
+  // Update sessionStorage
   sessionStorage.setItem('tm_activated', JSON.stringify({
     subject: sub, cls: cls, topic: ch,
-    lessonText: (txt||'').substring(0,4000),
-    lang: 'en',
-    school_id: schoolId
+    lessonText: txt.substring(0, 4000),
+    lang: 'en', school_id: schoolId
   }));
 
-  // ── Step 3: Also try saving to lesson_library table (bonus — won't block) ──
+  // Also try lesson_library silently
   try {
     var sb = getSB();
     if (sb && schoolId) {
       if (makeActive) {
-        sb.from('lesson_library').update({is_active:false})
+        await sb.from('lesson_library').update({is_active:false})
           .eq('school_id',schoolId).eq('class_name',cls).eq('subject',sub);
       }
-      sb.from('lesson_library').upsert({
-        school_id: schoolId, class_name: cls, subject: sub, chapter: ch,
-        lesson_text: (txt||'').substring(0,8000),
-        is_active: makeActive ? true : false,
+      await sb.from('lesson_library').upsert({
+        school_id:schoolId, class_name:cls, subject:sub, chapter:ch,
+        lesson_text: txt.substring(0,8000),
+        is_active: !!makeActive,
         updated_at: new Date().toISOString()
       }, {onConflict:'school_id,class_name,subject,chapter'});
     }
-  } catch(e) { /* silent — lesson_library is bonus */ }
+  } catch(e) { /* lesson_library bonus — silent fail ok */ }
 
-  if (st) {
-    st.style.color = '#1a5c2a';
-    st.textContent = makeActive
-      ? '✅ Lesson activated for ' + cls + ' — ' + sub + '! Now choose a teaching mode.'
-      : '✅ Saved! Find it in Lesson Library anytime.';
-  }
+  showSt(
+    makeActive
+      ? '✅ Lesson activated for ' + cls + ' — ' + sub + '! Now choose a teaching mode below.'
+      : '✅ Saved to Lesson Library! Find it anytime in the Library tab.',
+    '#1a5c2a'
+  );
   return true;
 }
 
