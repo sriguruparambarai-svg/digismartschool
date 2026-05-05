@@ -5935,12 +5935,7 @@ async function loadLibrary() {
   _libAllLessons = data || [];
   if (countEl) countEl.textContent = _libAllLessons.length + ' lesson' + (_libAllLessons.length!==1?'s':'') + ' saved';
 
-  if (usedFallback && _libAllLessons.length > 0) {
-    var note = document.createElement('div');
-    note.style.cssText = 'padding:10px 18px;background:#FFF3CD;font-size:0.8rem;color:#856404;font-weight:700;border-bottom:1px solid #ffc107;';
-    note.textContent = '💡 Run lesson_library_setup.sql in Supabase to enable full Library features.';
-    if (listEl.parentElement) listEl.parentElement.insertBefore(note, listEl);
-  }
+  // Note: lesson_library_setup.sql enables advanced features — silently skip warning
 
   renderLibrary(_libAllLessons);
 }
@@ -5959,57 +5954,55 @@ function filterLibrary() {
 function renderLibrary(lessons) {
   var listEl = document.getElementById('lib-list');
   if (!listEl) return;
+
   if (!lessons.length) {
-    listEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--maroon-mid);"><div style="font-size:2.5rem;margin-bottom:8px;">📭</div><div style="font-size:0.95rem;font-weight:700;">No lessons found.</div><div style="font-size:0.82rem;margin-top:4px;opacity:0.7;">Go to Teacher Panel and click "Save to Lesson Library".</div></div>';
+    listEl.innerHTML = '<div style="text-align:center;padding:40px;color:var(--maroon-mid);"><div style="font-size:2rem;margin-bottom:8px;">📭</div><div style="font-weight:700;">No lessons saved yet.</div><div style="font-size:0.82rem;margin-top:4px;opacity:0.7;">Go to Teacher Panel → fill lesson → Save to Library.</div></div>';
     return;
   }
-  // Group by class → subject
+
+  // Group by class
   var grouped = {};
-  lessons.forEach(function(l){
-    if(!grouped[l.class_name]) grouped[l.class_name]={};
-    if(!grouped[l.class_name][l.subject]) grouped[l.class_name][l.subject]=[];
-    grouped[l.class_name][l.subject].push(l);
+  lessons.forEach(function(l) {
+    var key = l.class_name || '—';
+    if (!grouped[key]) grouped[key] = [];
+    grouped[key].push(l);
   });
-  var html='';
-  Object.keys(grouped).sort(function(a,b){
-    var order=['Pre KG','LKG','UKG','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
-    return order.indexOf(a)-order.indexOf(b);
-  }).forEach(function(cls){
-    html+='<div style="margin-bottom:18px;">';
-    html+='<div style="font-family:Cinzel,serif;font-size:1rem;font-weight:700;color:var(--maroon-dark);padding:8px 4px;border-bottom:2px solid var(--sandal-dark);margin-bottom:10px;">🎓 '+cls+'</div>';
-    Object.keys(grouped[cls]).sort().forEach(function(sub){
-      html+='<div style="margin-bottom:10px;">';
-      html+='<div style="font-size:0.78rem;font-weight:800;color:var(--gold-dark);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;padding:0 4px;">📘 '+sub+'</div>';
-      grouped[cls][sub].forEach(function(l){
-        var isActive = l.is_active;
-        var borderStyle = isActive ? 'border-color:#1a7a3a;' : '';
-        var bgStyle = isActive ? 'background:linear-gradient(135deg,#f0fff4,var(--white));' : 'background:var(--white);';
-        var badge = isActive ? '<span style="background:#1a7a3a;color:white;font-size:0.65rem;font-weight:800;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle;">● ACTIVE</span>' : '';
-        var date = new Date(l.updated_at).toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-        var preview = l.lesson_text ? l.lesson_text.substring(0,90)+'…' : 'No content';
-        var safeId = l.id.replace(/[^a-zA-Z0-9-]/g,'');
-        html+='<div style="'+bgStyle+'border:1.5px solid var(--gold-dark);'+borderStyle+'border-radius:12px;padding:12px 14px;margin-bottom:8px;">';
-        html+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">';
-        html+='<div style="flex:1;min-width:160px;">';
-        html+='<div style="font-weight:800;color:var(--maroon);font-size:0.92rem;">📖 '+l.chapter+badge+'</div>';
-        html+='<div style="font-size:0.76rem;color:#999;margin-top:3px;line-height:1.4;">'+preview+'</div>';
-        html+='<div style="font-size:0.7rem;color:#bbb;margin-top:2px;">Saved: '+date+'</div>';
-        html+='</div>';
-        html+='<div style="display:flex;gap:6px;flex-shrink:0;flex-wrap:wrap;">';
-        // Encode lesson data as base64 to avoid quote escaping issues
-        var lessonData = btoa(unescape(encodeURIComponent(JSON.stringify(l))));
-        html+='<button onclick="teachFromLibrary(\'' + lessonData + '\')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">▶ Activate &amp; Teach</button>';
-        html+='<button onclick="loadIntoEditor(\'' + safeId + '\')" style="background:rgba(201,168,76,0.12);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️ Edit</button>';
-        var safeChapter = l.chapter.replace(/['"]/g,'');
-        html+='<button onclick="deleteFromLibrary(\'' + safeId + '\',\'' + safeChapter + '\',\'' + l.class_name + '\',\'' + l.subject + '\')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
-        html+='</div></div></div>';
-      });
-      html+='</div>';
+
+  var classOrder = ['Pre KG','LKG','UKG','Class 1','Class 2','Class 3','Class 4','Class 5','Class 6','Class 7','Class 8','Class 9','Class 10','Class 11','Class 12'];
+
+  var html = '';
+  Object.keys(grouped).sort(function(a,b){ return classOrder.indexOf(a) - classOrder.indexOf(b); }).forEach(function(cls) {
+    html += '<div style="margin-bottom:18px;">';
+    // Class header
+    html += '<div style="font-family:Cinzel,serif;font-size:0.95rem;font-weight:700;color:var(--maroon-dark);padding:8px 4px 6px;border-bottom:2px solid var(--sandal-dark);margin-bottom:4px;">🎓 ' + cls + '</div>';
+
+    grouped[cls].forEach(function(l) {
+      var isActive = l.is_active;
+      var activeBadge = isActive ? '<span style="background:#1a7a3a;color:white;font-size:0.65rem;font-weight:800;padding:2px 7px;border-radius:8px;margin-left:6px;vertical-align:middle;">● ACTIVE</span>' : '';
+      var rowBg = isActive ? 'background:#f0fff4;border-left:3px solid #1a7a3a;' : 'background:var(--white);border-left:3px solid transparent;';
+      var lessonData = btoa(unescape(encodeURIComponent(JSON.stringify(l))));
+      var safeId = (l.id||'').replace(/[^a-zA-Z0-9-]/g,'');
+      var safeChapter = (l.chapter||'').replace(/['"]/g,'');
+      var safeCls = (l.class_name||'').replace(/['"]/g,'');
+      var safeSub = (l.subject||'').replace(/['"]/g,'');
+
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:9px 10px;margin-bottom:3px;border-radius:8px;' + rowBg + '">';
+      // Subject tag + lesson name
+      html += '<span style="font-size:0.72rem;font-weight:800;color:var(--gold-dark);background:rgba(201,168,76,0.12);padding:2px 7px;border-radius:6px;white-space:nowrap;">' + (l.subject||'') + '</span>';
+      html += '<span style="flex:1;font-weight:700;color:var(--maroon);font-size:0.9rem;">📖 ' + (l.chapter||'') + activeBadge + '</span>';
+      // Buttons
+      html += '<button onclick="teachFromLibrary(\'' + lessonData + '\')" style="background:var(--maroon);color:var(--gold-light);border:none;border-radius:7px;padding:6px 12px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">▶ Activate</button>';
+      html += '<button onclick="loadIntoEditor(\'' + safeId + '\')" style="background:rgba(201,168,76,0.15);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:7px;padding:6px 10px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️</button>';
+      html += '<button onclick="deleteFromLibrary(\'' + safeId + '\',\'' + safeChapter + '\',\'' + safeCls + '\',\'' + safeSub + '\')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:7px;padding:6px 10px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
+      html += '</div>';
     });
-    html+='</div>';
+
+    html += '</div>';
   });
+
   listEl.innerHTML = html;
 }
+
 
 async function teachFromLibrary(b64) {
   var l;
