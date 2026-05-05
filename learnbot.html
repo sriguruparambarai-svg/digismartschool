@@ -2241,7 +2241,15 @@ async function saveLessonToDB(cls, sub, ch, lessonText){
   try{
     var sess=JSON.parse(sessionStorage.getItem('tm_activated')||'{}');
     if(sess.school_id) schoolId=sess.school_id;
-    if(!schoolId){ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=u.school_id||u.id||''; }
+    if(!schoolId){
+      var u=JSON.parse(localStorage.getItem('dss_user')||'{}');
+      var role=localStorage.getItem('dss_role')||'';
+      if(role==='teacher'){
+        schoolId=u.school_id||(u.schools&&u.schools.id)||'';
+      } else {
+        schoolId=u.school_id||u.id||'';
+      }
+    }
     if(!schoolId && window._fetchedSchoolId) schoolId=window._fetchedSchoolId;
   }catch(e){}
 
@@ -2271,23 +2279,30 @@ async function saveLessonToDB(cls, sub, ch, lessonText){
   }
 }
 
-// Load lesson from Supabase for a class+subject
+// Load lesson from Supabase for a class+subject (school-isolated)
 async function loadLessonFromDB(cls, sub){
-  var sb = getSB();
-  if(!sb) return null;
-  var key = cls.replace(/\s+/g,'-').toLowerCase() + '_' + sub.replace(/\s+/g,'-').toLowerCase();
   try {
-    var { data, error } = await sb.from('active_lessons').select('*').eq('class_id', key).single();
-    if(error || !data) return null;
-    return data;
+    var schoolId = '';
+    try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=u.school_id||u.id||''; }catch(e){}
+    if(!schoolId) return null;
+    var key = schoolId + '_' + cls.replace(/\s+/g,'-').toLowerCase() + '_' + sub.replace(/\s+/g,'-').toLowerCase();
+    // Use REST API with school filter — never read another school's lesson
+    var res = await fetch(SB_URL+'/rest/v1/active_lessons?class_id=eq.'+encodeURIComponent(key)+'&school_id=eq.'+encodeURIComponent(schoolId)+'&select=*&limit=1',{
+      headers:{'apikey':SB_KEY,'Authorization':'Bearer '+SB_KEY}
+    });
+    var data = await res.json();
+    if(!data || !data.length) return null;
+    return data[0];
   } catch(e){ return null; }
 }
 
-// Load ALL active lessons (for teacher to see what is activated)
+// Load ALL active lessons for THIS school only
 async function loadAllLessons(){
   try{
+    var schoolId = '';
+    try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=u.school_id||u.id||''; }catch(e){}
     var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'get_active_lessons'})});
+      body:JSON.stringify({action:'get_active_lessons', school_id: schoolId})});
     var d = await r.json();
     return d.lessons || [];
   }catch(e){ return []; }
@@ -2977,9 +2992,23 @@ async function saveNotesToDiary(){
   var sb=getSB();
   if(!sb){alert('Database not connected. Please check Supabase setup.');return;}
 
-  // Get school_id from session
+  // Get school_id — role-aware (teachers store school in school_id, admins use own id)
   var schoolId='';
-  try{var sess=JSON.parse(sessionStorage.getItem('dss_session')||'{}');schoolId=sess.school_id||'';}catch(e){}
+  try{
+    var sess=JSON.parse(sessionStorage.getItem('dss_session')||'{}');
+    schoolId=sess.school_id||'';
+  }catch(e){}
+  if(!schoolId){
+    try{
+      var u=JSON.parse(localStorage.getItem('dss_user')||'{}');
+      var role=localStorage.getItem('dss_role')||'';
+      if(role==='teacher'){
+        schoolId=u.school_id||(u.schools&&u.schools.id)||'';
+      } else {
+        schoolId=u.school_id||u.id||'';
+      }
+    }catch(e){}
+  }
 
   var payload={
     school_id: schoolId,
