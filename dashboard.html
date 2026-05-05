@@ -140,7 +140,8 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Password</label>
       <input type="password" id="t-pass" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
     </div>
-    <button onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
+    <div id="teacher-limit-msg" style="display:none;background:#f8d7da;color:#721c24;border:1px solid #dc3545;border-radius:8px;padding:9px 12px;font-size:0.85rem;font-weight:700;margin-bottom:8px;"></div>
+    <button id="add-teacher-btn" onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
     <div id="t-msg" style="font-size:0.82rem;font-weight:700;min-height:22px;padding:6px 0;"></div>
   </div>
 
@@ -282,6 +283,7 @@ if (localSchool.max_teachers)
       sessionStorage.removeItem('dss_warning');
     }
     window._schoolId = s.id;
+    window._maxTeachers = parseInt(s.max_teachers) || 5;
   } catch(e) { console.error('School info error:', e); }
 })();
 
@@ -303,12 +305,31 @@ async function loadTeachers(){
       body:JSON.stringify({action:'get_teachers',school_id:window._schoolId})});
     var d=await r.json();
     var teachers=d.teachers||[];
-    countEl.textContent=teachers.length;
+    var maxT = window._maxTeachers || 5;
+    var remaining = maxT - teachers.length;
+
+    // Update count display with limit
+    countEl.textContent = teachers.length + ' / ' + maxT;
+
+    // Show/hide add form based on limit
+    var addBtn = document.getElementById('add-teacher-btn');
+    var limitMsg = document.getElementById('teacher-limit-msg');
+    if(remaining <= 0){
+      if(addBtn) addBtn.disabled = true;
+      if(limitMsg){ limitMsg.style.display='block'; limitMsg.textContent='⚠️ Teacher limit reached ('+maxT+'). Contact DigiSmartSchool to upgrade.'; }
+    } else {
+      if(addBtn) addBtn.disabled = false;
+      if(limitMsg){ limitMsg.style.display='none'; }
+    }
+
     if(!teachers.length){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;font-style:italic;">No teachers added yet.</div>'; return; }
     listEl.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:.88rem;">'
-      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th></tr></thead><tbody>'
-      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td></tr>'; }).join('')
-      +'</tbody></table>';
+      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:center;">Slots Left</th></tr></thead><tbody>'
+      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td><td></td></tr>'; }).join('')
+      +'</tbody></table>'
+      +'<div style="padding:10px 12px;font-size:0.82rem;color:'+(remaining>0?'#1a5c2a':'#c0392b')+';font-weight:700;">'+
+        (remaining>0 ? '✅ '+remaining+' slot(s) remaining' : '🔒 No slots remaining — upgrade to add more teachers')
+      +'</div>';
   }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
 }
 async function addTeacher(){
@@ -318,6 +339,9 @@ async function addTeacher(){
   var msg=document.getElementById('t-msg');
   if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent='Please fill all fields.'; return; }
   if(!window._schoolId){ msg.style.color='#c0392b'; msg.textContent='School ID not ready. Please wait.'; return; }
+  // Frontend limit check before even calling server
+  var addBtn=document.getElementById('add-teacher-btn');
+  if(addBtn && addBtn.disabled){ msg.style.color='#c0392b'; msg.textContent='Teacher limit reached. Contact DigiSmartSchool to upgrade.'; return; }
   msg.style.color='#6B0F1A'; msg.textContent='Adding...';
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},

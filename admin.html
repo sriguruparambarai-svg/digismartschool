@@ -143,6 +143,15 @@ tr:hover td{background:#fef9f0;}
     </select>
     <label>Valid Until</label>
     <input type="date" id="sub-end"/>
+    <label>Max Teachers Allowed</label>
+    <select id="sub-max-teachers">
+      <option value="3">3 Teachers (Basic)</option>
+      <option value="5" selected>5 Teachers (Standard)</option>
+      <option value="10">10 Teachers (Premium)</option>
+      <option value="20">20 Teachers (Enterprise)</option>
+      <option value="50">50 Teachers (Unlimited)</option>
+    </select>
+    <div id="sub-teacher-count" style="font-size:0.82rem;color:#555;margin-top:4px;padding:6px 10px;background:#f5f5f5;border-radius:6px;"></div>
     <div class="success" id="sub-ok">✅ Updated!</div>
     <div class="error" id="sub-err"></div>
     <br/>
@@ -237,7 +246,7 @@ async function loadSchools() {
       <td><span class="${statusBadge}">${s.subscription_status}</span></td>
       <td>${s.subscription_end || '-'}</td>
       <td>
-        <button class="btn bg bsm" onclick="openSubModal('${s.id}','${s.name}','${s.subscription_status}','${s.subscription_end||''}')">📋 Subscription</button>
+        <button class="btn bg bsm" onclick="openSubModal('${s.id}','${s.name}','${s.subscription_status}','${s.subscription_end||''}','${s.max_teachers||5}')">📋 Subscription</button>
         <button class="btn bp bsm" onclick="openTeacherModal('${s.id}','${s.name}')" style="margin-left:5px;">👩‍🏫 Add Teacher</button>
       </td>
     </tr>`;
@@ -273,13 +282,26 @@ async function addSchool() {
   loadSchools();
 }
 
-function openSubModal(id, name, status, end) {
+async function openSubModal(id, name, status, end, maxT) {
   document.getElementById('sub-school-id').value = id;
   document.getElementById('sub-school-name').value = name;
   document.getElementById('sub-status').value = status;
   document.getElementById('sub-end').value = end;
   document.getElementById('sub-ok').style.display = 'none';
   document.getElementById('sub-err').style.display = 'none';
+  // Set max_teachers dropdown
+  const maxSel = document.getElementById('sub-max-teachers');
+  if(maxT){ maxSel.value = String(maxT); }
+  // Load current teacher count
+  const countDiv = document.getElementById('sub-teacher-count');
+  countDiv.textContent = 'Loading teacher count...';
+  try{
+    const r = await callAuth({ action: 'get_teachers', school_id: id });
+    const cnt = (r.teachers || []).length;
+    const mx = parseInt(maxSel.value) || 5;
+    countDiv.textContent = 'Currently ' + cnt + ' teacher(s) added out of ' + mx + ' allowed.';
+    countDiv.style.color = cnt >= mx ? '#c0392b' : '#1a5c2a';
+  }catch(e){ countDiv.textContent = ''; }
   document.getElementById('sub-modal').classList.add('on');
 }
 
@@ -287,7 +309,8 @@ async function saveSubscription() {
   const id = document.getElementById('sub-school-id').value;
   const status = document.getElementById('sub-status').value;
   const end = document.getElementById('sub-end').value;
-  const d = await callAuth({ action: 'update_subscription', school_id: id, status, end_date: end });
+  const maxTeachers = parseInt(document.getElementById('sub-max-teachers').value) || 5;
+  const d = await callAuth({ action: 'update_subscription', school_id: id, status, end_date: end, max_teachers: maxTeachers });
   if (d.error) { showMsg('sub-err', d.error); return; }
   showMsg('sub-ok', null);
   setTimeout(() => { document.getElementById('sub-modal').classList.remove('on'); loadSchools(); }, 1000);
