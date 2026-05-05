@@ -413,21 +413,22 @@ function greetByTime(){
 // ══════════════════════════════════════════
 async function loadAllEntries(){
   var s = currentStudent;
-  console.log('Loading entries for student:', s);
+  console.log('Loading entries via /api/auth for school:', s.school_id, 'class:', s.class_name);
   try{
-    // Use eq (exact match) for school_id UUID — ilike can cause issues with UUIDs
-    var {data, error} = await sb.from('diary_entries')
-      .select('*')
-      .eq('school_id', s.school_id)
-      .eq('class_name', s.class_name)
-      .order('lesson_date', {ascending: false});
-
-    if(error){
-      console.error('Supabase error:', error);
-      throw error;
-    }
-    console.log('Diary entries loaded:', data ? data.length : 0);
-    allEntries = data || [];
+    // Route through /api/auth (uses service key) — avoids anon key RLS issues
+    var res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get_diary_entries',
+        school_id: s.school_id,
+        class_name: s.class_name
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    console.log('Diary entries loaded:', d.entries ? d.entries.length : 0);
+    allEntries = d.entries || [];
     renderHome();
     renderSubjects();
     renderDiary();
@@ -438,7 +439,6 @@ async function loadAllEntries(){
       '<div class="empty-icon">😔</div>' +
       '<div class="empty-title">Could not load diary</div>' +
       '<div class="empty-sub">' + (e.message || 'Unknown error') + '</div>' +
-      '<div class="empty-sub" style="font-size:0.75rem;margin-top:8px;color:#aaa;">School: ' + s.school_id + ' | Class: ' + s.class_name + '</div>' +
       '</div>';
   }
 }
