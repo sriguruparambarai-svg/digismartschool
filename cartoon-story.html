@@ -267,10 +267,27 @@ async function generateAllVideos(){
 function setSt(i,c,t){var e=document.getElementById('lst-'+i);if(e){e.className='lst lst-'+c;e.textContent=t;}}
 
 async function callKlingAPI(prompt){
-  var r=await fetch('/api/kling-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt:prompt,duration:'5',aspect_ratio:'16:9',mode:'standard'})});
+  // Step 1 — create the task (fast, returns taskId immediately)
+  var r=await fetch('/api/kling-video',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'create',prompt:prompt,duration:'5',aspect_ratio:'16:9',mode:'standard'})});
   var d=await r.json();
-  if(!r.ok||d.error)throw new Error(d.error||'Kling error');
-  return d.videoUrl;
+  if(!r.ok||d.error)throw new Error(d.error||'Kling create error');
+  var taskId=d.taskId;
+  if(!taskId)throw new Error('No taskId from Kling');
+
+  // Step 2 — poll from browser every 6 seconds until done (max 4 minutes)
+  var start=Date.now();
+  while(Date.now()-start < 240000){
+    await new Promise(function(res){setTimeout(res,6000);});
+    var pr=await fetch('/api/kling-video',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'poll',taskId:taskId})});
+    var pd=await pr.json();
+    if(pd.error)throw new Error(pd.error);
+    if(pd.status==='done'&&pd.videoUrl)return pd.videoUrl;
+    if(pd.status==='failed')throw new Error(pd.error||'Kling task failed');
+    // pd.status==='processing' — keep polling
+  }
+  throw new Error('Kling video timed out after 4 minutes');
 }
 
 function buildScenePrompt(text,type,title,cls){
