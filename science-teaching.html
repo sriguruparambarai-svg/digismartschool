@@ -1012,7 +1012,10 @@ async function startLesson(){
   var pageTo=document.getElementById('page-to').value;
 
   if(!pdfFile&&!pasteText){
-    showErr('Please upload a PDF or paste lesson text first.');return;
+    // Show setup if called without data
+    document.getElementById('setup').classList.add('show');
+    showErr('Please upload a Science textbook PDF or paste lesson text to begin.');
+    return;
   }
   document.getElementById('start-btn').disabled=true;
   document.getElementById('err-bar').classList.remove('show');
@@ -1423,9 +1426,26 @@ window.addEventListener('load',function(){
     if(d){
       if(d.chapter)document.getElementById('meta-chapter').value=d.chapter;
       if(d.cls)document.getElementById('meta-class').value=d.cls;
-      if(d.lessonText){
-        document.getElementById('paste-text').value=d.lessonText;
-        document.getElementById('fallback-area').classList.add('show');
+      if(d.subject)document.getElementById('meta-subject').value=d.subject;
+      // Try to get lesson text — from autostart payload OR from tm_lesson sessionStorage
+      var lessonTxt = d.lessonText || '';
+      if(!lessonTxt || lessonTxt.trim().length < 20){
+        try{ lessonTxt = sessionStorage.getItem('tm_lesson') || ''; }catch(e){}
+      }
+      if(!lessonTxt || lessonTxt.trim().length < 20){
+        try{ lessonTxt = sessionStorage.getItem('bb_lesson') || ''; }catch(e){}
+      }
+
+      if(lessonTxt && lessonTxt.trim().length > 50){
+        // Lesson text found — skip setup entirely, start teaching directly
+        document.getElementById('paste-text').value = lessonTxt;
+        document.getElementById('setup').classList.remove('show');
+        showLoad('Preparing lesson…','Loading lesson from library');
+        setTimeout(function(){ startLesson(); }, 500);
+      } else {
+        // No lesson text — show setup with chapter/class pre-filled
+        // Teacher can upload PDF or paste text
+        document.getElementById('setup').classList.add('show');
       }
     }
   }
