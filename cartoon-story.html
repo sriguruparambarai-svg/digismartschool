@@ -406,19 +406,18 @@ async function generateCartoon(){
   var prompt = buildPrompt(text, storyType, storyTitle, storyClass);
 
   try{
-    var resp = await fetch('https://api.anthropic.com/v1/messages',{
+    var resp = await fetch('/api/ai',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:3000,
         system:'You are a children\'s cartoon script writer for Indian school students (Classes 1–8). You convert English stories and poems into structured cartoon scene data. Always respond with ONLY valid JSON, no markdown fences, no extra text.',
-        messages:[{role:'user',content:prompt}]
+        messages:[{role:'user',content:prompt}],
+        max_tokens:3000
       })
     });
     var data = await resp.json();
     if(data.error){throw new Error(data.error.message||'API error');}
-    var raw = data.content.map(function(b){return b.type==='text'?b.text:'';}).join('');
+    var raw = (data.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('');
     var clean = raw.replace(/```json|```/g,'').trim();
     var result = JSON.parse(clean);
     hideLoad();
