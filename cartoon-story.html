@@ -476,6 +476,28 @@ input[type=range]{
   transition:all .2s;
 }
 .restart-btn:hover{background:rgba(107,26,26,.7);}
+.lang-btn{
+  flex:1;padding:12px 10px;
+  background:rgba(255,255,255,.04);
+  border:1.5px solid rgba(201,150,42,.2);border-radius:12px;
+  cursor:pointer;text-align:center;transition:all .2s;
+}
+.lang-btn.active{
+  background:rgba(107,26,26,.25);
+  border-color:var(--gold);
+}
+.lang-btn-label{
+  font-family:'Baloo 2',cursive;font-size:.88rem;font-weight:800;
+  color:var(--sandal);margin-top:4px;
+}
+.lang-btn-sub{font-size:.6rem;color:rgba(232,201,154,.45);margin-top:2px;}
+.lang-tag{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 10px;border-radius:10px;font-size:.6rem;font-weight:800;
+  text-transform:uppercase;letter-spacing:1px;
+}
+.lang-tag-en{background:rgba(59,130,246,.12);color:#60a5fa;border:1px solid rgba(59,130,246,.2);}
+.lang-tag-ta{background:rgba(201,168,76,.12);color:var(--gold);border:1px solid rgba(201,168,76,.2);}
 
 @media(max-width:480px){
   .stb-title{font-size:1.2rem;}
@@ -533,6 +555,21 @@ input[type=range]{
     <div class="tc" data-type="moral" onclick="selType(this)">⭐ Moral</div>
     <div class="tc" data-type="dialogue" onclick="selType(this)">💬 Dialogue</div>
   </div>
+
+  <div class="lbl" style="margin-top:14px;">Language / மொழி</div>
+  <div style="display:flex;gap:10px;margin-bottom:18px;">
+    <div class="lang-btn active" id="lang-en" onclick="setLang('en',this)">
+      <span style="font-size:1rem;">🇬🇧</span>
+      <div class="lang-btn-label">English</div>
+      <div class="lang-btn-sub">English narration</div>
+    </div>
+    <div class="lang-btn" id="lang-ta" onclick="setLang('ta',this)">
+      <span style="font-size:1rem;">🇮🇳</span>
+      <div class="lang-btn-label">தமிழ்</div>
+      <div class="lang-btn-sub">Tamil narration</div>
+    </div>
+  </div>
+
   <button class="gen-btn" id="gen-btn" onclick="generateStory()">
     📖 Open the Storybook
   </button>
@@ -614,6 +651,7 @@ input[type=range]{
 // ═══════════════════════════════════════════════════════
 var scenes=[],bgCache={},curIdx=0,playing=false,spd=.82;
 var storyTitle='',storyType='story',storyClass='',moral='',selT='story';
+var storyLang='en'; // 'en' or 'ta'
 var ptimer=null,hlInterval=null,dlgTimer=null;
 // Two background layers for cross-fade (A/B swap)
 var activeBg='a'; // 'a' or 'b'
@@ -647,6 +685,25 @@ function loadImage(url){
 function selType(el){
   document.querySelectorAll('.tc').forEach(function(c){c.classList.remove('sel');});
   el.classList.add('sel');selT=el.getAttribute('data-type');
+}
+function setLang(lang,el){
+  storyLang=lang;
+  document.querySelectorAll('.lang-btn').forEach(function(b){b.classList.remove('active');});
+  el.classList.add('active');
+  // Update placeholder and button text
+  var box=document.getElementById('story-input');
+  var btn=document.getElementById('gen-btn');
+  if(lang==='ta'){
+    box.placeholder='இங்கே தமிழ் கதை அல்லது கவிதையை ஒட்டவும் — அல்லது கீழே தலைப்பை மட்டும் கொடுத்தால் AI கதை எழுதும்!';
+    btn.innerHTML='📖 கதை புத்தகத்தை திறக்கவும்';
+    document.getElementById('meta-title').placeholder='கதை தலைப்பு (எ.கா. மூன்று கேள்விகள்)';
+    document.getElementById('meta-class').placeholder='வகுப்பு (எ.கா. 7ஆம் வகுப்பு)';
+  } else {
+    box.placeholder='Paste story or poem here — or just enter a title below and AI writes it!';
+    btn.innerHTML='📖 Open the Storybook';
+    document.getElementById('meta-title').placeholder='Story Title (e.g. The Three Questions)';
+    document.getElementById('meta-class').placeholder='Class (e.g. Class 7)';
+  }
 }
 function showLoad(t,s){
   document.getElementById('l-title').textContent=t||'Loading…';
@@ -688,7 +745,11 @@ async function generateStory(){
   document.getElementById('err-bar').classList.remove('show');
   document.getElementById('setup').classList.remove('show');
 
-  showLoad('Writing your story…','AI is creating cinematic scenes');
+  var isTamil=(storyLang==='ta');
+  showLoad(
+    isTamil?'கதை எழுதப்படுகிறது…':'Writing your story…',
+    isTamil?'AI ஒவ்வொரு காட்சியையும் உருவாக்குகிறது':'AI is creating cinematic scenes'
+  );
 
   try{
     var resp=await fetch('/api/ai',{
@@ -704,7 +765,9 @@ async function generateStory(){
     if(d.error)throw new Error(d.error.message||'API error');
     var raw=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('');
     var result=JSON.parse(raw.replace(/```json|```/g,'').trim());
-    scenes=result.scenes||[];moral=result.moral||'';storyTitle=result.title||storyTitle;
+    scenes=result.scenes||[];
+    moral=(storyLang==='ta'&&result.moral_ta)?result.moral_ta:(result.moral||'');
+    storyTitle=result.title||storyTitle;
     if(!scenes.length)throw new Error('No scenes returned. Please try again.');
 
     // Step 2 — generate all background images
@@ -769,14 +832,41 @@ async function generateAllBackgrounds(){
 // SCENE PROMPT FOR CLAUDE
 // ═══════════════════════════════════════════════════════
 function buildScenePrompt(text,type,title,cls){
+  var isTamil=(storyLang==='ta');
   var ts=text&&text.trim().length>30
     ?'STORY TEXT:\n'+text+'\n\n'
-    :'Invent a complete emotionally engaging "'+title+'" '+type+' for '+(cls||'Class 5')+' Indian school students.\n\n';
-  return 'Create a cinematic storybook scene breakdown.\nTITLE: '+title+'\nCLASS: '+(cls||'Class 5')+'\nTYPE: '+type+'\n\n'+ts
+    :(isTamil
+      ?'"'+title+'" என்ற '+type+' ஐ '+(cls||'5ஆம் வகுப்பு')+' மாணவர்களுக்கு உணர்ச்சிமிக்க கதையாக எழுதவும்.\n\n'
+      :'Invent a complete emotionally engaging "'+title+'" '+type+' for '+(cls||'Class 5')+' Indian school students.\n\n');
+
+  var narrInstruction=isTamil
+    ?'"narration": "2-3 வாக்கியங்கள், இலக்கிய தரம், குழந்தைகளுக்கு ஈர்க்கும் தமிழ் நடை — MUST BE IN TAMIL SCRIPT"'
+    :'"narration":"2-3 rich sentences, literary quality, engaging narration for children"';
+
+  var dlgInstruction=isTamil
+    ?'"dialogue":"ஒரு முக்கியமான வசனம் — max 12 words IN TAMIL"'
+    :'"dialogue":"one powerful spoken line max 12 words"';
+
+  var moralInstruction=isTamil
+    ?'"moral":"ஒரு சக்திவாய்ந்த நீதி வாக்கியம் IN TAMIL"'
+    :'"moral":"one powerful sentence"';
+
+  var kwInstruction=isTamil
+    ?'"keywords":[{"word":"தமிழ் சொல்","meaning":"எளிய தமிழ் அல்லது ஆங்கில விளக்கம்"}]'
+    :'"keywords":[{"word":"w","meaning":"simple child-friendly meaning"}]';
+
+  var qInstruction=isTamil
+    ?'"question":"ஒரு சிந்தனைமிக்க கேள்வி IN TAMIL"'
+    :'"question":"one thoughtful comprehension question"';
+
+  // bg_prompt is ALWAYS in English for Pollinations image API
+  var bgInstruction='"bg_prompt":"vivid detailed scene description IN ENGLISH for image generation (Tamil/Indian cultural setting, describe setting, lighting, mood, characters, time of day — 15-25 words)"';
+
+  return 'Create a cinematic storybook scene breakdown.\nTITLE: '+title+'\nCLASS: '+(cls||'Class 5')+'\nTYPE: '+type+'\nLANGUAGE: '+(isTamil?'Tamil — ALL narration, dialogue, moral, keywords, questions MUST be in Tamil script (தமிழ்). bg_prompt must stay in English for image generation.':'English')+'\n\n'+ts
     +'Return ONLY this JSON:\n'
-    +'{"title":"...","type":"...","moral":"one powerful sentence","scenes":[\n'
-    +'{"num":1,"name":"short evocative scene name","bg_prompt":"vivid detailed scene description for image generation (describe setting, lighting, mood, characters present, time of day — 15-25 words)","emotion":"happy|sad|excited|scared|surprised|angry|calm|mysterious","emoji":"one emoji","characters":["name1","name2"],"narration":"2-3 rich sentences, literary quality, engaging narration for children","dialogue":"one powerful spoken line max 12 words","speaker":"character name","keywords":[{"word":"w","meaning":"simple child-friendly meaning"}],"question":"one thoughtful comprehension question","stanza":"poem stanza if poem else empty string"}]}\n'
-    +'Rules: 4-6 scenes, literary narration quality, bg_prompt must be vivid and specific, ONLY JSON.';
+    +'{"title":"...","type":"...","moral_ta":"'+(isTamil?'நீதி வாக்கியம் in Tamil':'')+'","moral":"one sentence in English for fallback","scenes":[\n'
+    +'{\n"num":1,\n"name":"short evocative scene name '+(isTamil?'in Tamil':'')+'",\n'+bgInstruction+',\n"emotion":"happy|sad|excited|scared|surprised|angry|calm|mysterious",\n"emoji":"one emoji",\n"characters":["name1","name2"],\n'+narrInstruction+',\n'+dlgInstruction+',\n"speaker":"character name",\n'+kwInstruction+',\n'+qInstruction+',\n"stanza":"'+(isTamil?'poem stanza in Tamil if poem else empty':'poem stanza if poem else empty string')+'"\n}]}\n'
+    +'Rules: 4-6 scenes, high literary quality, bg_prompt always in English, ONLY JSON.';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -786,7 +876,13 @@ function buildStage(){
   var tl={story:'📖 Story',poem:'🎵 Poem',fable:'🦁 Fable',history:'🏛 History',moral:'⭐ Moral Story',dialogue:'💬 Dialogue'};
   document.getElementById('stb-badge').textContent=tl[storyType]||'📖 Story';
   document.getElementById('stb-title').textContent=storyTitle;
-  document.getElementById('stb-meta').textContent='English'+(storyClass?' • '+storyClass:'');
+  var langLabel=storyLang==='ta'?'தமிழ்':'English';
+  document.getElementById('stb-meta').textContent=langLabel+(storyClass?' • '+storyClass:'');
+  // Show language tag
+  var langTagHtml=storyLang==='ta'
+    ?'<span class="lang-tag lang-tag-ta">🇮🇳 தமிழ்</span>'
+    :'<span class="lang-tag lang-tag-en">🇬🇧 English</span>';
+  document.getElementById('stb-meta').innerHTML=langLabel+(storyClass?' • '+storyClass:'')+' &nbsp;'+langTagHtml;
   if(moral)document.getElementById('moral-txt').textContent=moral;
 
   var nav=document.getElementById('scene-nav');nav.innerHTML='';
@@ -1014,14 +1110,30 @@ function speak(txt,lang,onEnd){
   if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}
   speechSynthesis.cancel();
   var clean=String(txt||'').replace(/\*\*/g,'').replace(/\*/g,'').trim();
+  if(!clean){if(onEnd)onEnd();return;}
   var u=new SpeechSynthesisUtterance(clean);
   var vv=speechSynthesis.getVoices();
-  var v=vv.find(function(x){return x.lang==='en-IN'&&x.name.includes('Natural');})||
-         vv.find(function(x){return x.lang==='en-IN';})||
-         vv.find(function(x){return x.lang&&x.lang.startsWith('en');})||
-         vv[0]||null;
+  var useLang=lang||storyLang;
+  var v=null;
+  if(useLang==='ta'){
+    // Try Tamil voice first
+    v=vv.find(function(x){return x.lang&&(x.lang==='ta-IN'||x.lang.startsWith('ta'));});
+    if(!v){
+      // Fallback: use en-IN but Tamil text is still displayed in subtitles
+      v=vv.find(function(x){return x.lang==='en-IN';})||
+        vv.find(function(x){return x.lang&&x.lang.startsWith('en');})||
+        vv[0]||null;
+    }
+    u.lang=v&&v.lang&&v.lang.startsWith('ta')?'ta-IN':'en-IN';
+  } else {
+    v=vv.find(function(x){return x.lang==='en-IN'&&x.name.includes('Natural');})||
+       vv.find(function(x){return x.lang==='en-IN';})||
+       vv.find(function(x){return x.lang&&x.lang.startsWith('en');})||
+       vv[0]||null;
+    u.lang='en-IN';
+  }
   if(v)u.voice=v;
-  u.lang='en-IN';u.rate=Math.max(.5,Math.min(1.4,spd));u.pitch=1.02;
+  u.rate=Math.max(.5,Math.min(1.4,spd));u.pitch=1.02;
   u.onend=function(){if(onEnd)onEnd();};
   u.onerror=function(){if(onEnd)onEnd();};
   speechSynthesis.speak(u);
@@ -1048,6 +1160,10 @@ window.addEventListener('load',function(){
           c.classList.remove('sel');
           if(c.getAttribute('data-type')===d.type)c.classList.add('sel');
         });selT=d.type;
+      }
+      if(d.lang){
+        var langEl=document.getElementById('lang-'+d.lang);
+        if(langEl)setLang(d.lang,langEl);
       }
       document.getElementById('setup').classList.remove('show');
       generateStory();
