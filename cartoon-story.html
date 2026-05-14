@@ -393,18 +393,15 @@ function restartSetup(){
 // GENERATE — calls Anthropic API
 // ═══════════════════════════════════════
 async function generateCartoon(){
-  var text = document.getElementById('story-input').value.trim();
-  if(!text || text.length < 30){
-    showErr('Please paste a story or poem first (at least a few lines).');
-    return;
-  }
-  storyTitle = document.getElementById('meta-title').value.trim() || 'My Story';
+  storyTitle = document.getElementById('meta-title').value.trim() || 'English Story';
   storyClass = document.getElementById('meta-class').value.trim() || '';
   storyType  = selectedType;
+  var text   = document.getElementById('story-input').value.trim();
 
   document.getElementById('gen-btn').disabled = true;
-  showLoad('Creating your cartoon…', 'AI is reading the story and designing scenes…');
   document.getElementById('err-bar').classList.remove('show');
+  var loadMsg = text.length > 30 ? 'Reading your story and drawing scenes…' : 'AI is creating "' + storyTitle + '" as a cartoon…';
+  showLoad('Creating your cartoon…', loadMsg);
 
   var prompt = buildPrompt(text, storyType, storyTitle, storyClass);
 
@@ -434,11 +431,14 @@ async function generateCartoon(){
 }
 
 function buildPrompt(text, type, title, cls){
+  var textSection = text && text.trim().length > 30
+    ? 'TEXT (use this as the story):\n' + text + '\n\n'
+    : 'NOTE: No text was provided. You must INVENT a complete age-appropriate story for "' + title + '" suitable for ' + (cls||'Class 5') + ' Indian school students. Make it engaging, 4-6 scenes, with clear characters and a good moral.\n\n';
   return 'Convert this English ' + type + ' into a cartoon scene breakdown for Indian school students.\n\n'
     + 'TITLE: ' + title + '\n'
-    + 'CLASS: ' + cls + '\n'
+    + 'CLASS: ' + (cls||'Class 5') + '\n'
     + 'TYPE: ' + type + '\n\n'
-    + 'TEXT:\n' + text + '\n\n'
+    + textSection
     + 'Return ONLY a JSON object with this EXACT structure:\n'
     + '{\n'
     + '  "title": "story title",\n'
@@ -912,9 +912,10 @@ window.addEventListener('load', function(){
     var d = null;
     try{ d = JSON.parse(raw); }catch(e){}
     if(d){
-      // Always fill title and class
+      // Fill all fields
       if(d.title) document.getElementById('meta-title').value = d.title;
       if(d.cls)   document.getElementById('meta-class').value = d.cls;
+      if(d.text)  document.getElementById('story-input').value = d.text;
       // Select type chip
       if(d.type){
         document.querySelectorAll('.type-chip').forEach(function(c){
@@ -923,15 +924,10 @@ window.addEventListener('load', function(){
         });
         selectedType = d.type;
       }
-      // If text came through — fill and auto-generate
-      if(d.text && d.text.trim().length > 30){
-        document.getElementById('story-input').value = d.text;
-        generateCartoon();
-      } else {
-        // No text — show setup with helpful message
-        document.getElementById('story-input').placeholder = 'Paste the story or poem text here.\n\nTitle "' + (d.title||'English Story') + '" is already filled above.\nJust paste the full story text and tap Generate!';
-        showErr('Please paste the story or poem text in the box below, then tap Generate Cartoon Story.');
-      }
+      // ALWAYS auto-generate — AI creates story from title if no text
+      document.getElementById('setup').classList.remove('show');
+      document.getElementById('err-bar').classList.remove('show');
+      generateCartoon();
     }
   }
 });
