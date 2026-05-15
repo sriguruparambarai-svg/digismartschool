@@ -1095,7 +1095,7 @@ function removeDiag(fname){
 async function startLesson(){
   var pasteText=document.getElementById('paste-text').value.trim();
   var subject=document.getElementById('meta-subject').value.trim()||'Science';
-  var chapter=document.getElementById('meta-chapter').value.trim()||'Lesson';
+  var chapter=document.getElementById('meta-chapter').value.trim()||'Science Lesson';
   var cls=document.getElementById('meta-class').value.trim()||'Class 7';
   var pageFrom=document.getElementById('page-from').value;
   var pageTo=document.getElementById('page-to').value;
@@ -1520,30 +1520,52 @@ window.addEventListener('load',function(){
   if(typeof speechSynthesis!=='undefined'){
     speechSynthesis.onvoiceschanged=function(){};speechSynthesis.getVoices();
   }
-  // Check for autostart from learnbot/teaching-mode
-  var raw=null;try{raw=sessionStorage.getItem('science_autostart');}catch(e){}
+
+  // Check sessionStorage for autostart
+  var raw=null;
+  try{raw=sessionStorage.getItem('science_autostart');}catch(e){}
+
   if(raw){
     try{sessionStorage.removeItem('science_autostart');}catch(e){}
-    var d=null;try{d=JSON.parse(raw);}catch(e){}
+    var d=null;
+    try{d=JSON.parse(raw);}catch(e){}
     if(d){
       // Fill meta fields
-      if(d.chapter) document.getElementById('meta-chapter').value = d.chapter;
-      if(d.cls)     document.getElementById('meta-class').value   = d.cls;
-      if(d.subject) document.getElementById('meta-subject').value = d.subject;
+      if(d.chapter) document.getElementById('meta-chapter').value=d.chapter;
+      if(d.cls)     document.getElementById('meta-class').value=d.cls;
+      if(d.subject) document.getElementById('meta-subject').value=d.subject;
 
-      // Collect lesson text from every possible source
-      var lessonTxt = d.lessonText || '';
-      if(!lessonTxt||lessonTxt.trim().length<20){ try{lessonTxt=sessionStorage.getItem('tm_lesson')||'';}catch(e){} }
-      if(!lessonTxt||lessonTxt.trim().length<20){ try{lessonTxt=sessionStorage.getItem('bb_lesson')||'';}catch(e){} }
-      if(lessonTxt) document.getElementById('paste-text').value = lessonTxt;
+      // Collect lesson text
+      var lessonTxt=d.lessonText||'';
+      if(!lessonTxt||lessonTxt.trim().length<20){try{lessonTxt=sessionStorage.getItem('tm_lesson')||'';}catch(e){}}
+      if(!lessonTxt||lessonTxt.trim().length<20){try{lessonTxt=sessionStorage.getItem('bb_lesson')||'';}catch(e){}}
+      if(lessonTxt) document.getElementById('paste-text').value=lessonTxt;
 
-      // ALWAYS skip setup and go directly to teaching
-      // If no text — AI generates content from chapter name + subject
+      // Always auto-start
       document.getElementById('setup').classList.remove('show');
-      showLoad('Preparing lesson…', 'Setting up "'+(d.chapter||d.subject||'Science Lesson')+'"');
-      setTimeout(function(){ startLesson(); }, 400);
+      showLoad('Preparing lesson…','Setting up "'+(d.chapter||d.subject||'Science Lesson')+'"');
+      setTimeout(startLesson, 400);
+      return;
     }
   }
+
+  // No autostart data — also check URL params
+  var params=new URLSearchParams(window.location.search);
+  var urlChapter=params.get('chapter')||params.get('topic')||'';
+  var urlCls=params.get('cls')||params.get('class')||'';
+  var urlSubject=params.get('subject')||'';
+  if(urlChapter){
+    if(urlChapter) document.getElementById('meta-chapter').value=decodeURIComponent(urlChapter);
+    if(urlCls)     document.getElementById('meta-class').value=decodeURIComponent(urlCls);
+    if(urlSubject) document.getElementById('meta-subject').value=decodeURIComponent(urlSubject);
+    document.getElementById('setup').classList.remove('show');
+    showLoad('Preparing lesson…','Setting up "'+decodeURIComponent(urlChapter)+'"');
+    setTimeout(startLesson, 400);
+    return;
+  }
+
+  // No data at all — show setup screen normally
+  document.getElementById('setup').classList.add('show');
 });
 </script>
 </body>
