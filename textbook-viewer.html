@@ -1,0 +1,1007 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DigiSmartSchool — AI Textbook</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;800&family=Lora:ital,wght@0,400;0,600;1,400&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{
+  --m:#6B1A1A;--md:#4A0A12;--mm:#8B1A2A;
+  --g:#C9A84C;--gl:#E8C96A;--gd:#A07830;
+  --s:#F5E6C8;--sd:#EDD9A3;--w:#FFFDF5;--tx:#2A0A0F;
+  --teal:#1a6b6b;--dim:rgba(42,10,15,0.4);
+  --hl:rgba(255,220,50,0.38);--hl-border:rgba(255,180,0,0.7);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;font-family:'Lexend',sans-serif;background:#1e1e1e;}
+
+/* ── TOP BAR ── */
+.topbar{height:46px;background:linear-gradient(90deg,var(--md),var(--m));display:flex;align-items:center;padding:0 14px;gap:10px;flex-shrink:0;box-shadow:0 2px 10px rgba(0,0,0,0.4);z-index:200;position:relative;}
+.tb-logo{font-size:1rem;font-weight:800;color:var(--gl);letter-spacing:1px;}
+.tb-book{font-size:0.75rem;color:var(--sd);margin-left:4px;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.tb-spacer{flex:1;}
+.tb-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(201,168,76,0.3);color:var(--s);padding:5px 11px;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:5px;}
+.tb-btn:hover{background:rgba(255,255,255,0.18);}
+.tb-voice-badge{font-size:0.68rem;padding:3px 8px;border-radius:8px;font-weight:700;}
+.tb-voice-badge.el{background:#d4edda;color:#155724;}
+.tb-voice-badge.ws{background:#fff3cd;color:#856404;}
+
+/* ── MAIN LAYOUT ── */
+.app-body{display:flex;height:calc(100vh - 46px);}
+
+/* ── LEFT: CHAPTER SIDEBAR ── */
+.sidebar{width:220px;background:#111;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.06);}
+.sidebar-hdr{padding:10px 14px 8px;font-size:0.65rem;font-weight:800;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:1.2px;border-bottom:1px solid rgba(255,255,255,0.06);}
+.chapter-list{flex:1;overflow-y:auto;padding:6px 0;}
+.chapter-item{padding:9px 14px;cursor:pointer;display:flex;align-items:flex-start;gap:8px;transition:background 0.15s;border-left:3px solid transparent;}
+.chapter-item:hover{background:rgba(255,255,255,0.05);}
+.chapter-item.active{background:rgba(201,168,76,0.1);border-left-color:var(--g);}
+.ch-num{font-size:0.62rem;font-weight:800;color:var(--gd);min-width:18px;padding-top:2px;}
+.ch-name{font-size:0.75rem;color:rgba(255,255,255,0.75);line-height:1.4;font-weight:600;}
+.ch-pages{font-size:0.6rem;color:rgba(255,255,255,0.3);margin-top:2px;}
+.chapter-item.active .ch-name{color:var(--gl);}
+.sidebar-upload{padding:10px;border-top:1px solid rgba(255,255,255,0.06);}
+.upload-btn-sm{width:100%;padding:8px;background:rgba(201,168,76,0.1);border:1.5px dashed rgba(201,168,76,0.3);color:rgba(232,196,106,0.7);border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;text-align:center;}
+.upload-btn-sm:hover{background:rgba(201,168,76,0.15);border-color:rgba(201,168,76,0.5);}
+
+/* ── CENTER: PDF VIEWER ── */
+.pdf-area{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+
+/* Page toolbar */
+.pdf-toolbar{height:36px;background:#2a2a2a;display:flex;align-items:center;padding:0 12px;gap:8px;flex-shrink:0;border-bottom:1px solid rgba(255,255,255,0.06);}
+.pt-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:rgba(255,255,255,0.7);width:26px;height:26px;border-radius:5px;cursor:pointer;font-size:0.8rem;font-weight:700;display:flex;align-items:center;justify-content:center;}
+.pt-btn:hover{background:rgba(255,255,255,0.15);}
+.pt-btn:disabled{opacity:0.25;cursor:not-allowed;}
+.pt-page{font-size:0.72rem;color:rgba(255,255,255,0.5);display:flex;align-items:center;gap:5px;}
+.pt-page input{width:38px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);border-radius:4px;padding:2px 5px;font-size:0.72rem;text-align:center;font-family:'Lexend',sans-serif;}
+.pt-zoom{display:flex;align-items:center;gap:4px;margin-left:auto;}
+.pt-zoom-val{font-size:0.68rem;color:rgba(255,255,255,0.4);min-width:34px;text-align:center;}
+
+/* Canvas container with highlight overlay */
+.pdf-canvas-container{flex:1;overflow:auto;display:flex;justify-content:center;padding:16px;background:#3a3a3a;position:relative;}
+.page-wrapper{position:relative;display:inline-block;line-height:0;}
+.page-wrapper canvas{display:block;box-shadow:0 6px 30px rgba(0,0,0,0.6);border-radius:2px;}
+
+/* Text layer — for coordinate-based highlighting */
+.text-layer{position:absolute;top:0;left:0;right:0;bottom:0;overflow:hidden;pointer-events:none;}
+.text-layer span{position:absolute;white-space:pre;cursor:text;color:transparent;transform-origin:0 0;}
+
+/* Highlight overlay boxes */
+.hl-overlay{position:absolute;background:var(--hl);border:2px solid var(--hl-border);border-radius:3px;pointer-events:none;transition:all 0.3s;z-index:10;}
+
+/* Upload prompt (shown when no PDF) */
+.upload-prompt{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:16px;text-align:center;padding:30px;}
+.up-icon{font-size:3rem;opacity:0.4;}
+.up-title{font-size:1.1rem;font-weight:800;color:rgba(255,255,255,0.6);}
+.up-sub{font-size:0.82rem;color:rgba(255,255,255,0.3);line-height:1.7;max-width:320px;}
+.up-btn{padding:12px 28px;background:linear-gradient(135deg,var(--gd),var(--g));color:var(--md);border:none;border-radius:10px;font-family:'Lexend',sans-serif;font-weight:800;font-size:0.9rem;cursor:pointer;margin-top:4px;}
+
+/* Loading bar */
+.pdf-loading{position:absolute;top:0;left:0;right:0;height:3px;background:rgba(201,168,76,0.15);z-index:50;display:none;}
+.pdf-loading-bar{height:3px;background:linear-gradient(90deg,var(--g),var(--gl));width:0%;transition:width 0.3s;}
+
+/* ── RIGHT: AI PANEL ── */
+.ai-panel{width:300px;background:#1a1a1a;flex-shrink:0;display:flex;flex-direction:column;border-left:1px solid rgba(255,255,255,0.06);}
+.ai-hdr{padding:10px 14px 8px;font-size:0.65rem;font-weight:800;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:1.2px;border-bottom:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:6px;}
+.ai-dot{width:6px;height:6px;border-radius:50%;background:#4ade80;}
+.ai-dot.idle{background:rgba(255,255,255,0.2);}
+
+/* Current paragraph display */
+.ai-para-box{padding:14px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;}
+.ai-para-label{font-size:0.6rem;font-weight:800;color:var(--gd);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:7px;}
+.ai-para-text{font-size:0.8rem;line-height:1.7;color:rgba(245,230,200,0.85);font-family:'Lora',serif;max-height:140px;overflow-y:auto;}
+.ai-para-text.empty{color:rgba(255,255,255,0.2);font-style:italic;font-size:0.75rem;}
+.ai-page-tag{font-size:0.62rem;color:var(--gd);font-weight:700;margin-top:6px;}
+
+/* Playback */
+.ai-play-area{padding:12px 14px;border-bottom:1px solid rgba(255,255,255,0.06);flex-shrink:0;}
+.play-row{display:flex;align-items:center;gap:7px;margin-bottom:8px;}
+.play-btn{padding:8px 16px;border:none;border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.78rem;font-weight:800;cursor:pointer;}
+.play-btn.primary{background:linear-gradient(135deg,var(--gd),var(--g));color:var(--md);flex:1;}
+.play-btn.secondary{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);border:1px solid rgba(255,255,255,0.1);}
+.play-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.play-progress{width:100%;height:4px;background:rgba(255,255,255,0.08);border-radius:2px;overflow:hidden;margin-bottom:6px;}
+.play-progress-fill{height:4px;background:linear-gradient(90deg,var(--g),var(--gl));border-radius:2px;transition:width 0.3s;width:0%;}
+.play-info{display:flex;justify-content:space-between;font-size:0.62rem;color:rgba(255,255,255,0.3);}
+.spd-row{display:flex;align-items:center;gap:5px;}
+.spd-lbl{font-size:0.62rem;color:rgba(255,255,255,0.3);font-weight:700;}
+.spd-btn{width:20px;height:20px;border:1px solid rgba(255,255,255,0.12);background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.6);border-radius:4px;cursor:pointer;font-size:0.75rem;font-weight:800;}
+.spd-val{font-size:0.65rem;color:rgba(255,255,255,0.4);min-width:24px;text-align:center;}
+
+/* AI Explain */
+.ai-explain-area{flex:1;padding:12px 14px;overflow-y:auto;}
+.explain-toggle{width:100%;padding:7px;background:rgba(26,107,107,0.12);border:1.5px solid rgba(26,107,107,0.2);color:rgba(26,170,170,0.8);border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;text-align:center;margin-bottom:10px;}
+.explain-toggle:hover{background:rgba(26,107,107,0.2);}
+.explain-box{background:rgba(26,107,107,0.08);border:1px solid rgba(26,107,107,0.15);border-radius:10px;padding:11px;display:none;}
+.explain-box.show{display:block;}
+.explain-lbl{font-size:0.6rem;font-weight:800;color:rgba(26,170,170,0.8);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;}
+.explain-txt{font-size:0.78rem;line-height:1.65;color:rgba(245,230,200,0.8);}
+.explain-spin{font-size:0.75rem;color:rgba(255,255,255,0.3);text-align:center;padding:8px;}
+
+/* Audio generation */
+.audio-gen-area{padding:10px 14px;border-top:1px solid rgba(255,255,255,0.06);flex-shrink:0;}
+.audio-gen-row{display:flex;align-items:center;gap:7px;}
+.audio-gen-lbl{font-size:0.68rem;color:rgba(255,255,255,0.35);flex:1;}
+.audio-gen-btn{padding:5px 10px;background:rgba(26,107,107,0.15);border:1.5px solid rgba(26,107,107,0.25);color:rgba(26,170,170,0.8);border-radius:6px;font-family:'Lexend',sans-serif;font-size:0.68rem;font-weight:700;cursor:pointer;}
+.audio-gen-btn:disabled{opacity:0.35;cursor:not-allowed;}
+.audio-progress-bar{width:100%;height:3px;background:rgba(255,255,255,0.06);border-radius:2px;overflow:hidden;margin-top:6px;}
+.audio-progress-fill{height:3px;background:var(--teal);border-radius:2px;transition:width 0.3s;width:0%;}
+
+/* ── BOTTOM CONTROLS ── */
+.bottom-ctrl{height:44px;background:linear-gradient(90deg,var(--md),var(--m));display:flex;align-items:center;padding:0 14px;gap:8px;border-top:2px solid rgba(201,168,76,0.2);}
+.bc-btn{padding:5px 13px;border:none;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.73rem;font-weight:700;cursor:pointer;}
+.bc-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.bc-nav{background:rgba(255,255,255,0.12);color:var(--s);border:1px solid rgba(255,255,255,0.12);}
+.bc-play{background:linear-gradient(135deg,var(--gd),var(--g));color:var(--md);min-width:80px;}
+.bc-stop{background:rgba(220,53,69,0.22);color:#ff8888;border:1px solid rgba(220,53,69,0.25);display:none;}
+.bc-sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.15);}
+.bc-sdot.on{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse 1s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
+.bc-count{font-size:0.65rem;color:rgba(255,255,255,0.3);margin-left:2px;}
+.bc-spacer{flex:1;}
+
+/* Scrollbar styling */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:rgba(0,0,0,0.2);}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.12);border-radius:3px;}
+
+/* Processing modal */
+.proc-modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:999;align-items:center;justify-content:center;}
+.proc-modal.on{display:flex;}
+.proc-box{background:#1a1a1a;border:1px solid rgba(201,168,76,0.3);border-radius:16px;padding:28px 32px;text-align:center;min-width:300px;}
+.proc-title{font-size:1rem;font-weight:800;color:var(--gl);margin-bottom:8px;}
+.proc-sub{font-size:0.8rem;color:rgba(255,255,255,0.5);margin-bottom:18px;line-height:1.6;}
+.proc-bar-wrap{width:100%;height:6px;background:rgba(255,255,255,0.08);border-radius:3px;overflow:hidden;margin-bottom:8px;}
+.proc-bar{height:6px;background:linear-gradient(90deg,var(--g),var(--gl));border-radius:3px;width:0%;transition:width 0.4s;}
+.proc-step{font-size:0.72rem;color:rgba(255,255,255,0.35);min-height:18px;}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <span class="tb-logo">📚 DigiSmartSchool</span>
+  <span class="tb-book" id="tb-book">AI Textbook</span>
+  <span class="tb-spacer"></span>
+  <span class="tb-voice-badge ws" id="tb-voice">🗣 Browser Voice</span>
+  <button class="tb-btn" onclick="goBack()">← Dashboard</button>
+</div>
+
+<!-- PROCESSING MODAL -->
+<div class="proc-modal" id="proc-modal">
+  <div class="proc-box">
+    <div class="proc-title">Processing Textbook…</div>
+    <div class="proc-sub" id="proc-sub">Extracting chapters and building navigation</div>
+    <div class="proc-bar-wrap"><div class="proc-bar" id="proc-bar"></div></div>
+    <div class="proc-step" id="proc-step">Initializing…</div>
+  </div>
+</div>
+
+<div class="app-body">
+
+  <!-- LEFT SIDEBAR: CHAPTER NAVIGATION -->
+  <div class="sidebar">
+    <div class="sidebar-hdr">📚 Chapters</div>
+    <div class="chapter-list" id="chapter-list">
+      <div style="padding:16px;font-size:0.75rem;color:rgba(255,255,255,0.25);text-align:center;line-height:1.7;">Upload a textbook PDF to see chapter navigation here</div>
+    </div>
+    <div class="sidebar-upload">
+      <input type="file" id="pdf-input" accept=".pdf" style="display:none;" onchange="handlePdfUpload(this)"/>
+      <button class="upload-btn-sm" onclick="document.getElementById('pdf-input').click()">
+        📤 Upload Textbook PDF
+      </button>
+    </div>
+  </div>
+
+  <!-- CENTER: PDF VIEWER -->
+  <div class="pdf-area">
+    <div class="pdf-loading" id="pdf-loading"><div class="pdf-loading-bar" id="pdf-loading-bar"></div></div>
+
+    <!-- Page toolbar -->
+    <div class="pdf-toolbar">
+      <button class="pt-btn" id="pt-prev" onclick="goPrevPage()" disabled title="Previous page">◀</button>
+      <div class="pt-page">
+        <input type="number" id="pt-page-input" value="1" min="1" onchange="goToPageInput()" style="width:42px;"/>
+        <span style="color:rgba(255,255,255,0.25);">/ <span id="pt-total">—</span></span>
+      </div>
+      <button class="pt-btn" id="pt-next" onclick="goNextPage()" disabled title="Next page">▶</button>
+      <div class="pt-zoom" style="margin-left:auto;">
+        <button class="pt-btn" onclick="changeZoom(-0.15)">−</button>
+        <span class="pt-zoom-val" id="pt-zoom">100%</span>
+        <button class="pt-btn" onclick="changeZoom(+0.15)">+</button>
+        <button class="pt-btn" onclick="fitPage()" title="Fit to width" style="width:auto;padding:0 6px;font-size:0.65rem;">Fit</button>
+      </div>
+    </div>
+
+    <!-- Canvas area -->
+    <div class="pdf-canvas-container" id="pdf-canvas-container">
+      <div class="upload-prompt" id="upload-prompt">
+        <div class="up-icon">📖</div>
+        <div class="up-title">Upload Your Textbook</div>
+        <div class="up-sub">Upload the Samacheer PDF to begin. The system will automatically detect chapters and create navigation. Original diagrams and layout are fully preserved.</div>
+        <button class="up-btn" onclick="document.getElementById('pdf-input').click()">📤 Upload Textbook PDF</button>
+      </div>
+      <div class="page-wrapper" id="page-wrapper" style="display:none;">
+        <canvas id="pdf-canvas"></canvas>
+        <div class="text-layer" id="text-layer"></div>
+        <!-- Highlight overlays injected here by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT: AI PANEL -->
+  <div class="ai-panel">
+    <div class="ai-hdr">
+      <span class="ai-dot idle" id="ai-dot"></span>
+      AI Teaching Assistant
+    </div>
+
+    <!-- Current paragraph -->
+    <div class="ai-para-box">
+      <div class="ai-para-label">Current Paragraph</div>
+      <div class="ai-para-text empty" id="ai-para-text">Press Play to start teaching…</div>
+      <div class="ai-page-tag" id="ai-page-tag"></div>
+    </div>
+
+    <!-- Playback controls -->
+    <div class="ai-play-area">
+      <div class="play-row">
+        <button class="play-btn secondary" id="btn-prev-p" onclick="prevPara()" disabled>◀</button>
+        <button class="play-btn primary" id="btn-play" onclick="togglePlay()" disabled>▶ Play</button>
+        <button class="play-btn secondary" id="btn-next-p" onclick="nextPara()" disabled>▶</button>
+      </div>
+      <div class="play-progress"><div class="play-progress-fill" id="play-fill"></div></div>
+      <div class="play-info">
+        <span id="para-count">No lesson loaded</span>
+        <div class="spd-row">
+          <span class="spd-lbl">SPEED</span>
+          <button class="spd-btn" onclick="changeSpd(-0.1)">−</button>
+          <span class="spd-val" id="spd-val">1×</span>
+          <button class="spd-btn" onclick="changeSpd(+0.1)">+</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Explain -->
+    <div class="ai-explain-area">
+      <button class="explain-toggle" id="explain-btn" onclick="toggleExplain()" disabled>💡 Explain This Paragraph</button>
+      <div class="explain-box" id="explain-box">
+        <div class="explain-lbl">Simple Explanation</div>
+        <div class="explain-txt" id="explain-txt"></div>
+      </div>
+    </div>
+
+    <!-- Audio generation -->
+    <div class="audio-gen-area">
+      <div class="audio-gen-row">
+        <span class="audio-gen-lbl" id="audio-gen-lbl">🎙 ElevenLabs Voice</span>
+        <button class="audio-gen-btn" id="audio-gen-btn" onclick="generateAudio()" disabled>Generate</button>
+      </div>
+      <div class="audio-progress-bar"><div class="audio-progress-fill" id="audio-prog-fill"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- BOTTOM CONTROLS -->
+<div class="bottom-ctrl">
+  <button class="bc-btn bc-nav" id="bc-prev" onclick="prevPara()" disabled>◀ Prev</button>
+  <button class="bc-btn bc-play" id="bc-play" onclick="togglePlay()" disabled>▶ Play</button>
+  <button class="bc-btn bc-stop" id="bc-stop" onclick="stopAll()">■ Stop</button>
+  <button class="bc-btn bc-nav" id="bc-next" onclick="nextPara()" disabled>Next ▶</button>
+  <span class="bc-sdot idle" id="bc-sdot"></span>
+  <span class="bc-count" id="bc-count"></span>
+  <span class="bc-spacer"></span>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════
+var pdfDoc = null, currentPage = 1, totalPages = 0;
+var zoom = 1.0, fittedScale = 1.0;
+var chapters = [];        // [{name, startPage, endPage, idx}]
+var paragraphs = [];      // [{text, pageNum, order, bbox:{x,y,w,h}, scale}]
+var curParaIdx = 0;
+var playing = false, spd = 1.0;
+var audioMap = {};        // order → {url, status, audio}
+var currentAudio = null;
+var ptimer = null;
+var lessonId = '';
+var explainOpen = false;
+var renderTask = null;
+
+// ════════════════════════════════════════
+// PDF UPLOAD & PROCESSING
+// ════════════════════════════════════════
+async function handlePdfUpload(input) {
+  if (!input.files || !input.files[0]) return;
+  var file = input.files[0];
+  lessonId = file.name.replace(/[^a-z0-9]/gi,'_').toLowerCase().substring(0,40);
+
+  document.getElementById('upload-prompt').style.display = 'none';
+  document.getElementById('page-wrapper').style.display = 'block';
+  document.getElementById('tb-book').textContent = file.name.substring(0,50);
+
+  showProc('Reading PDF…', 5);
+
+  var ab = await file.arrayBuffer();
+  pdfDoc = await pdfjsLib.getDocument({data: ab}).promise;
+  totalPages = pdfDoc.numPages;
+  document.getElementById('pt-total').textContent = totalPages;
+  document.getElementById('pt-next').disabled = false;
+  document.getElementById('pt-prev').disabled = false;
+
+  showProc('Detecting chapters…', 20);
+  await detectChapters();
+
+  showProc('Extracting text & paragraphs…', 45);
+  await extractParagraphs();
+
+  showProc('Building navigation…', 80);
+  buildChapterNav();
+  enablePlayback();
+
+  showProc('Done!', 100);
+  setTimeout(hideProc, 800);
+
+  // Render first page
+  await renderPage(1);
+
+  // Fetch cached audio
+  fetchCachedAudio();
+}
+
+// ════════════════════════════════════════
+// CHAPTER DETECTION
+// ════════════════════════════════════════
+async function detectChapters() {
+  chapters = [];
+  var chIdx = 0;
+
+  // Scan pages in batches for chapter headings
+  var batchSize = 20;
+  for (var pageNum = 1; pageNum <= Math.min(totalPages, 300); pageNum += batchSize) {
+    var batch = [];
+    for (var p = pageNum; p < Math.min(pageNum + batchSize, totalPages + 1); p++) {
+      batch.push(p);
+    }
+    await Promise.all(batch.map(async function(pn) {
+      try {
+        var page = await pdfDoc.getPage(pn);
+        var tc = await page.getTextContent();
+        var items = tc.items;
+
+        // Find large/bold text — likely chapter headings
+        // Heuristic: font size > 14, text length < 80, mostly caps or title case
+        items.forEach(function(item) {
+          var t = (item.str || '').trim();
+          if (!t || t.length < 4 || t.length > 100) return;
+
+          var fontSize = item.transform ? Math.abs(item.transform[0]) : 0;
+          var isLarge = fontSize > 13;
+          var isChapterLike = /^(chapter|unit|section|lesson|\d+\.?\s)/i.test(t) ||
+            (t === t.toUpperCase() && t.length > 5 && t.length < 60) ||
+            /^(life|nervous|coordination|chemical|heredity|light|electricity|magnetic|periodic|carbon|acids|metals|non-metal|reproduction|management|consumer|agriculture|natural|sources|human|our)/i.test(t);
+
+          if (isLarge && isChapterLike) {
+            chapters.push({
+              idx: chIdx++,
+              name: t,
+              startPage: pn,
+              endPage: pn,
+              detected: true
+            });
+          }
+        });
+      } catch(e) {}
+    }));
+  }
+
+  // Deduplicate close chapters (same page ±2)
+  var cleaned = [];
+  chapters.sort(function(a,b){return a.startPage - b.startPage;});
+  chapters.forEach(function(ch) {
+    if (cleaned.length === 0) { cleaned.push(ch); return; }
+    var last = cleaned[cleaned.length-1];
+    if (Math.abs(ch.startPage - last.startPage) < 3 && ch.name.toLowerCase() === last.name.toLowerCase()) return;
+    if (ch.startPage === last.startPage && ch.name.length < last.name.length) return; // keep longer name
+    cleaned.push(ch);
+  });
+
+  // Assign end pages
+  cleaned.forEach(function(ch, i) {
+    ch.endPage = (i < cleaned.length - 1) ? cleaned[i+1].startPage - 1 : totalPages;
+    ch.idx = i;
+  });
+
+  chapters = cleaned;
+
+  // If no chapters detected, create page-range chapters
+  if (chapters.length === 0) {
+    var pagesPerCh = Math.ceil(totalPages / 10);
+    for (var i = 0; i < 10 && i * pagesPerCh < totalPages; i++) {
+      chapters.push({
+        idx: i,
+        name: 'Section ' + (i+1),
+        startPage: i * pagesPerCh + 1,
+        endPage: Math.min((i+1) * pagesPerCh, totalPages),
+        detected: false
+      });
+    }
+  }
+}
+
+// ════════════════════════════════════════
+// PARAGRAPH EXTRACTION (text + coordinates)
+// ════════════════════════════════════════
+async function extractParagraphs() {
+  paragraphs = [];
+  var order = 0;
+
+  // Only extract from current chapter's pages for now
+  // Full book extraction is lazy — done per chapter
+  var maxPages = Math.min(totalPages, 50); // Extract first 50 pages initially
+
+  for (var pn = 1; pn <= maxPages; pn++) {
+    try {
+      var page = await pdfDoc.getPage(pn);
+      var viewport = page.getViewport({scale: 1.0});
+      var tc = await page.getTextContent();
+
+      // Group text items into lines, then paragraphs
+      var lines = groupIntoLines(tc.items, viewport);
+      var paras = groupIntoParagraphs(lines);
+
+      paras.forEach(function(para) {
+        if (!para.text || para.text.trim().length < 20) return;
+        paragraphs.push({
+          order: order++,
+          text: para.text.trim(),
+          pageNum: pn,
+          bbox: para.bbox,   // {x,y,w,h} in PDF coordinates (scale=1)
+          pageWidth: viewport.width,
+          pageHeight: viewport.height
+        });
+      });
+    } catch(e) {}
+  }
+}
+
+function groupIntoLines(items, viewport) {
+  if (!items || !items.length) return [];
+  var lines = [];
+  var currentLine = null;
+  var LINE_TOLERANCE = 3; // px
+
+  // Sort by y position (top to bottom), then x (left to right)
+  var sorted = items.slice().sort(function(a,b) {
+    var ay = viewport.height - (a.transform[5] || 0);
+    var by = viewport.height - (b.transform[5] || 0);
+    if (Math.abs(ay-by) < LINE_TOLERANCE) return (a.transform[4]||0) - (b.transform[4]||0);
+    return ay - by;
+  });
+
+  sorted.forEach(function(item) {
+    var t = item.str || '';
+    if (!t.trim() && t.length < 2) return;
+    var x = item.transform[4] || 0;
+    var y = viewport.height - (item.transform[5] || 0);
+    var w = item.width || 0;
+    var h = Math.abs(item.transform[0]) || 10;
+
+    if (!currentLine || Math.abs(y - currentLine.y) > LINE_TOLERANCE) {
+      currentLine = {text: '', y, x, w:0, h, items:[]};
+      lines.push(currentLine);
+    }
+    currentLine.text += t;
+    currentLine.w = Math.max(currentLine.w, x + w - currentLine.x);
+    currentLine.items.push({t, x, y, w, h});
+  });
+
+  return lines;
+}
+
+function groupIntoParagraphs(lines) {
+  var paras = [];
+  var currentPara = null;
+  var PARA_GAP = 14; // px gap between lines to start new paragraph
+
+  lines.forEach(function(line, i) {
+    var text = line.text.trim();
+    if (!text) { currentPara = null; return; }
+
+    var isNewPara = !currentPara;
+    if (!isNewPara && i > 0) {
+      var prevLine = lines[i-1];
+      var gap = line.y - (prevLine.y + prevLine.h);
+      if (gap > PARA_GAP || text.match(/^[A-Z\d]/) && currentPara && currentPara.text.length > 80) {
+        isNewPara = true;
+      }
+    }
+
+    if (isNewPara) {
+      currentPara = {
+        text: text,
+        bbox: {x: line.x, y: line.y - line.h, w: line.w, h: line.h}
+      };
+      paras.push(currentPara);
+    } else {
+      currentPara.text += ' ' + text;
+      // Extend bbox to cover all lines
+      currentPara.bbox.h = (line.y - currentPara.bbox.y) + line.h;
+      currentPara.bbox.w = Math.max(currentPara.bbox.w, line.w);
+    }
+  });
+
+  return paras;
+}
+
+// ════════════════════════════════════════
+// CHAPTER NAVIGATION UI
+// ════════════════════════════════════════
+function buildChapterNav() {
+  var list = document.getElementById('chapter-list');
+  list.innerHTML = '';
+  chapters.forEach(function(ch) {
+    var div = document.createElement('div');
+    div.className = 'chapter-item';
+    div.setAttribute('data-idx', ch.idx);
+    div.innerHTML = '<span class="ch-num">' + (ch.idx+1) + '</span>'
+      + '<div><div class="ch-name">' + escH(ch.name) + '</div>'
+      + '<div class="ch-pages">p.' + ch.startPage + (ch.endPage>ch.startPage?'–'+ch.endPage:'') + '</div></div>';
+    div.onclick = function() { jumpToChapter(ch); };
+    list.appendChild(div);
+  });
+}
+
+function jumpToChapter(ch) {
+  // Highlight active chapter
+  document.querySelectorAll('.chapter-item').forEach(function(el){ el.classList.remove('active'); });
+  var el = document.querySelector('[data-idx="'+ch.idx+'"]');
+  if (el) el.classList.add('active');
+
+  // Jump PDF to chapter's start page
+  renderPage(ch.startPage);
+
+  // Set current paragraph to first para on that page
+  var firstPara = paragraphs.find(function(p){ return p.pageNum >= ch.startPage; });
+  if (firstPara) {
+    curParaIdx = firstPara.order;
+    updateAIPanel();
+  }
+}
+
+// ════════════════════════════════════════
+// PDF PAGE RENDERING
+// ════════════════════════════════════════
+async function renderPage(pageNum) {
+  if (!pdfDoc) return;
+  pageNum = Math.max(1, Math.min(pageNum, totalPages));
+  currentPage = pageNum;
+
+  // Cancel previous render
+  if (renderTask) { try { renderTask.cancel(); } catch(e){} }
+
+  var page = await pdfDoc.getPage(pageNum);
+  var container = document.getElementById('pdf-canvas-container');
+  var availW = container.clientWidth - 32;
+  var viewport1 = page.getViewport({scale: 1});
+  fittedScale = availW / viewport1.width;
+  var scale = fittedScale * zoom;
+  var viewport = page.getViewport({scale});
+
+  var canvas = document.getElementById('pdf-canvas');
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  canvas.style.width = viewport.width + 'px';
+  canvas.style.height = viewport.height + 'px';
+
+  // Clear old highlights
+  clearHighlights();
+  document.getElementById('text-layer').innerHTML = '';
+
+  // Show loading
+  var ld = document.getElementById('pdf-loading');
+  ld.style.display = 'block';
+  document.getElementById('pdf-loading-bar').style.width = '0%';
+  document.getElementById('pdf-loading-bar').style.width = '60%';
+
+  var ctx = canvas.getContext('2d');
+  renderTask = page.render({canvasContext: ctx, viewport});
+  await renderTask.promise;
+
+  ld.style.display = 'none';
+
+  // Update toolbar
+  document.getElementById('pt-page-input').value = pageNum;
+  document.getElementById('pt-prev').disabled = (pageNum <= 1);
+  document.getElementById('pt-next').disabled = (pageNum >= totalPages);
+  document.getElementById('pt-zoom').textContent = Math.round(zoom * 100) + '%';
+
+  // Update sidebar active chapter
+  var ch = chapters.find(function(c){ return c.startPage <= pageNum && c.endPage >= pageNum; });
+  if (ch) {
+    document.querySelectorAll('.chapter-item').forEach(function(el){ el.classList.remove('active'); });
+    var cel = document.querySelector('[data-idx="'+ch.idx+'"]');
+    if (cel) { cel.classList.add('active'); cel.scrollIntoView({block:'nearest'}); }
+  }
+
+  // Show highlight for current paragraph if it's on this page
+  showHighlightForCurrentPara(viewport, viewport1);
+}
+
+// ════════════════════════════════════════
+// HIGHLIGHT OVERLAY
+// ════════════════════════════════════════
+function clearHighlights() {
+  var wrapper = document.getElementById('page-wrapper');
+  wrapper.querySelectorAll('.hl-overlay').forEach(function(el){ el.remove(); });
+}
+
+function showHighlightForCurrentPara(viewport, viewport1) {
+  if (!paragraphs.length || curParaIdx >= paragraphs.length) return;
+  var p = paragraphs[curParaIdx];
+  if (!p || p.pageNum !== currentPage) return;
+  drawHighlight(p, viewport, viewport1);
+}
+
+function drawHighlight(para, viewport, viewport1) {
+  clearHighlights();
+  if (!para || !para.bbox) return;
+
+  var canvas = document.getElementById('pdf-canvas');
+  var wrapper = document.getElementById('page-wrapper');
+
+  // Scale bbox from PDF coords to canvas coords
+  var scaleX = canvas.width / para.pageWidth;
+  var scaleY = canvas.height / para.pageHeight;
+
+  var x = para.bbox.x * scaleX;
+  var y = para.bbox.y * scaleY;
+  var w = Math.max(para.bbox.w * scaleX, 40);
+  var h = Math.max(para.bbox.h * scaleY + 8, 16);
+
+  // Clamp to canvas bounds
+  x = Math.max(0, Math.min(x, canvas.width - w));
+  y = Math.max(0, y);
+
+  var hl = document.createElement('div');
+  hl.className = 'hl-overlay';
+  hl.style.left = x + 'px';
+  hl.style.top = y + 'px';
+  hl.style.width = w + 'px';
+  hl.style.height = h + 'px';
+  wrapper.appendChild(hl);
+
+  // Scroll highlight into view
+  hl.scrollIntoView({block:'center', behavior:'smooth'});
+}
+
+// ════════════════════════════════════════
+// PAGE NAVIGATION
+// ════════════════════════════════════════
+async function goPrevPage() { if (currentPage > 1) await renderPage(currentPage - 1); }
+async function goNextPage() { if (currentPage < totalPages) await renderPage(currentPage + 1); }
+function goToPageInput() {
+  var v = parseInt(document.getElementById('pt-page-input').value);
+  if (v >= 1 && v <= totalPages) renderPage(v);
+}
+function changeZoom(delta) {
+  zoom = Math.max(0.5, Math.min(3.0, zoom + delta));
+  if (pdfDoc) renderPage(currentPage);
+}
+function fitPage() { zoom = 1.0; if (pdfDoc) renderPage(currentPage); }
+
+// ════════════════════════════════════════
+// AI PANEL UPDATE
+// ════════════════════════════════════════
+function updateAIPanel() {
+  var p = paragraphs[curParaIdx];
+  if (!p) return;
+
+  var paraText = document.getElementById('ai-para-text');
+  paraText.textContent = p.text;
+  paraText.classList.remove('empty');
+
+  document.getElementById('ai-page-tag').textContent = '📖 Page ' + p.pageNum + ' · Paragraph ' + (curParaIdx+1);
+  document.getElementById('play-fill').style.width = ((curParaIdx+1)/paragraphs.length*100) + '%';
+  document.getElementById('para-count').textContent = (curParaIdx+1) + ' / ' + paragraphs.length;
+  document.getElementById('bc-count').textContent = (curParaIdx+1) + '/' + paragraphs.length;
+
+  document.getElementById('btn-prev-p').disabled = (curParaIdx === 0);
+  document.getElementById('btn-next-p').disabled = (curParaIdx >= paragraphs.length-1);
+  document.getElementById('bc-prev').disabled = (curParaIdx === 0);
+  document.getElementById('bc-next').disabled = (curParaIdx >= paragraphs.length-1);
+  document.getElementById('explain-btn').disabled = false;
+
+  // Reset explain box
+  var eb = document.getElementById('explain-box');
+  eb.classList.remove('show');
+  explainOpen = false;
+
+  // Jump PDF to paragraph's page
+  if (p.pageNum !== currentPage) {
+    renderPage(p.pageNum);
+  } else {
+    // Just update highlight
+    var canvas = document.getElementById('pdf-canvas');
+    var vp1 = {width: p.pageWidth, height: p.pageHeight};
+    drawHighlight(p, canvas, vp1);
+  }
+}
+
+// ════════════════════════════════════════
+// PLAYBACK
+// ════════════════════════════════════════
+function enablePlayback() {
+  document.getElementById('btn-play').disabled = false;
+  document.getElementById('bc-play').disabled = false;
+  document.getElementById('audio-gen-btn').disabled = false;
+  if (paragraphs.length) updateAIPanel();
+}
+
+function togglePlay() {
+  if (playing) {
+    stopPlayback();
+  } else {
+    playing = true;
+    setPlayUI(true);
+    readCurrentPara();
+  }
+}
+
+function stopPlayback() {
+  playing = false;
+  clearTimeout(ptimer);
+  stopSpeech();
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  setPlayUI(false);
+}
+
+function stopAll() { stopPlayback(); }
+
+function setPlayUI(isPlaying) {
+  var btnTxt = isPlaying ? '⏸ Pause' : '▶ Play';
+  document.getElementById('btn-play').textContent = btnTxt;
+  document.getElementById('bc-play').textContent = isPlaying ? '⏸ Pause' : '▶ Play';
+  document.getElementById('bc-stop').style.display = isPlaying ? 'flex' : 'none';
+  document.getElementById('bc-sdot').className = 'bc-sdot' + (isPlaying ? ' on' : ' idle');
+  document.getElementById('ai-dot').className = 'ai-dot' + (isPlaying ? '' : ' idle');
+}
+
+function readCurrentPara() {
+  if (!playing || curParaIdx >= paragraphs.length) { stopPlayback(); return; }
+  var p = paragraphs[curParaIdx];
+
+  // Try ElevenLabs cached audio
+  var cached = audioMap[p.order];
+  if (cached && cached.url && cached.status === 'ready') {
+    playAudioForPara(p, function() {
+      if (!playing) return;
+      ptimer = setTimeout(function() { if (playing) { curParaIdx++; updateAIPanel(); readCurrentPara(); } }, 800);
+    });
+    return;
+  }
+
+  // Web Speech fallback — sentence by sentence
+  var sentences = splitSentences(p.text);
+  readSentences(sentences, 0, function() {
+    if (!playing) return;
+    ptimer = setTimeout(function() {
+      if (!playing) return;
+      if (curParaIdx < paragraphs.length - 1) {
+        curParaIdx++;
+        updateAIPanel();
+        readCurrentPara();
+      } else {
+        stopPlayback();
+      }
+    }, 1200);
+  });
+}
+
+function readSentences(sentences, idx, onDone) {
+  if (!playing || idx >= sentences.length) { if (onDone) onDone(); return; }
+  speak(sentences[idx], function() {
+    if (!playing) { if (onDone) onDone(); return; }
+    ptimer = setTimeout(function() { readSentences(sentences, idx+1, onDone); }, 280);
+  });
+}
+
+function prevPara() {
+  stopPlayback();
+  if (curParaIdx > 0) { curParaIdx--; updateAIPanel(); }
+}
+function nextPara() {
+  stopPlayback();
+  if (curParaIdx < paragraphs.length - 1) { curParaIdx++; updateAIPanel(); }
+}
+
+// ════════════════════════════════════════
+// AI EXPLAIN
+// ════════════════════════════════════════
+async function toggleExplain() {
+  var eb = document.getElementById('explain-box');
+  var et = document.getElementById('explain-txt');
+  explainOpen = !explainOpen;
+  eb.classList.toggle('show', explainOpen);
+  if (!explainOpen) return;
+
+  var p = paragraphs[curParaIdx];
+  if (!p) return;
+
+  if (et.textContent && et.textContent !== 'Generating…') { speak(et.textContent, null); return; }
+
+  et.innerHTML = '<div class="explain-spin">Generating explanation…</div>';
+  try {
+    var r = await fetch('/api/ai', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'You are a friendly science teacher for Tamil Nadu school students. Explain the paragraph in 2-3 simple sentences a student can understand. End with one interesting fact.',
+        messages: [{role:'user', content:'Explain simply:\n"' + p.text + '"'}],
+        max_tokens: 180
+      })
+    });
+    var d = await r.json();
+    var txt = (d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();
+    et.textContent = txt || 'Could not generate explanation.';
+    speak(txt, null);
+  } catch(e) { et.textContent = 'Error: ' + e.message; }
+}
+
+// ════════════════════════════════════════
+// ELEVENLABS AUDIO
+// ════════════════════════════════════════
+async function fetchCachedAudio() {
+  if (!lessonId) return;
+  try {
+    var r = await fetch('/api/get-lesson-audio?lesson_id=' + encodeURIComponent(lessonId));
+    if (!r.ok) return;
+    var d = await r.json();
+    audioMap = {};
+    var ready = 0;
+    (d.paragraphs||[]).forEach(function(p) {
+      audioMap[p.paragraph_order] = {url:p.audio_url, status:p.status, audio:null};
+      if (p.status==='ready') ready++;
+    });
+    updateAudioUI(ready, d.paragraphs ? d.paragraphs.length : 0);
+    [0,1,2].forEach(function(i){ preloadAudio(i); });
+  } catch(e) {}
+}
+
+function updateAudioUI(ready, total) {
+  var pct = total > 0 ? (ready/total*100) : 0;
+  document.getElementById('audio-prog-fill').style.width = pct + '%';
+  document.getElementById('audio-gen-lbl').textContent = ready > 0
+    ? '🎙 ElevenLabs: ' + ready + '/' + total + ' ready'
+    : '🎙 ElevenLabs Voice (not generated)';
+  var badge = document.getElementById('tb-voice');
+  if (ready > 0) { badge.textContent = '🎙 ElevenLabs'; badge.className = 'tb-voice-badge el'; }
+  else { badge.textContent = '🗣 Browser Voice'; badge.className = 'tb-voice-badge ws'; }
+  var btn = document.getElementById('audio-gen-btn');
+  btn.textContent = ready === total && total > 0 ? '✅ Done' : 'Generate';
+  if (ready === total && total > 0) btn.disabled = true;
+}
+
+async function generateAudio() {
+  var btn = document.getElementById('audio-gen-btn');
+  btn.disabled = true; btn.textContent = '⏳…';
+
+  var paraList = paragraphs.slice(0, 60).map(function(p) {
+    return {order: p.order, text: p.text, type: 'paragraph'};
+  }).filter(function(p){ return p.text.length > 15; });
+
+  try {
+    var r = await fetch('/api/generate-lesson-audio', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({lesson_id: lessonId, paragraphs: paraList, voice_type: 'default'})
+    });
+    var d = await r.json();
+    if (d.success) { await fetchCachedAudio(); }
+    else { btn.disabled=false; btn.textContent='Retry'; }
+  } catch(e) { btn.disabled=false; btn.textContent='Retry'; }
+}
+
+function preloadAudio(order) {
+  var a = audioMap[order]; if (!a||!a.url||a.audio) return;
+  var aud = new Audio(); aud.preload='auto'; aud.src=a.url; a.audio=aud;
+}
+
+function playAudioForPara(para, onEnd) {
+  var a = audioMap[para.order]; if(!a||!a.url){if(onEnd)onEnd();return;}
+  if(!a.audio){var aud=new Audio();aud.src=a.url;a.audio=aud;}
+  currentAudio=a.audio; a.audio.playbackRate=spd;
+  a.audio.onended=function(){currentAudio=null;preloadAudio(para.order+1);if(onEnd)onEnd();};
+  a.audio.onerror=function(){currentAudio=null;if(onEnd)onEnd();};
+  a.audio.play().catch(function(){if(onEnd)onEnd();});
+}
+
+// ════════════════════════════════════════
+// WEB SPEECH
+// ════════════════════════════════════════
+function speak(text, onEnd) {
+  if(!text||!window.speechSynthesis){if(onEnd)onEnd();return;}
+  speechSynthesis.cancel();
+  var u=new SpeechSynthesisUtterance(text); u.rate=spd; u.pitch=1.05; u.lang='en-IN';
+  var voices=speechSynthesis.getVoices();
+  var pref=voices.find(function(v){return v.lang.includes('en')&&(v.name.includes('India')||v.name.includes('Zira'));});
+  if(pref)u.voice=pref; u.onend=function(){if(onEnd)onEnd();}; u.onerror=function(){if(onEnd)onEnd();};
+  speechSynthesis.speak(u);
+}
+function stopSpeech(){ if(window.speechSynthesis) speechSynthesis.cancel(); }
+function splitSentences(text){ var p=text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)||[text]; return p.map(function(s){return s.trim();}).filter(function(s){return s.length>3;}); }
+function changeSpd(d){ spd=Math.max(0.5,Math.min(1.8,Math.round((spd+d)*10)/10)); document.getElementById('spd-val').textContent=spd.toFixed(1)+'×'; if(window.speechSynthesis)speechSynthesis.cancel(); }
+
+// ════════════════════════════════════════
+// PROCESSING MODAL
+// ════════════════════════════════════════
+function showProc(step, pct) {
+  document.getElementById('proc-modal').classList.add('on');
+  document.getElementById('proc-step').textContent = step;
+  document.getElementById('proc-bar').style.width = pct + '%';
+}
+function hideProc() { document.getElementById('proc-modal').classList.remove('on'); }
+
+// ════════════════════════════════════════
+// HELPERS
+// ════════════════════════════════════════
+function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function goBack() {
+  stopPlayback();
+  if(document.referrer) window.history.back(); else window.location.href='learnbot.html';
+}
+
+// Init voices
+window.addEventListener('load', function(){
+  if(typeof speechSynthesis!=='undefined'){ speechSynthesis.onvoiceschanged=function(){}; speechSynthesis.getVoices(); }
+
+  // Check if lesson text was passed via sessionStorage (from learnbot activate)
+  var lessonText='', chapter='', cls='', subj='Science';
+  try{
+    var raw=sessionStorage.getItem('science_autostart');
+    if(raw){var d=JSON.parse(raw);sessionStorage.removeItem('science_autostart');chapter=d.chapter||'';cls=d.cls||'';subj=d.subject||'Science';lessonText=d.lessonText||'';}
+  }catch(e){}
+  if(!lessonText){try{var act=sessionStorage.getItem('tm_activated');if(act){var ad=JSON.parse(act);chapter=ad.topic||'';cls=ad.cls||'';subj=ad.subject||'Science';lessonText=ad.lessonText||'';}}catch(e){}}
+
+  // If we have lesson text but no PDF, build text-only paragraphs
+  if(lessonText && lessonText.trim().length > 50) {
+    document.getElementById('tb-book').textContent = chapter || subj;
+    lessonId = (chapter||subj).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+    buildFromText(lessonText, chapter, subj, cls);
+  }
+});
+
+function buildFromText(text, chapter, subj, cls) {
+  // Build paragraphs from plain text (no PDF)
+  paragraphs = [];
+  var lines = text.trim().split('\n');
+  var order = 0, buf = [];
+
+  lines.forEach(function(line) {
+    line = line.trim();
+    if (!line) {
+      if (buf.length) { var t = buf.join(' ').trim(); if(t.length>15) paragraphs.push({order:order++,text:t,pageNum:null,bbox:null,pageWidth:0,pageHeight:0}); buf=[]; }
+    } else { buf.push(line); }
+  });
+  if(buf.length){var t=buf.join(' ').trim();if(t.length>15)paragraphs.push({order:order++,text:t,pageNum:null,bbox:null,pageWidth:0,pageHeight:0});}
+
+  // Build fake chapter nav
+  chapters = [{idx:0, name: chapter||subj, startPage:1, endPage:1, detected:true}];
+  buildChapterNav();
+  enablePlayback();
+
+  // Show a message that PDF can be uploaded for visual experience
+  document.getElementById('upload-prompt').style.display = 'flex';
+  document.getElementById('upload-prompt').querySelector('.up-title').textContent = 'Add Textbook PDF for Visual Mode';
+  document.getElementById('upload-prompt').querySelector('.up-sub').textContent =
+    'Lesson text loaded from Teacher Panel (' + paragraphs.length + ' paragraphs). Upload the Samacheer PDF to see original pages with highlighting.';
+
+  fetchCachedAudio();
+}
+</script>
+</body>
+</html>
