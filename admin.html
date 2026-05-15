@@ -686,43 +686,77 @@ async function tblDeleteBook(bookId, title) {
 }
 
 async function tblLoadSchoolAccess() {
-  const list = document.getElementById('tbl-school-access-list');
-  list.innerHTML = '<div style="text-align:center;padding:16px;color:#999;">Loading schools…</div>';
+  var list = document.getElementById('tbl-school-access-list');
+  list.innerHTML = '<div style="text-align:center;padding:16px;color:#999;">Loading schools...</div>';
   try {
-    const d = await callAuth({ action: 'get_schools' });
-    const schools = d.schools || [];
-    if (!schools.length) { list.innerHTML = '<div style="text-align:center;padding:16px;color:#999;">No schools found.</div>'; return; }
-    const access = await tblSB('school_library_access', 'GET', null, 'select=school_id');
-    const accessSet = new Set((access || []).map(function(a) { return a.school_id; }));
-    list.innerHTML = schools.map(function(s) {
-      const hasAccess = accessSet.has(s.id);
-      return '<div class="tbl-school-row">'
-        + '<div><div class="tbl-school-name">' + s.name + '</div>'
-        + '<div class="tbl-school-info">' + (s.city || '') + ' · ' + s.email + ' · <strong>' + s.subscription_status + '</strong></div></div>'
-        + '<button id="tbl-acc-btn-' + s.id + '" class="' + (hasAccess ? 'tbl-access-on' : 'tbl-access-off') + '" onclick="tblToggleAccess('' + s.id + '','' + s.name.replace(/'/g,'') + '')">'
-        + (hasAccess ? '✅ Library ON' : '❌ Library OFF') + '</button>'
-        + '</div>';
-    }).join('');
+    var d = await callAuth({ action: 'get_schools' });
+    var schools = d.schools || [];
+    if (!schools.length) {
+      list.innerHTML = '<div style="text-align:center;padding:16px;color:#999;">No schools found.</div>';
+      return;
+    }
+    var access = await tblSB('school_library_access', 'GET', null, 'select=school_id');
+    var accessIds = (access || []).map(function(a) { return a.school_id; });
+    list.innerHTML = '';
+    schools.forEach(function(s) {
+      var hasAccess = accessIds.indexOf(s.id) !== -1;
+      var row = document.createElement('div');
+      row.className = 'tbl-school-row';
+      var info = document.createElement('div');
+      var name = document.createElement('div');
+      name.className = 'tbl-school-name';
+      name.textContent = s.name;
+      var sub = document.createElement('div');
+      sub.className = 'tbl-school-info';
+      sub.textContent = (s.city || '') + ' - ' + s.email + ' - ' + s.subscription_status;
+      info.appendChild(name);
+      info.appendChild(sub);
+      var btn = document.createElement('button');
+      btn.id = 'tbl-acc-btn-' + s.id;
+      btn.className = hasAccess ? 'tbl-access-on' : 'tbl-access-off';
+      btn.textContent = hasAccess ? 'Library ON' : 'Library OFF';
+      btn.setAttribute('data-school-id', s.id);
+      btn.setAttribute('data-school-name', s.name);
+      btn.setAttribute('data-has-access', hasAccess ? '1' : '0');
+      btn.addEventListener('click', function() {
+        tblToggleAccess(
+          this.getAttribute('data-school-id'),
+          this.getAttribute('data-school-name')
+        );
+      });
+      row.appendChild(info);
+      row.appendChild(btn);
+      list.appendChild(row);
+    });
   } catch(e) {
     list.innerHTML = '<div style="color:red;padding:10px;">Error: ' + e.message + '</div>';
   }
 }
 
 async function tblToggleAccess(schoolId, schoolName) {
-  const btn = document.getElementById('tbl-acc-btn-' + schoolId);
-  const isOn = btn.classList.contains('tbl-access-on');
-  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  var btn = document.getElementById('tbl-acc-btn-' + schoolId);
+  var isOn = btn.getAttribute('data-has-access') === '1';
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
   try {
     if (isOn) {
       await tblSB('school_library_access', 'DELETE', null, 'school_id=eq.' + schoolId);
-      btn.className = 'tbl-access-off'; btn.textContent = '❌ Library OFF';
+      btn.className = 'tbl-access-off';
+      btn.textContent = 'Library OFF';
+      btn.setAttribute('data-has-access', '0');
     } else {
-      await tblSB('school_library_access', 'POST', { school_id: schoolId, granted_at: new Date().toISOString(), granted_by: 'super_admin' });
-      btn.className = 'tbl-access-on'; btn.textContent = '✅ Library ON';
+      await tblSB('school_library_access', 'POST', {
+        school_id: schoolId,
+        granted_at: new Date().toISOString(),
+        granted_by: 'super_admin'
+      });
+      btn.className = 'tbl-access-on';
+      btn.textContent = 'Library ON';
+      btn.setAttribute('data-has-access', '1');
     }
   } catch(e) {
     alert('Error: ' + e.message);
-    btn.textContent = isOn ? '✅ Library ON' : '❌ Library OFF';
+    btn.textContent = isOn ? 'Library ON' : 'Library OFF';
   }
   btn.disabled = false;
 }
