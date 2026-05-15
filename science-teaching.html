@@ -575,37 +575,7 @@ input[type=range]{accent-color:var(--gold);height:3px;width:70px;cursor:pointer;
 <body>
 
 <!-- HEADER -->
-<script>
-// Run immediately before page renders — hide setup if we have data
-(function(){
-  var params=new URLSearchParams(window.location.search);
-  var hasUrl=!!(params.get('chapter')||params.get('topic'));
-  var hasSession=false;
-  try{hasSession=!!sessionStorage.getItem('science_autostart');}catch(e){}
-  if(hasUrl||hasSession){
-    document.addEventListener('DOMContentLoaded',function(){
-      var s=document.getElementById('setup');
-      if(s)s.classList.remove('show');
-      var l=document.getElementById('loading');
-      if(l){
-        l.classList.add('show');
-        var lt=document.getElementById('l-title');
-        var ls=document.getElementById('l-sub');
-        var ch=params.get('chapter')||params.get('topic')||'Science Lesson';
-        if(lt)lt.textContent='Preparing lesson…';
-        if(ls)ls.textContent='Setting up "'+decodeURIComponent(ch)+'"';
-      }
-    });
-  } else {
-    document.addEventListener('DOMContentLoaded',function(){
-      var s=document.getElementById('setup');
-      if(s)s.classList.add('show');
-    });
-  }
-  // Set started flag to prevent loops
-  try{ sessionStorage.setItem('sci_started','1'); }catch(e){}
-})();
-</script>
+
 <div class="hdr">
   <div class="hdr-icon">🔬</div>
   <div>
@@ -1142,10 +1112,15 @@ async function startLesson(){
 
   }catch(e){
     hideLoad();
-    try{sessionStorage.removeItem('sci_started');}catch(ex){}
     document.getElementById('setup').classList.add('show');
-    showErr(e.message||'Could not generate lesson. Please paste lesson text manually.');
+    // Clear URL params so refresh doesn't re-trigger the loop
+    if(window.history && window.history.replaceState){
+      window.history.replaceState({},'','science-teaching.html');
+    }
+    showErr('Could not generate lesson automatically. Please paste the lesson text in the box below and tap Start Teaching.');
     document.getElementById('start-btn').disabled=false;
+    // Show the paste text area
+    document.getElementById('fallback-area').classList.add('show');
   }
 }
 
@@ -1512,65 +1487,53 @@ uz.addEventListener('drop',function(e){
 // Speech synthesis voices
 window.addEventListener('load',function(){
   if(typeof speechSynthesis!=='undefined'){
-    speechSynthesis.onvoiceschanged=function(){};speechSynthesis.getVoices();
+    speechSynthesis.onvoiceschanged=function(){};
+    speechSynthesis.getVoices();
   }
 
-  // Prevent infinite loop — if already started once, just show setup
-  var alreadyStarted=false;
-  try{alreadyStarted=sessionStorage.getItem('sci_started')==='2';}catch(e){}
-  try{sessionStorage.setItem('sci_started','2');}catch(e){}
-  if(alreadyStarted){
-    document.getElementById('setup').classList.add('show');
-    document.getElementById('loading').classList.remove('show');
-    return;
-  }
-
-  // Check sessionStorage for autostart
-  var raw=null;
-  try{raw=sessionStorage.getItem('science_autostart');}catch(e){}
-
-  if(raw){
-    try{sessionStorage.removeItem('science_autostart');}catch(e){}
-    var d=null;
-    try{d=JSON.parse(raw);}catch(e){}
-    if(d){
-      // Fill meta fields
-      if(d.chapter) document.getElementById('meta-chapter').value=d.chapter;
-      if(d.cls)     document.getElementById('meta-class').value=d.cls;
-      if(d.subject) document.getElementById('meta-subject').value=d.subject;
-
-      // Collect lesson text
-      var lessonTxt=d.lessonText||'';
-      if(!lessonTxt||lessonTxt.trim().length<20){try{lessonTxt=sessionStorage.getItem('tm_lesson')||'';}catch(e){}}
-      if(!lessonTxt||lessonTxt.trim().length<20){try{lessonTxt=sessionStorage.getItem('bb_lesson')||'';}catch(e){}}
-      if(lessonTxt) document.getElementById('paste-text').value=lessonTxt;
-
-      // Always auto-start
-      document.getElementById('setup').classList.remove('show');
-      showLoad('Preparing lesson…','Setting up "'+(d.chapter||d.subject||'Science Lesson')+'"');
-      setTimeout(startLesson, 400);
-      return;
-    }
-  }
-
-  // No autostart data — also check URL params
+  // Read URL params (most reliable — passed directly in URL)
   var params=new URLSearchParams(window.location.search);
-  var urlChapter=params.get('chapter')||params.get('topic')||'';
-  var urlCls=params.get('cls')||params.get('class')||'';
-  var urlSubject=params.get('subject')||'';
-  if(urlChapter){
-    if(urlChapter) document.getElementById('meta-chapter').value=decodeURIComponent(urlChapter);
-    if(urlCls)     document.getElementById('meta-class').value=decodeURIComponent(urlCls);
-    if(urlSubject) document.getElementById('meta-subject').value=decodeURIComponent(urlSubject);
-    document.getElementById('setup').classList.remove('show');
-    showLoad('Preparing lesson…','Setting up "'+decodeURIComponent(urlChapter)+'"');
-    setTimeout(startLesson, 400);
-    return;
+  var urlChapter = decodeURIComponent(params.get('chapter')||params.get('topic')||'');
+  var urlCls     = decodeURIComponent(params.get('cls')||params.get('class')||'');
+  var urlSubject = decodeURIComponent(params.get('subject')||'Science');
+
+  // Read sessionStorage
+  var ssData=null;
+  try{
+    var raw=sessionStorage.getItem('science_autostart');
+    if(raw){ ssData=JSON.parse(raw); sessionStorage.removeItem('science_autostart'); }
+  }catch(e){}
+
+  // Collect all data
+  var chapter    = urlChapter || (ssData&&ssData.chapter) || '';
+  var cls        = urlCls     || (ssData&&ssData.cls)     || '';
+  var subject    = urlSubject || (ssData&&ssData.subject) || 'Science';
+  var lessonText = (ssData&&ssData.lessonText) || '';
+
+  // Try tm_lesson as text fallback
+  if(!lessonText||lessonText.trim().length<20){
+    try{lessonText=sessionStorage.getItem('tm_lesson')||'';}catch(e){}
   }
 
-  // No data at all — show setup screen normally
-  document.getElementById('setup').classList.add('show');
-});
+  if(chapter){
+    // Pre-fill fields
+    document.getElementById('meta-chapter').value = chapter;
+    document.getElementById('meta-class').value   = cls;
+    document.getElementById('meta-subject').value = subject;
+    if(lessonText) document.getElementById('paste-text').value = lessonText;
+
+    // Hide setup, show loading, start
+    document.getElementById('setup').classList.remove('show');
+    document.getElementById('loading').classList.add('show');
+    document.getElementById('l-title').textContent = 'Preparing lesson…';
+    document.getElementById('l-sub').textContent   = 'Setting up "'+chapter+'"';
+    setTimeout(startLesson, 300);
+
+  } else {
+    // No data — show setup for manual entry
+    document.getElementById('setup').classList.add('show');
+  }
+});;
 </script>
 </body>
 </html>
