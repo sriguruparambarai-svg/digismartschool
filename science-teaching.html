@@ -613,10 +613,10 @@ input[type=range]{accent-color:var(--gold);height:3px;width:70px;cursor:pointer;
   <div class="setup-hero">
     <div class="sh-badge">ARK Global Matriculation School</div>
     <div class="sh-title">🔬 Science Textbook Teaching Mode</div>
-    <div class="sh-desc">Upload your Science textbook PDF. The AI will read each paragraph exactly as written, highlight sentences, and display relevant diagrams automatically — just like a teacher taking class from the book.</div>
+    <div class="sh-desc" id="sh-desc">Lesson details are pre-filled. Optionally upload a PDF or add images for better diagram support — then tap Start Teaching.</div>
   </div>
 
-  <div class="lbl">Upload Textbook PDF</div>
+  <div class="lbl">Upload Textbook PDF <span style="font-size:.65rem;font-weight:400;color:var(--dim);text-transform:none;letter-spacing:0;">(optional — for better paragraph extraction)</span></div>
   <div class="upload-zone" id="upload-zone">
     <input type="file" id="pdf-file-input" accept=".pdf" onchange="onPdfSelected(this)"/>
     <div class="uz-icon">📄</div>
@@ -631,7 +631,7 @@ input[type=range]{accent-color:var(--gold);height:3px;width:70px;cursor:pointer;
   </div>
 
   <div class="fallback-toggle" id="fallback-toggle" onclick="toggleFallback()">
-    📝 Or paste lesson text manually (if PDF doesn't work)
+    📝 Add lesson text (optional — AI can teach from chapter name alone)
   </div>
   <div class="fallback-area" id="fallback-area">
     <textarea class="paste-box" id="paste-text" placeholder="Paste the lesson text here directly...&#10;&#10;The system will extract paragraphs and map diagrams automatically."></textarea>
@@ -671,6 +671,9 @@ input[type=range]{accent-color:var(--gold);height:3px;width:70px;cursor:pointer;
   <button class="start-btn" id="start-btn" onclick="startLesson()">
     🔬 Start Teaching Session
   </button>
+  <div style="margin-top:10px;text-align:center;font-size:.72rem;color:var(--dim);line-height:1.6;">
+    💡 No PDF? No problem — AI will teach from the chapter name automatically.
+  </div>
 </div>
 
 <!-- CLASSROOM -->
@@ -1011,11 +1014,18 @@ async function startLesson(){
   var pageFrom=document.getElementById('page-from').value;
   var pageTo=document.getElementById('page-to').value;
 
+  // If no text and no PDF — generate lesson content from chapter name using AI
   if(!pdfFile&&!pasteText){
-    // Show setup if called without data
-    document.getElementById('setup').classList.add('show');
-    showErr('Please upload a Science textbook PDF or paste lesson text to begin.');
-    return;
+    var chapter=document.getElementById('meta-chapter').value.trim();
+    var subject2=document.getElementById('meta-subject').value.trim()||'Science';
+    var cls2=document.getElementById('meta-class').value.trim()||'';
+    if(!chapter){
+      document.getElementById('setup').classList.add('show');
+      showErr('Please upload a PDF or paste lesson text.');
+      return;
+    }
+    // Generate lesson from chapter name via Claude
+    pasteText='Generate a comprehensive science lesson on "'+chapter+'" for '+cls2+' students. Include key concepts, definitions, and explanations as they would appear in a textbook.';
   }
   document.getElementById('start-btn').disabled=true;
   document.getElementById('err-bar').classList.remove('show');
@@ -1418,46 +1428,28 @@ window.addEventListener('load',function(){
   if(typeof speechSynthesis!=='undefined'){
     speechSynthesis.onvoiceschanged=function(){};speechSynthesis.getVoices();
   }
-  // Check for autostart from teaching-mode
+  // Check for autostart from learnbot/teaching-mode
   var raw=null;try{raw=sessionStorage.getItem('science_autostart');}catch(e){}
   if(raw){
     try{sessionStorage.removeItem('science_autostart');}catch(e){}
     var d=null;try{d=JSON.parse(raw);}catch(e){}
     if(d){
-      if(d.chapter)document.getElementById('meta-chapter').value=d.chapter;
-      if(d.cls)document.getElementById('meta-class').value=d.cls;
-      if(d.subject)document.getElementById('meta-subject').value=d.subject;
-      // Try to get lesson text — from autostart payload OR from tm_lesson sessionStorage
-      var lessonTxt = d.lessonText || '';
-      if(!lessonTxt || lessonTxt.trim().length < 20){
-        try{ lessonTxt = sessionStorage.getItem('tm_lesson') || ''; }catch(e){}
-      }
-      if(!lessonTxt || lessonTxt.trim().length < 20){
-        try{ lessonTxt = sessionStorage.getItem('bb_lesson') || ''; }catch(e){}
-      }
+      // Fill meta fields
+      if(d.chapter) document.getElementById('meta-chapter').value = d.chapter;
+      if(d.cls)     document.getElementById('meta-class').value   = d.cls;
+      if(d.subject) document.getElementById('meta-subject').value = d.subject;
 
-      if(lessonTxt && lessonTxt.trim().length > 50){
-        // Lesson text found — skip setup entirely, start teaching directly
-        document.getElementById('paste-text').value = lessonTxt;
-        document.getElementById('setup').classList.remove('show');
-        showLoad('Preparing lesson…','Loading lesson from library');
-        setTimeout(function(){ startLesson(); }, 500);
-      } else {
-        // No lesson text — show setup with fields pre-filled
-        // Show a clear message guiding the teacher to upload PDF
-        document.getElementById('setup').classList.add('show');
-        // Show a helper message
-        var heroDesc = document.querySelector('.sh-desc');
-        if(heroDesc){
-          var lessonName = (typeof lesson==='string' ? lesson : '') || (typeof subject==='string' ? subject : '') || 'this lesson';
-          heroDesc.innerHTML = '<strong style="color:var(--maroon);">Lesson \"'+escH(lessonName)+'\" is ready.</strong><br/>Please upload the PDF or paste the lesson text below to begin synchronized teaching.';
-        }
-        // Scroll to upload zone
-        setTimeout(function(){
-          var uz = document.getElementById('upload-zone');
-          if(uz) uz.scrollIntoView({behavior:'smooth', block:'center'});
-        }, 300);
-      }
+      // Collect lesson text from every possible source
+      var lessonTxt = d.lessonText || '';
+      if(!lessonTxt||lessonTxt.trim().length<20){ try{lessonTxt=sessionStorage.getItem('tm_lesson')||'';}catch(e){} }
+      if(!lessonTxt||lessonTxt.trim().length<20){ try{lessonTxt=sessionStorage.getItem('bb_lesson')||'';}catch(e){} }
+      if(lessonTxt) document.getElementById('paste-text').value = lessonTxt;
+
+      // ALWAYS skip setup and go directly to teaching
+      // If no text — AI generates content from chapter name + subject
+      document.getElementById('setup').classList.remove('show');
+      showLoad('Preparing lesson…', 'Setting up "'+(d.chapter||d.subject||'Science Lesson')+'"');
+      setTimeout(function(){ startLesson(); }, 400);
     }
   }
 });
