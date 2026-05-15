@@ -554,12 +554,13 @@ async function tblUpload() {
       });
     }
     tblProgress('Done!', 100);
-    ok.textContent = '✅ Book saved! ' + chapters.length + ' chapters detected.';
+    ok.textContent = 'Book saved! ' + chapters.length + ' chapters detected.';
     ok.style.display = 'block';
     document.getElementById('tbl-title').value = '';
     tblFile = null;
     document.getElementById('tbl-pdf-name').textContent = 'Click to upload PDF or drag & drop';
-    setTimeout(tblLoadBooks, 1000);
+    document.getElementById('tbl-pdf-name').style.color = '';
+    tblLoadBooks();
   } catch(e) {
     err.textContent = '❌ ' + e.message; err.style.display = 'block';
   } finally {
@@ -598,28 +599,88 @@ async function tblExtractPdf(file) {
 }
 
 function tblDetectChapters(rawText) {
-  const chapters = [];
-  const pageNums = [...rawText.matchAll(/\[Page (\d+)\]/g)].map(function(m) { return parseInt(m[1]); });
-  const pageTexts = rawText.split(/\[Page \d+\]/).slice(1);
-  const blocks = pageTexts.map(function(t, i) { return { page: pageNums[i] || i + 1, text: t.trim() }; });
-  let cur = null;
+  var chapters = [];
+  // Split by page markers
+  var pageNums = [];
+  var m;
+  var re = /\[Page (\d+)\]/g;
+  while ((m = re.exec(rawText)) !== null) {
+    pageNums.push(parseInt(m[1]));
+  }
+  var pageTexts = rawText.split(/\[Page \d+\]/).slice(1);
+  var blocks = pageTexts.map(function(t, i) {
+    return { page: pageNums[i] || (i + 1), text: t.trim() };
+  });
+
+  var cur = null;
   blocks.forEach(function(pb, i) {
-    const first = pb.text.split('\\n').slice(0, 3).join(' ').replace(/\s+/g, ' ').trim();
-    const isStart = /^(Unit|Chapter|UNIT|CHAPTER)\s+\d+/i.test(first) ||
-      (first.length < 60 && /^[A-Z][A-Za-z\s,&\-]{4,}$/.test(first) && i > 4);
+    // Get first 3 lines joined
+    var first = pb.text.split('\n').slice(0, 4).join(' ').replace(/\s+/g, ' ').trim();
+    // Remove leading page numbers like "218 219"
+    first = first.replace(/^\d+\s+\d+\s+/, '').replace(/^\d+\s+/, '').trim();
+
+    // Detect chapter/unit starts
+    var isStart = false;
+    // Pattern 1: "Unit 15" or "Chapter 3"
+    if (/^(Unit|Chapter|UNIT|CHAPTER)\s+\d+/i.test(first)) isStart = true;
+    // Pattern 2: Number followed by subject heading like "15 Nervous System"
+    if (/^\d+\s+[A-Z][a-z]/.test(first) && first.length < 60 && i > 5) isStart = true;
+    // Pattern 3: ALL CAPS title of 3+ words
+    if (/^[A-Z][A-Z\s]{8,}$/.test(first) && first.length < 70 && i > 5) isStart = true;
+
     if (isStart && cur) {
       cur.pageTo = pb.page - 1;
-      cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom && p.page <= cur.pageTo; }).map(function(p) { return p.text; }).join('\n\n');
-      chapters.push(cur);
+      cur.text = blocks
+        .filter(function(p) { return p.page >= cur.pageFrom && p.page <= cur.pageTo; })
+        .map(function(p) { return p.text; })
+        .join('\n\n');
+      if (cur.text.trim().length > 100) chapters.push(cur);
     }
-    if (isStart) cur = { title: first.replace(/^(Unit|Chapter)\s+\d+\s*/i, '').trim() || first, pageFrom: pb.page, pageTo: pb.page };
+    if (isStart) {
+      cur = {
+        title: first.replace(/^(Unit|Chapter)\s+\d+\s*/i, '').trim() || first,
+        pageFrom: pb.page,
+        pageTo: pb.page,
+        text: ''
+      };
+    }
   });
+
+  // Add last chapter
   if (cur && blocks.length) {
     cur.pageTo = blocks[blocks.length - 1].page;
-    cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom; }).map(function(p) { return p.text; }).join('\n\n');
-    chapters.push(cur);
+    cur.text = blocks
+      .filter(function(p) { return p.page >= cur.pageFrom; })
+      .map(function(p) { return p.text; })
+      .join('\n\n');
+    if (cur.text.trim().length > 100) chapters.push(cur);
   }
-  if (!chapters.length) chapters.push({ title: 'Full Book', pageFrom: pageNums[0] || 1, pageTo: pageNums[pageNums.length - 1] || 1, text: rawText });
+
+  // If still no chapters, split every 15 pages
+  if (!chapters.length) {
+    var chunkSize = 15;
+    for (var s = 0; s < blocks.length; s += chunkSize) {
+      var chunk = blocks.slice(s, s + chunkSize);
+      var chText = chunk.map(function(b) { return b.text; }).join('\n\n');
+      chapters.push({
+        title: 'Section ' + (Math.floor(s / chunkSize) + 1),
+        pageFrom: chunk[0].page,
+        pageTo: chunk[chunk.length - 1].page,
+        text: chText
+      });
+    }
+  }
+
+  // Final fallback
+  if (!chapters.length) {
+    chapters.push({
+      title: 'Full Book',
+      pageFrom: pageNums[0] || 1,
+      pageTo: pageNums[pageNums.length - 1] || 1,
+      text: rawText
+    });
+  }
+
   return chapters;
 }
 
@@ -633,7 +694,13 @@ async function tblLoadBooks() {
   try {
     var books = await tblSB('textbook_library', 'GET', null, 'order=created_at.desc&select=*');
     loading.style.display = 'none';
-    if (!books || !books.length) { none.style.display = 'block'; return; }
+    if (!books || !Array.isArray(books) || !books.length) {
+      none.textContent = (!Array.isArray(books) && books && books.message) ?
+        'DB error: ' + books.message + ' — Run the SQL setup first.' :
+        'No textbooks uploaded yet.';
+      none.style.display = 'block';
+      return;
+    }
     books.forEach(function(book) {
       var card = document.createElement('div');
       card.className = 'tbl-book-card';
@@ -696,7 +763,7 @@ async function tblLoadSchoolAccess() {
       return;
     }
     var access = await tblSB('school_library_access', 'GET', null, 'select=school_id');
-    var accessIds = (access || []).map(function(a) { return a.school_id; });
+    var accessIds = Array.isArray(access) ? access.map(function(a) { return a.school_id; }) : [];
     list.innerHTML = '';
     schools.forEach(function(s) {
       var hasAccess = accessIds.indexOf(s.id) !== -1;
