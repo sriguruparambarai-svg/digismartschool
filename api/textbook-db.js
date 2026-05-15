@@ -12,9 +12,9 @@ module.exports = async function handler(req, res) {
   const ALLOWED = ['textbook_library', 'textbook_chapters', 'school_library_access'];
   if (!ALLOWED.includes(table)) return res.status(403).json({ error: 'Table not allowed' });
 
-  const url = process.env.SUPABASE_URL;
+  const url = 'https://pzxosqukijwpjdlfdfst.supabase.co';
   const key = process.env.SUPABASE_SECRET_KEY;
-  if (!url || !key) return res.status(500).json({ error: 'Supabase env vars not set' });
+  if (!key) return res.status(500).json({ error: 'SUPABASE_SECRET_KEY not set in Vercel' });
 
   try {
     const db = createClient(url, key);
