@@ -324,12 +324,19 @@ function doLogout() {
 }
 
 async function callAuth(body) {
+  const token = localStorage.getItem('dss_token') || '';
   const r = await fetch('/api/auth', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ ...body, token })
   });
-  return r.json();
+  const d = await r.json();
+  if(d.error === 'UNAUTHORIZED' || d.error === 'Invalid token') {
+    localStorage.clear();
+    window.location.href = '/login.html';
+    return {};
+  }
+  return d;
 }
 
 async function loadSchools() {
@@ -470,8 +477,10 @@ function showMsg(id, msg) {
 // ════════════════════════════════════════
 function switchTab(tab) {
   ['schools','books'].forEach(t => {
-    document.getElementById('tab-'+t).classList.toggle('active', t===tab);
-    document.getElementById('panel-'+t).classList.toggle('show', t===tab);
+    const tabEl = document.getElementById('tab-'+t);
+    const panelEl = document.getElementById('panel-'+t);
+    if(tabEl) tabEl.classList.toggle('active', t===tab);
+    if(panelEl) panelEl.classList.toggle('show', t===tab);
   });
   if(tab==='books') loadBooks();
 }
@@ -737,6 +746,15 @@ async function deleteBook(bookId, title){
   await sbQuery('textbook_library','DELETE',null,'id=eq.'+bookId);
   loadBooks();
 }
+
+// Set default date
+try {
+  const sendEl = document.getElementById('send');
+  const subEndEl = document.getElementById('sub-end');
+  const tomorrow30 = new Date(Date.now() + 30*24*60*60*1000);
+  if(sendEl) sendEl.valueAsDate = tomorrow30;
+  if(subEndEl) subEndEl.valueAsDate = tomorrow30;
+} catch(e){}
 
 // Load on start
 loadSchools();
