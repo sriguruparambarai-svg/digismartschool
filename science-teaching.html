@@ -602,6 +602,8 @@ input[type=range]{accent-color:var(--gold);height:3px;width:70px;cursor:pointer;
       if(s)s.classList.add('show');
     });
   }
+  // Set started flag to prevent loops
+  try{ sessionStorage.setItem('sci_started','1'); }catch(e){}
 })();
 </script>
 <div class="hdr">
@@ -881,40 +883,36 @@ async function parseLesson(rawText, subject, chapter, cls){
 // GENERATE FULL LESSON FROM TOPIC NAME (no PDF/text)
 // ═══════════════════════════════════════════════════
 async function generateLessonFromTopic(chapter, subject, cls){
-  // Ask Claude to write the lesson as plain paragraphs first, then parse it
+  // Small token count to stay within Vercel 10s timeout
   var resp = await fetch('/api/ai',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
-      system: 'You are a science teacher writing textbook content for Indian school students. Write clear, detailed, educational content.',
+      system: 'You are a science teacher. Always respond with valid JSON only. No markdown.',
       messages:[{role:'user', content:
-        'Write a detailed science lesson about "'+chapter+'" for '+cls+' students.\n\n'+
-        'Format your response as a JSON object like this:\n'+
-        '{"title":"'+chapter+'","subject":"'+subject+'","class":"'+cls+'","paragraphs":[\n'+
-        '{"id":1,"page":1,"type":"heading","text":"'+chapter+'","sentences":["'+chapter+'"],"diagram_keywords":[],"is_definition":false},\n'+
-        '{"id":2,"page":1,"type":"paragraph","text":"The nervous system is the control center of the human body. It coordinates all activities of the body. It consists of the brain, spinal cord, and nerves.","sentences":["The nervous system is the control center of the human body.","It coordinates all activities of the body.","It consists of the brain, spinal cord, and nerves."],"diagram_keywords":["nervous system","brain","spinal cord"],"is_definition":false}\n'+
-        ']}\n\n'+
-        'Write 7-8 paragraphs about "'+chapter+'" following that exact format.\n'+
-        'Each paragraph must have: id, page, type, text (full paragraph), sentences (array of individual sentences), diagram_keywords (science terms), is_definition.\n'+
-        'Return ONLY the JSON object. No explanation. No markdown backticks.'
+        'Write a '+subject+' lesson on "'+chapter+'" for '+cls+'. '+
+        'Respond with ONLY this JSON (replace ... with real content):\n'+
+        '{"title":"'+chapter+'","subject":"'+subject+'","class":"'+cls+'","paragraphs":['+
+        '{"id":1,"page":1,"type":"heading","text":"'+chapter+'","sentences":["'+chapter+'"],"diagram_keywords":[],"is_definition":false},'+
+        '{"id":2,"page":1,"type":"paragraph","text":"WRITE A REAL PARAGRAPH HERE ABOUT '+chapter+'","sentences":["SENTENCE ONE.","SENTENCE TWO.","SENTENCE THREE."],"diagram_keywords":["'+chapter.toLowerCase()+'"],"is_definition":false},'+
+        '{"id":3,"page":1,"type":"paragraph","text":"SECOND PARAGRAPH","sentences":["SENT1.","SENT2.","SENT3."],"diagram_keywords":[],"is_definition":false},'+
+        '{"id":4,"page":2,"type":"paragraph","text":"THIRD PARAGRAPH","sentences":["SENT1.","SENT2.","SENT3."],"diagram_keywords":[],"is_definition":false},'+
+        '{"id":5,"page":2,"type":"paragraph","text":"FOURTH PARAGRAPH","sentences":["SENT1.","SENT2.","SENT3."],"diagram_keywords":[],"is_definition":false},'+
+        '{"id":6,"page":3,"type":"paragraph","text":"FIFTH PARAGRAPH","sentences":["SENT1.","SENT2.","SENT3."],"diagram_keywords":[],"is_definition":false}'+
+        ']}\nFill in real educational content about "'+chapter+'" replacing all CAPS placeholders.'
       }],
-      max_tokens: 2500
+      max_tokens: 1500
     })
   });
   var d = await resp.json();
-  if(d.error) throw new Error(d.error.message||'API error');
+  if(d.error) throw new Error('AI error: '+(d.error.message||d.error));
   var raw = (d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();
-  // Remove markdown if present
-  raw = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/\s*```$/,'').trim();
-  // Find JSON object
-  var startJ = raw.indexOf('{');
-  var endJ = raw.lastIndexOf('}');
-  if(startJ >= 0 && endJ > startJ) raw = raw.substring(startJ, endJ+1);
-  var result = JSON.parse(raw);
-  // Validate paragraphs exist and have content
-  if(!result.paragraphs || result.paragraphs.length < 2) throw new Error('Not enough paragraphs generated');
-  // Fix any paragraphs with empty text
-  result.paragraphs = result.paragraphs.filter(function(p){ return p && p.text && p.text.trim().length > 2; });
+  raw = raw.replace(/```json/g,'').replace(/```/g,'').trim();
+  var s=raw.indexOf('{'), e=raw.lastIndexOf('}');
+  if(s>=0&&e>s) raw=raw.substring(s,e+1);
+  var result=JSON.parse(raw);
+  if(!result.paragraphs||result.paragraphs.length<2) throw new Error('Lesson generation failed. Please paste lesson text manually.');
+  result.paragraphs=result.paragraphs.filter(function(p){return p&&p.text&&p.text.trim().length>5;});
   return result;
 }
 
@@ -1144,8 +1142,9 @@ async function startLesson(){
 
   }catch(e){
     hideLoad();
+    try{sessionStorage.removeItem('sci_started');}catch(ex){}
     document.getElementById('setup').classList.add('show');
-    showErr(e.message||'Something went wrong. Please try again.');
+    showErr(e.message||'Could not generate lesson. Please paste lesson text manually.');
     document.getElementById('start-btn').disabled=false;
   }
 }
@@ -1514,6 +1513,16 @@ uz.addEventListener('drop',function(e){
 window.addEventListener('load',function(){
   if(typeof speechSynthesis!=='undefined'){
     speechSynthesis.onvoiceschanged=function(){};speechSynthesis.getVoices();
+  }
+
+  // Prevent infinite loop — if already started once, just show setup
+  var alreadyStarted=false;
+  try{alreadyStarted=sessionStorage.getItem('sci_started')==='2';}catch(e){}
+  try{sessionStorage.setItem('sci_started','2');}catch(e){}
+  if(alreadyStarted){
+    document.getElementById('setup').classList.add('show');
+    document.getElementById('loading').classList.remove('show');
+    return;
   }
 
   // Check sessionStorage for autostart
