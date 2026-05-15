@@ -1204,93 +1204,493 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <div class="main">
 
 <div id="tab-teacher" class="panel active">
-<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;height:calc(100vh - 160px);max-height:780px;">
+<div style="height:calc(100vh - 160px);overflow-y:auto;padding:4px 2px;">
 
-  <!-- LEFT COLUMN: Class/Subject/Chapter + Buttons -->
-  <div style="display:flex;flex-direction:column;gap:10px;">
-    <div class="card" style="padding:16px;flex:1;display:flex;flex-direction:column;gap:10px;overflow:hidden;">
-      <div class="card-title" style="margin-bottom:0;padding-bottom:8px;">📚 Lesson Setup <a href="content-setup.html" style="font-size:0.7rem;font-weight:700;color:var(--maroon);background:rgba(107,26,26,0.08);padding:2px 8px;border-radius:7px;text-decoration:none;margin-left:8px;border:1px solid rgba(107,26,26,0.15);">⚙️ Content Setup</a></div>
+<!-- ══════════════════════════════════════════
+     UNIFIED TEACHER PANEL
+══════════════════════════════════════════ -->
+<style>
+/* Teacher Panel — new unified design */
+.tp-section{background:white;border-radius:14px;padding:18px 20px;margin-bottom:14px;box-shadow:0 2px 10px rgba(107,26,26,0.07);border-left:4px solid var(--maroon);}
+.tp-sec-title{font-family:'Cinzel',serif;font-size:0.95rem;color:var(--maroon);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.tp-step{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--maroon-dark);width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:0.68rem;font-weight:800;flex-shrink:0;}
 
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-        <div>
-          <label style="margin-top:0;font-size:0.82rem;">Class</label>
-          <select id="t-class" style="padding:9px 10px;font-size:0.88rem;">
-            <option value="">Select</option>
-            <option>Pre KG</option><option>LKG</option><option>UKG</option>
-            <option>Class 1</option><option>Class 2</option><option>Class 3</option>
-            <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-            <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-            <option>Class 10</option><option>Class 11</option><option>Class 12</option>
-          </select>
-        </div>
-        <div>
-          <label style="margin-top:0;font-size:0.82rem;">Subject</label>
-          <select id="t-subject" style="padding:9px 10px;font-size:0.88rem;">
-            <option value="">Select</option>
-            <option>English</option><option>Tamil</option><option>Maths</option>
-            <option>Science</option><option>Social Science</option><option>EVS</option>
-            <option>Computer Science</option><option>Hindi</option>
-          </select>
-        </div>
-      </div>
+/* Textbook library cards */
+.tb-book-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-bottom:10px;}
+.tb-book-card{padding:12px;border:2px solid #e8dfc8;border-radius:10px;cursor:pointer;background:#faf6ee;transition:all 0.15s;position:relative;}
+.tb-book-card:hover{border-color:var(--maroon);background:white;}
+.tb-book-card.selected{border-color:var(--gold);background:rgba(201,168,76,0.08);}
+.tb-book-icon{font-size:1.6rem;margin-bottom:6px;}
+.tb-book-name{font-size:0.78rem;font-weight:800;color:var(--maroon);}
+.tb-book-sub{font-size:0.68rem;color:#888;margin-top:2px;}
+.tb-book-check{position:absolute;top:8px;right:8px;font-size:0.8rem;display:none;}
+.tb-book-card.selected .tb-book-check{display:block;}
 
-      <div>
-        <label style="margin-top:0;font-size:0.82rem;">Chapter / Lesson Name</label>
-        <input type="text" id="t-chapter" placeholder="e.g. The Water Cycle" style="padding:9px 10px;font-size:0.9rem;"/>
-      </div>
+/* PDF upload zone */
+.tb-upload-zone{border:2.5px dashed rgba(107,26,26,0.22);border-radius:10px;padding:16px;text-align:center;cursor:pointer;background:rgba(201,168,76,0.03);transition:all 0.15s;}
+.tb-upload-zone:hover{border-color:var(--maroon);background:rgba(201,168,76,0.06);}
+.tb-upload-title{font-weight:700;color:var(--maroon);font-size:0.82rem;margin-bottom:3px;}
+.tb-upload-sub{font-size:0.72rem;color:#888;}
 
-      <!-- Samacheer Library Picker -->
-      <div>
-        <button type="button" onclick="openLibraryPicker()" style="width:100%;padding:9px 12px;background:linear-gradient(135deg,#1a5c2a,#2e7d44);color:white;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:700;font-size:0.88rem;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:7px;">
-          📚 Pick from Samacheer Textbook Library
-        </button>
-        <div id="lib-pick-status" style="font-size:0.78rem;color:#1a5c2a;font-weight:700;margin-top:4px;display:none;"></div>
-      </div>
+/* Lesson cards */
+.lesson-grid{display:flex;flex-direction:column;gap:8px;}
+.lesson-card{padding:12px 14px;border:2px solid #e8dfc8;border-radius:10px;background:#faf6ee;display:flex;align-items:center;gap:12px;transition:all 0.15s;}
+.lesson-card:hover{border-color:rgba(107,26,26,0.3);background:white;}
+.lesson-card.active-lesson{border-color:var(--gold);background:rgba(201,168,76,0.08);}
+.lc-icon{font-size:1.4rem;flex-shrink:0;}
+.lc-info{flex:1;}
+.lc-name{font-weight:800;color:var(--maroon);font-size:0.85rem;}
+.lc-pages{font-size:0.7rem;color:#888;margin-top:2px;}
+.lc-status{font-size:0.65rem;padding:2px 7px;border-radius:6px;font-weight:700;display:inline-block;margin-top:3px;}
+.lc-status.active{background:#d4edda;color:#155724;}
+.lc-status.draft{background:#fff3cd;color:#856404;}
+.lc-btns{display:flex;gap:5px;}
+.lc-btn{padding:5px 10px;border:none;border-radius:7px;font-family:'Nunito',sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;}
+.lc-btn-teach{background:linear-gradient(135deg,var(--maroon),#8B1A2A);color:var(--gold-light);}
+.lc-btn-act{background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--maroon-dark);}
+.lc-btn-del{background:rgba(220,53,69,0.08);color:#c0392b;border:1px solid rgba(220,53,69,0.18);}
 
-      <!-- Upload PDF -->
-      <div>
-        <label style="margin-top:0;font-size:0.82rem;">Upload Lesson PDF</label>
-        <div style="border:2px dashed var(--gold-dark);border-radius:10px;padding:10px 12px;background:rgba(201,168,76,0.05);">
-          <div style="font-size:0.78rem;color:var(--maroon-mid);margin-bottom:6px;">📄 Works with CamScanner & textbook PDFs</div>
-          <input type="file" id="t-file" style="width:100%;font-size:0.82rem;font-family:Nunito,sans-serif;cursor:pointer;" onchange="handleTxt(this)"/>
-        </div>
-        <div style="font-size:0.82rem;font-weight:600;margin-top:4px;" id="t-file-status"></div>
-      </div>
+/* New lesson form */
+.new-lesson-form{background:#f9f5ee;border:1.5px solid #e8dfc8;border-radius:10px;padding:14px;margin-top:10px;display:none;}
+.new-lesson-form.open{display:block;}
 
-      <!-- Images upload compact -->
-      <div>
-        <label style="margin-top:0;font-size:0.82rem;">Lesson Images <span style="font-weight:400;opacity:0.6;">(optional, up to 5)</span></label>
-        <div style="border:2px dashed var(--gold-dark);border-radius:10px;padding:8px 12px;background:rgba(201,168,76,0.05);cursor:pointer;font-size:0.82rem;color:var(--maroon-mid);" onclick="document.getElementById('t-imgs').click()">
-          📷 Click to upload textbook images
-          <input type="file" id="t-imgs" accept="image/*" multiple onchange="handleImgs(this)" style="display:none;"/>
-        </div>
-        <div id="img-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;"></div>
-      </div>
+/* Page preview */
+.page-preview{display:flex;gap:8px;margin-top:8px;}
+.pp-thumb{width:80px;height:100px;background:#e8e0d0;border-radius:6px;overflow:hidden;border:1px solid #ccc;flex-shrink:0;}
+.pp-thumb canvas{width:100%;height:100%;object-fit:cover;}
+.pp-info{flex:1;font-size:0.72rem;color:#666;line-height:1.7;}
+.pp-info strong{color:var(--maroon);display:block;margin-bottom:2px;}
 
-      <!-- Buttons -->
-      <div style="margin-top:auto;display:flex;flex-direction:column;gap:8px;">
-        <div style="display:flex;gap:8px;">
-          <button class="btn btn-primary" style="flex:1;padding:11px 8px;font-size:0.9rem;" id="btn-save-lib" onclick="doSaveToLibrary()">💾 Save to Library</button>
-          <button class="btn btn-gold" style="flex:1;padding:11px 8px;font-size:0.9rem;" id="btn-act-teach" onclick="doActivateAndTeach()">▶ Activate &amp; Teach</button>
-        </div>
-        <div id="save-status" style="font-size:0.82rem;font-weight:700;display:none;padding:8px 10px;background:rgba(201,168,76,0.1);border-radius:8px;border:1px solid var(--gold-dark);"></div>
-      </div>
+.tp-msg-ok{background:#d4edda;color:#155724;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:700;display:none;margin-top:8px;}
+.tp-msg-err{background:#f8d7da;color:#721c24;border-radius:8px;padding:8px 12px;font-size:0.8rem;font-weight:700;display:none;margin-top:8px;}
+</style>
+
+<!-- HIDDEN inputs needed by existing functions -->
+<input type="hidden" id="t-class" value=""/>
+<input type="hidden" id="t-subject" value=""/>
+<input type="hidden" id="t-chapter" value=""/>
+<input type="hidden" id="t-text" value=""/>
+<input type="file" id="t-file" style="display:none;" onchange="handleTxt(this)"/>
+<input type="file" id="t-imgs" accept="image/*" multiple onchange="handleImgs(this)" style="display:none;"/>
+<div id="t-file-status" style="display:none;"></div>
+<div id="img-preview" style="display:none;"></div>
+<div id="save-status" style="display:none;"></div>
+<div id="lib-pick-status" style="display:none;"></div>
+
+<!-- ── STEP 1: SELECT CLASS & SUBJECT ── -->
+<div class="tp-section">
+  <div class="tp-sec-title"><span class="tp-step">1</span> Select Class & Subject</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+    <div>
+      <label style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Class</label>
+      <select id="tp-class" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:'Nunito',sans-serif;color:var(--maroon-dark);" onchange="tpOnClassSubjChange()">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Subject</label>
+      <select id="tp-subject" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:'Nunito',sans-serif;color:var(--maroon-dark);" onchange="tpOnClassSubjChange()">
+        <option value="">Select Subject</option>
+        <option>Science</option><option>Mathematics</option><option>Social Science</option>
+        <option>English</option><option>Tamil</option><option>EVS</option>
+        <option>Computer Science</option><option>Hindi</option>
+      </select>
     </div>
   </div>
+</div>
 
-  <!-- RIGHT COLUMN: Paste Lesson Text -->
-  <div style="display:flex;flex-direction:column;">
-    <div class="card" style="padding:16px;flex:1;display:flex;flex-direction:column;overflow:hidden;">
-      <div class="card-title" style="margin-bottom:0;padding-bottom:8px;">✏️ Lesson Content</div>
-      <div style="font-size:0.78rem;color:var(--maroon-mid);margin-bottom:8px;">Paste textbook text — AI Teacher will teach from this. Leave empty to teach from general knowledge.</div>
-      <textarea id="t-text"
-        placeholder="Paste the lesson content here. AI Teacher will study this and teach the students..."
-        style="flex:1;resize:none;min-height:0;font-size:0.9rem;line-height:1.6;padding:12px;"></textarea>
-    </div>
+<!-- ── STEP 2: TEXTBOOK LIBRARY ── -->
+<div class="tp-section" id="tp-step2" style="display:none;">
+  <div class="tp-sec-title"><span class="tp-step">2</span> Textbook <span id="tp-book-label" style="font-size:0.78rem;font-weight:600;color:#888;font-family:'Nunito',sans-serif;margin-left:4px;"></span></div>
+
+  <!-- Saved books for this class/subject -->
+  <div class="tb-book-grid" id="tp-books-grid">
+    <div style="color:#aaa;font-size:0.78rem;grid-column:1/-1;">Loading textbooks…</div>
   </div>
 
+  <!-- Upload new textbook -->
+  <div class="tb-upload-zone" onclick="document.getElementById('tp-pdf-input').click()">
+    <div style="font-size:1.4rem;">📤</div>
+    <div class="tb-upload-title">Upload Textbook PDF</div>
+    <div class="tb-upload-sub">Upload once — saved permanently. Never upload again.</div>
+  </div>
+  <input type="file" id="tp-pdf-input" accept=".pdf" style="display:none;" onchange="tpUploadPdf(this)"/>
+
+  <!-- Upload progress -->
+  <div id="tp-upload-prog" style="display:none;margin-top:10px;">
+    <div style="width:100%;height:5px;background:#f0e8d0;border-radius:3px;overflow:hidden;">
+      <div id="tp-upload-bar" style="height:5px;background:linear-gradient(90deg,var(--gold-dark),var(--gold));width:0%;transition:width 0.3s;border-radius:3px;"></div>
+    </div>
+    <div id="tp-upload-log" style="font-size:0.75rem;color:#888;margin-top:4px;"></div>
+  </div>
 </div>
+
+<!-- ── STEP 3: LESSONS ── -->
+<div class="tp-section" id="tp-step3" style="display:none;">
+  <div class="tp-sec-title">
+    <span class="tp-step">3</span> Lessons
+    <button onclick="tpToggleNewLesson()" style="margin-left:auto;padding:5px 12px;background:linear-gradient(135deg,var(--maroon),#8B1A2A);color:var(--gold-light);border:none;border-radius:7px;font-family:'Nunito',sans-serif;font-size:0.75rem;font-weight:700;cursor:pointer;">+ New Lesson</button>
+  </div>
+
+  <!-- Lessons list -->
+  <div class="lesson-grid" id="tp-lessons-list">
+    <div style="color:#aaa;font-size:0.78rem;padding:8px;">Select a textbook above to see lessons.</div>
+  </div>
+
+  <!-- New lesson form -->
+  <div class="new-lesson-form" id="tp-new-lesson-form">
+    <div style="font-size:0.82rem;font-weight:800;color:var(--maroon);margin-bottom:10px;">✏️ Create New Lesson</div>
+    <div>
+      <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:3px;">Lesson Name</label>
+      <input type="text" id="nl-name" placeholder="e.g. Electricity, Nervous System, Laws of Motion" style="width:100%;padding:8px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:'Nunito',sans-serif;"/>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px;">
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:3px;">Start Page</label>
+        <input type="number" id="nl-from" placeholder="50" min="1" style="width:100%;padding:8px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:'Nunito',sans-serif;" oninput="tpPreviewPages()"/>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:3px;">End Page</label>
+        <input type="number" id="nl-to" placeholder="65" min="1" style="width:100%;padding:8px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:'Nunito',sans-serif;" oninput="tpPreviewPages()"/>
+      </div>
+    </div>
+
+    <!-- Page preview -->
+    <div id="tp-page-preview" style="display:none;margin-top:10px;padding:10px;background:white;border-radius:8px;border:1px solid #e8dfc8;">
+      <div style="font-size:0.7rem;font-weight:700;color:var(--maroon);margin-bottom:6px;">📄 Page Preview</div>
+      <div class="page-preview">
+        <div class="pp-thumb"><canvas id="pp-canvas"></canvas></div>
+        <div class="pp-info" id="pp-info">Loading preview…</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="tpSaveLesson()" style="flex:1;padding:9px;background:linear-gradient(135deg,var(--gold-dark),var(--gold));color:var(--maroon-dark);border:none;border-radius:8px;font-family:'Nunito',sans-serif;font-weight:800;font-size:0.85rem;cursor:pointer;">💾 Save Lesson</button>
+      <button onclick="tpToggleNewLesson()" style="padding:9px 14px;background:rgba(107,26,26,0.06);border:1px solid rgba(107,26,26,0.15);color:var(--maroon);border-radius:8px;font-family:'Nunito',sans-serif;font-weight:700;font-size:0.82rem;cursor:pointer;">Cancel</button>
+    </div>
+    <div class="tp-msg-ok" id="nl-ok">✅ Lesson saved!</div>
+    <div class="tp-msg-err" id="nl-err"></div>
+  </div>
 </div>
+
+</div><!-- end tab-teacher scroll wrap -->
+</div><!-- end tab-teacher -->
+
+<script>
+// ══════════════════════════════════════
+// UNIFIED TEACHER PANEL LOGIC
+// ══════════════════════════════════════
+var tpSelectedBookId = null, tpPdfDoc = null, tpBookPages = 0;
+var tpLessons = [], tpBooks = [];
+
+// IDB for PDF storage
+var tpIdb = null;
+(function(){
+  var r = indexedDB.open('dss_textbooks',1);
+  r.onupgradeneeded = function(e){e.target.result.createObjectStore('pdfs',{keyPath:'key'});};
+  r.onsuccess = function(e){tpIdb=e.target.result;};
+})();
+
+function tpSavePdf(key,ab,meta){
+  if(!tpIdb||!ab)return;
+  try{var tx=tpIdb.transaction('pdfs','readwrite');tx.objectStore('pdfs').put({key,data:ab.slice(0),meta,savedAt:Date.now()});}catch(e){}
+}
+function tpGetPdf(key){
+  return new Promise(function(res){
+    if(!tpIdb){res(null);return;}
+    try{var tx=tpIdb.transaction('pdfs','readonly');var rq=tx.objectStore('pdfs').get(key);rq.onsuccess=function(e){res(e.target.result||null);};rq.onerror=function(){res(null);};}catch(e){res(null);}
+  });
+}
+
+// Step 1: Class & Subject selected
+async function tpOnClassSubjChange(){
+  var cls = document.getElementById('tp-class').value;
+  var subj = document.getElementById('tp-subject').value;
+  if (!cls || !subj) { document.getElementById('tp-step2').style.display='none'; document.getElementById('tp-step3').style.display='none'; return; }
+
+  // Sync hidden inputs for existing activate functions
+  document.getElementById('t-class').value = cls;
+  document.getElementById('t-subject').value = subj;
+
+  document.getElementById('tp-book-label').textContent = '— '+cls+' '+subj;
+  document.getElementById('tp-step2').style.display='block';
+  document.getElementById('tp-step3').style.display='none';
+  tpSelectedBookId = null; tpPdfDoc = null;
+
+  await tpLoadBooks(cls, subj);
+}
+
+// Load books for class+subject
+async function tpLoadBooks(cls, subj){
+  var grid = document.getElementById('tp-books-grid');
+  grid.innerHTML = '<div style="color:#aaa;font-size:0.75rem;grid-column:1/-1;">Loading…</div>';
+  try {
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_library',
+        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(subj)+'&select=id,title,subject,class_name,medium'})});
+    var d = await r.json();
+    tpBooks = Array.isArray(d)?d:(d.books||[]);
+    renderBooks(tpBooks);
+  } catch(e) { grid.innerHTML='<div style="color:#888;font-size:0.75rem;grid-column:1/-1;">Could not load books.</div>'; }
+}
+
+function renderBooks(books){
+  var grid = document.getElementById('tp-books-grid');
+  grid.innerHTML = '';
+  var subjectIcons={'Science':'🔬','Mathematics':'📐','Social Science':'🌍','English':'📖','Tamil':'அ','EVS':'🌱','Computer Science':'💻','Hindi':'🇮🇳'};
+
+  if (!books.length) {
+    grid.innerHTML='<div style="color:#aaa;font-size:0.75rem;grid-column:1/-1;padding:6px 0;">No textbook uploaded yet for this class & subject.</div>';
+    return;
+  }
+  books.forEach(function(b){
+    var card = document.createElement('div'); card.className='tb-book-card';
+    card.innerHTML='<div class="tb-book-check">✅</div>'
+      +'<div class="tb-book-icon">'+(subjectIcons[b.subject]||'📚')+'</div>'
+      +'<div class="tb-book-name">'+escH(b.title||b.subject)+'</div>'
+      +'<div class="tb-book-sub">'+escH(b.class_name)+' · '+escH(b.medium||'English')+'</div>';
+    card.onclick = function(){ tpSelectBook(b, card); };
+    grid.appendChild(card);
+  });
+}
+
+async function tpSelectBook(book, cardEl){
+  // Visual select
+  document.querySelectorAll('.tb-book-card').forEach(function(c){c.classList.remove('selected');});
+  cardEl.classList.add('selected');
+  tpSelectedBookId = book.id;
+
+  // Load PDF from IDB
+  var saved = await tpGetPdf(book.id);
+  if(saved && saved.data){
+    if(typeof pdfjsLib !== 'undefined'){
+      tpPdfDoc = await pdfjsLib.getDocument({data:saved.data.slice(0)}).promise;
+      tpBookPages = tpPdfDoc.numPages;
+    }
+  }
+
+  // Load lessons
+  await tpLoadLessons(book.id);
+  document.getElementById('tp-step3').style.display='block';
+}
+
+// Upload PDF for selected class/subject
+async function tpUploadPdf(input){
+  var cls = document.getElementById('tp-class').value;
+  var subj = document.getElementById('tp-subject').value;
+  if(!cls||!subj){alert('Please select Class and Subject first.');return;}
+  if(!input.files||!input.files[0])return;
+
+  var file = input.files[0];
+  var bookId = 'book_'+cls.replace(/\s+/g,'').toLowerCase()+'_'+subj.toLowerCase().replace(/\s+/g,'_');
+  var title = file.name.replace(/\.pdf$/i,'').replace(/[-_]/g,' ');
+
+  document.getElementById('tp-upload-prog').style.display='block';
+  setUploadProc('Reading PDF…',10);
+
+  var ab = await file.arrayBuffer();
+  if(typeof pdfjsLib !== 'undefined'){
+    tpPdfDoc = await pdfjsLib.getDocument({data:ab.slice(0)}).promise;
+    tpBookPages = tpPdfDoc.numPages;
+  }
+  setUploadProc('Saving to library…',60);
+
+  // Save book record to Supabase
+  try {
+    await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_post',table:'textbook_library',body:{
+        id:bookId,title:title,subject:subj,class_name:cls,
+        medium:'English Medium',syllabus_type:'samacheer',
+        publisher:'Samacheer Kalvi',total_pages:tpBookPages,status:'ready',
+        raw_text:'',created_by:'teacher'}})});
+  } catch(e){}
+
+  // Store PDF locally
+  tpSavePdf(bookId, ab, {title,cls,subj,fileName:file.name,pages:tpBookPages});
+  setUploadProc('Done! '+tpBookPages+' pages saved ✅',100);
+  tpSelectedBookId = bookId;
+
+  setTimeout(function(){document.getElementById('tp-upload-prog').style.display='none';},2000);
+
+  // Reload books
+  await tpLoadBooks(cls, subj);
+  document.getElementById('tp-step3').style.display='block';
+  await tpLoadLessons(bookId);
+}
+
+function setUploadProc(msg,pct){
+  document.getElementById('tp-upload-bar').style.width=pct+'%';
+  document.getElementById('tp-upload-log').textContent=msg;
+}
+
+// Load lessons for a book
+async function tpLoadLessons(bookId){
+  var list = document.getElementById('tp-lessons-list');
+  list.innerHTML='<div style="color:#aaa;font-size:0.75rem;padding:6px 0;">Loading lessons…</div>';
+  try {
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',
+        params:'book_id=eq.'+bookId+'&select=id,chapter_number,chapter_title,page_from,page_to&order=chapter_number.asc'})});
+    var d = await r.json();
+    tpLessons = Array.isArray(d)?d:(d.chapters||[]);
+    renderLessons(tpLessons, bookId);
+  } catch(e) { list.innerHTML='<div style="color:#888;font-size:0.75rem;">Could not load lessons.</div>'; }
+}
+
+function renderLessons(lessons, bookId){
+  var list = document.getElementById('tp-lessons-list');
+  if(!lessons.length){
+    list.innerHTML='<div style="color:#aaa;font-size:0.78rem;padding:8px;">No lessons yet. Click <strong>+ New Lesson</strong> to create one.</div>';
+    return;
+  }
+  list.innerHTML='';
+  lessons.forEach(function(les){
+    var div = document.createElement('div'); div.className='lesson-card';
+    var pages = les.page_from?('p.'+les.page_from+(les.page_to&&les.page_to>les.page_from?'–'+les.page_to:'')):'';
+    var pageCount = les.page_to&&les.page_from?(les.page_to-les.page_from+1)+' pages':'';
+    div.innerHTML='<div class="lc-icon">📖</div>'
+      +'<div class="lc-info">'
+        +'<div class="lc-name">'+escH(les.chapter_title||'Lesson '+(les.chapter_number||''))+'</div>'
+        +'<div class="lc-pages">'+pages+(pageCount?' · '+pageCount:'')+'</div>'
+      +'</div>'
+      +'<div class="lc-btns">'
+        +'<button class="lc-btn lc-btn-act" onclick="tpActivateLesson(\''+les.id+'\',\''+escH(les.chapter_title||'')+'\','+les.page_from+','+les.page_to+')">▶ Activate</button>'
+      +'</div>';
+    list.appendChild(div);
+  });
+}
+
+// Activate a lesson — sets session + launches teaching mode
+async function tpActivateLesson(lessonId, lessonName, pageFrom, pageTo){
+  var cls = document.getElementById('tp-class').value;
+  var subj = document.getElementById('tp-subject').value;
+  var schoolId = getTeacherSchoolId ? getTeacherSchoolId() : '';
+
+  // Update hidden inputs for existing save functions
+  document.getElementById('t-class').value = cls;
+  document.getElementById('t-subject').value = subj;
+  document.getElementById('t-chapter').value = lessonName;
+
+  // Save to active_lessons in Supabase (so students see it)
+  try {
+    await saveLessonToDB(cls, subj, lessonName, '');
+  } catch(e){}
+
+  // Set sessionStorage for teach.html
+  try{
+    sessionStorage.setItem('science_autostart', JSON.stringify({
+      chapter:lessonName, cls:cls, subject:subj,
+      lessonText:'', pageFrom:pageFrom, pageTo:pageTo,
+      bookId:tpSelectedBookId||''
+    }));
+    sessionStorage.setItem('tm_activated', JSON.stringify({
+      subject:subj, cls:cls, topic:lessonName,
+      lessonText:'', lang:'en', autostart:true,
+      pageFrom:pageFrom, pageTo:pageTo
+    }));
+  }catch(e){}
+
+  // Navigate to teach.html
+  var url = 'teach.html?chapter='+encodeURIComponent(lessonName)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(subj)+'&page_from='+pageFrom+'&page_to='+pageTo+'&book_id='+(tpSelectedBookId||'');
+  window.location.href = url;
+}
+
+// New lesson form toggle
+function tpToggleNewLesson(){
+  var form = document.getElementById('tp-new-lesson-form');
+  form.classList.toggle('open');
+  document.getElementById('nl-name').value='';
+  document.getElementById('nl-from').value='';
+  document.getElementById('nl-to').value='';
+  document.getElementById('tp-page-preview').style.display='none';
+  document.getElementById('nl-ok').style.display='none';
+  document.getElementById('nl-err').style.display='none';
+}
+
+// Preview pages when range is entered
+var ppTimer = null;
+async function tpPreviewPages(){
+  clearTimeout(ppTimer);
+  ppTimer = setTimeout(async function(){
+    var from = parseInt(document.getElementById('nl-from').value)||0;
+    var to = parseInt(document.getElementById('nl-to').value)||0;
+    if(!from||!to||from>to||!tpPdfDoc){document.getElementById('tp-page-preview').style.display='none';return;}
+
+    document.getElementById('tp-page-preview').style.display='block';
+    var pageCount = to - from + 1;
+    var estTime = Math.round(pageCount * 2.5);
+
+    // Render thumbnail of start page
+    try{
+      var page = await tpPdfDoc.getPage(from);
+      var vp = page.getViewport({scale:0.25});
+      var canvas = document.getElementById('pp-canvas');
+      canvas.width=vp.width;canvas.height=vp.height;canvas.style.width='100%';canvas.style.height='100%';
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    }catch(e){}
+
+    document.getElementById('pp-info').innerHTML='<strong>'+lessonPreviewTitle(from,to)+'</strong>'
+      +'Pages: '+from+' – '+to+' ('+pageCount+' pages)<br/>'
+      +'Est. read time: ~'+estTime+' min<br/>'
+      +'Total pages available: '+(tpBookPages||'?');
+  }, 400);
+}
+
+function lessonPreviewTitle(from,to){
+  return 'Pages '+from+'–'+to;
+}
+
+// Save new lesson
+async function tpSaveLesson(){
+  var name = document.getElementById('nl-name').value.trim();
+  var from = parseInt(document.getElementById('nl-from').value)||0;
+  var to = parseInt(document.getElementById('nl-to').value)||0;
+
+  if(!name){document.getElementById('nl-err').textContent='⚠️ Enter a lesson name.';document.getElementById('nl-err').style.display='block';return;}
+  if(!from||!to||from>to){document.getElementById('nl-err').textContent='⚠️ Enter valid page range.';document.getElementById('nl-err').style.display='block';return;}
+  if(!tpSelectedBookId){document.getElementById('nl-err').textContent='⚠️ Select a textbook first.';document.getElementById('nl-err').style.display='block';return;}
+
+  document.getElementById('nl-err').style.display='none';
+
+  try{
+    var chNum = (tpLessons.length||0)+1;
+    await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_post',table:'textbook_chapters',body:{
+        book_id:tpSelectedBookId, chapter_number:chNum,
+        chapter_title:name, page_from:from, page_to:to,
+        syllabus_type:'samacheer',
+        class_name:document.getElementById('tp-class').value,
+        subject:document.getElementById('tp-subject').value
+      }})});
+
+    document.getElementById('nl-ok').style.display='block';
+    setTimeout(function(){
+      document.getElementById('tp-new-lesson-form').classList.remove('open');
+      tpLoadLessons(tpSelectedBookId);
+    },1000);
+  }catch(e){
+    document.getElementById('nl-err').textContent='⚠️ Error: '+e.message;
+    document.getElementById('nl-err').style.display='block';
+  }
+}
+
+function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+// Init: load PDF.js if not loaded
+if(typeof pdfjsLib === 'undefined'){
+  var s=document.createElement('script');
+  s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+  s.onload=function(){pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';};
+  document.head.appendChild(s);
+} else {
+  if(typeof pdfjsLib!=='undefined') pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+</script>
 
 <!-- ═══════════════════════════════════════════
      LESSON LIBRARY TAB

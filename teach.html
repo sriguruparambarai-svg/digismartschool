@@ -272,6 +272,9 @@ window.addEventListener('load', async function(){
   var chName = decodeURIComponent(params.get('chapter')||params.get('topic')||'');
   var cls = decodeURIComponent(params.get('cls')||'');
   var subj = decodeURIComponent(params.get('subject')||'Science');
+  var pageFrom = parseInt(params.get('page_from'))||0;
+  var pageTo = parseInt(params.get('page_to'))||0;
+  var bookIdParam = params.get('book_id')||'';
   var lessonText = '';
 
   // Also check sessionStorage
@@ -290,9 +293,9 @@ window.addEventListener('load', async function(){
   lessonId = ('book_'+cls+'_'+subj).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
 
   // Try to load PDF from IndexedDB
-  var pdfKey = ('pdf_book_'+cls+'_'+subj).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
-  // Also try without "pdf_" prefix for compatibility
-  var pdfKey2 = ('book_'+cls+'_'+subj).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+  var pdfKey = bookIdParam || ('book_'+cls.replace(/\s+/g,'').toLowerCase()+'_'+subj.toLowerCase().replace(/\s+/g,'_'));
+  // Also try with pdf_ prefix
+  var pdfKey2 = 'pdf_'+pdfKey;
 
   var saved = await getPdf(pdfKey) || await getPdf(pdfKey2) || await getPdf(lessonId);
 
@@ -315,7 +318,7 @@ window.addEventListener('load', async function(){
     await extractParas(1, Math.min(totalPgs, 60));
     enablePlay();
     // Jump to lesson chapter
-    autoJump(chName, lessonText);
+    autoJump(chName, lessonText, pageFrom, pageTo);
     fetchAudio();
 
   } else if (lessonText && lessonText.trim().length > 30) {
@@ -486,7 +489,17 @@ function showPdfLoading(p){var el=document.getElementById('pdf-loading');el.styl
 function hidePdfLoading(){document.getElementById('pdf-loading').style.display='none';}
 
 // ── AUTO JUMP TO CHAPTER ──
-function autoJump(chName, lessonText) {
+function autoJump(chName, lessonText, pageFrom, pageTo) {
+  // If page range provided directly — jump straight there
+  if (pageFrom && pageFrom > 0) {
+    renderPage(pageFrom);
+    var fp = paragraphs.find(function(p){ return p.pageNum >= pageFrom; });
+    if (fp) { curPara = fp.order; updatePanel(); }
+    // Highlight matching chapter in sidebar
+    var ch = chapters.find(function(c){ return c.page_from <= pageFrom && (c.page_to||9999) >= pageFrom; });
+    if (ch) { var idx=chapters.indexOf(ch); document.querySelectorAll('.ch-item').forEach(function(el,i){el.classList.toggle('active',i===idx);}); }
+    return;
+  }
   if (!chName) { renderPage(1); return; }
   var ch = chapters.find(function(c){
     var n=(c.chapter_title||'').toLowerCase();
