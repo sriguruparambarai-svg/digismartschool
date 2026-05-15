@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>DigiSmartSchool — Super Admin</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root{--m:#6B0F1A;--md:#4A0A12;--mm:#8B1A2A;--g:#C9A84C;--gl:#E8C96A;--gd:#A07830;--y:#FFD700;--s:#F5E6C8;--sd:#EDD9A3;--w:#FFFDF5;--t:#2A0A0F;}
@@ -485,16 +486,51 @@ function showMsg(id, msg) {
 // ════════════════════════════════════════════════════
 const TBL_SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
 const TBL_SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+var tblClient = null;
+function getTblClient() {
+  if (!tblClient && window.supabase && window.supabase.createClient) {
+    tblClient = window.supabase.createClient(TBL_SB_URL, TBL_SB_KEY);
+  }
+  return tblClient;
+}
 
 async function tblSB(table, method, body, params) {
-  const url = TBL_SB_URL + '/rest/v1/' + table + (params ? '?' + params : '');
-  const headers = { 'apikey': TBL_SB_KEY, 'Authorization': 'Bearer ' + TBL_SB_KEY, 'Content-Type': 'application/json' };
-  if (method === 'POST') headers['Prefer'] = 'return=representation';
-  const opts = { method: method || 'GET', headers };
-  if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(url, opts);
-  if (r.status === 204) return null;
-  return r.json();
+  var db = getTblClient();
+  if (!db) throw new Error('Supabase not loaded');
+  if (method === 'GET') {
+    var q = db.from(table).select('*');
+    if (params) {
+      // Parse simple params like 'order=created_at.desc' and 'book_id=eq.xxx'
+      params.split('&').forEach(function(p) {
+        var eqMatch = p.match(/^(\w+)=eq\.(.+)$/);
+        var selMatch = p.match(/^select=(.+)$/);
+        var ordMatch = p.match(/^order=(\w+)\.(asc|desc)$/);
+        if (eqMatch) q = q.eq(eqMatch[1], eqMatch[2]);
+        else if (selMatch && selMatch[1] !== '*') q = q.select(selMatch[1]);
+        else if (ordMatch) q = q.order(ordMatch[1], { ascending: ordMatch[2] === 'asc' });
+      });
+    }
+    var res = await q;
+    if (res.error) throw new Error(res.error.message);
+    return res.data;
+  }
+  if (method === 'POST') {
+    var res2 = await db.from(table).insert(body).select();
+    if (res2.error) throw new Error(res2.error.message);
+    return res2.data;
+  }
+  if (method === 'DELETE') {
+    var delQ = db.from(table);
+    if (params) {
+      params.split('&').forEach(function(p) {
+        var eqM = p.match(/^(\w+)=eq\.(.+)$/);
+        if (eqM) delQ = delQ.eq(eqM[1], eqM[2]);
+      });
+    }
+    var res3 = await delQ.delete();
+    if (res3.error) throw new Error(res3.error.message);
+    return null;
+  }
 }
 
 function tblSwitch(tab) {
