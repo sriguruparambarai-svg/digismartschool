@@ -881,27 +881,41 @@ async function parseLesson(rawText, subject, chapter, cls){
 // GENERATE FULL LESSON FROM TOPIC NAME (no PDF/text)
 // ═══════════════════════════════════════════════════
 async function generateLessonFromTopic(chapter, subject, cls){
-  var p='Write a '+subject+' lesson on "'+chapter+'" for '+cls+' Indian school students.';
-  p+=' Return ONLY valid JSON (no markdown, no backticks).';
-  p+=' Use this structure: {"title":"'+chapter+'","subject":"'+subject+'","class":"'+cls+'","paragraphs":[';
-  p+='{"id":1,"page":1,"type":"heading","text":"'+chapter+'","sentences":["'+chapter+'"],"diagram_keywords":[],"is_definition":false},';
-  p+='{"id":2,"page":1,"type":"paragraph","text":"paragraph text here","sentences":["sent1.","sent2.","sent3."],"diagram_keywords":["keyword"],"is_definition":false}';
-  p+=']}';
-  p+=' Rules: Write 6-8 paragraphs. Each paragraph must have all fields. Split text into sentences array properly. Add relevant diagram_keywords. ONLY JSON.';
-
-  var resp=await fetch('/api/ai',{
+  // Ask Claude to write the lesson as plain paragraphs first, then parse it
+  var resp = await fetch('/api/ai',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({
-      system:'You are a science textbook writer for Indian school students. Always return valid JSON only.',
-      messages:[{role:'user',content:p}],
-      max_tokens:2500
+    body: JSON.stringify({
+      system: 'You are a science teacher writing textbook content for Indian school students. Write clear, detailed, educational content.',
+      messages:[{role:'user', content:
+        'Write a detailed science lesson about "'+chapter+'" for '+cls+' students.\n\n'+
+        'Format your response as a JSON object like this:\n'+
+        '{"title":"'+chapter+'","subject":"'+subject+'","class":"'+cls+'","paragraphs":[\n'+
+        '{"id":1,"page":1,"type":"heading","text":"'+chapter+'","sentences":["'+chapter+'"],"diagram_keywords":[],"is_definition":false},\n'+
+        '{"id":2,"page":1,"type":"paragraph","text":"The nervous system is the control center of the human body. It coordinates all activities of the body. It consists of the brain, spinal cord, and nerves.","sentences":["The nervous system is the control center of the human body.","It coordinates all activities of the body.","It consists of the brain, spinal cord, and nerves."],"diagram_keywords":["nervous system","brain","spinal cord"],"is_definition":false}\n'+
+        ']}\n\n'+
+        'Write 7-8 paragraphs about "'+chapter+'" following that exact format.\n'+
+        'Each paragraph must have: id, page, type, text (full paragraph), sentences (array of individual sentences), diagram_keywords (science terms), is_definition.\n'+
+        'Return ONLY the JSON object. No explanation. No markdown backticks.'
+      }],
+      max_tokens: 2500
     })
   });
-  var d=await resp.json();
-  if(d.error)throw new Error(d.error.message||'API error');
-  var raw=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('');
-  return JSON.parse(raw.replace(/```json|```/g,'').trim());
+  var d = await resp.json();
+  if(d.error) throw new Error(d.error.message||'API error');
+  var raw = (d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();
+  // Remove markdown if present
+  raw = raw.replace(/^```json\s*/,'').replace(/^```\s*/,'').replace(/\s*```$/,'').trim();
+  // Find JSON object
+  var startJ = raw.indexOf('{');
+  var endJ = raw.lastIndexOf('}');
+  if(startJ >= 0 && endJ > startJ) raw = raw.substring(startJ, endJ+1);
+  var result = JSON.parse(raw);
+  // Validate paragraphs exist and have content
+  if(!result.paragraphs || result.paragraphs.length < 2) throw new Error('Not enough paragraphs generated');
+  // Fix any paragraphs with empty text
+  result.paragraphs = result.paragraphs.filter(function(p){ return p && p.text && p.text.trim().length > 2; });
+  return result;
 }
 
 // ═══════════════════════════════════════════════════
@@ -1143,6 +1157,17 @@ function buildClassroom(){
   document.getElementById('lb-subject').textContent=lesson.subject||'Science';
   document.getElementById('lb-title').textContent=lesson.title||'Lesson';
   document.getElementById('chapter-heading').textContent=lesson.title||'Lesson';
+
+  // Filter out empty/invalid paragraphs
+  paras = paras.filter(function(p){ return p && p.text && p.text.trim().length > 2; });
+
+  if(!paras.length){
+    hideLoad();
+    document.getElementById('setup').classList.add('show');
+    showErr('Could not generate lesson content. Please paste the lesson text manually and try again.');
+    document.getElementById('start-btn').disabled=false;
+    return;
+  }
 
   var list=document.getElementById('para-list');
   list.innerHTML='';
