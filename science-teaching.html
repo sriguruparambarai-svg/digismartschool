@@ -175,6 +175,15 @@ input[type=range]{accent-color:var(--g);height:3px;width:65px;cursor:pointer;}
     <input class="meta-inp" id="m-chap" placeholder="Chapter name"/>
     <input class="meta-inp" id="m-cls" placeholder="Class"/>
   </div>
+
+  <div style="margin-bottom:16px;background:rgba(26,107,107,.05);border:1.5px solid rgba(26,107,107,.18);border-radius:12px;padding:14px 16px;">
+    <div style="font-size:.68rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">🖼 Upload Textbook Diagram Images <span style="font-weight:400;font-size:.65rem;color:var(--dim);text-transform:none;">(optional — photos of your textbook diagrams)</span></div>
+    <div style="font-size:.72rem;color:var(--dim);margin-bottom:10px;line-height:1.5;">Take a photo of each diagram in your textbook (e.g. Fig 15.1 Neuron, Fig 15.2 Brain). Upload them here — they will automatically appear when the related paragraph is read.</div>
+    <div id="img-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"></div>
+    <input type="file" id="img-input" accept="image/*" multiple style="display:none;" onchange="onImgsSelected(this)"/>
+    <button style="padding:6px 14px;background:rgba(26,107,107,.08);border:1.5px solid rgba(26,107,107,.2);border-radius:8px;font-family:Lexend,sans-serif;font-size:.7rem;font-weight:700;color:var(--teal);cursor:pointer;" onclick="document.getElementById('img-input').click()">+ Add Diagram Image</button>
+  </div>
+
   <button class="start-btn" onclick="startTeaching()">🔬 Start Teaching Session</button>
 </div>
 
@@ -256,9 +265,19 @@ var DL=[
   {id:'human_skeletal',file:'assets/diagrams/human_skeletal.svg',name:'Skeletal System',labels:['Skull','Spine','Femur','Joints'],kw:['bone','skeleton','skull','joint','cartilage','femur','vertebra','rib']}
 ];
 
-function findDiagram(text){
+function findDiagram(text){ return findBestDiagram(text); }
+function findBestDiagram(text){
   if(!text)return null;
   var tl=text.toLowerCase();
+  // Check custom uploaded images first
+  var customKeys=Object.keys(customImages);
+  for(var ci=0;ci<customKeys.length;ci++){
+    var fname=customKeys[ci].toLowerCase().replace(/\.[^.]+$/,'').replace(/[-_]/g,' ');
+    if(tl.includes(fname)||fname.split(' ').some(function(w){return w.length>3&&tl.includes(w);})){
+      return {id:'custom_'+customKeys[ci],name:customKeys[ci].replace(/\.[^.]+$/,''),custom:true,fname:customKeys[ci],labels:[]};
+    }
+  }
+  // Fall back to built-in SVG diagrams
   var best=null,bestScore=0;
   DL.forEach(function(d){
     var score=0;
@@ -272,6 +291,7 @@ function findDiagram(text){
 // STATE
 // ═══════════════════════════════════
 var paras=[],curIdx=0,playing=false,spd=.82,projMode=false,fSize=100;
+var customImages={}; // {filename: dataURL} — teacher-uploaded textbook images
 var ptimer=null,hlInt=null;
 var curDiag=null;
 
@@ -307,73 +327,79 @@ function parseText(text, chap){
   var id=1;
   result.push({id:id++,type:'heading',text:chap,sentences:[chap],page:null,diagram:null});
 
-  // Replace page markers and split text into manageable chunks
-  // The text has [Page N] markers from PDF extraction
-  var currentPage=null;
-  var allLines=text.split('\n');
-  var groups=[]; // {lines:[], page:N}
-  var curGroup={lines:[],page:null};
+  if(!text||!text.trim){return result;}
+  text=text.trim();
+  if(!text) return result;
 
-  allLines.forEach(function(line){
+  // Split by [Page N] markers
+  var currentPage=null;
+  var lines=text.split('\n');
+  var pageGroups=[]; // [{text:'...',page:N}]
+  var curLines=[], curPage=null;
+
+  lines.forEach(function(line){
     var pm=line.match(/\[Page\s*(\d+)\]/);
     if(pm){
-      if(curGroup.lines.length>0) groups.push(curGroup);
-      currentPage=parseInt(pm[1]);
-      curGroup={lines:[],page:currentPage};
+      if(curLines.length>0) pageGroups.push({text:curLines.join(' '),page:curPage});
+      curPage=parseInt(pm[1]);
+      curLines=[];
     } else {
-      curGroup.lines.push(line);
+      curLines.push(line);
     }
   });
-  if(curGroup.lines.length>0) groups.push(curGroup);
+  if(curLines.length>0) pageGroups.push({text:curLines.join(' '),page:curPage});
 
-  groups.forEach(function(grp){
-    var pageText=grp.lines.join(' ').replace(/\s+/g,' ').trim();
-    if(!pageText||pageText.length<20) return;
+  // If no [Page] markers found, treat whole text as one group
+  if(pageGroups.length===0) pageGroups=[{text:text,page:null}];
 
-    // Split on section markers like (i), (ii), 15.1 Structure, etc.
-    // and on double spaces (PDF column artifacts)
-    var chunks=pageText
-      .split(/(?=\(\s*[ivxIVX]+\s*\))|(?=\d+\.\d+\s+[A-Z])|(?=\b(Fig|Table|Note|Example)\s*\.?\s*\d)/g)
-      .map(function(c){return c.trim();})
-      .filter(function(c){return c.length>20;});
+  pageGroups.forEach(function(grp){
+    var t=(grp.text||'').replace(/\s+/g,' ').trim();
+    if(!t||t.length<20) return;
 
-    if(chunks.length<=1){
-      // No markers found — split every ~250 chars at sentence boundary
-      chunks=[];
-      var rem=pageText;
-      while(rem.length>280){
-        var cut=280;
-        for(var k=Math.min(350,rem.length-1);k>180;k--){
-          if(rem[k]==='.'||rem[k]==='!'||rem[k]==='?'){cut=k+1;break;}
+    // Split into chunks at section breaks: (i), (ii), numbered sections
+    var chunks=[];
+    var parts=t.split(/(?=\(\s*(?:i{1,3}|iv|v|vi|vii|viii|ix|x)\s*\))/i);
+    parts.forEach(function(part){
+      part=(part||'').trim();
+      if(!part||part.length<20) return;
+      // Further split long parts into ~250 char pieces at sentence boundaries
+      if(part.length>320){
+        var rem=part;
+        while(rem.length>280){
+          var cut=280;
+          for(var k=Math.min(320,rem.length-1);k>150;k--){
+            if(rem[k]==='.'||rem[k]==='!'||rem[k]==='?'){cut=k+1;break;}
+          }
+          var piece=rem.substring(0,cut).trim();
+          if(piece&&piece.length>20) chunks.push(piece);
+          rem=rem.substring(cut).trim();
         }
-        var piece=rem.substring(0,cut).trim();
-        if(piece) chunks.push(piece);
-        rem=rem.substring(cut).trim();
+        if(rem&&rem.length>20) chunks.push(rem);
+      } else {
+        chunks.push(part);
       }
-      if(rem&&rem.length>20) chunks.push(rem);
-    }
+    });
+
+    if(chunks.length===0) chunks=[t];
 
     chunks.forEach(function(chunk){
-      if(!chunk||chunk.length<20) return;
-      var isHd=chunk.length<90&&!chunk.match(/[.!?]$/)&&(
+      chunk=(chunk||'').trim();
+      if(!chunk||chunk.length<15) return;
+      var isHd=chunk.length<100&&!chunk.match(/[.!?]$/)&&(
         chunk.match(/^\d+\.\d+/)||
-        chunk.match(/^[A-Z][A-Z\s]{5,}$/)||
-        chunk.match(/^(Unit|Chapter|Section)\s/i)
+        chunk.match(/^[A-Z][A-Z\s]{5,}$/)
       );
       if(isHd){
         result.push({id:id++,type:'heading',text:chunk,sentences:[chunk],page:grp.page,diagram:null});
       } else {
         var sents=splitSentences(chunk);
-        var diag=findDiagram(chunk);
+        var diag=findBestDiagram(chunk);
         result.push({id:id++,type:'paragraph',text:chunk,sentences:sents,page:grp.page,diagram:diag});
       }
     });
   });
 
-  return result.length>1?result:[
-    {id:1,type:'heading',text:chap,sentences:[chap],page:null,diagram:null},
-    {id:2,type:'paragraph',text:text.replace(/\[Page\s*\d+\]/g,'').substring(0,400).trim(),sentences:splitSentences(text.substring(0,400)),page:null,diagram:findDiagram(text)}
-  ];
+  return result;
 }
 
 function splitSentences(text){
@@ -462,6 +488,35 @@ function activatePara(idx){
 // ═══════════════════════════════════
 // DIAGRAM
 // ═══════════════════════════════════
+function onImgsSelected(input){
+  if(!input.files)return;
+  Array.from(input.files).forEach(function(file){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      customImages[file.name]=e.target.result;
+      renderImgList();
+      // Re-map diagrams for current paragraph
+      if(paras.length>0){
+        paras.forEach(function(p){if(p.type!=='heading') p.diagram=findBestDiagram(p.text);});
+        showDiagramForPara(paras[curIdx]);
+      }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+function renderImgList(){
+  var list=document.getElementById('img-list');
+  if(!list)return;
+  list.innerHTML='';
+  Object.keys(customImages).forEach(function(fname){
+    var chip=document.createElement('div');
+    chip.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 10px;background:rgba(26,107,107,.08);border:1px solid rgba(26,107,107,.2);border-radius:8px;font-size:.65rem;font-weight:700;color:var(--teal);';
+    chip.innerHTML='🖼 '+escH(fname.substring(0,20))+'<span style="cursor:pointer;color:var(--m);padding:0 2px;" onclick="removeImg(''+escH(fname)+'')">✕</span>';
+    list.appendChild(chip);
+  });
+}
+function removeImg(fname){delete customImages[fname];renderImgList();}
+
 function showDiagramForPara(p){
   var diag=p.diagram;
   curDiag=diag;
@@ -473,11 +528,19 @@ function showDiagramForPara(p){
   empty.style.display='none';display.classList.add('show');
   document.getElementById('diag-lbl').textContent=diag.name;
   chips.innerHTML=(diag.labels||[]).map(function(l){return '<span class="diag-chip">'+escH(l)+'</span>';}).join('');
-  fetch(diag.file).then(function(r){return r.text();}).then(function(svg){
-    content.innerHTML='<div class="diag-svg-wrap" onclick="expandDiag()">'+svg+'</div>';
-  }).catch(function(){
-    content.innerHTML='<div class="diag-svg-wrap" style="min-height:140px;"><div style="color:rgba(255,255,255,.4);font-size:.8rem;text-align:center;padding:20px;">🔬<br/>'+escH(diag.name)+'</div></div>';
-  });
+
+  if(diag.custom){
+    // Show uploaded textbook image
+    var url=customImages[diag.fname];
+    content.innerHTML='<div style="background:#fff;border-radius:12px;overflow:hidden;cursor:pointer;border:2px solid rgba(107,26,26,.1);" onclick="expandDiag()">'
+      +'<img src="'+url+'" alt="'+escH(diag.name)+'" style="max-width:100%;height:auto;max-height:260px;object-fit:contain;display:block;"/></div>';
+  } else {
+    fetch(diag.file).then(function(r){return r.text();}).then(function(svg){
+      content.innerHTML='<div class="diag-svg-wrap" onclick="expandDiag()">'+svg+'</div>';
+    }).catch(function(){
+      content.innerHTML='<div class="diag-svg-wrap" style="min-height:140px;"><div style="color:rgba(255,255,255,.4);font-size:.8rem;text-align:center;padding:20px;">🔬<br/>'+escH(diag.name)+'</div></div>';
+    });
+  }
 }
 function expandDiag(){
   if(!curDiag)return;
