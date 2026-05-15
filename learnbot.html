@@ -1101,9 +1101,12 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
     return;
   }
 
-  // If not logged in at all — still allow (for demo/direct access)
-  // But hide Teacher Panel tabs for non-teachers
-  window._userRole = role || 'teacher'; // default to teacher for backward compat
+  // If not logged in — redirect to login
+  if (!token || !role) {
+    window.location.href = '/login.html';
+    return;
+  }
+  window._userRole = role || 'teacher';
 
   document.addEventListener('DOMContentLoaded', function(){
     applyRoleUI(window._userRole);
@@ -2478,42 +2481,8 @@ async function activateLesson(){
     }
   } catch(e){}
 
-  // ── Trigger ElevenLabs audio generation in background ──
-  // Fire-and-forget: generates MP3 for each paragraph, stores in Supabase
-  if(lessonTxt && lessonTxt.trim().length > 50){
-    var lessonIdForAudio = (cls+'_'+sub+'_'+ch).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase();
-    triggerAudioGeneration({
-      id: lessonIdForAudio,
-      lesson_text: lessonTxt,
-      cls: cls,
-      subject: sub,
-      lang: 'en'
-    });
-  }
-
   showTab('student', document.getElementById('tab-btn-student'));
   window.scrollTo(0,0);
-}
-
-// ── ElevenLabs Audio Generation ──
-// Called after lesson save — generates MP3 for all paragraphs in background
-function triggerAudioGeneration(lesson){
-  if(!lesson||!lesson.lesson_text||lesson.lesson_text.trim().length<50) return;
-  try{
-    fetch('/api/generate-lesson-audio',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        lesson_id:   lesson.id,
-        lesson_text: lesson.lesson_text,
-        cls:         lesson.cls||'',
-        subject:     lesson.subject||'Science',
-        lang:        lesson.lang||'en'
-      })
-    }).then(function(r){return r.json();})
-      .then(function(d){console.log('🔊 Audio queued:',d.paragraphs,'paragraphs for',lesson.id);})
-      .catch(function(e){console.warn('Audio generation skipped:',e.message);});
-  }catch(e){}
 }
 
 // Show panel of all active lessons after teacher activates
@@ -6064,11 +6033,6 @@ async function teachFromLibrary(b64) {
 
   // Save as active lesson via /api/auth (reliable)
   await saveLessonToDB(l.class_name, l.subject, l.chapter, l.lesson_text||'');
-  // Trigger audio generation for library lesson activation
-  if(l.lesson_text && l.lesson_text.trim().length > 50){
-    var libLessonId = (l.class_name+'_'+l.subject+'_'+l.chapter).replace(/\s+/g,'_').replace(/[^a-zA-Z0-9_]/g,'').toLowerCase();
-    triggerAudioGeneration({id:libLessonId,lesson_text:l.lesson_text,cls:l.class_name,subject:l.subject,lang:'en'});
-  }
 
   // Update sessionStorage
   sessionStorage.setItem('tm_activated', JSON.stringify({
