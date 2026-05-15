@@ -429,50 +429,41 @@ module.exports = async function(req2, res) {
     }
 
     // ── TEXTBOOK LIBRARY ──
+    // admin.html calls: tblDB(table, 'GET'/'POST'/'DELETE', body, params)
+    // which sends: { action:'tbl_get'/'tbl_post'/'tbl_delete', table, body, params }
+
     if (action === 'tbl_get') {
-      const r = await req('GET', '/rest/v1/textbook_library?select=*&order=created_at.desc');
-      return res.json({ success: true, books: Array.isArray(r.data) ? r.data : [] });
+      // table = 'textbook_library' or 'textbook_chapters' or 'school_library_access'
+      const table = body.table || 'textbook_library';
+      const params = body.params ? '?' + body.params : '?select=*&order=created_at.desc';
+      const r = await req('GET', '/rest/v1/' + table + params);
+      return res.json(Array.isArray(r.data) ? r.data : (r.data || []));
     }
 
     if (action === 'tbl_post') {
-      const { id, title, subject, class_name, medium, syllabus_type, publisher, school_id, total_pages, status, raw_text, created_by } = body;
-      if (!id || !title) return res.json({ error: 'id and title are required' });
-      const payload = { id, title, subject: subject||'', class_name: class_name||'', medium: medium||'English', syllabus_type: syllabus_type||'samacheer', publisher: publisher||'', school_id: school_id||null, total_pages: total_pages||0, status: status||'ready', raw_text: raw_text||'', created_by: created_by||'super_admin', created_at: new Date().toISOString() };
-      const r = await req('POST', '/rest/v1/textbook_library', payload);
-      if (r.status === 201 || r.status === 200) return res.json({ success: true });
+      const table = body.table || 'textbook_library';
+      const payload = body.body || {};
+      // Generate id if missing (for textbook_library)
+      if (table === 'textbook_library' && !payload.id) {
+        payload.id = 'tbl_' + Date.now();
+      }
+      const r = await req('POST', '/rest/v1/' + table, payload);
+      if (r.status === 201 || r.status === 200) return res.json({ success: true, data: r.data });
       const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
-      return res.json({ error: 'Failed to save textbook: ' + msg });
+      return res.json({ error: 'Save failed: ' + msg });
     }
 
     if (action === 'tbl_delete') {
-      const { book_id } = body;
-      if (!book_id) return res.json({ error: 'book_id required' });
-      await req('DELETE', `/rest/v1/textbook_library?id=eq.${encodeURIComponent(book_id)}`, null);
-      await req('DELETE', `/rest/v1/textbook_chapters?book_id=eq.${encodeURIComponent(book_id)}`, null);
+      const table = body.table || 'textbook_library';
+      const params = body.params ? '?' + body.params : '';
+      if (!params) return res.json({ error: 'Delete filter required' });
+      await req('DELETE', '/rest/v1/' + table + params, null);
       return res.json({ success: true });
-    }
-
-    // ── TEXTBOOK CHAPTERS ──
-    if (action === 'tbl_chapters_post') {
-      const { chapters } = body;
-      if (!chapters || !chapters.length) return res.json({ error: 'chapters array required' });
-      const batchSize = 20;
-      for (let i = 0; i < chapters.length; i += batchSize) {
-        await req('POST', '/rest/v1/textbook_chapters', chapters.slice(i, i + batchSize));
-      }
-      return res.json({ success: true, count: chapters.length });
-    }
-
-    if (action === 'tbl_chapters_get') {
-      const { book_id } = body;
-      if (!book_id) return res.json({ error: 'book_id required' });
-      const r = await req('GET', `/rest/v1/textbook_chapters?book_id=eq.${encodeURIComponent(book_id)}&select=*&order=chapter_number.asc`);
-      return res.json({ success: true, chapters: Array.isArray(r.data) ? r.data : [] });
     }
 
     // ── SCHOOL LIBRARY ACCESS ──
     if (action === 'lib_access_get') {
-      const r = await req('GET', '/rest/v1/school_library_access?select=*');
+      const r = await req('GET', '/rest/v1/school_library_access?select=school_id');
       return res.json({ success: true, access: Array.isArray(r.data) ? r.data : [] });
     }
 
@@ -480,12 +471,12 @@ module.exports = async function(req2, res) {
       const { school_id, grant } = body;
       if (!school_id) return res.json({ error: 'school_id required' });
       if (grant) {
-        const r = await req('POST', '/rest/v1/school_library_access?on_conflict=school_id', { school_id, granted_by: 'super_admin', granted_at: new Date().toISOString() });
-        return res.json({ success: true });
+        await req('POST', '/rest/v1/school_library_access?on_conflict=school_id',
+          { school_id, granted_by: 'super_admin', granted_at: new Date().toISOString() });
       } else {
         await req('DELETE', `/rest/v1/school_library_access?school_id=eq.${encodeURIComponent(school_id)}`, null);
-        return res.json({ success: true });
       }
+      return res.json({ success: true });
     }
 
     return res.json({ error: 'Unknown action: ' + action });
