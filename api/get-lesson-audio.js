@@ -1,39 +1,49 @@
-// api/get-lesson-audio.js
-// Called by teaching mode to fetch cached audio URLs for a lesson
+const https = require('https');
 
-const { createClient } = require('@supabase/supabase-js');
+const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'GET') return res.status(405).json({ error: 'GET only' });
-
-  const { lesson_id } = req.query;
-  if (!lesson_id) return res.status(400).json({ error: 'lesson_id required' });
-
-  const supabase = createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY
-  );
-
-  const { data, error } = await supabase
-    .from('lesson_audio_cache')
-    .select('paragraph_id, paragraph_order, paragraph_text, audio_url, status, audio_duration')
-    .eq('lesson_id', lesson_id)
-    .order('paragraph_order');
-
-  if (error) return res.status(500).json({ error: error.message });
-
-  const total = data?.length || 0;
-  const ready = data?.filter(p => p.status === 'ready').length || 0;
-  const pending = data?.filter(p => p.status === 'pending').length || 0;
-  const generating = data?.filter(p => p.status === 'generating').length || 0;
-
-  return res.status(200).json({
-    lesson_id,
-    paragraphs: data || [],
-    summary: { total, ready, pending, generating }
+function sbReq(path) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.SUPABASE_SECRET_KEY;
+    const opts = {
+      hostname: SB_HOST, path, method: 'GET',
+      headers: { 'apikey': key, 'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json' }
+    };
+    const r = https.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: JSON.parse(d) }); }
+        catch(e) { resolve({ status: res.statusCode, data: [] }); }
+      });
+    });
+    r.on('error', reject);
+    r.end();
   });
+}
+
+module.exports = async function(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+
+  const lesson_id = req.query && req.query.lesson_id;
+  if (!lesson_id) return res.json({ error: 'lesson_id required' });
+
+  try {
+    const r = await sbReq(
+      `/rest/v1/lesson_audio?lesson_id=eq.${encodeURIComponent(lesson_id)}&select=paragraph_order,audio_url,status,paragraph_text&order=paragraph_order.asc`
+    );
+
+    const paragraphs = Array.isArray(r.data) ? r.data : [];
+    const ready = paragraphs.filter(p => p.status === 'ready').length;
+
+    return res.json({
+      success: true,
+      lesson_id,
+      paragraphs,
+      summary: { total: paragraphs.length, ready, pending: paragraphs.length - ready }
+    });
+  } catch(e) {
+    return res.status(500).json({ error: e.message });
+  }
 };

@@ -1,212 +1,218 @@
-// api/generate-lesson-audio.js
-// Called when teacher saves a lesson — queues audio generation
-// Fire-and-forget: returns immediately, generates in background
+const https = require('https');
 
-const crypto = require('crypto');
-const { createClient } = require('@supabase/supabase-js');
-const { getVoiceForLesson } = require('./voice-config');
+module.exports.config = { api: { bodyParser: { sizeLimit: '2mb' } } };
 
-function getSupabase() {
-  return createClient(
-    process.env.SUPABASE_URL,
-    process.env.SUPABASE_SECRET_KEY
-  );
-}
+const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
+const EL_HOST = 'api.elevenlabs.io';
 
-function hashText(text) {
-  return crypto.createHash('md5').update((text || '').trim()).digest('hex');
-}
+// Voice IDs — professional Indian English teacher voices
+const VOICE_IDS = {
+  default:  'EXAVITQu4vr4xnSDxMaL', // Sarah — clear, warm female
+  teacher:  'XB0fDUnXU5powFXDhCwa', // Charlotte — professional
+  male:     'TxGEqnHWrfWFTfGW9XjX', // Josh — male teacher
+};
 
-function splitParagraphs(text) {
-  if (!text) return [];
-  return text
-    .split(/\n\s*\n|\r\n\s*\r\n/)
-    .map(p => p.replace(/\n/g, ' ').replace(/\s+/g, ' ').trim())
-    .filter(p => p.length > 20 && !p.match(/^\d+$/));
-}
-
-async function upsertParagraphs(supabase, lesson_id, paragraphs, voice) {
-  const results = [];
-  for (let i = 0; i < paragraphs.length; i++) {
-    const text = paragraphs[i];
-    const paragraph_id = `${lesson_id}_p${i + 1}`;
-    const hash = hashText(text);
-
-    // Check if exists
-    const { data: existing } = await supabase
-      .from('lesson_audio_cache')
-      .select('id, cache_hash, status, audio_url')
-      .eq('lesson_id', lesson_id)
-      .eq('paragraph_id', paragraph_id)
-      .maybeSingle();
-
-    if (existing) {
-      if (existing.cache_hash === hash && existing.status === 'ready') {
-        // Unchanged and already generated — skip
-        results.push({ ...existing, skipped: true });
-        continue;
+function sbReq(method, path, body) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.SUPABASE_SECRET_KEY;
+    const data = body ? JSON.stringify(body) : null;
+    const opts = {
+      hostname: SB_HOST, path, method,
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': key, 'Authorization': 'Bearer ' + key,
+        'Prefer': 'return=representation',
+        ...(data && { 'Content-Length': Buffer.byteLength(data) })
       }
-      // Text changed or failed — re-queue
-      await supabase
-        .from('lesson_audio_cache')
-        .update({
-          paragraph_text: text,
-          paragraph_order: i + 1,
-          cache_hash: hash,
-          voice_id: voice.voice_id,
-          status: 'pending',
-          audio_url: null,
-          error_message: null,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', existing.id);
-      results.push({ id: existing.id, status: 'pending' });
-    } else {
-      // New paragraph
-      const { data: inserted } = await supabase
-        .from('lesson_audio_cache')
-        .insert({
-          lesson_id,
-          paragraph_id,
-          paragraph_order: i + 1,
-          paragraph_text: text,
-          cache_hash: hash,
-          voice_id: voice.voice_id,
-          status: 'pending'
-        })
-        .select('id')
-        .single();
-      results.push({ id: inserted?.id, status: 'pending' });
-    }
-  }
-  return results;
+    };
+    const r = https.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        try { resolve({ status: res.statusCode, data: d ? JSON.parse(d) : {} }); }
+        catch(e) { resolve({ status: res.statusCode, data: d }); }
+      });
+    });
+    r.on('error', reject);
+    if (data) r.write(data);
+    r.end();
+  });
 }
 
-async function generateAllPending(supabase, lesson_id, voice) {
-  const { data: pending } = await supabase
-    .from('lesson_audio_cache')
-    .select('*')
-    .eq('lesson_id', lesson_id)
-    .eq('status', 'pending')
-    .order('paragraph_order');
-
-  if (!pending?.length) return;
-
-  for (const para of pending) {
-    try {
-      await generateAndStoreSingle(supabase, para, voice);
-      await new Promise(r => setTimeout(r, 400)); // rate limit buffer
-    } catch (e) {
-      console.error(`Para ${para.paragraph_id} failed:`, e.message);
-    }
-  }
-}
-
-async function generateAndStoreSingle(supabase, para, voice) {
-  // Mark generating
-  await supabase
-    .from('lesson_audio_cache')
-    .update({ status: 'generating' })
-    .eq('id', para.id);
-
-  // Call ElevenLabs
-  const elResp = await fetch(
-    `https://api.elevenlabs.io/v1/text-to-speech/${voice.voice_id}`,
-    {
+function elReq(voiceId, text, stability, similarity) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.ELEVENLABS_API_KEY;
+    const payload = JSON.stringify({
+      text,
+      model_id: 'eleven_multilingual_v2',
+      voice_settings: {
+        stability: stability || 0.55,
+        similarity_boost: similarity || 0.80,
+        style: 0.2,
+        use_speaker_boost: true
+      }
+    });
+    const opts = {
+      hostname: EL_HOST,
+      path: `/v1/text-to-speech/${voiceId}`,
       method: 'POST',
       headers: {
-        'xi-api-key': process.env.ELEVENLABS_API_KEY,
         'Content-Type': 'application/json',
-        'Accept': 'audio/mpeg'
-      },
-      body: JSON.stringify({
-        text: para.paragraph_text,
-        model_id: 'eleven_multilingual_v2',
-        voice_settings: {
-          stability: voice.stability,
-          similarity_boost: voice.similarity_boost,
-          style: voice.style || 0,
-          use_speaker_boost: true
+        'xi-api-key': key,
+        'Content-Length': Buffer.byteLength(payload)
+      }
+    };
+    const chunks = [];
+    const r = https.request(opts, res => {
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          resolve({ ok: true, audio: Buffer.concat(chunks) });
+        } else {
+          const errText = Buffer.concat(chunks).toString();
+          resolve({ ok: false, error: errText, status: res.statusCode });
         }
-      })
-    }
-  );
-
-  if (!elResp.ok) {
-    const errText = await elResp.text().catch(() => '');
-    throw new Error(`ElevenLabs ${elResp.status}: ${errText.slice(0, 200)}`);
-  }
-
-  const audioBuffer = Buffer.from(await elResp.arrayBuffer());
-
-  // Upload to Supabase Storage bucket: lesson-audio
-  const storagePath = `${para.lesson_id}/${para.paragraph_id}.mp3`;
-  const { error: uploadErr } = await supabase.storage
-    .from('lesson-audio')
-    .upload(storagePath, audioBuffer, {
-      contentType: 'audio/mpeg',
-      upsert: true,
-      cacheControl: '31536000' // 1 year cache
+      });
     });
-
-  if (uploadErr) throw new Error(`Storage upload: ${uploadErr.message}`);
-
-  // Get public URL
-  const { data: urlData } = supabase.storage
-    .from('lesson-audio')
-    .getPublicUrl(storagePath);
-
-  // Update cache record
-  await supabase
-    .from('lesson_audio_cache')
-    .update({
-      status: 'ready',
-      audio_url: urlData.publicUrl,
-      generated_at: new Date().toISOString(),
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', para.id);
+    r.on('error', reject);
+    r.write(payload);
+    r.end();
+  });
 }
 
-// Export helper for other modules
-module.exports = async function handler(req, res) {
+// Upload audio buffer to Supabase Storage
+function uploadAudio(buffer, fileName) {
+  return new Promise((resolve, reject) => {
+    const key = process.env.SUPABASE_SECRET_KEY;
+    const storagePath = `/storage/v1/object/lesson-audio/${fileName}`;
+    const opts = {
+      hostname: SB_HOST,
+      path: storagePath,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'audio/mpeg',
+        'apikey': key,
+        'Authorization': 'Bearer ' + key,
+        'Content-Length': buffer.length,
+        'x-upsert': 'true'
+      }
+    };
+    const r = https.request(opts, res => {
+      let d = '';
+      res.on('data', c => d += c);
+      res.on('end', () => {
+        const publicUrl = `https://${SB_HOST}/storage/v1/object/public/lesson-audio/${fileName}`;
+        resolve({ ok: res.statusCode === 200 || res.statusCode === 201, url: publicUrl, status: res.statusCode, data: d });
+      });
+    });
+    r.on('error', reject);
+    r.write(buffer);
+    r.end();
+  });
+}
+
+module.exports = async function(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
-  const { lesson_id, lesson_text, cls, subject, lang } = req.body || {};
-  if (!lesson_id || !lesson_text) {
-    return res.status(400).json({ error: 'lesson_id and lesson_text required' });
+  const { lesson_id, paragraphs, voice_type, class_name, regenerate } = req.body || {};
+
+  if (!lesson_id) return res.json({ error: 'lesson_id required' });
+  if (!paragraphs || !Array.isArray(paragraphs) || paragraphs.length === 0)
+    return res.json({ error: 'paragraphs array required' });
+
+  const voiceId = VOICE_IDS[voice_type] || VOICE_IDS.default;
+
+  // Check existing cached audio unless regenerating
+  let existingOrders = new Set();
+  if (!regenerate) {
+    const existing = await sbReq('GET',
+      `/rest/v1/lesson_audio?lesson_id=eq.${encodeURIComponent(lesson_id)}&select=paragraph_order,status`
+    );
+    if (existing.data && Array.isArray(existing.data)) {
+      existing.data.forEach(r => { if (r.status === 'ready') existingOrders.add(r.paragraph_order); });
+    }
   }
 
-  if (!process.env.ELEVENLABS_API_KEY) {
-    return res.status(500).json({ error: 'ELEVENLABS_API_KEY not configured in Vercel' });
+  const results = [];
+  let generated = 0, skipped = 0, failed = 0;
+
+  // Process paragraphs — skip headings, generate for content paragraphs
+  for (const para of paragraphs) {
+    const order = para.order;
+    const text = (para.text || '').trim();
+
+    // Skip headings and very short text
+    if (!text || text.length < 15 || para.type === 'heading') {
+      skipped++;
+      results.push({ order, status: 'skipped', reason: 'heading or too short' });
+      continue;
+    }
+
+    // Skip if already cached
+    if (existingOrders.has(order)) {
+      skipped++;
+      results.push({ order, status: 'cached' });
+      continue;
+    }
+
+    try {
+      // Generate audio via ElevenLabs
+      const elResult = await elReq(voiceId, text, 0.55, 0.80);
+
+      if (!elResult.ok) {
+        failed++;
+        results.push({ order, status: 'failed', error: elResult.error });
+        continue;
+      }
+
+      // Upload to Supabase Storage
+      const fileName = `${lesson_id}_para_${order}.mp3`;
+      const uploadResult = await uploadAudio(elResult.audio, fileName);
+
+      if (!uploadResult.ok) {
+        failed++;
+        results.push({ order, status: 'upload_failed', error: uploadResult.data });
+        continue;
+      }
+
+      // Save record to lesson_audio table
+      const record = {
+        lesson_id,
+        paragraph_order: order,
+        paragraph_text: text.substring(0, 500),
+        audio_url: uploadResult.url,
+        status: 'ready',
+        voice_id: voiceId,
+        class_name: class_name || '',
+        created_at: new Date().toISOString()
+      };
+
+      // Upsert (replace if exists)
+      await sbReq('POST',
+        `/rest/v1/lesson_audio?on_conflict=lesson_id,paragraph_order`,
+        record
+      );
+
+      generated++;
+      results.push({ order, status: 'ready', url: uploadResult.url });
+
+      // Small delay to avoid rate limiting
+      await new Promise(r => setTimeout(r, 300));
+
+    } catch (e) {
+      failed++;
+      results.push({ order, status: 'error', error: e.message });
+    }
   }
 
-  const supabase = getSupabase();
-  const voice = getVoiceForLesson(cls, subject, lang);
-  const paragraphs = splitParagraphs(lesson_text);
-
-  if (!paragraphs.length) {
-    return res.status(400).json({ error: 'No paragraphs found in lesson text' });
-  }
-
-  // Queue paragraphs (fast — just DB writes)
-  await upsertParagraphs(supabase, lesson_id, paragraphs, voice);
-
-  // Return immediately — generate audio in background
-  res.status(200).json({
-    message: 'Audio generation queued',
+  return res.json({
+    success: true,
     lesson_id,
-    paragraphs: paragraphs.length,
-    voice: voice.name
+    summary: { generated, skipped, failed, total: paragraphs.length },
+    results
   });
-
-  // Background generation (after response sent)
-  generateAllPending(supabase, lesson_id, voice).catch(console.error);
 };
-
-module.exports.generateAndStoreSingle = generateAndStoreSingle;
-module.exports.splitParagraphs = splitParagraphs;
