@@ -849,6 +849,92 @@ async function parseLesson(rawText, subject, chapter, cls){
 }
 
 // ═══════════════════════════════════════════════════
+// GENERATE FULL LESSON FROM TOPIC NAME (no PDF/text)
+// ═══════════════════════════════════════════════════
+async function generateLessonFromTopic(chapter, subject, cls){
+  var prompt='You are a '+subject+' teacher for Indian school students.
+
+'
+    +'Write a complete classroom lesson on "'+chapter+'" for '+cls+' students.
+
+'
+    +'Return ONLY valid JSON with this exact structure:
+'
+    +'{
+'
+    +'"title":"'+chapter+'",
+'
+    +'"subject":"'+subject+'",
+'
+    +'"class":"'+cls+'",
+'
+    +'"paragraphs":[
+'
+    +'  {
+'
+    +'    "id":1,"page":1,
+'
+    +'    "type":"heading",
+'
+    +'    "text":"'+chapter+'",
+'
+    +'    "sentences":["'+chapter+'"],
+'
+    +'    "diagram_keywords":[],"is_definition":false
+'
+    +'  },
+'
+    +'  {
+'
+    +'    "id":2,"page":1,
+'
+    +'    "type":"paragraph",
+'
+    +'    "text":"Full paragraph text exactly as in a textbook...",
+'
+    +'    "sentences":["Sentence one.","Sentence two.","Sentence three."],
+'
+    +'    "diagram_keywords":["relevant","science","keywords"],
+'
+    +'    "is_definition":false
+'
+    +'  }
+'
+    +']
+'
+    +'}
+
+'
+    +'Rules:
+'
+    +'- Write 8-12 paragraphs covering the full topic thoroughly
+'
+    +'- Include headings, definitions, explanations, examples
+'
+    +'- Each paragraph: split text into individual sentences in the sentences[] array
+'
+    +'- diagram_keywords: list science terms that match diagrams (nervous system, brain, neuron, etc.)
+'
+    +'- Write in clear simple English for school students aged 10-16
+'
+    +'- Return ONLY JSON, no markdown';
+
+  var resp=await fetch('/api/ai',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      system:'You are a precise science textbook writer. Return only valid JSON.',
+      messages:[{role:'user',content:prompt}],
+      max_tokens:4000
+    })
+  });
+  var d=await resp.json();
+  if(d.error)throw new Error(d.error.message||'API error');
+  var raw=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('');
+  return JSON.parse(raw.replace(/```json|```/g,'').trim());
+}
+
+// ═══════════════════════════════════════════════════
 // LAYER 3: DIAGRAM LAYER
 // Maps diagram_keywords to built-in SVG or custom image
 // ═══════════════════════════════════════════════════
@@ -1014,38 +1100,44 @@ async function startLesson(){
   var pageFrom=document.getElementById('page-from').value;
   var pageTo=document.getElementById('page-to').value;
 
-  // If no text and no PDF — generate lesson content from chapter name using AI
-  if(!pdfFile&&!pasteText){
-    var chapter=document.getElementById('meta-chapter').value.trim();
-    var subject2=document.getElementById('meta-subject').value.trim()||'Science';
-    var cls2=document.getElementById('meta-class').value.trim()||'';
-    if(!chapter){
-      document.getElementById('setup').classList.add('show');
-      showErr('Please upload a PDF or paste lesson text.');
-      return;
-    }
-    // Generate lesson from chapter name via Claude
-    pasteText='Generate a comprehensive science lesson on "'+chapter+'" for '+cls2+' students. Include key concepts, definitions, and explanations as they would appear in a textbook.';
-  }
   document.getElementById('start-btn').disabled=true;
   document.getElementById('err-bar').classList.remove('show');
   document.getElementById('setup').classList.remove('show');
 
-  showLoad('Processing textbook…','Preparing your teaching session');
+  var hasContent=!!(pdfFile||(pasteText&&pasteText.trim().length>30));
+
+  showLoad('Preparing lesson…', hasContent?'Extracting paragraphs…':'AI is writing the lesson…');
   setStep('step-extract','active');
 
   try{
     var rawText='';
     if(pdfFile){
-      // Layer 1: Extract
       rawText=await extractFromPDF(pdfFile,pageFrom,pageTo);
       if(!rawText||rawText.length<50)throw new Error('Could not extract text from this PDF. Please try pasting the lesson text manually.');
-    } else {
+      setStep('step-extract','done');setStep('step-parse','active');
+    } else if(pasteText&&pasteText.trim().length>30){
       rawText=pasteText;
+      setStep('step-extract','done');setStep('step-parse','active');
+    } else {
+      // No content — generate entire lesson directly as structured JSON
+      setStep('step-extract','done');setStep('step-parse','active');
+      var generated=await generateLessonFromTopic(chapter,subject,cls);
+      setStep('step-parse','done');setStep('step-diagrams','active');
+      paras=generated.paragraphs||[];
+      paras.forEach(function(p){
+        var kw=p.diagram_keywords||[];
+        p.diagram=findCustomDiagram(kw)||findDiagram(kw)||null;
+      });
+      lesson=generated;
+      setStep('step-diagrams','done');setStep('step-ready','active');
+      await new Promise(function(r){setTimeout(r,300);});
+      setStep('step-ready','done');
+      hideLoad();
+      buildClassroom();
+      return;
     }
-    setStep('step-extract','done');setStep('step-parse','active');
 
-    // Layer 2: Parse
+    // Layer 2: Parse existing text
     var parsed=await parseLesson(rawText,subject,chapter,cls);
     setStep('step-parse','done');setStep('step-diagrams','active');
 
