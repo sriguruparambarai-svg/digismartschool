@@ -840,7 +840,7 @@ async function parseLesson(rawText, subject, chapter, cls){
     body:JSON.stringify({
       system:'You are a precise textbook parser. Return only valid JSON.',
       messages:[{role:'user',content:prompt}],
-      max_tokens:4000
+      max_tokens:2000
     })
   });
   var d=await resp.json();
@@ -852,6 +852,52 @@ async function parseLesson(rawText, subject, chapter, cls){
 // ═══════════════════════════════════════════════════
 // GENERATE FULL LESSON FROM TOPIC NAME (no PDF/text)
 // ═══════════════════════════════════════════════════
+// Build instant lesson template from chapter name — no API needed
+function buildTemplateLesson(chapter, subject, cls){
+  var kw = chapter.toLowerCase().split(' ');
+  // Find best matching diagram from our library
+  var diagKw = kw.concat([chapter.toLowerCase()]);
+  
+  return {
+    title: chapter,
+    subject: subject,
+    class: cls,
+    paragraphs: [
+      {id:1, page:1, type:'heading',
+       text: chapter,
+       sentences:[chapter],
+       diagram_keywords: diagKw,
+       is_definition:false},
+      {id:2, page:1, type:'paragraph',
+       text: 'Welcome to the lesson on '+chapter+'. This lesson will cover the key concepts, definitions, and important topics related to '+chapter+'. Follow along with your textbook as we go through each section.',
+       sentences:[
+         'Welcome to the lesson on '+chapter+'.',
+         'This lesson will cover the key concepts, definitions, and important topics related to '+chapter+'.',
+         'Follow along with your textbook as we go through each section.'
+       ],
+       diagram_keywords: diagKw,
+       is_definition:false},
+      {id:3, page:1, type:'paragraph',
+       text: chapter+' is an important topic in '+subject+' for '+cls+' students. Understanding this topic will help you score well in your exams and understand the world around you. Pay attention to the diagrams and explanations provided.',
+       sentences:[
+         chapter+' is an important topic in '+subject+' for '+cls+' students.',
+         'Understanding this topic will help you score well in your exams and understand the world around you.',
+         'Pay attention to the diagrams and explanations provided.'
+       ],
+       diagram_keywords: diagKw,
+       is_definition:false},
+      {id:4, page:2, type:'note',
+       text: '📖 Teacher Note: Please upload the textbook PDF or paste the lesson text for detailed paragraph-by-paragraph teaching. Click the ← Back button, then use "Add lesson text" option to paste your content.',
+       sentences:[
+         'Teacher Note: Please upload the textbook PDF or paste the lesson text for detailed paragraph-by-paragraph teaching.',
+         'Click the Back button, then use "Add lesson text" option to paste your content.'
+       ],
+       diagram_keywords: diagKw,
+       is_definition:false}
+    ]
+  };
+}
+
 async function generateLessonFromTopic(chapter, subject, cls){
   // Small token count to stay within Vercel 10s timeout
   var resp = await fetch('/api/ai',{
@@ -1071,16 +1117,17 @@ async function startLesson(){
       rawText=pasteText;
       setStep('step-extract','done');setStep('step-parse','active');
     } else {
-      // No content — generate entire lesson directly as structured JSON
+      // No PDF or text — use chapter name to build a template lesson
+      // Then AI will teach from general knowledge during the session
       setStep('step-extract','done');setStep('step-parse','active');
-      var generated=await generateLessonFromTopic(chapter,subject,cls);
+      var templateLesson = buildTemplateLesson(chapter, subject, cls);
       setStep('step-parse','done');setStep('step-diagrams','active');
-      paras=generated.paragraphs||[];
+      paras = templateLesson.paragraphs;
       paras.forEach(function(p){
         var kw=p.diagram_keywords||[];
         p.diagram=findCustomDiagram(kw)||findDiagram(kw)||null;
       });
-      lesson=generated;
+      lesson = templateLesson;
       setStep('step-diagrams','done');setStep('step-ready','active');
       await new Promise(function(r){setTimeout(r,300);});
       setStep('step-ready','done');
@@ -1117,10 +1164,15 @@ async function startLesson(){
     if(window.history && window.history.replaceState){
       window.history.replaceState({},'','science-teaching.html');
     }
-    showErr('Could not generate lesson automatically. Please paste the lesson text in the box below and tap Start Teaching.');
+    showErr('Please paste your lesson text in the box below, then tap Start Teaching Session.');
     document.getElementById('start-btn').disabled=false;
-    // Show the paste text area
     document.getElementById('fallback-area').classList.add('show');
+    document.getElementById('fallback-toggle').style.display='none';
+    // Scroll to paste box
+    setTimeout(function(){
+      var pb=document.getElementById('paste-text');
+      if(pb){pb.scrollIntoView({behavior:'smooth',block:'center'});pb.focus();}
+    },400);
   }
 }
 
