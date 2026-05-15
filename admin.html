@@ -462,18 +462,18 @@ function tblPdfSelected(inp) {
 }
 
 async function tblDB(table, method, body, params) {
-  var r = await fetch('/api/textbook-db', {
+  var action = 'tbl_' + method.toLowerCase();
+  var r = await fetch('/api/auth', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({table: table, method: method, body: body, params: params})
+    body: JSON.stringify({action: action, table: table, body: body, params: params,
+      token: localStorage.getItem('dss_token') || ''})
   });
   if (!r.ok) {
     var txt = await r.text();
-    console.error('textbook-db HTTP ' + r.status + ':', txt);
-    throw new Error('API error ' + r.status + ': ' + txt.substring(0,100));
+    throw new Error('API ' + r.status + ': ' + txt.substring(0,100));
   }
   var d = await r.json();
-  console.log('tblDB', method, table, '->', d);
   if (d && d.error) throw new Error(d.error);
   return d;
 }
@@ -570,35 +570,28 @@ function tblDetectChapters(raw) {
   var blocks = pageTexts.map(function(t, i) { return {page: pageNums[i] || i+1, text: t.trim()}; });
   var cur = null;
   blocks.forEach(function(pb, i) {
-    var first = pb.text.split('
-').slice(0,4).join(' ').replace(/\s+/g,' ').trim();
+    var first = pb.text.split('\n').slice(0,4).join(' ').replace(/\s+/g,' ').trim();
     first = first.replace(/^\d+\s+\d+\s+/,'').replace(/^\d+\s+/,'').trim();
     var isStart = /^(Unit|Chapter|UNIT|CHAPTER)\s+\d+/i.test(first)
       || (/^\d+\s+[A-Z][a-z]/.test(first) && first.length < 60 && i > 5)
       || (/^[A-Z][A-Z\s]{8,}$/.test(first) && first.length < 70 && i > 5);
     if (isStart && cur) {
       cur.pageTo = pb.page - 1;
-      cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom && p.page <= cur.pageTo; }).map(function(p) { return p.text; }).join('
-
-');
+      cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom && p.page <= cur.pageTo; }).map(function(p) { return p.text; }).join('\n\n');
       if (cur.text.trim().length > 50) chapters.push(cur);
     }
     if (isStart) cur = {title: first.replace(/^(Unit|Chapter)\s+\d+\s*/i,'').trim()||first, pageFrom: pb.page, pageTo: pb.page};
   });
   if (cur && blocks.length) {
     cur.pageTo = blocks[blocks.length-1].page;
-    cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom; }).map(function(p) { return p.text; }).join('
-
-');
+    cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom; }).map(function(p) { return p.text; }).join('\n\n');
     if (cur.text.trim().length > 50) chapters.push(cur);
   }
   if (!chapters.length && blocks.length) {
     var sz = 15;
     for (var s = 0; s < blocks.length; s += sz) {
       var chunk = blocks.slice(s, s+sz);
-      chapters.push({title: 'Section '+(Math.floor(s/sz)+1), pageFrom: chunk[0].page, pageTo: chunk[chunk.length-1].page, text: chunk.map(function(b){return b.text;}).join('
-
-')});
+      chapters.push({title: 'Section '+(Math.floor(s/sz)+1), pageFrom: chunk[0].page, pageTo: chunk[chunk.length-1].page, text: chunk.map(function(b){return b.text;}).join('\n\n')});
     }
   }
   if (!chapters.length) chapters.push({title:'Full Book', pageFrom:1, pageTo:pageNums[pageNums.length-1]||1, text:raw});
