@@ -211,6 +211,7 @@ input[type=range]{accent-color:var(--g);height:3px;width:65px;cursor:pointer;}
     <div class="sdot" id="sdot"></div>
     <button class="cb cb-nav" id="btn-prev" onclick="prevPara()">⏮ Prev</button>
     <button class="cb cb-play" id="btn-play" onclick="togglePlay()">▶ Play</button>
+    <button class="cb cb-stop" id="btn-stop" onclick="stopReading()" style="display:none;background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.35);color:#fca5a5;">⏹ Stop</button>
     <button class="cb cb-nav" id="btn-next" onclick="nextPara()">Next ⏭</button>
     <button class="cb cb-rep" onclick="replayPara()">↩ Replay</button>
     <button class="cb cb-proj" onclick="toggleProj()" id="proj-btn">🖥 Projector</button>
@@ -304,30 +305,75 @@ function startTeaching(){
 function parseText(text, chap){
   var result=[];
   var id=1;
-  // Add heading
   result.push({id:id++,type:'heading',text:chap,sentences:[chap],page:null,diagram:null});
-  // Split by double newline or paragraph markers
-  var blocks=text.split(/\n\s*\n|\r\n\s*\r\n/).map(function(b){return b.trim();}).filter(function(b){return b.length>10;});
-  blocks.forEach(function(block){
-    // Clean up PDF extraction artifacts
-    block=block.replace(/\n/g,' ').replace(/\s+/g,' ').trim();
-    // Extract page numbers like [Page 227]
-    var pageMatch=block.match(/\[Page\s*(\d+)\]/);
-    var page=pageMatch?parseInt(pageMatch[1]):null;
-    block=block.replace(/\[Page\s*\d+\]/g,'').trim();
-    if(!block||block.length<15)return;
-    // Detect headings (short lines, no period at end, often numbered)
-    var isHeading=block.length<80&&!block.endsWith('.')&&(block.match(/^\d+\.\d+/)||block.match(/^[A-Z][A-Z\s]+$/)||block.match(/^(Unit|Chapter|Section)\s/i));
-    if(isHeading){
-      result.push({id:id++,type:'heading',text:block,sentences:[block],page:page,diagram:null});
-      return;
+
+  // Replace page markers and split text into manageable chunks
+  // The text has [Page N] markers from PDF extraction
+  var currentPage=null;
+  var allLines=text.split('\n');
+  var groups=[]; // {lines:[], page:N}
+  var curGroup={lines:[],page:null};
+
+  allLines.forEach(function(line){
+    var pm=line.match(/\[Page\s*(\d+)\]/);
+    if(pm){
+      if(curGroup.lines.length>0) groups.push(curGroup);
+      currentPage=parseInt(pm[1]);
+      curGroup={lines:[],page:currentPage};
+    } else {
+      curGroup.lines.push(line);
     }
-    // Split into sentences
-    var sents=splitSentences(block);
-    var diag=findDiagram(block);
-    result.push({id:id++,type:'paragraph',text:block,sentences:sents,page:page,diagram:diag});
   });
-  return result;
+  if(curGroup.lines.length>0) groups.push(curGroup);
+
+  groups.forEach(function(grp){
+    var pageText=grp.lines.join(' ').replace(/\s+/g,' ').trim();
+    if(!pageText||pageText.length<20) return;
+
+    // Split on section markers like (i), (ii), 15.1 Structure, etc.
+    // and on double spaces (PDF column artifacts)
+    var chunks=pageText
+      .split(/(?=\(\s*[ivxIVX]+\s*\))|(?=\d+\.\d+\s+[A-Z])|(?=\b(Fig|Table|Note|Example)\s*\.?\s*\d)/g)
+      .map(function(c){return c.trim();})
+      .filter(function(c){return c.length>20;});
+
+    if(chunks.length<=1){
+      // No markers found — split every ~250 chars at sentence boundary
+      chunks=[];
+      var rem=pageText;
+      while(rem.length>280){
+        var cut=280;
+        for(var k=Math.min(350,rem.length-1);k>180;k--){
+          if(rem[k]==='.'||rem[k]==='!'||rem[k]==='?'){cut=k+1;break;}
+        }
+        var piece=rem.substring(0,cut).trim();
+        if(piece) chunks.push(piece);
+        rem=rem.substring(cut).trim();
+      }
+      if(rem&&rem.length>20) chunks.push(rem);
+    }
+
+    chunks.forEach(function(chunk){
+      if(!chunk||chunk.length<20) return;
+      var isHd=chunk.length<90&&!chunk.match(/[.!?]$/)&&(
+        chunk.match(/^\d+\.\d+/)||
+        chunk.match(/^[A-Z][A-Z\s]{5,}$/)||
+        chunk.match(/^(Unit|Chapter|Section)\s/i)
+      );
+      if(isHd){
+        result.push({id:id++,type:'heading',text:chunk,sentences:[chunk],page:grp.page,diagram:null});
+      } else {
+        var sents=splitSentences(chunk);
+        var diag=findDiagram(chunk);
+        result.push({id:id++,type:'paragraph',text:chunk,sentences:sents,page:grp.page,diagram:diag});
+      }
+    });
+  });
+
+  return result.length>1?result:[
+    {id:1,type:'heading',text:chap,sentences:[chap],page:null,diagram:null},
+    {id:2,type:'paragraph',text:text.replace(/\[Page\s*\d+\]/g,'').substring(0,400).trim(),sentences:splitSentences(text.substring(0,400)),page:null,diagram:findDiagram(text)}
+  ];
 }
 
 function splitSentences(text){
@@ -449,13 +495,22 @@ function togglePlay(){
   if(playing){
     stopAll();playing=false;
     document.getElementById('btn-play').textContent='▶ Play';
+    document.getElementById('btn-stop').style.display='none';
     document.getElementById('sdot').className='sdot';
   } else {
     playing=true;
     document.getElementById('btn-play').textContent='⏸ Pause';
+    document.getElementById('btn-stop').style.display='flex';
     document.getElementById('sdot').className='sdot reading';
     readCurrentPara();
   }
+}
+
+function stopReading(){
+  stopAll();playing=false;
+  document.getElementById('btn-play').textContent='▶ Play';
+  document.getElementById('btn-stop').style.display='none';
+  document.getElementById('sdot').className='sdot';
 }
 
 function readCurrentPara(){
