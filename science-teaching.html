@@ -5,206 +5,163 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Science Teaching Mode</title>
 <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700;800&family=Lora:wght@400;500;600&display=swap" rel="stylesheet"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
-:root{
-  --m:#6B1A1A; --md:#4A0A12; --mm:#8B1A2A;
-  --g:#C9A84C; --gl:#E8C96A; --gd:#A07830;
-  --s:#F5E6C8; --sd:#EDD9A3; --w:#FFFDF5;
-  --tx:#2A0A0F;
-  --teal:#1a6b6b; --dim:rgba(42,10,15,0.45);
-  --cr:#FFFDF5;
-}
+:root{--m:#6B1A1A;--md:#4A0A12;--mm:#8B1A2A;--g:#C9A84C;--gl:#E8C96A;--gd:#A07830;--s:#F5E6C8;--sd:#EDD9A3;--w:#FFFDF5;--tx:#2A0A0F;--teal:#1a6b6b;--dim:rgba(42,10,15,0.45);}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Lexend',sans-serif;background:#f0ece4;min-height:100vh;overflow:hidden;}
-
-/* HEADER */
-.hdr{background:linear-gradient(90deg,var(--md),var(--m));padding:10px 18px;display:flex;align-items:center;gap:12px;box-shadow:0 3px 12px rgba(0,0,0,0.3);z-index:100;position:relative;}
-.hdr-icon{font-size:1.4rem;}
-.hdr-t{font-size:1rem;font-weight:800;color:var(--gl);letter-spacing:1px;}
-.hdr-s{font-size:0.7rem;color:var(--sd);margin-top:1px;}
-.back-btn{margin-left:auto;background:rgba(255,255,255,0.12);border:1px solid rgba(201,168,76,0.35);color:var(--s);padding:6px 14px;border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.78rem;font-weight:700;cursor:pointer;}
-.back-btn:hover{background:rgba(255,255,255,0.22);}
-
-/* PROGRESS BAR */
-.prog{height:3px;background:rgba(201,168,76,0.2);}
+.hdr{background:linear-gradient(90deg,var(--md),var(--m));padding:9px 16px;display:flex;align-items:center;gap:12px;box-shadow:0 3px 12px rgba(0,0,0,0.3);flex-shrink:0;}
+.hdr-t{font-size:0.95rem;font-weight:800;color:var(--gl);}
+.hdr-s{font-size:0.68rem;color:var(--sd);margin-top:1px;}
+.back-btn{margin-left:auto;background:rgba(255,255,255,0.12);border:1px solid rgba(201,168,76,0.35);color:var(--s);padding:5px 12px;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.76rem;font-weight:700;cursor:pointer;}
+.prog{height:3px;background:rgba(201,168,76,0.15);flex-shrink:0;}
 .prog-bar{height:3px;background:linear-gradient(90deg,var(--g),var(--gl));transition:width 0.4s;width:0%;}
-
-/* WAITING SCREEN — shown when no lesson text */
-.waiting{display:flex;align-items:center;justify-content:center;height:calc(100vh - 55px);flex-direction:column;gap:14px;text-align:center;padding:24px;}
-.waiting-icon{font-size:3rem;}
-.waiting-title{font-size:1.2rem;font-weight:800;color:var(--m);}
-.waiting-sub{font-size:0.88rem;color:var(--dim);max-width:360px;line-height:1.7;}
-.waiting-btn{padding:11px 24px;background:linear-gradient(135deg,var(--m),var(--mm));color:var(--gl);border:none;border-radius:10px;font-family:'Lexend',sans-serif;font-weight:700;font-size:0.9rem;cursor:pointer;margin-top:8px;}
-
-/* LOADING */
-.loading{display:none;align-items:center;justify-content:center;height:calc(100vh - 55px);flex-direction:column;gap:14px;}
-.loading.on{display:flex;}
-.spin{width:40px;height:40px;border:4px solid rgba(201,168,76,0.2);border-top:4px solid var(--g);border-radius:50%;animation:spin 0.8s linear infinite;}
+.lesson-bar{background:white;border-bottom:2px solid var(--sd);padding:6px 16px;display:flex;align-items:center;gap:10px;flex-shrink:0;}
+.lb-sub{font-weight:800;color:var(--m);font-size:0.82rem;}
+.lb-title{font-weight:600;color:var(--tx);font-size:0.82rem;flex:1;}
+.lb-page{font-size:0.72rem;color:var(--dim);background:var(--sd);padding:2px 8px;border-radius:10px;}
+.lb-voice{font-size:0.7rem;padding:2px 8px;border-radius:10px;font-weight:700;}
+.lb-voice.el{background:#d4edda;color:#155724;}
+.lb-voice.ws{background:#fff3cd;color:#856404;}
+.fullscreen-msg{display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;text-align:center;padding:24px;flex:1;}
+.fullscreen-msg.on{display:flex;}
+.spin{width:36px;height:36px;border:4px solid rgba(201,168,76,0.2);border-top:4px solid var(--g);border-radius:50%;animation:spin 0.8s linear infinite;}
 @keyframes spin{to{transform:rotate(360deg)}}
-.l-t{font-size:1rem;font-weight:700;color:var(--m);}
-.l-s{font-size:0.8rem;color:var(--dim);}
-
-/* MAIN CLASSROOM — fullscreen split layout */
-.classroom{display:none;height:calc(100vh - 58px);}
-.classroom.show{display:flex;flex-direction:column;}
-
-/* LESSON BAR */
-.lesson-bar{background:white;border-bottom:2px solid var(--sd);padding:7px 18px;display:flex;align-items:center;gap:10px;flex-shrink:0;}
-.lb-sub{font-weight:800;color:var(--m);font-size:0.85rem;}
-.lb-title{font-weight:600;color:var(--tx);font-size:0.85rem;flex:1;}
-.lb-page{font-size:0.75rem;color:var(--dim);background:var(--sd);padding:2px 9px;border-radius:10px;}
-
-/* SPLIT LAYOUT */
-.layout{display:grid;grid-template-columns:1fr 380px;flex:1;overflow:hidden;gap:0;}
-
-/* LEFT — TEXTBOOK PARAGRAPHS */
-.para-panel{overflow-y:auto;padding:18px 20px;background:var(--w);border-right:2px solid var(--sd);}
-.ch-heading{font-family:'Lora',serif;font-size:1.15rem;font-weight:700;color:var(--m);margin-bottom:18px;padding-bottom:12px;border-bottom:2px solid var(--sd);}
-
-.para-block{padding:12px 14px;border-radius:10px;margin-bottom:10px;cursor:pointer;transition:all 0.25s;border:2px solid transparent;position:relative;}
-.para-block:hover{border-color:rgba(201,168,76,0.3);}
-.para-block.heading-b{cursor:default;background:transparent;padding:8px 0 4px;}
-.para-block.active{background:linear-gradient(135deg,rgba(107,26,26,0.06),rgba(201,168,76,0.08));border-color:var(--g);box-shadow:0 2px 12px rgba(201,168,76,0.2);}
-.para-block.done{opacity:0.5;}
-.para-heading{font-family:'Lora',serif;font-size:1rem;font-weight:700;color:var(--m);padding:4px 0;}
-.para-pg{font-size:0.62rem;font-weight:700;color:var(--gd);background:var(--sd);padding:1px 6px;border-radius:6px;display:inline-block;margin-bottom:5px;}
-.para-text{font-family:'Lora',serif;font-size:0.9rem;line-height:1.85;color:var(--tx);}
-.sent{border-radius:3px;transition:background 0.2s;}
+.msg-icon{font-size:2.5rem;}
+.msg-title{font-size:1.1rem;font-weight:800;color:var(--m);}
+.msg-sub{font-size:0.85rem;color:var(--dim);max-width:340px;line-height:1.7;}
+.msg-btn{padding:10px 22px;background:linear-gradient(135deg,var(--m),var(--mm));color:var(--gl);border:none;border-radius:10px;font-family:'Lexend',sans-serif;font-weight:700;font-size:0.88rem;cursor:pointer;margin-top:6px;}
+.app{display:flex;flex-direction:column;height:100vh;}
+.classroom{display:none;flex:1;min-height:0;flex-direction:column;}
+.classroom.show{display:flex;}
+.split{display:grid;grid-template-columns:1fr 1fr;flex:1;min-height:0;overflow:hidden;}
+.pdf-panel{background:#2a2a2a;display:flex;flex-direction:column;overflow:hidden;border-right:3px solid var(--m);}
+.pdf-header{background:#1a1a1a;padding:8px 12px;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.pdf-header-title{font-size:0.72rem;font-weight:700;color:rgba(255,255,255,0.7);flex:1;}
+.pdf-nav{display:flex;align-items:center;gap:5px;}
+.pdf-nav-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);color:rgba(255,255,255,0.8);padding:3px 8px;border-radius:5px;font-size:0.72rem;cursor:pointer;}
+.pdf-nav-btn:hover{background:rgba(255,255,255,0.2);}
+.pdf-nav-btn:disabled{opacity:0.3;cursor:not-allowed;}
+.pdf-page-info{font-size:0.68rem;color:rgba(255,255,255,0.5);}
+.pdf-canvas-wrap{flex:1;overflow:auto;display:flex;align-items:flex-start;justify-content:center;padding:10px;}
+.pdf-canvas-wrap canvas{max-width:100%;height:auto;display:block;border-radius:4px;box-shadow:0 4px 20px rgba(0,0,0,0.5);}
+.no-pdf{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:12px;padding:20px;text-align:center;}
+.no-pdf-icon{font-size:2.5rem;opacity:0.4;}
+.no-pdf-title{font-size:0.88rem;font-weight:700;color:rgba(255,255,255,0.5);}
+.no-pdf-sub{font-size:0.72rem;color:rgba(255,255,255,0.3);line-height:1.6;max-width:200px;}
+.upload-pdf-btn{padding:8px 16px;background:rgba(201,168,76,0.15);border:1.5px solid rgba(201,168,76,0.3);color:rgba(232,196,106,0.8);border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.75rem;font-weight:700;cursor:pointer;margin-top:4px;}
+.ai-panel{background:var(--w);display:flex;flex-direction:column;overflow:hidden;}
+.para-panel{flex:1;overflow-y:auto;padding:16px;}
+.ch-heading{font-family:'Lora',serif;font-size:1.05rem;font-weight:700;color:var(--m);margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--sd);}
+.para-block{padding:11px 13px;border-radius:10px;margin-bottom:8px;cursor:pointer;transition:all 0.2s;border:2px solid transparent;}
+.para-block:hover{border-color:rgba(201,168,76,0.25);}
+.para-block.heading-b{cursor:default;background:transparent;padding:6px 0 2px;}
+.para-block.active{background:linear-gradient(135deg,rgba(107,26,26,0.06),rgba(201,168,76,0.07));border-color:var(--g);box-shadow:0 2px 10px rgba(201,168,76,0.15);}
+.para-block.done{opacity:0.45;}
+.para-heading{font-family:'Lora',serif;font-size:0.95rem;font-weight:700;color:var(--m);}
+.para-pg{font-size:0.6rem;font-weight:700;color:var(--gd);background:var(--sd);padding:1px 6px;border-radius:6px;display:inline-block;margin-bottom:4px;cursor:pointer;}
+.para-pg:hover{background:var(--g);}
+.para-text{font-family:'Lora',serif;font-size:0.88rem;line-height:1.85;color:var(--tx);}
+.sent{border-radius:3px;transition:background 0.15s;}
 .sent.hl{background:rgba(201,168,76,0.45);padding:1px 2px;}
-
-/* Para actions */
 .para-actions{display:none;gap:6px;margin-top:8px;}
 .para-block.active .para-actions{display:flex;}
-.pa-btn{padding:4px 12px;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.72rem;font-weight:700;cursor:pointer;border:none;}
+.pa-btn{padding:4px 10px;border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;border:none;}
 .pa-rep{background:rgba(107,26,26,0.08);color:var(--m);}
 .pa-exp{background:rgba(26,107,107,0.1);color:var(--teal);}
-.exp-block{display:none;margin-top:10px;padding:10px 13px;background:rgba(26,107,107,0.06);border:1.5px solid rgba(26,107,107,0.15);border-radius:9px;}
-.exp-lbl{font-size:0.65rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
-.exp-txt{font-size:0.82rem;line-height:1.65;color:var(--tx);}
-
-/* RIGHT — DIAGRAM PANEL */
-.diag-panel{background:linear-gradient(180deg,#1a0a0f,#2a0a14);display:flex;flex-direction:column;overflow:hidden;}
-
-/* Diagram display area */
-.diag-area{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:16px;overflow:hidden;}
-.diag-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px;text-align:center;padding:20px;}
-.diag-empty-icon{font-size:2.5rem;opacity:0.4;}
-.diag-empty-txt{font-size:0.75rem;color:rgba(245,230,200,0.35);line-height:1.6;max-width:220px;}
-.diag-display{display:none;flex-direction:column;width:100%;align-items:center;}
-.diag-display.show{display:flex;}
-.diag-lbl{font-size:0.72rem;font-weight:800;color:var(--gl);text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;text-align:center;}
-.diag-svg-wrap{background:rgba(255,255,255,0.04);border-radius:12px;padding:12px;width:100%;max-height:260px;overflow:hidden;cursor:pointer;border:1px solid rgba(201,168,76,0.15);transition:border-color 0.2s;}
-.diag-svg-wrap:hover{border-color:rgba(201,168,76,0.4);}
-.diag-svg-wrap svg{width:100%;height:auto;max-height:230px;}
-.diag-svg-wrap img{max-width:100%;max-height:230px;object-fit:contain;display:block;border-radius:8px;}
-.diag-chips{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:8px;}
-.diag-chip{padding:2px 8px;background:rgba(201,168,76,0.12);border:1px solid rgba(201,168,76,0.25);border-radius:8px;font-size:0.62rem;color:var(--gl);font-weight:600;}
-.diag-expand-hint{font-size:0.62rem;color:rgba(245,230,200,0.3);margin-top:6px;}
-
-/* AI EXPLAIN BOX inside diagram panel */
-.ai-explain{background:rgba(255,255,255,0.05);border-top:1px solid rgba(201,168,76,0.15);padding:12px 14px;max-height:160px;overflow-y:auto;flex-shrink:0;}
-.ai-explain-lbl{font-size:0.62rem;font-weight:800;color:var(--gl);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:5px;}
-.ai-explain-txt{font-size:0.78rem;color:rgba(245,230,200,0.85);line-height:1.65;}
-
-/* CONTROLS BAR */
-.ctrl{background:linear-gradient(90deg,var(--md),var(--m));padding:9px 16px;display:flex;align-items:center;gap:8px;flex-shrink:0;}
-.cb{padding:7px 16px;border:none;border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.78rem;font-weight:700;cursor:pointer;transition:all 0.15s;}
-.cb:disabled{opacity:0.35;cursor:not-allowed;}
-.cb-play{background:linear-gradient(135deg,var(--gd),var(--g));color:var(--md);min-width:100px;}
-.cb-nav{background:rgba(255,255,255,0.12);color:var(--s);border:1px solid rgba(255,255,255,0.15);}
+.exp-block{display:none;margin-top:8px;padding:9px 12px;background:rgba(26,107,107,0.06);border:1.5px solid rgba(26,107,107,0.15);border-radius:8px;}
+.exp-lbl{font-size:0.62rem;font-weight:800;color:var(--teal);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:4px;}
+.exp-txt{font-size:0.8rem;line-height:1.6;color:var(--tx);}
+.audio-banner{background:rgba(26,107,107,0.08);border-top:1px solid rgba(26,107,107,0.15);padding:8px 16px;display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.audio-banner-lbl{font-size:0.7rem;font-weight:700;color:var(--teal);white-space:nowrap;}
+.audio-progress{flex:1;height:4px;background:rgba(26,107,107,0.15);border-radius:2px;overflow:hidden;}
+.audio-progress-fill{height:4px;background:var(--teal);border-radius:2px;transition:width 0.3s;width:0%;}
+.audio-gen-btn{padding:4px 10px;background:rgba(26,107,107,0.12);border:1.5px solid rgba(26,107,107,0.25);color:var(--teal);border-radius:7px;font-family:'Lexend',sans-serif;font-size:0.7rem;font-weight:700;cursor:pointer;white-space:nowrap;}
+.audio-gen-btn:disabled{opacity:0.4;cursor:not-allowed;}
+.ctrl{background:linear-gradient(90deg,var(--md),var(--m));padding:8px 14px;display:flex;align-items:center;gap:7px;flex-shrink:0;}
+.cb{padding:6px 14px;border:none;border-radius:8px;font-family:'Lexend',sans-serif;font-size:0.76rem;font-weight:700;cursor:pointer;}
+.cb:disabled{opacity:0.3;cursor:not-allowed;}
+.cb-play{background:linear-gradient(135deg,var(--gd),var(--g));color:var(--md);min-width:88px;}
+.cb-nav{background:rgba(255,255,255,0.12);color:var(--s);border:1px solid rgba(255,255,255,0.12);}
 .cb-stop{background:rgba(220,53,69,0.25);color:#ff8888;border:1px solid rgba(220,53,69,0.3);display:none;}
-.sdot{width:8px;height:8px;border-radius:50%;background:rgba(255,255,255,0.25);margin-left:4px;}
-.sdot.reading{background:#4ade80;box-shadow:0 0 8px #4ade80;animation:pulse 1s infinite;}
+.sdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,0.2);}
+.sdot.reading{background:#4ade80;box-shadow:0 0 6px #4ade80;animation:pulse 1s infinite;}
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.5;}}
-.spd-lbl{font-size:0.62rem;color:rgba(255,255,255,0.4);font-weight:700;margin-left:auto;}
-.spd-btn{width:24px;height:24px;border:1px solid rgba(255,255,255,0.18);background:rgba(255,255,255,0.07);color:var(--s);border-radius:5px;cursor:pointer;font-size:0.8rem;font-weight:800;display:flex;align-items:center;justify-content:center;}
-.para-count{font-size:0.68rem;color:rgba(255,255,255,0.4);margin-left:6px;}
-
-/* FULLSCREEN MODAL */
-.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.82);z-index:999;align-items:center;justify-content:center;padding:20px;}
+.para-count{font-size:0.66rem;color:rgba(255,255,255,0.35);}
+.spd-row{display:flex;align-items:center;gap:4px;margin-left:auto;}
+.spd-lbl{font-size:0.6rem;color:rgba(255,255,255,0.35);font-weight:700;}
+.spd-btn{width:22px;height:22px;border:1px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.07);color:var(--s);border-radius:4px;cursor:pointer;font-size:0.78rem;font-weight:800;}
+.spd-val{font-size:0.66rem;color:rgba(255,255,255,0.45);min-width:26px;text-align:center;}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:999;align-items:center;justify-content:center;padding:20px;}
 .modal.show{display:flex;}
-.modal-inner{background:#1a0a0f;border-radius:16px;padding:20px;max-width:700px;width:100%;max-height:90vh;overflow-y:auto;border:2px solid rgba(201,168,76,0.3);position:relative;}
-.modal-close{position:absolute;top:10px;right:12px;background:rgba(255,255,255,0.1);border:none;color:var(--s);width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1rem;font-weight:700;}
-.modal-inner svg{width:100%;height:auto;}
-.modal-inner img{max-width:100%;height:auto;border-radius:10px;}
-
-@media(max-width:700px){
-  .layout{grid-template-columns:1fr;}
-  .diag-panel{display:none;}
-}
+.modal-inner{background:#1a1a1a;border-radius:14px;padding:16px;max-width:900px;width:100%;max-height:90vh;overflow:auto;border:1px solid rgba(201,168,76,0.3);position:relative;}
+.modal-close{position:absolute;top:10px;right:10px;background:rgba(255,255,255,0.1);border:none;color:white;width:28px;height:28px;border-radius:50%;cursor:pointer;font-size:1rem;font-weight:700;}
+.modal-inner canvas{max-width:100%;height:auto;display:block;border-radius:6px;}
+@media(max-width:700px){.split{grid-template-columns:1fr;}.pdf-panel{display:none;}}
 </style>
 </head>
 <body>
-
-<!-- HEADER -->
+<div class="app">
 <div class="hdr">
-  <div class="hdr-icon">🔬</div>
-  <div><div class="hdr-t">Science Teaching Mode</div><div class="hdr-s" id="hdr-sub">Textbook Synchronized Teaching</div></div>
+  <div style="font-size:1.3rem;">🔬</div>
+  <div><div class="hdr-t" id="hdr-t">Science Teaching Mode</div><div class="hdr-s" id="hdr-s">Textbook Synchronized Teaching</div></div>
   <button class="back-btn" onclick="goBack()">← Back</button>
 </div>
 <div class="prog"><div class="prog-bar" id="prog"></div></div>
 
-<!-- LOADING -->
-<div class="loading" id="loading">
-  <div class="spin"></div>
-  <div class="l-t" id="l-t">Loading lesson…</div>
-  <div class="l-s" id="l-s">Reading paragraphs and mapping diagrams</div>
-</div>
+<div class="fullscreen-msg" id="loading"><div class="spin"></div><div class="msg-title" id="l-t">Loading lesson…</div><div class="msg-sub">Reading paragraphs</div></div>
+<div class="fullscreen-msg" id="waiting"><div class="msg-icon">📚</div><div class="msg-title">No Lesson Activated</div><div class="msg-sub">Teacher needs to activate a lesson first. Go to <strong>Teacher Panel → select Class, Subject, Chapter → Activate &amp; Teach</strong>.</div><button class="msg-btn" onclick="goBack()">← Back to Teacher Panel</button></div>
 
-<!-- WAITING — shown when no text available -->
-<div class="waiting" id="waiting" style="display:none;">
-  <div class="waiting-icon">📚</div>
-  <div class="waiting-title">No Lesson Activated Yet</div>
-  <div class="waiting-sub">The teacher needs to activate a lesson first from the <strong>Teacher Panel</strong>. Go back, select Class, Subject and Chapter, then click <strong>"Activate &amp; Teach"</strong>.</div>
-  <button class="waiting-btn" onclick="goBack()">← Go Back to Teacher Panel</button>
-</div>
+<div class="modal" id="modal" onclick="closeModal()"><div class="modal-inner" id="modal-inner" onclick="event.stopPropagation()"><button class="modal-close" onclick="closeModal()">✕</button><div id="modal-content"></div></div></div>
 
-<!-- FULLSCREEN MODAL -->
-<div class="modal" id="modal" onclick="closeModal()">
-  <div class="modal-inner" id="modal-inner" onclick="event.stopPropagation()">
-    <button class="modal-close" onclick="closeModal()">✕</button>
-    <div id="modal-content"></div>
-  </div>
-</div>
-
-<!-- CLASSROOM -->
 <div class="classroom" id="classroom">
   <div class="lesson-bar">
     <span class="lb-sub" id="lb-sub">Science</span>
     <span style="color:var(--dim)">•</span>
     <span class="lb-title" id="lb-title">Lesson</span>
     <span class="lb-page" id="lb-page">📖 —</span>
+    <span class="lb-voice ws" id="lb-voice">🗣 Browser Voice</span>
   </div>
 
-  <div class="layout" id="layout">
-    <!-- LEFT: Textbook paragraphs -->
-    <div class="para-panel" id="para-panel">
-      <div class="ch-heading" id="ch-heading">Loading…</div>
-      <div id="para-list"></div>
-    </div>
-
-    <!-- RIGHT: Diagram panel -->
-    <div class="diag-panel" id="diag-panel">
-      <div class="diag-area" id="diag-area">
-        <div class="diag-empty" id="diag-empty">
-          <div class="diag-empty-icon">🔬</div>
-          <div class="diag-empty-txt">Diagram will appear automatically when a related paragraph is reached</div>
-        </div>
-        <div class="diag-display" id="diag-display">
-          <div class="diag-lbl" id="diag-lbl">Diagram</div>
-          <div class="diag-svg-wrap" id="diag-content" onclick="expandDiag()"></div>
-          <div class="diag-chips" id="diag-chips"></div>
-          <div class="diag-expand-hint">Tap to enlarge</div>
+  <div class="split">
+    <!-- LEFT: PDF VIEWER -->
+    <div class="pdf-panel" id="pdf-panel">
+      <div class="pdf-header">
+        <span class="pdf-header-title" id="pdf-header-title">📄 Textbook Page</span>
+        <div class="pdf-nav">
+          <button class="pdf-nav-btn" id="pdf-prev" onclick="pdfPrevPage()" disabled>◀</button>
+          <span class="pdf-page-info" id="pdf-page-info">—</span>
+          <button class="pdf-nav-btn" id="pdf-next" onclick="pdfNextPage()" disabled>▶</button>
+          <button class="pdf-nav-btn" onclick="expandPage()" title="Zoom">⛶</button>
         </div>
       </div>
-      <div class="ai-explain" id="ai-explain" style="display:none;">
-        <div class="ai-explain-lbl">💡 Simple Explanation</div>
-        <div class="ai-explain-txt" id="ai-explain-txt"></div>
+      <div class="pdf-canvas-wrap" id="pdf-canvas-wrap">
+        <div class="no-pdf" id="no-pdf">
+          <div class="no-pdf-icon">📄</div>
+          <div class="no-pdf-title">Upload Textbook PDF</div>
+          <div class="no-pdf-sub">Upload the Samacheer PDF to see exact textbook pages with original diagrams</div>
+          <input type="file" id="pdf-file-input" accept=".pdf" style="display:none;" onchange="loadPdfFile(this)"/>
+          <button class="upload-pdf-btn" onclick="document.getElementById('pdf-file-input').click()">📤 Upload PDF Now</button>
+        </div>
+        <canvas id="pdf-canvas" style="display:none;"></canvas>
+      </div>
+    </div>
+
+    <!-- RIGHT: AI TEACHING -->
+    <div class="ai-panel">
+      <div class="para-panel" id="para-panel">
+        <div class="ch-heading" id="ch-heading">Loading…</div>
+        <div id="para-list"></div>
+      </div>
+      <div class="audio-banner" id="audio-banner" style="display:none;">
+        <span class="audio-banner-lbl" id="audio-lbl">🎙 ElevenLabs Voice</span>
+        <div class="audio-progress"><div class="audio-progress-fill" id="audio-fill"></div></div>
+        <span id="audio-count" style="font-size:0.68rem;color:var(--teal);min-width:50px;text-align:right;"></span>
+        <button class="audio-gen-btn" id="audio-gen-btn" onclick="generateAudio()">Generate Voice</button>
       </div>
     </div>
   </div>
 
-  <!-- CONTROLS -->
   <div class="ctrl">
     <button class="cb cb-nav" id="btn-prev" onclick="prevPara()" disabled>◀ Prev</button>
     <button class="cb cb-play" id="btn-play" onclick="togglePlay()">▶ Play</button>
@@ -212,547 +169,253 @@ body{font-family:'Lexend',sans-serif;background:#f0ece4;min-height:100vh;overflo
     <button class="cb cb-nav" id="btn-next" onclick="nextPara()">Next ▶</button>
     <div class="sdot" id="sdot"></div>
     <span class="para-count" id="para-count"></span>
-    <div style="display:flex;align-items:center;gap:4px;margin-left:auto;">
+    <div class="spd-row">
       <span class="spd-lbl">SPEED</span>
       <button class="spd-btn" onclick="changeSpd(-0.1)">−</button>
-      <span id="spd-disp" style="font-size:0.68rem;color:rgba(255,255,255,0.5);min-width:28px;text-align:center;">1×</span>
-      <button class="spd-btn" onclick="changeSpd(0.1)">+</button>
+      <span class="spd-val" id="spd-disp">1×</span>
+      <button class="spd-btn" onclick="changeSpd(+0.1)">+</button>
     </div>
   </div>
 </div>
+</div>
 
 <script>
-// ═══════════════════════════════════
-// DIAGRAM LIBRARY
-// ═══════════════════════════════════
-var DL=[
-  {id:'human_nervous',file:'assets/diagrams/human_nervous.svg',name:'Nervous System',labels:['Brain','Spinal Cord','Nerves','Neuron'],kw:['nervous system','neuron','nerve','brain','spinal cord','stimulus','reflex','synapse','impulse','dendrite','axon']},
-  {id:'human_digestive',file:'assets/diagrams/human_digestive.svg',name:'Digestive System',labels:['Stomach','Intestine','Liver','Oesophagus'],kw:['digestion','stomach','intestine','liver','pancreas','oesophagus','enzyme','bile','absorption','digestive']},
-  {id:'human_circulatory',file:'assets/diagrams/human_circulatory.svg',name:'Circulatory System',labels:['Heart','Arteries','Veins','Blood'],kw:['blood','heart','circulation','artery','vein','capillary','plasma','haemoglobin','pulse','cardiac','vessel']},
-  {id:'human_respiratory',file:'assets/diagrams/human_respiratory.svg',name:'Respiratory System',labels:['Lungs','Trachea','Bronchi','Alveoli'],kw:['lung','breathe','respiration','trachea','bronchi','alveoli','oxygen','carbon dioxide','diaphragm','inhale','exhale']},
-  {id:'human_eye',file:'assets/diagrams/human_eye.svg',name:'Human Eye',labels:['Cornea','Retina','Lens','Iris'],kw:['eye','cornea','retina','lens','iris','optic','vision','pupil','sight','conjunctiva','sclera']},
-  {id:'heart',file:'assets/diagrams/heart.svg',name:'Human Heart',labels:['Ventricle','Atrium','Aorta','Valve'],kw:['heart','ventricle','atrium','valve','cardiac','auricle','aorta','septum','chamber','pericardium']},
-  {id:'plant_cell',file:'assets/diagrams/plant.svg',name:'Plant Cell',labels:['Cell Wall','Chloroplast','Vacuole','Nucleus'],kw:['plant cell','chloroplast','cell wall','vacuole','chlorophyll','plastid','cellulose']},
-  {id:'photosynthesis',file:'assets/diagrams/photosynthesis.svg',name:'Photosynthesis',labels:['Sunlight','CO₂','Water','Glucose'],kw:['photosynthesis','chlorophyll','sunlight','carbon dioxide','glucose','starch','stomata']},
-  {id:'water_cycle',file:'assets/diagrams/water_cycle.svg',name:'Water Cycle',labels:['Evaporation','Condensation','Rain'],kw:['water cycle','evaporation','condensation','precipitation','rain','transpiration','humidity']},
-  {id:'food_chain',file:'assets/diagrams/food_chain.svg',name:'Food Chain',labels:['Producer','Consumer','Decomposer'],kw:['food chain','food web','producer','consumer','predator','prey','herbivore','carnivore','decomposer']},
-  {id:'cell_division',file:'assets/diagrams/cell_division.svg',name:'Cell Division',labels:['Prophase','Metaphase','Anaphase'],kw:['cell division','mitosis','meiosis','chromosome','prophase','metaphase','anaphase','telophase']},
-  {id:'dna_structure',file:'assets/diagrams/dna_structure.svg',name:'DNA Structure',labels:['Double Helix','Base Pairs'],kw:['dna','double helix','nucleotide','gene','genetic','chromosome','adenine','guanine']},
-  {id:'solar_system',file:'assets/diagrams/solar_system.svg',name:'Solar System',labels:['Sun','Planets','Orbit'],kw:['solar system','planet','sun','orbit','mercury','venus','mars','jupiter','saturn','comet']},
-  {id:'atom_structure',file:'assets/diagrams/atom_structure.svg',name:'Atomic Structure',labels:['Nucleus','Electrons','Protons'],kw:['atom','electron','proton','neutron','nucleus','atomic','valence','shell','orbit','ion']},
-  {id:'electric_circuit',file:'assets/diagrams/electric_circuit.svg',name:'Electric Circuit',labels:['Battery','Bulb','Switch','Wire'],kw:['electric circuit','battery','bulb','switch','current','voltage','resistance','conductor','insulator','ohm']},
-  {id:'magnet_field',file:'assets/diagrams/magnet_field.svg',name:'Magnetic Field',labels:['North','South','Field Lines'],kw:['magnet','magnetic','north pole','south pole','compass','electromagnetic','field line','force']},
-  {id:'states_of_matter',file:'assets/diagrams/states_of_matter.svg',name:'States of Matter',labels:['Solid','Liquid','Gas'],kw:['solid','liquid','gas','melting','evaporation','matter','particle','boiling','freezing','condensation']},
-  {id:'layers_earth',file:'assets/diagrams/layers_earth.svg',name:'Layers of Earth',labels:['Crust','Mantle','Core'],kw:['earth layer','crust','mantle','core','tectonic','seismic','lava','magma','lithosphere']},
-  {id:'plant_anatomy',file:'assets/diagrams/plant_anatomy.svg',name:'Parts of Plant',labels:['Root','Stem','Leaf','Flower'],kw:['root','stem','leaf','flower','fruit','seed','pollen','ovary','germination','petal','sepal']},
-  {id:'human_skeletal',file:'assets/diagrams/human_skeletal.svg',name:'Skeletal System',labels:['Skull','Spine','Femur','Joints'],kw:['bone','skeleton','skull','joint','cartilage','femur','vertebra','rib','calcium','fracture']}
-];
+if(typeof pdfjsLib!=='undefined') pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+var paras=[],curIdx=0,playing=false,spd=1.0,ptimer=null;
+var audioMap={},currentAudio=null;
+var pdfDoc=null,pdfCurrentPage=1,pdfTotalPages=0,lessonId='';
 
-function findBestDiagram(text){
-  if(!text) return null;
-  var tl = text.toLowerCase();
-  var best = null, bestScore = 0;
-  DL.forEach(function(d){
-    var score = 0;
-    d.kw.forEach(function(k){ if(tl.includes(k)) score += (k.length > 6 ? 2 : 1); });
-    if(score > bestScore){ bestScore = score; best = d; }
-  });
-  return bestScore >= 2 ? best : null;
+async function loadPdfFile(input){
+  if(!input.files||!input.files[0])return;
+  var file=input.files[0];
+  document.getElementById('no-pdf').style.display='none';
+  document.getElementById('pdf-canvas').style.display='block';
+  document.getElementById('pdf-header-title').textContent='📄 '+file.name.substring(0,28);
+  var ab=await file.arrayBuffer();
+  pdfDoc=await pdfjsLib.getDocument({data:ab}).promise;
+  pdfTotalPages=pdfDoc.numPages;
+  var tp=paras[curIdx]&&paras[curIdx].page?paras[curIdx].page:1;
+  await renderPdfPage(tp);
+  updatePdfNav();
 }
 
-// ═══════════════════════════════════
-// STATE
-// ═══════════════════════════════════
-var paras = [], curIdx = 0, playing = false, spd = 0.9;
-var ptimer = null, curDiag = null;
-var audioMap = {}, currentAudio = null;
+async function renderPdfPage(pageNum){
+  if(!pdfDoc)return;
+  pageNum=Math.max(1,Math.min(pageNum,pdfTotalPages));
+  pdfCurrentPage=pageNum;
+  var page=await pdfDoc.getPage(pageNum);
+  var canvas=document.getElementById('pdf-canvas');
+  var wrap=document.getElementById('pdf-canvas-wrap');
+  var ww=wrap.clientWidth-20;
+  var vp=page.getViewport({scale:1});
+  var scale=Math.min(ww/vp.width,2.0);
+  var svp=page.getViewport({scale});
+  canvas.width=svp.width;canvas.height=svp.height;
+  canvas.style.width=svp.width+'px';canvas.style.height=svp.height+'px';
+  var ctx=canvas.getContext('2d');
+  await page.render({canvasContext:ctx,viewport:svp}).promise;
+  document.getElementById('pdf-page-info').textContent=pageNum+' / '+pdfTotalPages;
+  document.getElementById('lb-page').textContent='📖 Page '+pageNum;
+  updatePdfNav();
+}
+function updatePdfNav(){document.getElementById('pdf-prev').disabled=(pdfCurrentPage<=1);document.getElementById('pdf-next').disabled=(pdfCurrentPage>=pdfTotalPages);}
+async function pdfPrevPage(){if(pdfCurrentPage>1)await renderPdfPage(pdfCurrentPage-1);}
+async function pdfNextPage(){if(pdfCurrentPage<pdfTotalPages)await renderPdfPage(pdfCurrentPage+1);}
+async function expandPage(){
+  if(!pdfDoc)return;
+  var page=await pdfDoc.getPage(pdfCurrentPage);
+  var vp=page.getViewport({scale:2.5});
+  var bc=document.createElement('canvas');bc.width=vp.width;bc.height=vp.height;bc.style.maxWidth='100%';bc.style.height='auto';
+  await page.render({canvasContext:bc.getContext('2d'),viewport:vp}).promise;
+  document.getElementById('modal-content').innerHTML='';document.getElementById('modal-content').appendChild(bc);
+  document.getElementById('modal').classList.add('show');
+}
+function closeModal(){document.getElementById('modal').classList.remove('show');}
+async function jumpPdfToPage(pn){if(!pdfDoc||!pn)return;if(pdfCurrentPage!==pn)await renderPdfPage(pn);}
 
-// ═══════════════════════════════════
-// PARSE TEXT
-// ═══════════════════════════════════
-function parseText(text, chap){
-  var result = [];
-  var id = 1;
-  result.push({id:id++, type:'heading', text:chap, sentences:[chap], page:null, diagram:null});
-
-  text = text.trim();
-  var lines = text.split('\n');
-  var pageGroups = [], curLines = [], curPage = null;
-
+function parseText(text,chap){
+  var result=[],id=1;
+  result.push({id:id++,type:'heading',text:chap,sentences:[chap],page:null});
+  text=text.trim();
+  var lines=text.split('\n'),pageGroups=[],curLines=[],curPage=null;
   lines.forEach(function(line){
-    var pm = line.match(/\[Page\s*(\d+)\]/);
-    if(pm){
-      if(curLines.length > 0) pageGroups.push({text:curLines.join(' '), page:curPage});
-      curPage = parseInt(pm[1]); curLines = [];
-    } else { curLines.push(line); }
+    var pm=line.match(/\[Page\s*(\d+)\]/);
+    if(pm){if(curLines.length)pageGroups.push({text:curLines.join(' '),page:curPage});curPage=parseInt(pm[1]);curLines=[];}
+    else curLines.push(line);
   });
-  if(curLines.length > 0) pageGroups.push({text:curLines.join(' '), page:curPage});
-  if(pageGroups.length === 0) pageGroups = [{text:text, page:null}];
-
+  if(curLines.length)pageGroups.push({text:curLines.join(' '),page:curPage});
+  if(!pageGroups.length)pageGroups=[{text:text,page:null}];
   pageGroups.forEach(function(grp){
-    var t = (grp.text||'').replace(/\s+/g,' ').trim();
-    if(!t || t.length < 20) return;
-
-    var chunks = [];
-    var parts = t.split(/(?=\(\s*(?:i{1,3}|iv|v|vi{1,3}|ix|x)\s*\))/i);
+    var t=(grp.text||'').replace(/\s+/g,' ').trim();
+    if(!t||t.length<20)return;
+    var chunks=[],parts=t.split(/(?=\(\s*(?:i{1,3}|iv|v|vi{1,3}|ix|x)\s*\))/i);
     parts.forEach(function(part){
-      part = (part||'').trim();
-      if(!part || part.length < 20) return;
-      if(part.length > 320){
-        var rem = part;
-        while(rem.length > 260){
-          var cut = 260;
-          for(var k = Math.min(300, rem.length-1); k > 120; k--){
-            if(rem[k]==='.' || rem[k]==='!' || rem[k]==='?'){ cut=k+1; break; }
-          }
-          var piece = rem.substring(0, cut).trim();
-          if(piece && piece.length > 20) chunks.push(piece);
-          rem = rem.substring(cut).trim();
-        }
-        if(rem && rem.length > 20) chunks.push(rem);
-      } else { chunks.push(part); }
+      part=(part||'').trim();if(!part||part.length<20)return;
+      if(part.length>300){var rem=part;while(rem.length>260){var cut=260;for(var k=Math.min(300,rem.length-1);k>120;k--){if(rem[k]==='.'||rem[k]==='!'||rem[k]==='?'){cut=k+1;break;}}var piece=rem.substring(0,cut).trim();if(piece&&piece.length>20)chunks.push(piece);rem=rem.substring(cut).trim();}if(rem&&rem.length>20)chunks.push(rem);}else chunks.push(part);
     });
-    if(chunks.length === 0) chunks = [t];
-
+    if(!chunks.length)chunks=[t];
     chunks.forEach(function(chunk){
-      chunk = (chunk||'').trim();
-      if(!chunk || chunk.length < 15) return;
-      var isHd = chunk.length < 80 && !chunk.match(/[.!?]$/) && (
-        chunk.match(/^\d+\.\d+/) || chunk.match(/^[A-Z][A-Z\s]{5,}$/)
-      );
-      if(isHd){
-        result.push({id:id++, type:'heading', text:chunk, sentences:[chunk], page:grp.page, diagram:null});
-      } else {
-        var sents = splitSentences(chunk);
-        var diag = findBestDiagram(chunk);
-        result.push({id:id++, type:'paragraph', text:chunk, sentences:sents, page:grp.page, diagram:diag});
-      }
+      chunk=(chunk||'').trim();if(!chunk||chunk.length<15)return;
+      var isHd=chunk.length<80&&!chunk.match(/[.!?]$/)&&(chunk.match(/^\d+\.\d+/)||chunk.match(/^[A-Z][A-Z\s]{5,}$/));
+      if(isHd)result.push({id:id++,type:'heading',text:chunk,sentences:[chunk],page:grp.page});
+      else result.push({id:id++,type:'paragraph',text:chunk,sentences:splitSentences(chunk),page:grp.page});
     });
   });
   return result;
 }
+function splitSentences(text){var parts=text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g)||[text];return parts.map(function(s){return s.trim();}).filter(function(s){return s.length>3;});}
 
-function splitSentences(text){
-  var parts = text.match(/[^.!?]+[.!?]+(?:\s|$)|[^.!?]+$/g) || [text];
-  return parts.map(function(s){ return s.trim(); }).filter(function(s){ return s.length > 3; });
-}
-
-// ═══════════════════════════════════
-// BUILD CLASSROOM
-// ═══════════════════════════════════
-function buildClassroom(subj, chap, cls){
-  document.getElementById('lb-sub').textContent = subj;
-  document.getElementById('lb-title').textContent = chap + (cls ? ' • '+cls : '');
-  document.getElementById('ch-heading').textContent = chap;
-  document.getElementById('hdr-sub').textContent = subj + (cls ? ' — '+cls : '');
-
-  var list = document.getElementById('para-list');
-  list.innerHTML = '';
-
-  paras.forEach(function(p, i){
-    var div = document.createElement('div');
-    div.id = 'pb-' + p.id;
-    div.className = 'para-block' + (p.type==='heading' ? ' heading-b' : '');
-    div.setAttribute('data-idx', i);
-
-    if(p.page){
-      var pg = document.createElement('div');
-      pg.className = 'para-pg'; pg.textContent = 'p.' + p.page;
-      div.appendChild(pg);
-    }
-
-    if(p.type === 'heading'){
-      var h = document.createElement('div');
-      h.className = 'para-heading'; h.textContent = p.text;
-      div.appendChild(h);
-    } else {
-      div.onclick = function(){ jumpTo(i); };
-      var t = document.createElement('div');
-      t.className = 'para-text';
-      t.innerHTML = p.sentences.map(function(s, si){
-        return '<span class="sent" id="sn-'+p.id+'-'+si+'">'+escH(s)+'</span> ';
-      }).join('');
-      div.appendChild(t);
-
-      // Diagram indicator
-      if(p.diagram){
-        var di = document.createElement('div');
-        di.style.cssText = 'font-size:0.65rem;color:var(--teal);font-weight:700;margin-top:5px;';
-        di.textContent = '🔬 ' + p.diagram.name;
-        div.appendChild(di);
-      }
-
-      // Actions
-      var acts = document.createElement('div');
-      acts.className = 'para-actions';
-      var rep = document.createElement('button');
-      rep.className = 'pa-btn pa-rep'; rep.textContent = '↩ Replay';
-      rep.onclick = function(e){ e.stopPropagation(); replayPara(); };
-      var exp = document.createElement('button');
-      exp.className = 'pa-btn pa-exp'; exp.textContent = '💡 Explain';
-      exp.onclick = (function(idx){ return function(e){ e.stopPropagation(); explainPara(idx); }; })(i);
-      acts.appendChild(rep); acts.appendChild(exp);
-      div.appendChild(acts);
+function buildClassroom(subj,chap,cls){
+  document.getElementById('lb-sub').textContent=subj;
+  document.getElementById('lb-title').textContent=chap+(cls?' • '+cls:'');
+  document.getElementById('ch-heading').textContent=chap;
+  document.getElementById('hdr-t').textContent=subj+' Teaching Mode';
+  document.getElementById('hdr-s').textContent=chap+(cls?' — '+cls:'');
+  lessonId=(chap||subj).trim().replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+  var list=document.getElementById('para-list');list.innerHTML='';
+  paras.forEach(function(p,i){
+    var div=document.createElement('div');div.id='pb-'+p.id;div.className='para-block'+(p.type==='heading'?' heading-b':'');div.setAttribute('data-idx',i);
+    if(p.page){var pg=document.createElement('div');pg.className='para-pg';pg.textContent='p.'+p.page;pg.title='Jump to page '+p.page;pg.onclick=(function(pn){return function(e){e.stopPropagation();jumpPdfToPage(pn);};})(p.page);div.appendChild(pg);}
+    if(p.type==='heading'){var h=document.createElement('div');h.className='para-heading';h.textContent=p.text;div.appendChild(h);}
+    else{
+      div.onclick=function(){jumpTo(i);};
+      var t=document.createElement('div');t.className='para-text';
+      t.innerHTML=p.sentences.map(function(s,si){return '<span class="sent" id="sn-'+p.id+'-'+si+'">'+escH(s)+'</span> ';}).join('');div.appendChild(t);
+      var acts=document.createElement('div');acts.className='para-actions';
+      var rep=document.createElement('button');rep.className='pa-btn pa-rep';rep.textContent='↩ Replay';rep.onclick=function(e){e.stopPropagation();replayPara();};
+      var exp=document.createElement('button');exp.className='pa-btn pa-exp';exp.textContent='💡 Explain';exp.onclick=(function(idx){return function(e){e.stopPropagation();explainPara(idx);};})(i);
+      acts.appendChild(rep);acts.appendChild(exp);div.appendChild(acts);
+      var eb=document.createElement('div');eb.className='exp-block';eb.id='exp-'+p.id;eb.innerHTML='<div class="exp-lbl">💡 Simple Explanation</div><div class="exp-txt" id="exp-txt-'+p.id+'"></div>';div.appendChild(eb);
     }
     list.appendChild(div);
   });
-
   document.getElementById('loading').classList.remove('on');
   document.getElementById('classroom').classList.add('show');
-  document.getElementById('para-count').textContent = paras.length + ' paragraphs';
-
-  curIdx = 0;
-  activatePara(0);
-
-  // Try to fetch ElevenLabs audio
-  var lessonId = chap.trim().replace(/\s+/g,'_').toLowerCase();
-  if(lessonId) fetchLessonAudio(lessonId);
+  document.getElementById('para-count').textContent=paras.length+' paragraphs';
+  document.getElementById('audio-banner').style.display='flex';
+  curIdx=0;activatePara(0);fetchAudio();
 }
 
-// ═══════════════════════════════════
-// ACTIVATE PARAGRAPH
-// ═══════════════════════════════════
 function activatePara(idx){
-  var p = paras[idx]; if(!p) return;
-  curIdx = idx;
-
-  document.querySelectorAll('.para-block').forEach(function(el, i){
-    el.classList.remove('active');
-    if(i < idx) el.classList.add('done');
-    else el.classList.remove('done');
-  });
-
-  var block = document.getElementById('pb-' + p.id);
-  if(block){
-    block.classList.add('active');
-    block.scrollIntoView({block:'center', behavior:'smooth'});
-  }
-
-  document.getElementById('lb-page').textContent = p.page ? '📖 Page ' + p.page : '📖 —';
-  document.getElementById('prog').style.width = ((idx+1) / paras.length * 100) + '%';
-  document.getElementById('btn-prev').disabled = (idx === 0);
-  document.getElementById('btn-next').disabled = (idx === paras.length-1);
-  document.getElementById('para-count').textContent = (idx+1) + ' / ' + paras.length;
-
-  showDiagramForPara(p);
+  var p=paras[idx];if(!p)return;curIdx=idx;
+  document.querySelectorAll('.para-block').forEach(function(el,i){el.classList.remove('active');if(i<idx)el.classList.add('done');else el.classList.remove('done');});
+  var block=document.getElementById('pb-'+p.id);
+  if(block){block.classList.add('active');block.scrollIntoView({block:'center',behavior:'smooth'});}
+  if(!pdfDoc)document.getElementById('lb-page').textContent=p.page?'📖 Page '+p.page:'📖 —';
+  document.getElementById('prog').style.width=((idx+1)/paras.length*100)+'%';
+  document.getElementById('btn-prev').disabled=(idx===0);
+  document.getElementById('btn-next').disabled=(idx===paras.length-1);
+  document.getElementById('para-count').textContent=(idx+1)+' / '+paras.length;
+  if(p.page)jumpPdfToPage(p.page);
 }
 
-// ═══════════════════════════════════
-// DIAGRAM DISPLAY
-// ═══════════════════════════════════
-function showDiagramForPara(p){
-  var diag = p.diagram;
-  curDiag = diag;
-  var empty = document.getElementById('diag-empty');
-  var display = document.getElementById('diag-display');
-  var content = document.getElementById('diag-content');
-  var chips = document.getElementById('diag-chips');
-
-  if(!diag){
-    empty.style.display = 'flex';
-    display.classList.remove('show');
-    return;
-  }
-
-  empty.style.display = 'none';
-  display.classList.add('show');
-  document.getElementById('diag-lbl').textContent = diag.name;
-  chips.innerHTML = (diag.labels||[]).map(function(l){
-    return '<span class="diag-chip">'+escH(l)+'</span>';
-  }).join('');
-
-  // Load SVG
-  content.innerHTML = '<div style="text-align:center;padding:20px;color:rgba(245,230,200,0.3);font-size:0.75rem;">Loading '+escH(diag.name)+'…</div>';
-  fetch(diag.file)
-    .then(function(r){ return r.text(); })
-    .then(function(svg){
-      content.innerHTML = '<div class="diag-svg-wrap" style="display:block;" onclick="expandDiag()">' + svg + '</div>';
-      // Style SVG for dark background
-      var svgEl = content.querySelector('svg');
-      if(svgEl){
-        svgEl.style.width = '100%';
-        svgEl.style.height = 'auto';
-        svgEl.style.maxHeight = '240px';
-      }
-    })
-    .catch(function(){
-      content.innerHTML = '<div style="text-align:center;padding:30px;color:rgba(245,230,200,0.3);">🔬<br/><span style="font-size:0.75rem;">'+escH(diag.name)+'</span></div>';
-    });
-}
-
-function expandDiag(){
-  if(!curDiag) return;
-  var mc = document.getElementById('modal-content');
-  var c = document.getElementById('diag-content');
-  mc.innerHTML = c.innerHTML;
-  // Make expanded SVG larger
-  var svgEl = mc.querySelector('svg');
-  if(svgEl){ svgEl.style.maxHeight = '70vh'; svgEl.style.width = '100%'; }
-  document.getElementById('modal').classList.add('show');
-}
-function closeModal(){ document.getElementById('modal').classList.remove('show'); }
-
-// ═══════════════════════════════════
-// PLAYBACK
-// ═══════════════════════════════════
 function togglePlay(){
-  if(playing){
-    stopAll(); playing = false;
-    document.getElementById('btn-play').textContent = '▶ Play';
-    document.getElementById('btn-stop').style.display = 'none';
-    document.getElementById('sdot').className = 'sdot';
-  } else {
-    playing = true;
-    document.getElementById('btn-play').textContent = '⏸ Pause';
-    document.getElementById('btn-stop').style.display = 'flex';
-    document.getElementById('sdot').className = 'sdot reading';
-    readCurrentPara();
-  }
+  if(playing){stopAll();playing=false;document.getElementById('btn-play').textContent='▶ Play';document.getElementById('btn-stop').style.display='none';document.getElementById('sdot').className='sdot';}
+  else{playing=true;document.getElementById('btn-play').textContent='⏸ Pause';document.getElementById('btn-stop').style.display='flex';document.getElementById('sdot').className='sdot reading';readCurrentPara();}
 }
-
-function stopReading(){
-  stopAll(); playing = false;
-  document.getElementById('btn-play').textContent = '▶ Play';
-  document.getElementById('btn-stop').style.display = 'none';
-  document.getElementById('sdot').className = 'sdot';
-}
-
+function stopReading(){stopAll();playing=false;document.getElementById('btn-play').textContent='▶ Play';document.getElementById('btn-stop').style.display='none';document.getElementById('sdot').className='sdot';}
 function readCurrentPara(){
-  var p = paras[curIdx];
-  if(!p){ playing=false; document.getElementById('btn-play').textContent='▶ Play'; document.getElementById('sdot').className='sdot'; return; }
-  if(p.type === 'heading'){
-    speak(p.text, function(){
-      if(!playing) return;
-      ptimer = setTimeout(function(){
-        if(playing){ curIdx++; activatePara(curIdx); readCurrentPara(); }
-      }, 500);
-    });
-    return;
-  }
-  readSentences(p, 0, function(){
-    if(!playing) return;
-    ptimer = setTimeout(function(){
-      if(!playing) return;
-      clearSentHL();
-      if(curIdx < paras.length - 1){
-        curIdx++; activatePara(curIdx); readCurrentPara();
-      } else {
-        playing = false;
-        document.getElementById('btn-play').textContent = '▶ Play';
-        document.getElementById('sdot').className = 'sdot';
-        document.getElementById('btn-stop').style.display = 'none';
-      }
-    }, 1400);
+  var p=paras[curIdx];
+  if(!p){playing=false;document.getElementById('btn-play').textContent='▶ Play';document.getElementById('sdot').className='sdot';return;}
+  if(p.type==='heading'){speak(p.text,function(){if(!playing)return;ptimer=setTimeout(function(){if(playing){curIdx++;activatePara(curIdx);readCurrentPara();}},500);});return;}
+  readSentences(p,0,function(){
+    if(!playing)return;
+    ptimer=setTimeout(function(){
+      if(!playing)return;clearSentHL();
+      if(curIdx<paras.length-1){curIdx++;activatePara(curIdx);readCurrentPara();}
+      else{playing=false;document.getElementById('btn-play').textContent='▶ Play';document.getElementById('sdot').className='sdot';document.getElementById('btn-stop').style.display='none';}
+    },1400);
   });
 }
-
-function readSentences(p, si, onDone){
-  // Try ElevenLabs cached audio
-  var order = paras.indexOf(p) + 1;
-  var cached = audioMap[order];
-  if(cached && cached.url && cached.status === 'ready'){
-    highlightSent(p.id, 0);
-    var sentCount = p.sentences.length;
-    playAudio(order, function(){ clearSentHL(); if(onDone) onDone(); });
-    if(sentCount > 1){
-      var estDur = p.text.length / 14 / spd * 1000;
-      var perSent = estDur / sentCount;
-      for(var i = 1; i < sentCount; i++){
-        (function(idx){ setTimeout(function(){ if(playing) highlightSent(p.id, idx); }, perSent*idx); })(i);
-      }
-    }
+function readSentences(p,si,onDone){
+  var order=paras.indexOf(p)+1,cached=audioMap[order];
+  if(cached&&cached.url&&cached.status==='ready'){
+    highlightSent(p.id,0);var sc=p.sentences.length;
+    playAudio(order,function(){clearSentHL();if(onDone)onDone();});
+    if(sc>1){var est=p.text.length/14/spd*1000,per=est/sc;for(var i=1;i<sc;i++){(function(idx){setTimeout(function(){if(playing)highlightSent(p.id,idx);},per*idx);})(i);}}
     return;
   }
-  // Web Speech fallback
-  if(!playing || si >= p.sentences.length){ clearSentHL(); if(onDone) onDone(); return; }
-  highlightSent(p.id, si);
-  speak(p.sentences[si], function(){
-    if(!playing){ clearSentHL(); if(onDone) onDone(); return; }
-    ptimer = setTimeout(function(){ readSentences(p, si+1, onDone); }, 360);
-  });
+  if(!playing||si>=p.sentences.length){clearSentHL();if(onDone)onDone();return;}
+  highlightSent(p.id,si);
+  speak(p.sentences[si],function(){if(!playing){clearSentHL();if(onDone)onDone();return;}ptimer=setTimeout(function(){readSentences(p,si+1,onDone);},350);});
 }
+function highlightSent(pid,si){clearSentHL();var el=document.getElementById('sn-'+pid+'-'+si);if(el){el.classList.add('hl');el.scrollIntoView({block:'nearest',behavior:'smooth'});}}
+function clearSentHL(){document.querySelectorAll('.sent.hl').forEach(function(e){e.classList.remove('hl');});}
 
-function highlightSent(pid, si){
-  clearSentHL();
-  var el = document.getElementById('sn-'+pid+'-'+si);
-  if(el){ el.classList.add('hl'); el.scrollIntoView({block:'nearest', behavior:'smooth'}); }
-}
-function clearSentHL(){ document.querySelectorAll('.sent.hl').forEach(function(e){ e.classList.remove('hl'); }); }
-
-// ═══════════════════════════════════
-// EXPLAIN
-// ═══════════════════════════════════
 async function explainPara(idx){
-  var p = paras[idx]; if(!p || p.type==='heading') return;
-  var aiBox = document.getElementById('ai-explain');
-  var aiTxt = document.getElementById('ai-explain-txt');
-  aiBox.style.display = 'block';
-  aiTxt.textContent = 'Generating simple explanation…';
+  var p=paras[idx];if(!p||p.type==='heading')return;
+  var eb=document.getElementById('exp-'+p.id),et=document.getElementById('exp-txt-'+p.id);
+  if(!eb||!et)return;
+  if(et.textContent&&et.textContent!=='Generating…'){eb.style.display=eb.style.display==='block'?'none':'block';if(eb.style.display==='block')speak(et.textContent,null);return;}
+  eb.style.display='block';et.textContent='Generating…';
   try{
-    var r = await fetch('/api/ai',{
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        system:'You are a friendly science teacher for school students. Explain the paragraph in 2-3 simple sentences. Use easy language. End with one interesting fact.',
-        messages:[{role:'user', content:'Explain simply:\n"'+p.text+'"'}],
-        max_tokens:180
-      })
-    });
-    var d = await r.json();
-    var txt = (d.content||[]).map(function(b){ return b.type==='text'?b.text:''; }).join('').trim();
-    aiTxt.textContent = txt || 'Could not generate explanation.';
-    speak(txt, null);
-  } catch(e){ aiTxt.textContent = 'Error: ' + e.message; }
+    var r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:'You are a friendly science teacher for Tamil Nadu school students. Explain the paragraph in 2-3 simple sentences. End with one interesting fact.',messages:[{role:'user',content:'Explain simply:\n"'+p.text+'"'}],max_tokens:180})});
+    var d=await r.json();var txt=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();
+    et.textContent=txt||'Could not generate explanation.';speak(txt,null);
+  }catch(e){et.textContent='Error: '+e.message;}
 }
 
-// ═══════════════════════════════════
-// NAVIGATION
-// ═══════════════════════════════════
-function prevPara(){ stopAll(); if(curIdx > 0){ curIdx--; activatePara(curIdx); if(playing) readCurrentPara(); } }
-function nextPara(){
-  stopAll();
-  if(curIdx < paras.length - 1){ curIdx++; activatePara(curIdx); if(playing) readCurrentPara(); }
-  else { playing=false; document.getElementById('btn-play').textContent='▶ Play'; document.getElementById('sdot').className='sdot'; }
-}
-function replayPara(){ stopAll(); if(!playing){playing=true; document.getElementById('btn-play').textContent='⏸ Pause'; document.getElementById('sdot').className='sdot reading';} readCurrentPara(); }
-function jumpTo(idx){ stopAll(); activatePara(idx); if(playing) readCurrentPara(); }
-function stopAll(){ clearTimeout(ptimer); stopSpeech(); clearSentHL(); if(currentAudio){currentAudio.pause();currentAudio=null;} }
-function changeSpd(d){ spd = Math.max(0.5, Math.min(1.5, Math.round((spd+d)*10)/10)); document.getElementById('spd-disp').textContent = spd.toFixed(1)+'×'; if(window.speechSynthesis) speechSynthesis.cancel(); }
+function prevPara(){stopAll();if(curIdx>0){curIdx--;activatePara(curIdx);if(playing)readCurrentPara();}}
+function nextPara(){stopAll();if(curIdx<paras.length-1){curIdx++;activatePara(curIdx);if(playing)readCurrentPara();}else{playing=false;document.getElementById('btn-play').textContent='▶ Play';document.getElementById('sdot').className='sdot';}}
+function replayPara(){stopAll();if(!playing){playing=true;document.getElementById('btn-play').textContent='⏸ Pause';document.getElementById('sdot').className='sdot reading';}readCurrentPara();}
+function jumpTo(idx){stopAll();activatePara(idx);if(playing)readCurrentPara();}
+function stopAll(){clearTimeout(ptimer);stopSpeech();clearSentHL();if(currentAudio){currentAudio.pause();currentAudio=null;}}
+function changeSpd(d){spd=Math.max(0.5,Math.min(1.5,Math.round((spd+d)*10)/10));document.getElementById('spd-disp').textContent=spd.toFixed(1)+'×';if(window.speechSynthesis)speechSynthesis.cancel();}
 
-// ═══════════════════════════════════
-// SPEECH
-// ═══════════════════════════════════
-function speak(text, onEnd){
-  if(!text || !window.speechSynthesis){ if(onEnd) onEnd(); return; }
-  speechSynthesis.cancel();
-  var u = new SpeechSynthesisUtterance(text);
-  u.rate = spd; u.pitch = 1.05; u.lang = 'en-IN';
-  var voices = speechSynthesis.getVoices();
-  var pref = voices.find(function(v){ return v.lang.includes('en') && (v.name.includes('India')||v.name.includes('Female')||v.name.includes('Zira')); });
-  if(pref) u.voice = pref;
-  u.onend = function(){ if(onEnd) onEnd(); };
-  u.onerror = function(){ if(onEnd) onEnd(); };
-  speechSynthesis.speak(u);
-}
-function stopSpeech(){ if(window.speechSynthesis) speechSynthesis.cancel(); }
+function speak(text,onEnd){if(!text||!window.speechSynthesis){if(onEnd)onEnd();return;}speechSynthesis.cancel();var u=new SpeechSynthesisUtterance(text);u.rate=spd;u.pitch=1.05;u.lang='en-IN';var voices=speechSynthesis.getVoices();var pref=voices.find(function(v){return v.lang.includes('en')&&(v.name.includes('India')||v.name.includes('Zira')||v.name.includes('Female'));});if(pref)u.voice=pref;u.onend=function(){if(onEnd)onEnd();};u.onerror=function(){if(onEnd)onEnd();};speechSynthesis.speak(u);}
+function stopSpeech(){if(window.speechSynthesis)speechSynthesis.cancel();}
 
-// ═══════════════════════════════════
-// ELEVENLABS AUDIO
-// ═══════════════════════════════════
-async function fetchLessonAudio(lessonId){
+async function fetchAudio(){
+  if(!lessonId)return;
   try{
-    var r = await fetch('/api/get-lesson-audio?lesson_id='+encodeURIComponent(lessonId));
-    if(!r.ok) return;
-    var d = await r.json();
-    audioMap = {};
-    (d.paragraphs||[]).forEach(function(p){
-      audioMap[p.paragraph_order] = {url:p.audio_url, status:p.status, audio:null};
-    });
-    [1,2,3].forEach(preloadAudio);
-  } catch(e){}
+    var r=await fetch('/api/get-lesson-audio?lesson_id='+encodeURIComponent(lessonId));
+    if(!r.ok)return;var d=await r.json();
+    audioMap={};var ready=0;
+    (d.paragraphs||[]).forEach(function(p){audioMap[p.paragraph_order]={url:p.audio_url,status:p.status,audio:null};if(p.status==='ready')ready++;});
+    updateAudioUI(ready,d.paragraphs?d.paragraphs.length:0);[1,2,3].forEach(preloadAudio);
+  }catch(e){}
 }
-function preloadAudio(order){
-  var a = audioMap[order];
-  if(!a || !a.url || a.audio) return;
-  var aud = new Audio(); aud.preload = 'auto'; aud.src = a.url;
-  a.audio = aud;
+function updateAudioUI(ready,total){
+  var pct=total>0?(ready/total*100):0;
+  document.getElementById('audio-fill').style.width=pct+'%';
+  document.getElementById('audio-count').textContent=ready+'/'+total+' ready';
+  var ve=document.getElementById('lb-voice');
+  if(ready>0){ve.textContent='🎙 ElevenLabs Voice';ve.className='lb-voice el';document.getElementById('audio-lbl').textContent='🎙 ElevenLabs Voice';document.getElementById('audio-gen-btn').textContent=ready===total?'✅ All Ready':'Generate More';if(ready===total)document.getElementById('audio-gen-btn').disabled=true;}
+  else{ve.textContent='🗣 Browser Voice';ve.className='lb-voice ws';document.getElementById('audio-gen-btn').textContent='Generate ElevenLabs Voice';}
 }
-function playAudio(order, onEnd){
-  var a = audioMap[order];
-  if(!a || !a.url){ if(onEnd) onEnd(); return; }
-  if(!a.audio){ var aud = new Audio(); aud.src = a.url; a.audio = aud; }
-  currentAudio = a.audio;
-  a.audio.playbackRate = spd;
-  a.audio.onended = function(){ currentAudio=null; preloadAudio(order+1); if(onEnd) onEnd(); };
-  a.audio.onerror = function(){ currentAudio=null; if(onEnd) onEnd(); };
-  a.audio.play().catch(function(){ if(onEnd) onEnd(); });
+async function generateAudio(){
+  var btn=document.getElementById('audio-gen-btn');btn.disabled=true;btn.textContent='⏳ Generating…';
+  var paraList=paras.map(function(p,i){return{order:i+1,text:p.text,type:p.type};}).filter(function(p){return p.type!=='heading'&&p.text.length>15;});
+  try{
+    var r=await fetch('/api/generate-lesson-audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lesson_id:lessonId,paragraphs:paraList,voice_type:'default'})});
+    var d=await r.json();
+    if(d.success){document.getElementById('audio-lbl').textContent='✅ Generated '+d.summary.generated+' paragraphs';await fetchAudio();}
+    else{btn.disabled=false;btn.textContent='Try Again';document.getElementById('audio-lbl').textContent='❌ '+(d.error||'Error');}
+  }catch(e){btn.disabled=false;btn.textContent='Retry';document.getElementById('audio-lbl').textContent='Error: '+e.message;}
 }
+function preloadAudio(order){var a=audioMap[order];if(!a||!a.url||a.audio)return;var aud=new Audio();aud.preload='auto';aud.src=a.url;a.audio=aud;}
+function playAudio(order,onEnd){var a=audioMap[order];if(!a||!a.url){if(onEnd)onEnd();return;}if(!a.audio){var aud=new Audio();aud.src=a.url;a.audio=aud;}currentAudio=a.audio;a.audio.playbackRate=spd;a.audio.onended=function(){currentAudio=null;preloadAudio(order+1);if(onEnd)onEnd();};a.audio.onerror=function(){currentAudio=null;if(onEnd)onEnd();};a.audio.play().catch(function(){if(onEnd)onEnd();});}
 
-// ═══════════════════════════════════
-// HELPERS
-// ═══════════════════════════════════
-function escH(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function escH(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function goBack(){stopAll();var r=null;try{r=sessionStorage.getItem('tm_returnUrl');}catch(e){}if(r){try{sessionStorage.removeItem('tm_returnUrl');}catch(e){}window.location.href=r;return;}if(document.referrer)window.history.back();else window.location.href='learnbot.html';}
 
-function goBack(){
-  stopAll();
-  var r = null;
-  try{ r = sessionStorage.getItem('tm_returnUrl'); } catch(e){}
-  if(r){ try{ sessionStorage.removeItem('tm_returnUrl'); }catch(e){} window.location.href=r; return; }
-  if(document.referrer) window.history.back();
-  else window.location.href = 'learnbot.html';
-}
-
-// ═══════════════════════════════════
-// INIT — Read from sessionStorage, NO setup page
-// ═══════════════════════════════════
-window.addEventListener('load', function(){
-  if(typeof speechSynthesis !== 'undefined'){
-    speechSynthesis.onvoiceschanged = function(){};
-    speechSynthesis.getVoices();
-  }
-
-  // Show loading
+window.addEventListener('load',function(){
+  if(typeof speechSynthesis!=='undefined'){speechSynthesis.onvoiceschanged=function(){};speechSynthesis.getVoices();}
   document.getElementById('loading').classList.add('on');
-
-  var params = new URLSearchParams(window.location.search);
-  var chapter = decodeURIComponent(params.get('chapter') || params.get('topic') || '');
-  var cls     = decodeURIComponent(params.get('cls') || '');
-  var subj    = decodeURIComponent(params.get('subject') || 'Science');
-
-  var lessonText = '', ssChap = chapter, ssCls = cls, ssSubj = subj;
-
-  // PRIMARY: read from science_autostart
-  try{
-    var raw = sessionStorage.getItem('science_autostart');
-    if(raw){
-      var d = JSON.parse(raw);
-      sessionStorage.removeItem('science_autostart');
-      ssChap = ssChap || d.chapter || '';
-      ssCls  = ssCls  || d.cls    || '';
-      ssSubj = ssSubj || d.subject || 'Science';
-      lessonText = d.lessonText || '';
-    }
-  } catch(e){}
-
-  // FALLBACK: tm_activated (saved by activateLesson)
-  if(!lessonText){
-    try{
-      var act = sessionStorage.getItem('tm_activated');
-      if(act){
-        var ad = JSON.parse(act);
-        ssChap = ssChap || ad.topic   || '';
-        ssCls  = ssCls  || ad.cls     || '';
-        ssSubj = ssSubj || ad.subject || 'Science';
-        lessonText = ad.lessonText || '';
-      }
-    } catch(e){}
-  }
-
-  // FALLBACK: tm_lesson
-  if(!lessonText){
-    try{ lessonText = sessionStorage.getItem('tm_lesson') || ''; } catch(e){}
-  }
-
+  var params=new URLSearchParams(window.location.search);
+  var chapter=decodeURIComponent(params.get('chapter')||params.get('topic')||'');
+  var cls=decodeURIComponent(params.get('cls')||'');
+  var subj=decodeURIComponent(params.get('subject')||'Science');
+  var lessonText='',ssChap=chapter,ssCls=cls,ssSubj=subj;
+  try{var raw=sessionStorage.getItem('science_autostart');if(raw){var d=JSON.parse(raw);sessionStorage.removeItem('science_autostart');ssChap=ssChap||d.chapter||'';ssCls=ssCls||d.cls||'';ssSubj=ssSubj||d.subject||'Science';lessonText=d.lessonText||'';}}catch(e){}
+  if(!lessonText){try{var act=sessionStorage.getItem('tm_activated');if(act){var ad=JSON.parse(act);ssChap=ssChap||ad.topic||'';ssCls=ssCls||ad.cls||'';ssSubj=ssSubj||ad.subject||'Science';lessonText=ad.lessonText||'';}}catch(e){}}
+  if(!lessonText){try{lessonText=sessionStorage.getItem('tm_lesson')||'';}catch(e){}}
   setTimeout(function(){
     document.getElementById('loading').classList.remove('on');
-
-    if(!lessonText || lessonText.trim().length < 30){
-      // No lesson text — show waiting screen
-      document.getElementById('waiting').style.display = 'flex';
-      return;
-    }
-
-    // Parse and build classroom
-    try{
-      paras = parseText(lessonText.trim(), ssChap || ssSubj);
-      if(!paras.length){
-        document.getElementById('waiting').style.display = 'flex';
-        return;
-      }
-      buildClassroom(ssSubj, ssChap || ssSubj, ssCls);
-    } catch(e){
-      document.getElementById('waiting').style.display = 'flex';
-    }
-  }, 300);
+    if(!lessonText||lessonText.trim().length<30){document.getElementById('waiting').classList.add('on');return;}
+    try{paras=parseText(lessonText.trim(),ssChap||ssSubj);if(!paras.length){document.getElementById('waiting').classList.add('on');return;}buildClassroom(ssSubj,ssChap||ssSubj,ssCls);}
+    catch(e){document.getElementById('waiting').classList.add('on');}
+  },300);
 });
 </script>
 </body>
