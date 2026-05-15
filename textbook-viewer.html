@@ -320,7 +320,8 @@ var renderTask = null;
 async function handlePdfUpload(input) {
   if (!input.files || !input.files[0]) return;
   var file = input.files[0];
-  lessonId = file.name.replace(/[^a-z0-9]/gi,'_').toLowerCase().substring(0,40);
+  var pdfKey = makePdfKey(startSubj, startCls) || ('pdf_' + file.name.replace(/[^a-z0-9]/gi,'_').toLowerCase().substring(0,30));
+  lessonId = pdfKey;
 
   document.getElementById('upload-prompt').style.display = 'none';
   document.getElementById('page-wrapper').style.display = 'block';
@@ -329,6 +330,10 @@ async function handlePdfUpload(input) {
   showProc('Reading PDF…', 5);
 
   var ab = await file.arrayBuffer();
+
+  // Save to IndexedDB so it never needs uploading again
+  savePdfToIDB(pdfKey, ab.slice(0), {fileName: file.name, subj: startSubj, cls: startCls, savedAt: Date.now()});
+
   pdfDoc = await pdfjsLib.getDocument({data: ab}).promise;
   totalPages = pdfDoc.numPages;
   document.getElementById('pt-total').textContent = totalPages;
@@ -345,11 +350,13 @@ async function handlePdfUpload(input) {
   buildChapterNav();
   enablePlayback();
 
-  showProc('Done!', 100);
-  setTimeout(hideProc, 800);
+  showProc('Done! PDF saved — no upload needed next time ✅', 100);
+  setTimeout(hideProc, 1500);
 
-  // Render first page
-  await renderPage(1);
+  // Auto-jump to the activated chapter
+  autoJumpToChapter(startChapter, startLessonText);
+
+  showSavedPdfBadge(file.name);
 
   // Fetch cached audio
   fetchCachedAudio();
@@ -955,25 +962,171 @@ function goBack() {
   if(document.referrer) window.history.back(); else window.location.href='learnbot.html';
 }
 
-// Init voices
-window.addEventListener('load', function(){
+// ════════════════════════════════════════
+// INDEXEDDB — store PDF once, reuse forever
+// ════════════════════════════════════════
+var DB_NAME = 'dss_textbooks', DB_VER = 1, DB_STORE = 'pdfs';
+var idb = null;
+
+function openIDB() {
+  return new Promise(function(resolve) {
+    try {
+      var req = indexedDB.open(DB_NAME, DB_VER);
+      req.onupgradeneeded = function(e) {
+        e.target.result.createObjectStore(DB_STORE, {keyPath:'key'});
+      };
+      req.onsuccess = function(e) { idb = e.target.result; resolve(true); };
+      req.onerror = function() { resolve(false); };
+    } catch(e) { resolve(false); }
+  });
+}
+
+function savePdfToIDB(key, arrayBuffer, meta) {
+  if (!idb) return;
+  try {
+    var tx = idb.transaction(DB_STORE, 'readwrite');
+    tx.objectStore(DB_STORE).put({key, data: arrayBuffer, meta, savedAt: Date.now()});
+  } catch(e) {}
+}
+
+function loadPdfFromIDB(key) {
+  return new Promise(function(resolve) {
+    if (!idb) { resolve(null); return; }
+    try {
+      var tx = idb.transaction(DB_STORE, 'readonly');
+      var req = tx.objectStore(DB_STORE).get(key);
+      req.onsuccess = function(e) { resolve(e.target.result || null); };
+      req.onerror = function() { resolve(null); };
+    } catch(e) { resolve(null); }
+  });
+}
+
+function listIDBKeys() {
+  return new Promise(function(resolve) {
+    if (!idb) { resolve([]); return; }
+    try {
+      var tx = idb.transaction(DB_STORE, 'readonly');
+      var req = tx.objectStore(DB_STORE).getAll();
+      req.onsuccess = function(e) { resolve((e.target.result||[]).map(function(r){return {key:r.key,meta:r.meta,savedAt:r.savedAt};})); };
+      req.onerror = function() { resolve([]); };
+    } catch(e) { resolve([]); }
+  });
+}
+
+// ════════════════════════════════════════
+// INIT — Auto-load PDF from IDB, jump to chapter
+// ════════════════════════════════════════
+var startChapter = '', startSubj = 'Science', startCls = '', startLessonText = '';
+
+window.addEventListener('load', async function(){
   if(typeof speechSynthesis!=='undefined'){ speechSynthesis.onvoiceschanged=function(){}; speechSynthesis.getVoices(); }
 
-  // Check if lesson text was passed via sessionStorage (from learnbot activate)
-  var lessonText='', chapter='', cls='', subj='Science';
-  try{
-    var raw=sessionStorage.getItem('science_autostart');
-    if(raw){var d=JSON.parse(raw);sessionStorage.removeItem('science_autostart');chapter=d.chapter||'';cls=d.cls||'';subj=d.subject||'Science';lessonText=d.lessonText||'';}
-  }catch(e){}
-  if(!lessonText){try{var act=sessionStorage.getItem('tm_activated');if(act){var ad=JSON.parse(act);chapter=ad.topic||'';cls=ad.cls||'';subj=ad.subject||'Science';lessonText=ad.lessonText||'';}}catch(e){}}
+  // Read lesson info from sessionStorage (set by Teacher Panel → Activate)
+  var params = new URLSearchParams(window.location.search);
+  startChapter = decodeURIComponent(params.get('chapter')||params.get('topic')||'');
+  startCls = decodeURIComponent(params.get('cls')||'');
+  startSubj = decodeURIComponent(params.get('subject')||'Science');
 
-  // If we have lesson text but no PDF, build text-only paragraphs
-  if(lessonText && lessonText.trim().length > 50) {
-    document.getElementById('tb-book').textContent = chapter || subj;
-    lessonId = (chapter||subj).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
-    buildFromText(lessonText, chapter, subj, cls);
+  try {
+    var raw = sessionStorage.getItem('science_autostart');
+    if(raw){ var d=JSON.parse(raw); sessionStorage.removeItem('science_autostart'); startChapter=startChapter||d.chapter||''; startCls=startCls||d.cls||''; startSubj=startSubj||d.subject||'Science'; startLessonText=d.lessonText||''; }
+  } catch(e){}
+  if(!startLessonText){ try{ var act=sessionStorage.getItem('tm_activated'); if(act){ var ad=JSON.parse(act); startChapter=startChapter||ad.topic||''; startCls=startCls||ad.cls||''; startSubj=startSubj||ad.subject||'Science'; startLessonText=ad.lessonText||''; } }catch(e){} }
+
+  // Open IndexedDB
+  await openIDB();
+
+  // Check if we have a saved PDF for this subject/class
+  var pdfKey = makePdfKey(startSubj, startCls);
+  var savedPdf = await loadPdfFromIDB(pdfKey);
+
+  if (savedPdf && savedPdf.data) {
+    // PDF already stored — load it silently, no upload needed
+    document.getElementById('upload-prompt').style.display = 'none';
+    document.getElementById('page-wrapper').style.display = 'block';
+    showProc('Loading saved textbook…', 10);
+
+    var meta = savedPdf.meta || {};
+    document.getElementById('tb-book').textContent = meta.fileName || (startSubj + ' Textbook');
+    lessonId = pdfKey;
+
+    pdfDoc = await pdfjsLib.getDocument({data: savedPdf.data.slice(0)}).promise;
+    totalPages = pdfDoc.numPages;
+    document.getElementById('pt-total').textContent = totalPages;
+    document.getElementById('pt-next').disabled = false;
+    document.getElementById('pt-prev').disabled = false;
+
+    showProc('Detecting chapters…', 30);
+    await detectChapters();
+
+    showProc('Extracting paragraphs…', 60);
+    await extractParagraphs();
+
+    showProc('Building navigation…', 90);
+    buildChapterNav();
+    enablePlayback();
+    hideProc();
+
+    // Auto-jump to the activated chapter
+    autoJumpToChapter(startChapter, startLessonText);
+
+    fetchCachedAudio();
+    showSavedPdfBadge(meta.fileName);
+
+  } else if (startLessonText && startLessonText.trim().length > 50) {
+    // No PDF stored — show text mode + prompt to upload PDF
+    document.getElementById('tb-book').textContent = startChapter || startSubj;
+    lessonId = pdfKey;
+    buildFromText(startLessonText, startChapter, startSubj, startCls);
+  } else {
+    // No lesson, no PDF — show upload prompt
   }
 });
+
+function makePdfKey(subj, cls) {
+  return ('pdf_' + subj + '_' + cls).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+}
+
+function autoJumpToChapter(chapterName, lessonText) {
+  if (!chapterName) { renderPage(1); return; }
+
+  // Find matching chapter in detected chapters
+  var ch = chapters.find(function(c) {
+    var n = c.name.toLowerCase();
+    var q = chapterName.toLowerCase();
+    return n.includes(q) || q.includes(n) || n.replace(/\s+/g,'').includes(q.replace(/\s+/g,''));
+  });
+
+  if (ch) {
+    // Found matching chapter — jump to it
+    jumpToChapter(ch);
+  } else {
+    // Search paragraphs for matching text
+    if (lessonText && lessonText.length > 30) {
+      var firstWords = lessonText.trim().substring(0, 60).toLowerCase();
+      var matchPara = paragraphs.find(function(p) {
+        return p.text && p.text.toLowerCase().includes(firstWords.substring(0,30));
+      });
+      if (matchPara && matchPara.pageNum) {
+        renderPage(matchPara.pageNum);
+        curParaIdx = matchPara.order;
+        updateAIPanel();
+        return;
+      }
+    }
+    // Fallback — render page 1
+    renderPage(1);
+  }
+}
+
+function showSavedPdfBadge(fileName) {
+  var btn = document.querySelector('.upload-btn-sm');
+  if (btn) {
+    btn.textContent = '📄 ' + (fileName||'Textbook').substring(0,20) + ' (saved)';
+    btn.style.borderColor = 'rgba(74,222,128,0.4)';
+    btn.style.color = 'rgba(74,222,128,0.8)';
+  }
+}
 
 function buildFromText(text, chapter, subj, cls) {
   // Build paragraphs from plain text (no PDF)
