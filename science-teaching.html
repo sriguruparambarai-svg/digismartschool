@@ -455,6 +455,10 @@ function buildClassroom(subj,chap,cls){
   document.getElementById('setup').style.display='none';
   document.getElementById('classroom').classList.add('show');
   curIdx=0;activatePara(0);
+
+  // Fetch ElevenLabs cached audio if lesson_id available
+  var lessonId=document.getElementById('m-chap').value.trim().replace(/\s+/g,'_').toLowerCase();
+  if(lessonId) fetchLessonAudio(lessonId);
 }
 
 // ═══════════════════════════════════
@@ -603,6 +607,32 @@ function readCurrentPara(){
 }
 
 function readSentences(p,si,onDone){
+  // If we have ElevenLabs audio for this paragraph order — use it
+  var order=paras.indexOf(p)+1;
+  var cached=audioMap[order];
+  if(cached&&cached.url&&cached.status==='ready'){
+    // Play full paragraph audio + highlight sentences by estimated timing
+    highlightSent(p.id,0);
+    var sentCount=p.sentences.length;
+    playAudio(order,function(){
+      clearSentHL();
+      if(onDone)onDone();
+    });
+    // Estimate timing: highlight each sentence proportionally
+    if(sentCount>1){
+      var estDur=p.text.length/14/spd*1000; // rough ms estimate
+      var perSent=estDur/sentCount;
+      for(var i=1;i<sentCount;i++){
+        (function(idx){
+          ptimer=setTimeout(function(){
+            if(playing)highlightSent(p.id,idx);
+          },perSent*idx);
+        })(i);
+      }
+    }
+    return;
+  }
+  // No ElevenLabs audio — use Web Speech sentence by sentence
   if(!playing||si>=p.sentences.length){clearSentHL();if(onDone)onDone();return;}
   highlightSent(p.id,si);
   speak(p.sentences[si],function(){
@@ -663,8 +693,70 @@ function jumpTo(idx){stopAll();activatePara(idx);if(playing)readCurrentPara();}
 function stopAll(){clearTimeout(ptimer);clearInterval(hlInt);stopSpeech();clearSentHL();}
 
 // ═══════════════════════════════════
-// SPEECH
+// AUDIO ENGINE
+// Uses ElevenLabs cached MP3 when available
+// Falls back to Web Speech API
 // ═══════════════════════════════════
+var audioMap={};        // paragraph_order → {url,status,text,audio}
+var currentAudio=null;
+var currentLessonId=null;
+
+async function fetchLessonAudio(lessonId){
+  if(!lessonId)return;
+  currentLessonId=lessonId;
+  try{
+    var r=await fetch('/api/get-lesson-audio?lesson_id='+encodeURIComponent(lessonId));
+    if(!r.ok)return;
+    var d=await r.json();
+    audioMap={};
+    (d.paragraphs||[]).forEach(function(p){
+      audioMap[p.paragraph_order]={
+        url:p.audio_url,status:p.status,
+        text:p.paragraph_text,audio:null
+      };
+    });
+    // Preload first 3
+    [1,2,3].forEach(preloadAudio);
+    console.log('Audio cache loaded:',d.summary);
+  }catch(e){
+    console.warn('Audio cache unavailable, using Web Speech');
+  }
+}
+
+function preloadAudio(order){
+  var c=audioMap[order];
+  if(!c||!c.url||c.status!=='ready'||c.audio)return;
+  var a=new Audio(c.url);
+  a.preload='auto';
+  c.audio=a;
+}
+
+function playAudio(order,onEnd){
+  if(currentAudio){currentAudio.pause();currentAudio.currentTime=0;currentAudio=null;}
+  // Preload ahead
+  preloadAudio(order+1);
+  preloadAudio(order+2);
+
+  var c=audioMap[order];
+  if(c&&c.url&&c.status==='ready'){
+    if(!c.audio)c.audio=new Audio(c.url);
+    currentAudio=c.audio;
+    currentAudio.playbackRate=Math.max(0.5,Math.min(2,spd));
+    currentAudio.onended=function(){if(onEnd)onEnd();};
+    currentAudio.onerror=function(){
+      // Fallback to Web Speech
+      speak(c.text,onEnd);
+    };
+    currentAudio.play().catch(function(){speak(c.text,onEnd);});
+  } else if(c&&c.text){
+    // Cache missing — use Web Speech
+    speak(c.text,onEnd);
+  } else if(onEnd){
+    onEnd();
+  }
+}
+
+// Web Speech fallback
 function speak(txt,cb){
   if(typeof speechSynthesis==='undefined'){if(cb)cb();return;}
   speechSynthesis.cancel();
@@ -679,7 +771,10 @@ function speak(txt,cb){
   u.onerror=function(){if(cb)cb();};
   speechSynthesis.speak(u);
 }
-function stopSpeech(){if(typeof speechSynthesis!=='undefined')speechSynthesis.cancel();}
+function stopSpeech(){
+  if(currentAudio){currentAudio.pause();currentAudio.currentTime=0;currentAudio=null;}
+  if(typeof speechSynthesis!=='undefined')speechSynthesis.cancel();
+}
 function setSpd(v){spd=parseFloat(v);document.getElementById('spd-v').textContent=parseFloat(v).toFixed(2)+'×';}
 
 // ═══════════════════════════════════
