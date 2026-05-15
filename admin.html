@@ -624,28 +624,38 @@ function tblDetectChapters(rawText) {
 }
 
 async function tblLoadBooks() {
-  const grid = document.getElementById('tbl-book-grid');
-  const none = document.getElementById('tbl-no-books');
-  const loading = document.getElementById('tbl-loading');
-  grid.innerHTML = ''; none.style.display = 'none'; loading.style.display = 'block';
+  var grid = document.getElementById('tbl-book-grid');
+  var none = document.getElementById('tbl-no-books');
+  var loading = document.getElementById('tbl-loading');
+  grid.innerHTML = '';
+  none.style.display = 'none';
+  loading.style.display = 'block';
   try {
-    const books = await tblSB('textbook_library', 'GET', null, 'order=created_at.desc&select=*');
+    var books = await tblSB('textbook_library', 'GET', null, 'order=created_at.desc&select=*');
     loading.style.display = 'none';
     if (!books || !books.length) { none.style.display = 'block'; return; }
     books.forEach(function(book) {
-      const card = document.createElement('div');
+      var card = document.createElement('div');
       card.className = 'tbl-book-card';
-      card.innerHTML = '<div class="tbl-book-title">' + book.title + '</div>'
-        + '<div class="tbl-book-sub">' + book.class_name + ' · ' + book.subject + ' · ' + (book.medium || 'English') + '</div>'
+      var safeTitle = (book.title || '').replace(/"/g, '&quot;');
+      card.innerHTML = '<div class="tbl-book-title">' + safeTitle + '</div>'
+        + '<div class="tbl-book-sub">' + (book.class_name||'') + ' &middot; ' + (book.subject||'') + ' &middot; ' + (book.medium||'English') + '</div>'
         + '<div style="display:flex;gap:6px;align-items:center;margin-bottom:10px;">'
-        + '<span class="tbl-badge-sm">📗 Samacheer</span>'
-        + '<span class="tbl-badge-sm">✅ Ready</span>'
-        + '<span style="font-size:.72rem;color:#888;">' + (book.total_pages || 0) + ' pages</span></div>'
+        + '<span class="tbl-badge-sm">Samacheer</span>'
+        + '<span class="tbl-badge-sm">Ready</span>'
+        + '<span style="font-size:.72rem;color:#888;">' + (book.total_pages||0) + ' pages</span></div>'
         + '<div id="tbl-ch-' + book.id + '" style="display:none;margin-bottom:8px;"></div>'
         + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'
-        + '<button class="tbl-btn tbl-btn-p tbl-btn-sm" onclick="tblToggleChapters('' + book.id + '')">📖 Chapters</button>'
-        + '<button class="tbl-btn tbl-btn-r tbl-btn-sm" onclick="tblDeleteBook('' + book.id + '','' + book.title.replace(/'/g, '') + '')">🗑 Delete</button>'
+        + '<button class="tbl-btn tbl-btn-p tbl-btn-sm tbl-ch-btn" data-id="' + book.id + '">Chapters</button>'
+        + '<button class="tbl-btn tbl-btn-r tbl-btn-sm tbl-del-btn" data-id="' + book.id + '" data-title="' + safeTitle + '">Delete</button>'
         + '</div>';
+      // Attach events via data attributes
+      card.querySelector('.tbl-ch-btn').addEventListener('click', function() {
+        tblToggleChapters(this.getAttribute('data-id'));
+      });
+      card.querySelector('.tbl-del-btn').addEventListener('click', function() {
+        tblDeleteBook(this.getAttribute('data-id'), this.getAttribute('data-title'));
+      });
       grid.appendChild(card);
     });
   } catch(e) {
