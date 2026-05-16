@@ -1503,7 +1503,10 @@ async function tpLoadLessons(){
       var div=document.createElement('div');div.className='les-card';div.style.flexWrap='wrap';
       var encTitle=encodeURIComponent(les.chapter_title||'');
       var cartoonBtn=isStory
-        ?'<button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+',\'cartoon\')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);margin-top:4px;font-size:0.68rem;">🎬 Cartoon Story</button>'
+        ?'<div style="display:flex;gap:2px;margin-top:4px;">'
+          +'<button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+',\'cartoon\')" style="background:linear-gradient(135deg,var(--maroon),#8B1A2A);border-radius:6px 0 0 6px;font-size:0.65rem;padding:4px 7px;margin-top:0;">🎬 🇬🇧 EN</button>'
+          +'<button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+',\'cartoon_ta\')" style="background:linear-gradient(135deg,var(--maroon),#8B1A2A);border-radius:0 6px 6px 0;font-size:0.65rem;padding:4px 7px;margin-top:0;border-left:1px solid rgba(255,255,255,0.2);">🎬 🇮🇳 TA</button>'
+          +'</div>'
         :'';
       div.innerHTML='<span class="les-icon">📖</span>'
         +'<div class="les-info"><div class="les-name">'+escHTP(les.chapter_title||'Lesson '+(les.chapter_number||''))+'</div>'
@@ -1604,13 +1607,23 @@ async function tpTeach(encName,pageFrom,pageTo,style){
     var data={chapter:name,cls:cls,subject:sub,lessonText:'',pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''};
     sessionStorage.setItem('science_autostart',JSON.stringify(data));
     sessionStorage.setItem('tm_activated',JSON.stringify({subject:sub,cls:cls,topic:name,lessonText:'',lang:'en',autostart:true,pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''}));
-    // Also set for cartoon story
-    sessionStorage.setItem('cartoon_lesson',JSON.stringify({chapter:name,cls:cls,subject:sub,pageFrom:pageFrom,pageTo:pageTo}));
   }catch(e){}
 
-  if(style==='cartoon'){
-    // Launch existing cartoon story mode
-    window.location.href='cartoon-story.html?chapter='+encodeURIComponent(name)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(sub);
+  if(style==='cartoon'||style==='cartoon_ta'){
+    var csLang2=(style==='cartoon_ta')?'ta':'en';
+    var sub2=(document.getElementById('tp-sub')||{}).value||sub;
+    var csType2=['Tamil','EVS','Social Science'].indexOf(sub2)>=0?'fable':'story';
+    try{
+      sessionStorage.setItem('cs_autostart',JSON.stringify({
+        title:name,
+        text:'',
+        cls:cls,
+        type:csType2,
+        lang:csLang2
+      }));
+      sessionStorage.setItem('cs_returnUrl','learnbot.html');
+    }catch(e){}
+    window.location.href='cartoon-story.html';
   } else {
     // Standard textbook teaching
     var url='teach.html?chapter='+encodeURIComponent(name)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(sub)+'&page_from='+pageFrom+'&page_to='+pageTo+'&book_id='+(encodeURIComponent(_tpBookId||''));
@@ -6357,7 +6370,10 @@ function renderLibrary(lessons) {
       html += '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;">';
       html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'standard\')" style="background:var(--maroon);color:var(--gold-light);border:none;border-radius:7px;padding:5px 11px;font-size:0.75rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">▶ Teach</button>';
       if(isStoryLib){
-        html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'cartoon\')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;border-radius:7px;padding:5px 11px;font-size:0.72rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">🎬 Cartoon</button>';
+        html += '<div style="display:flex;gap:3px;">';
+        html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'cartoon\')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:7px 0 0 7px;padding:5px 9px;font-size:0.70rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;border-right:1px solid rgba(255,255,255,0.2);">🎬 🇬🇧 EN</button>';
+        html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'cartoon_ta\')" style="background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:0 7px 7px 0;padding:5px 9px;font-size:0.70rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">🎬 🇮🇳 தமிழ்</button>';
+        html += '</div>';
       }
       html += '</div>';
       html += '<button onclick="loadIntoEditor(\'' + safeId + '\')" style="background:rgba(201,168,76,0.15);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:7px;padding:6px 10px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️</button>';
@@ -6395,10 +6411,6 @@ async function teachFromLibrary(b64, style) {
   sessionStorage.setItem('ait_lesson', JSON.stringify({
     class:l.class_name, subject:l.subject, lesson:l.chapter, content:l.lesson_text||''
   }));
-  sessionStorage.setItem('cartoon_lesson', JSON.stringify({
-    chapter:l.chapter, cls:l.class_name, subject:l.subject
-  }));
-
   // Update active flags
   try {
     var sb = getSB();
@@ -6408,9 +6420,23 @@ async function teachFromLibrary(b64, style) {
     }
   } catch(e){}
 
-  // If Cartoon Story mode
-  if (style === 'cartoon') {
-    window.location.href = 'cartoon-story.html?chapter='+encodeURIComponent(l.chapter||'')+'&cls='+encodeURIComponent(l.class_name||'')+'&subject='+encodeURIComponent(l.subject||'');
+  // If Cartoon Story mode — pass full lesson text so correct story is generated
+  if (style === 'cartoon' || style === 'cartoon_ta') {
+    var csLang = (style === 'cartoon_ta') ? 'ta' : 'en';
+    // Detect story type from subject
+    var subj = (l.subject||'').toLowerCase();
+    var csType = (subj==='english'||subj==='tamil') ? 'story' : 'fable';
+    try {
+      sessionStorage.setItem('cs_autostart', JSON.stringify({
+        title: l.chapter || '',
+        text:  (l.lesson_text || '').substring(0, 4000),
+        cls:   l.class_name || '',
+        type:  csType,
+        lang:  csLang
+      }));
+      sessionStorage.setItem('cs_returnUrl', 'learnbot.html');
+    } catch(e) {}
+    window.location.href = 'cartoon-story.html';
     return;
   }
 
