@@ -1480,6 +1480,17 @@ async function tpLoadLessons(){
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',params:'book_id=eq.'+_tpBookId+'&select=id,chapter_number,chapter_title,page_from,page_to&order=chapter_number.asc'})});
     var d=await r.json();_tpLessons=Array.isArray(d)?d:(d.chapters||[]);
+    // Fallback: if no lessons found, also check lesson_library table for this class+subject
+    if(!_tpLessons.length){
+      var cls2=document.getElementById('tp-cls').value;
+      var sub2=document.getElementById('tp-sub').value;
+      var r2=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'get_active_lessons',school_id:getTeacherSchoolId?getTeacherSchoolId():'',class_name:cls2,subject:sub2})});
+      var d2=await r2.json();
+      var libLessons=(d2.lessons||[]).filter(function(x){return x.class_name===cls2&&x.subject===sub2;});
+      if(libLessons.length){
+        _tpLessons=libLessons.map(function(x,i){return{id:x.id||i,chapter_number:i+1,chapter_title:x.chapter||x.topic||'Lesson',page_from:0,page_to:0};});
+      }
+    }
     if(!_tpLessons.length){list.innerHTML='<div style="font-size:0.78rem;color:#aaa;padding:4px 0;">No lessons yet. Click <strong>+ New Lesson</strong>.</div>';return;}
     list.innerHTML='';
     var storySubjects=['English','Tamil','EVS','Social Science'];
@@ -6309,7 +6320,14 @@ function renderLibrary(lessons) {
       html += '<span style="font-size:0.72rem;font-weight:800;color:var(--gold-dark);background:rgba(201,168,76,0.12);padding:2px 7px;border-radius:6px;white-space:nowrap;">' + (l.subject||'') + '</span>';
       html += '<span style="flex:1;font-weight:700;color:var(--maroon);font-size:0.9rem;">📖 ' + (l.chapter||'') + activeBadge + '</span>';
       // Buttons
-      html += '<button onclick="teachFromLibrary(\'' + lessonData + '\')" style="background:var(--maroon);color:var(--gold-light);border:none;border-radius:7px;padding:6px 12px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">▶ Activate</button>';
+      var storySubjs=['English','Tamil','EVS','Social Science'];
+      var isStoryLib=storySubjs.indexOf(l.subject||'')>=0;
+      html += '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;">';
+      html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'standard\')" style="background:var(--maroon);color:var(--gold-light);border:none;border-radius:7px;padding:5px 11px;font-size:0.75rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">▶ Teach</button>';
+      if(isStoryLib){
+        html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'cartoon\')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);color:white;border:none;border-radius:7px;padding:5px 11px;font-size:0.72rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">🎬 Cartoon</button>';
+      }
+      html += '</div>';
       html += '<button onclick="loadIntoEditor(\'' + safeId + '\')" style="background:rgba(201,168,76,0.15);border:1.5px solid var(--gold-dark);color:var(--maroon);border-radius:7px;padding:6px 10px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">✏️</button>';
       html += '<button onclick="deleteFromLibrary(\'' + safeId + '\',\'' + safeChapter + '\',\'' + safeCls + '\',\'' + safeSub + '\')" style="background:rgba(192,57,43,0.07);border:1.5px solid rgba(192,57,43,0.25);color:#c0392b;border-radius:7px;padding:6px 10px;font-size:0.78rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;">🗑️</button>';
       html += '</div>';
@@ -6322,26 +6340,34 @@ function renderLibrary(lessons) {
 }
 
 
-async function teachFromLibrary(b64) {
+async function teachFromLibrary(b64, style) {
   var l;
   try { l = JSON.parse(decodeURIComponent(escape(atob(b64)))); } catch(e){ alert('Error reading lesson.'); return; }
 
   var schoolId = getTeacherSchoolId();
 
-  // Save as active lesson via /api/auth (reliable)
+  // Save as active lesson
   await saveLessonToDB(l.class_name, l.subject, l.chapter, l.lesson_text||'');
 
   // Update sessionStorage
-  sessionStorage.setItem('tm_activated', JSON.stringify({
+  var activated = {
     subject:l.subject, cls:l.class_name, topic:l.chapter,
     lessonText:(l.lesson_text||'').substring(0,4000),
     lang:'en', school_id:schoolId
+  };
+  sessionStorage.setItem('tm_activated', JSON.stringify(activated));
+  sessionStorage.setItem('science_autostart', JSON.stringify({
+    chapter:l.chapter, cls:l.class_name, subject:l.subject,
+    lessonText:(l.lesson_text||'').substring(0,4000)
   }));
   sessionStorage.setItem('ait_lesson', JSON.stringify({
     class:l.class_name, subject:l.subject, lesson:l.chapter, content:l.lesson_text||''
   }));
+  sessionStorage.setItem('cartoon_lesson', JSON.stringify({
+    chapter:l.chapter, cls:l.class_name, subject:l.subject
+  }));
 
-  // Try updating lesson_library active flag (bonus, won't block)
+  // Update active flags
   try {
     var sb = getSB();
     if (sb && schoolId) {
@@ -6350,22 +6376,16 @@ async function teachFromLibrary(b64) {
     }
   } catch(e){}
 
-  // Refresh library badges in memory
-  _libAllLessons.forEach(function(x){ if(x.class_name===l.class_name&&x.subject===l.subject) x.is_active=(x.id===l.id); });
-  renderLibrary(_libAllLessons.filter(function(x){
-    var cls=document.getElementById('lib-filter-class').value;
-    var sub=document.getElementById('lib-filter-subject').value;
-    return(!cls||x.class_name===cls)&&(!sub||x.subject===sub);
-  }));
-  // Pre-fill student tab selectors
-  var sClass = document.getElementById('s-class');
-  var sSubj  = document.getElementById('s-subject');
-  if (sClass) sClass.value = l.class_name;
-  if (sSubj)  sSubj.value  = l.subject;
+  // If Cartoon Story mode
+  if (style === 'cartoon') {
+    window.location.href = 'cartoon-story.html?chapter='+encodeURIComponent(l.chapter||'')+'&cls='+encodeURIComponent(l.class_name||'')+'&subject='+encodeURIComponent(l.subject||'');
+    return;
+  }
 
-  // Go to Student TeachBot to pick classroom mode
-  showTab('student', document.getElementById('tab-btn-student'));
-  window.scrollTo(0,0);
+  // Standard: go to teach.html
+  window.location.href = 'teach.html?chapter='+encodeURIComponent(l.chapter||'')
+    +'&cls='+encodeURIComponent(l.class_name||'')
+    +'&subject='+encodeURIComponent(l.subject||'');
 }
 
 async function loadIntoEditor(lid) {
