@@ -495,26 +495,88 @@ function stopExp(){
   var stopBtn=document.getElementById('exp-stop-btn');
   if(stopBtn)stopBtn.style.display='none';
 }
-function speakTamil(text,onEnd){
-  if(!text||!window.speechSynthesis){if(onEnd)onEnd();return;}
+function speakTamil(text, onEnd) {
+  if (!text) { if(onEnd)onEnd(); return; }
+  // Try ElevenLabs first — handles Tamil+English mixed text perfectly
+  var cacheKey = btoa(unescape(encodeURIComponent(text.substring(0,80)))).replace(/[^a-zA-Z0-9]/g,'').substring(0,30)+'_'+text.length;
+  fetch('/api/explain-tamil', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({text: text, cache_key: cacheKey})
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){
+    if (d.audio_url) {
+      // Play from Supabase storage URL
+      var audio = new Audio(d.audio_url);
+      audio.playbackRate = spd * 0.9;
+      audio.onended = function(){ if(onEnd)onEnd(); };
+      audio.onerror = function(){ speakTamilFallback(text, onEnd); };
+      audio.play().catch(function(){ speakTamilFallback(text, onEnd); });
+    } else if (d.audio_b64) {
+      // Play from base64
+      var blob = b64ToBlob(d.audio_b64, 'audio/mpeg');
+      var url = URL.createObjectURL(blob);
+      var audio = new Audio(url);
+      audio.playbackRate = spd * 0.9;
+      audio.onended = function(){ URL.revokeObjectURL(url); if(onEnd)onEnd(); };
+      audio.onerror = function(){ speakTamilFallback(text, onEnd); };
+      audio.play().catch(function(){ speakTamilFallback(text, onEnd); });
+    } else {
+      speakTamilFallback(text, onEnd);
+    }
+  })
+  .catch(function(){ speakTamilFallback(text, onEnd); });
+}
+
+function speakTamilFallback(text, onEnd) {
+  // Browser voice fallback — use en-IN which at least reads the English words
+  if(!window.speechSynthesis){ if(onEnd)onEnd(); return; }
   speechSynthesis.cancel();
-  var u=new SpeechSynthesisUtterance(text);
-  u.rate=spd*0.9;u.pitch=1.0;
-  // Prefer Tamil voice if available, else Indian English
-  var vs=speechSynthesis.getVoices();
-  var tv=vs.find(function(v){return v.lang&&(v.lang.toLowerCase().startsWith('ta'));});
-  var iv=vs.find(function(v){return v.lang.includes('en')&&(v.name.includes('India')||v.name.includes('Zira'));});
-  if(tv){u.voice=tv;u.lang='ta-IN';}
-  else if(iv){u.voice=iv;u.lang='ta-IN';}
-  else{u.lang='ta-IN';}
-  u.onend=function(){if(onEnd)onEnd();};u.onerror=function(){if(onEnd)onEnd();};
+  var u = new SpeechSynthesisUtterance(text);
+  u.rate = spd * 0.85; u.pitch = 1.0;
+  var vs = speechSynthesis.getVoices();
+  // Try Tamil voice first
+  var tv = vs.find(function(v){ return v.lang && v.lang.toLowerCase().startsWith('ta'); });
+  // Fall back to Indian English — reads English terms correctly
+  var iv = vs.find(function(v){ return v.lang.includes('en') && (v.name.includes('India') || v.name.includes('Zira')); });
+  if(tv){ u.voice=tv; u.lang='ta-IN'; }
+  else if(iv){ u.voice=iv; u.lang='en-IN'; }
+  else { u.lang='en-IN'; }
+  u.onend = function(){ if(onEnd)onEnd(); };
+  u.onerror = function(){ if(onEnd)onEnd(); };
   speechSynthesis.speak(u);
+}
+
+function b64ToBlob(b64, type) {
+  var bin = atob(b64), arr = new Uint8Array(bin.length);
+  for(var i=0;i<bin.length;i++) arr[i]=bin.charCodeAt(i);
+  return new Blob([arr], {type: type});
 }
 
 // ── ELEVENLABS ──
 async function fetchAudio(){if(!lessonId)return;try{var r=await fetch('/api/get-lesson-audio?lesson_id='+encodeURIComponent(lessonId));if(!r.ok)return;var d=await r.json();audioMap={};var rdy=0;(d.paragraphs||[]).forEach(function(p){audioMap[p.paragraph_order]={url:p.audio_url,status:p.status,audio:null};if(p.status==='ready')rdy++;});updateAudioUI(rdy,d.paragraphs?d.paragraphs.length:0);[0,1,2].forEach(preloadAudio);}catch(e){}}
 function updateAudioUI(rdy,tot){var pct=tot>0?(rdy/tot*100):0;document.getElementById('aud-fill').style.width=pct+'%';document.getElementById('aud-lbl').textContent=rdy>0?'🎙 ElevenLabs: '+rdy+'/'+tot:'🎙 ElevenLabs (not generated)';var vb=document.getElementById('b-voice');if(rdy>0){vb.textContent='🎙 ElevenLabs';vb.className='bar-voice el';}else{vb.textContent='🗣 Browser Voice';vb.className='bar-voice ws';}var btn=document.getElementById('aud-btn');btn.textContent=(rdy===tot&&tot>0)?'✅ Done':'Generate';if(rdy===tot&&tot>0)btn.disabled=true;}
-async function genAudio(){var btn=document.getElementById('aud-btn');btn.disabled=true;btn.textContent='⏳…';var list=paras.slice(0,60).filter(function(p){return p.text.length>15;}).map(function(p){return{order:p.order,text:p.text,type:'paragraph'};});try{var r=await fetch('/api/generate-lesson-audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lesson_id:lessonId,paragraphs:list,voice_type:'default'})});var d=await r.json();if(d.success)await fetchAudio();else{btn.disabled=false;btn.textContent='Retry';}}catch(e){btn.disabled=false;btn.textContent='Retry';}}
+async function genAudio(){
+  var btn=document.getElementById('aud-btn');
+  var lbl=document.getElementById('aud-lbl');
+  btn.disabled=true;btn.textContent='⏳…';
+  var list=paras.slice(0,60).filter(function(p){return p.text.length>15;}).map(function(p){return{order:p.order,text:p.text,type:'paragraph'};});
+  try{
+    var r=await fetch('/api/generate-lesson-audio',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({lesson_id:lessonId,paragraphs:list,voice_type:'default'})});
+    var d=await r.json();
+    if(d.success){
+      lbl.textContent='✅ Generated '+d.summary.generated+' paragraphs';
+      await fetchAudio();
+    } else {
+      btn.disabled=false;btn.textContent='Retry';
+      lbl.textContent='❌ '+(d.error||'Generation failed');
+      console.error('ElevenLabs error:',d);
+    }
+  }catch(e){
+    btn.disabled=false;btn.textContent='Retry';
+    lbl.textContent='❌ '+e.message;
+  }
+}
 function preloadAudio(order){var a=audioMap[order];if(!a||!a.url||a.audio)return;var au=new Audio();au.preload='auto';au.src=a.url;a.audio=au;}
 function playAudioItem(para,onEnd){var a=audioMap[para.order];if(!a||!a.url){if(onEnd)onEnd();return;}if(!a.audio){var au=new Audio();au.src=a.url;a.audio=au;}curAudio=a.audio;a.audio.playbackRate=spd;a.audio.onended=function(){curAudio=null;preloadAudio(para.order+1);if(onEnd)onEnd();};a.audio.onerror=function(){curAudio=null;if(onEnd)onEnd();};a.audio.play().catch(function(){if(onEnd)onEnd();});}
 
