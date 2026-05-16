@@ -569,8 +569,19 @@ async function genAudio(){
       await fetchAudio();
     } else {
       btn.disabled=false;btn.textContent='Retry';
-      lbl.textContent='❌ '+(d.error||'Generation failed');
-      console.error('ElevenLabs error:',d);
+      // Parse the actual ElevenLabs error
+      var errMsg = d.error || 'Generation failed';
+      // Common ElevenLabs errors
+      if(errMsg.includes('quota')||errMsg.includes('credit')||errMsg.includes('limit'))
+        errMsg = '❌ ElevenLabs credits exhausted. Top up at elevenlabs.io';
+      else if(errMsg.includes('401')||errMsg.includes('Unauthorized')||errMsg.includes('invalid_api_key'))
+        errMsg = '❌ Invalid ElevenLabs API key. Check Vercel env: ELEVENLABS_API_KEY';
+      else if(errMsg.includes('voice')||errMsg.includes('Voice'))
+        errMsg = '❌ Voice ID not found in your ElevenLabs account';
+      else
+        errMsg = '❌ ElevenLabs: '+errMsg.substring(0,60);
+      lbl.textContent=errMsg;
+      console.error('ElevenLabs full error:',d);
     }
   }catch(e){
     btn.disabled=false;btn.textContent='Retry';
