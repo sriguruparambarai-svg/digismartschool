@@ -1549,8 +1549,32 @@ async function tpSaveLesson(){
   if(!_tpBookId){errEl.textContent='⚠️ Select a textbook first.';errEl.style.display='block';return;}
   try{
     var n=(_tpLessons.length||0)+1;
-    var cls=document.getElementById('tp-cls').value,sub=document.getElementById('tp-sub').value;
+    var cls=document.getElementById('tp-cls').value;
+    var sub=document.getElementById('tp-sub').value;
+    var schoolId=typeof getTeacherSchoolId==='function'?getTeacherSchoolId():'';
+
+    // 1. Save to textbook_chapters (for Teacher Panel)
     await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_post',table:'textbook_chapters',body:{book_id:_tpBookId,chapter_number:n,chapter_title:name,page_from:from,page_to:to,syllabus_type:'samacheer',class_name:cls,subject:sub}})});
+
+    // 2. Also save to lesson_library (for Lesson Library tab & all schools)
+    // Use saveLessonToDB if available, else direct save
+    if(typeof saveLessonToDB==='function'){
+      try{ await saveLessonToDB(cls,sub,name,''); }catch(e){}
+    }
+    // Also save via Supabase directly for lesson_library table
+    try{
+      var sb=typeof getSB==='function'?getSB():null;
+      if(sb&&schoolId){
+        var lessonKey=schoolId+'_'+cls.replace(/\s+/g,'-').toLowerCase()+'_'+sub.replace(/\s+/g,'-').toLowerCase();
+        sb.from('lesson_library').upsert({
+          school_id:schoolId,class_name:cls,subject:sub,chapter:name,
+          lesson_text:'',is_active:true,page_from:from,page_to:to,
+          book_id:_tpBookId,updated_at:new Date().toISOString()
+        },{onConflict:'school_id,class_name,subject,chapter'});
+      }
+    }catch(e){}
+
+    document.getElementById('nl-ok').textContent='✅ Lesson saved! Visible in Library tab too.';
     document.getElementById('nl-ok').style.display='block';
     setTimeout(function(){tpCloseNewLesson();tpLoadLessons();},900);
   }catch(e){errEl.textContent='⚠️ Error: '+e.message;errEl.style.display='block';}
