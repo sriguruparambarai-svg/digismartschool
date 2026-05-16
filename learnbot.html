@@ -1347,15 +1347,18 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div class="nl-form" id="tp-nl-form">
     <div style="font-weight:800;color:var(--maroon);font-size:0.82rem;margin-bottom:10px;">✏️ New Lesson</div>
     <span class="tp-lbl">Lesson Name</span>
-    <input class="tp-inp" id="nl-name" placeholder="e.g. Electricity, Nervous System, Optics"/>
+    <input class="tp-inp" id="nl-name" placeholder="e.g. Happy Prince, Nervous System, Electricity"/>
+    <div style="margin-top:8px;padding:8px 10px;background:rgba(201,168,76,0.08);border-radius:8px;border:1px solid rgba(201,168,76,0.2);font-size:0.75rem;color:#888;line-height:1.6;">
+      📄 <strong style="color:var(--maroon);">Full textbook?</strong> Enter page range (optional). <strong style="color:var(--maroon);">Single lesson PDF?</strong> Leave blank — whole PDF used.
+    </div>
     <div class="tp-g2" style="margin-top:8px;">
       <div>
-        <span class="tp-lbl">Start Page</span>
-        <input class="tp-inp" id="nl-from" type="number" min="1" placeholder="50" oninput="tpPreview()"/>
+        <span class="tp-lbl">Start Page <span style="font-weight:400;opacity:0.6;">(optional)</span></span>
+        <input class="tp-inp" id="nl-from" type="number" min="1" placeholder="Leave blank for full PDF" oninput="tpPreview()"/>
       </div>
       <div>
-        <span class="tp-lbl">End Page</span>
-        <input class="tp-inp" id="nl-to" type="number" min="1" placeholder="65" oninput="tpPreview()"/>
+        <span class="tp-lbl">End Page <span style="font-weight:400;opacity:0.6;">(optional)</span></span>
+        <input class="tp-inp" id="nl-to" type="number" min="1" placeholder="Leave blank for full PDF" oninput="tpPreview()"/>
       </div>
     </div>
 
@@ -1523,7 +1526,8 @@ async function tpPreview(){
   _ppTimer=setTimeout(async function(){
     var from=parseInt(document.getElementById('nl-from').value)||0;
     var to=parseInt(document.getElementById('nl-to').value)||0;
-    if(!from||!to||from>to||!_tpPdf){document.getElementById('tp-preview').style.display='none';return;}
+    if(!from||!_tpPdf){document.getElementById('tp-preview').style.display='none';return;}
+    if(!to)to=_tpPages||from+10;
     document.getElementById('tp-preview').style.display='flex';
     var pc=to-from+1;
     var info=document.getElementById('tp-preview-info');
@@ -1545,7 +1549,11 @@ async function tpSaveLesson(){
   var errEl=document.getElementById('nl-err');
   errEl.style.display='none';
   if(!name){errEl.textContent='⚠️ Enter a lesson name.';errEl.style.display='block';return;}
-  if(!from||!to||from>to){errEl.textContent='⚠️ Enter a valid page range.';errEl.style.display='block';return;}
+  // Page range is optional — if not given, use full PDF pages
+  if(!from && _tpPages>0){ from=1; to=_tpPages; }
+  if(!to && from>0){ to=_tpPages||999; }
+  if(from&&to&&from>to){errEl.textContent='⚠️ Start page must be less than end page.';errEl.style.display='block';return;}
+  if(!from){ from=1; to=_tpPages||999; }
   if(!_tpBookId){errEl.textContent='⚠️ Select a textbook first.';errEl.style.display='block';return;}
   try{
     var n=(_tpLessons.length||0)+1;
