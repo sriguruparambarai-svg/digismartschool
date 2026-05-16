@@ -195,11 +195,11 @@ html,body{height:100%;overflow:hidden;font-family:'Lexend',sans-serif;background
     </div>
     <div class="ai-exp">
       <div style="display:flex;gap:5px;margin-bottom:8px;">
-        <button class="exp-btn" id="exp-btn" onclick="toggleExp()" disabled style="flex:1;margin-bottom:0;">💡 Explain This Paragraph</button>
+        <button class="exp-btn" id="exp-btn" onclick="toggleExp()" disabled style="flex:1;margin-bottom:0;">💡 Explain in Tamil</button>
         <button id="exp-stop-btn" onclick="stopExp()" style="display:none;padding:6px 9px;background:rgba(220,53,69,0.15);border:1px solid rgba(220,53,69,0.25);color:#ff8888;border-radius:7px;font-family:Lexend,sans-serif;font-size:0.68rem;font-weight:700;cursor:pointer;">■ Stop</button>
       </div>
       <div class="exp-box" id="exp-box">
-        <div class="exp-lbl">Simple Explanation</div>
+        <div class="exp-lbl">🎓 ஆசிரியர் விளக்கம்</div>
         <div class="exp-txt" id="exp-txt"></div>
       </div>
     </div>
@@ -441,14 +441,74 @@ function readSents(sents,i,done){if(!playing||i>=sents.length){if(done)done();re
 function prevP(){stopPb();if(curPara>0){curPara--;updatePanel();}}
 function nextP(){stopPb();if(curPara<paras.length-1){curPara++;updatePanel();}}
 
-// ── AI EXPLAIN ──
+// ── AI EXPLAIN (Tamil classroom teacher style) ──
+var expSpeaking=false;
 async function toggleExp(){
   var eb=document.getElementById('exp-box'),et=document.getElementById('exp-txt');
-  var on=!eb.classList.contains('on');eb.classList.toggle('on',on);if(!on)return;
+  var stopBtn=document.getElementById('exp-stop-btn');
+  var on=!eb.classList.contains('on');
+  eb.classList.toggle('on',on);
+  if(!on){stopExp();return;}
   var p=paras[curPara];if(!p)return;
-  if(et.textContent&&et.textContent!=='Generating…'){speak(et.textContent,null);return;}
+  // Already generated — just speak it again
+  if(et.textContent&&et.textContent!=='Generating…'&&et.textContent!==''){
+    stopPb();
+    expSpeaking=true;if(stopBtn)stopBtn.style.display='block';
+    speakTamil(et.textContent,function(){expSpeaking=false;if(stopBtn)stopBtn.style.display='none';});
+    return;
+  }
   et.textContent='Generating…';
-  try{var r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({system:'You are a friendly science teacher for Tamil Nadu school students. Explain in 2-3 simple sentences. End with one interesting fact.',messages:[{role:'user',content:'Explain simply: "'+p.text+'"'}],max_tokens:160})});var d=await r.json();var txt=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();et.textContent=txt||'Could not generate.';speak(txt,null);}catch(e){et.textContent='Error: '+e.message;}
+  var paraText=cleanText(p.text);
+  var SYSTEM=`You are an experienced Tamil Nadu school science teacher explaining an English textbook paragraph to students in simple spoken Tamil.
+
+RULES:
+- Explain the CONCEPT — do NOT translate sentence by sentence
+- Use natural, conversational spoken Tamil (not literary Tamil)
+- Keep ALL scientific/technical English terms as-is (e.g. neuron, stimulus, coordination, DNA)
+- Sound like a real classroom teacher, not a dictionary
+- Keep it short: 3–5 sentences maximum
+- Use phrases like: "இதுல என்ன சொல்லணும்னா...", "இந்த process எப்படின்னா...", "இது important because..."
+
+EXAMPLE STYLE:
+Input: "Neuroglia are also called glial cells. They are non-exciting, supporting cells of the nervous system."
+Output: "Neuroglia என்பது neurons-க்கு support கொடுக்கற cells. இதை glial cells னும் சொல்வோம். Neurons போல் nerve impulse conduct பண்ணாது — ஆனா brain-ல protection மற்றும் support வேலை செய்யும். இது nervous system-ல ஒரு important helper cell."`;
+
+  try{
+    var r=await fetch('/api/ai',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        system:SYSTEM,
+        messages:[{role:'user',content:'Explain this paragraph to students in Tamil classroom style:\n\n"'+paraText+'"'}],
+        max_tokens:220
+      })
+    });
+    var d=await r.json();
+    var txt=(d.content||[]).map(function(b){return b.type==='text'?b.text:'';}).join('').trim();
+    et.textContent=txt||'விளக்கம் கிடைக்கவில்லை.';
+    stopPb();
+    expSpeaking=true;if(stopBtn)stopBtn.style.display='block';
+    speakTamil(txt,function(){expSpeaking=false;if(stopBtn)stopBtn.style.display='none';});
+  }catch(e){et.textContent='Error: '+e.message;}
+}
+function stopExp(){
+  stopSpeech();expSpeaking=false;
+  var stopBtn=document.getElementById('exp-stop-btn');
+  if(stopBtn)stopBtn.style.display='none';
+}
+function speakTamil(text,onEnd){
+  if(!text||!window.speechSynthesis){if(onEnd)onEnd();return;}
+  speechSynthesis.cancel();
+  var u=new SpeechSynthesisUtterance(text);
+  u.rate=spd*0.9;u.pitch=1.0;
+  // Prefer Tamil voice if available, else Indian English
+  var vs=speechSynthesis.getVoices();
+  var tv=vs.find(function(v){return v.lang&&(v.lang.toLowerCase().startsWith('ta'));});
+  var iv=vs.find(function(v){return v.lang.includes('en')&&(v.name.includes('India')||v.name.includes('Zira'));});
+  if(tv){u.voice=tv;u.lang='ta-IN';}
+  else if(iv){u.voice=iv;u.lang='ta-IN';}
+  else{u.lang='ta-IN';}
+  u.onend=function(){if(onEnd)onEnd();};u.onerror=function(){if(onEnd)onEnd();};
+  speechSynthesis.speak(u);
 }
 
 // ── ELEVENLABS ──
