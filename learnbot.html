@@ -1482,11 +1482,22 @@ async function tpLoadLessons(){
     var d=await r.json();_tpLessons=Array.isArray(d)?d:(d.chapters||[]);
     if(!_tpLessons.length){list.innerHTML='<div style="font-size:0.78rem;color:#aaa;padding:4px 0;">No lessons yet. Click <strong>+ New Lesson</strong>.</div>';return;}
     list.innerHTML='';
+    var storySubjects=['English','Tamil','EVS','Social Science'];
+    var isStory=storySubjects.indexOf(document.getElementById('tp-sub').value)>=0;
     _tpLessons.forEach(function(les){
       var pc=les.page_to&&les.page_from?les.page_to-les.page_from+1:0;
-      var div=document.createElement('div');div.className='les-card';
+      var div=document.createElement('div');div.className='les-card';div.style.flexWrap='wrap';
       var encTitle=encodeURIComponent(les.chapter_title||'');
-      div.innerHTML='<span class="les-icon">📖</span><div class="les-info"><div class="les-name">'+escHTP(les.chapter_title||'Lesson '+(les.chapter_number||''))+'</div><div class="les-pages">p.'+les.page_from+(les.page_to>les.page_from?'\u2013'+les.page_to:'')+(pc?' \xb7 '+pc+' pages':'')+'</div></div><button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+')">&#9654; Teach</button>';
+      var cartoonBtn=isStory
+        ?'<button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+',\'cartoon\')" style="background:linear-gradient(135deg,#7c3aed,#5b21b6);margin-top:4px;font-size:0.68rem;">🎬 Cartoon Story</button>'
+        :'';
+      div.innerHTML='<span class="les-icon">📖</span>'
+        +'<div class="les-info"><div class="les-name">'+escHTP(les.chapter_title||'Lesson '+(les.chapter_number||''))+'</div>'
+        +'<div class="les-pages">p.'+les.page_from+(les.page_to>les.page_from?'\u2013'+les.page_to:'')+(pc?' \xb7 '+pc+' pages':'')+'</div></div>'
+        +'<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;">'
+          +'<button class="les-teach" onclick="tpTeach(\''+encTitle+'\','+les.page_from+','+les.page_to+',\'standard\')">&#9654; Teach</button>'
+          +cartoonBtn
+        +'</div>';
       list.appendChild(div);
     });
   }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.75rem;">Could not load lessons.</div>';}
@@ -1534,25 +1545,34 @@ async function tpSaveLesson(){
   }catch(e){errEl.textContent='⚠️ Error: '+e.message;errEl.style.display='block';}
 }
 
-async function tpTeach(encName,pageFrom,pageTo){
+async function tpTeach(encName,pageFrom,pageTo,style){
   var cls=document.getElementById('tp-cls').value;
-  var sub=document.getElementById('tp-sub').value;
+  var sub=document.getElementById('tp-subject')?document.getElementById('tp-subject').value:document.getElementById('tp-sub').value;
+  sub=sub||document.getElementById('tp-sub').value;
   var name=decodeURIComponent(encName);
-  // Sync hidden fields for any existing lesson functions
+  // Sync hidden fields
   document.getElementById('t-class').value=cls;
   document.getElementById('t-subject').value=sub;
   document.getElementById('t-chapter').value=name;
   // Save to active_lessons
   try{if(typeof saveLessonToDB==='function')await saveLessonToDB(cls,sub,name,'');}catch(e){}
-  // Set sessionStorage
+  // Set sessionStorage for both routes
   try{
     var data={chapter:name,cls:cls,subject:sub,lessonText:'',pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''};
     sessionStorage.setItem('science_autostart',JSON.stringify(data));
     sessionStorage.setItem('tm_activated',JSON.stringify({subject:sub,cls:cls,topic:name,lessonText:'',lang:'en',autostart:true,pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''}));
+    // Also set for cartoon story
+    sessionStorage.setItem('cartoon_lesson',JSON.stringify({chapter:name,cls:cls,subject:sub,pageFrom:pageFrom,pageTo:pageTo}));
   }catch(e){}
-  // Go to teach.html
-  var url='teach.html?chapter='+encodeURIComponent(name)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(sub)+'&page_from='+pageFrom+'&page_to='+pageTo+'&book_id='+(encodeURIComponent(_tpBookId||''));
-  window.location.href=url;
+
+  if(style==='cartoon'){
+    // Launch existing cartoon story mode
+    window.location.href='cartoon-story.html?chapter='+encodeURIComponent(name)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(sub);
+  } else {
+    // Standard textbook teaching
+    var url='teach.html?chapter='+encodeURIComponent(name)+'&cls='+encodeURIComponent(cls)+'&subject='+encodeURIComponent(sub)+'&page_from='+pageFrom+'&page_to='+pageTo+'&book_id='+(encodeURIComponent(_tpBookId||''));
+    window.location.href=url;
+  }
 }
 
 function escHTP(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
