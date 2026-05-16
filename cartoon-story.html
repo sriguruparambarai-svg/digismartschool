@@ -506,6 +506,84 @@ input[type=range]{
   .ctrl-bar{gap:5px;}
   .cb{padding:7px 10px;font-size:.7rem;}
 }
+
+/* ═══════════════════════════════════════════
+   CINEMATIC MOTION SYSTEM — ADDITIONS ONLY
+═══════════════════════════════════════════ */
+
+/* Particle canvas — sits above scene image, below vignette */
+#particle-canvas{
+  position:absolute;inset:0;
+  z-index:2;pointer-events:none;
+  opacity:0;transition:opacity 1.2s ease;
+}
+#particle-canvas.active{opacity:1;}
+
+/* Cinematic light overlay — above particles, below vignette */
+#light-overlay{
+  position:absolute;inset:0;z-index:3;
+  pointer-events:none;opacity:0;
+  transition:opacity 1.5s ease;
+}
+#light-overlay.active{opacity:1;}
+
+/* Light ray keyframes */
+@keyframes light-ray-drift{
+  0%{transform:translateX(-8%) rotate(18deg) scaleY(1);}
+  50%{transform:translateX(4%) rotate(20deg) scaleY(1.04);}
+  100%{transform:translateX(-8%) rotate(18deg) scaleY(1);}
+}
+@keyframes torch-flicker{
+  0%,100%{opacity:.55;}
+  25%{opacity:.38;}
+  50%{opacity:.62;}
+  75%{opacity:.44;}
+}
+@keyframes fog-drift{
+  0%{transform:translateX(0) scaleX(1);}
+  50%{transform:translateX(3%) scaleX(1.04);}
+  100%{transform:translateX(0) scaleX(1);}
+}
+
+/* Dialogue panel glow when active */
+.dialogue-panel.show{
+  display:block;
+  animation:dlg-appear .4s ease both;
+  box-shadow:0 0 0 0 rgba(201,168,76,0);
+}
+.dialogue-panel.speaking{
+  box-shadow:0 0 18px rgba(201,168,76,.22),
+             0 0 4px rgba(201,168,76,.15) inset;
+  border-left-color:var(--gold2);
+  animation:dlg-pulse 2.4s ease-in-out infinite;
+}
+@keyframes dlg-appear{
+  from{opacity:0;transform:translateX(-10px);}
+  to{opacity:1;transform:none;}
+}
+@keyframes dlg-pulse{
+  0%,100%{box-shadow:0 0 10px rgba(201,168,76,.15);}
+  50%{box-shadow:0 0 24px rgba(201,168,76,.30),0 0 6px rgba(201,168,76,.18) inset;}
+}
+
+/* Scene cross-fade: cinematic blur dissolve enhancement */
+.scene-bg{
+  filter:blur(0px);
+}
+.scene-bg.dissolving{
+  animation:cin-dissolve .9s ease forwards;
+}
+@keyframes cin-dissolve{
+  0%{opacity:1;filter:blur(0px);}
+  40%{opacity:.5;filter:blur(3px);}
+  100%{opacity:0;filter:blur(0px);}
+}
+
+/* Enhanced Ken Burns — slightly longer for cinematic feel */
+.scene-bg.ken-burns-1{animation:kb1 14s ease-in-out forwards;}
+.scene-bg.ken-burns-2{animation:kb2 14s ease-in-out forwards;}
+.scene-bg.ken-burns-3{animation:kb3 14s ease-in-out forwards;}
+.scene-bg.ken-burns-4{animation:kb4 14s ease-in-out forwards;}
 </style>
 </head>
 <body>
@@ -588,6 +666,10 @@ input[type=range]{
   <div class="scene-viewer" id="scene-viewer">
     <div class="scene-bg" id="scene-bg-a"></div>
     <div class="scene-bg" id="scene-bg-b"></div>
+    <!-- CINEMATIC MOTION ADDITIONS -->
+    <canvas id="particle-canvas"></canvas>
+    <div id="light-overlay"></div>
+    <!-- END CINEMATIC MOTION ADDITIONS -->
     <div class="letterbox-top"></div>
     <div class="letterbox-bottom"></div>
     <div class="vignette"></div>
@@ -1139,6 +1221,492 @@ function speak(txt,lang,onEnd){
   speechSynthesis.speak(u);
 }
 function stopSpeech(){if(typeof speechSynthesis!=='undefined')speechSynthesis.cancel();}
+
+// ═══════════════════════════════════════════════════════
+// ╔══════════════════════════════════════════════════════╗
+// ║   CINEMATIC MOTION SYSTEM — ADDED ENHANCEMENT       ║
+// ║   DO NOT modify existing code above or below        ║
+// ╚══════════════════════════════════════════════════════╝
+// ═══════════════════════════════════════════════════════
+
+// ── ENVIRONMENT DETECTION ──────────────────────────────
+// Priority: bg_prompt scene setting → then emotion modifier
+var SCENE_ENVIRONMENTS = {
+  forest:    /forest|tree|jungle|wood|leaf|leaves|dense|rainforest|bamboo|mangrove/i,
+  rain:      /rain|storm|thunder|drizzle|monsoon|wet|puddle|flood/i,
+  palace:    /palace|fort|castle|throne|royal|king|queen|durbar|court|hall|golden dome/i,
+  night:     /night|dark|moon|star|campfire|fire|torch|lamp|lantern|dusk|midnight|evening/i,
+  fire:      /fire|flame|blaze|campfire|torch|bonfire|burning/i,
+  snow:      /snow|winter|ice|cold|frost|blizzard|himalaya/i,
+  classroom: /classroom|school|blackboard|chalk|desk|teacher|student|lesson/i,
+  temple:    /temple|shrine|deity|prayer|worship|gopuram|idol|incense|bell/i,
+  village:   /village|hut|field|farm|river|pond|mud|rural|countryside|paddy/i,
+  ocean:     /ocean|sea|beach|wave|shore|boat|fish|coast|tide/i,
+  sky:       /sky|cloud|sunrise|sunset|horizon|open field|plain/i
+};
+
+var EMOTION_MODIFIERS = {
+  mysterious: { fog: true,   particles: 'mist',   intensity: 0.7 },
+  sad:        { fog: false,  particles: 'slow',   intensity: 0.5 },
+  happy:      { fog: false,  particles: 'warm',   intensity: 0.8 },
+  scared:     { fog: true,   particles: 'shadow', intensity: 0.9 },
+  excited:    { fog: false,  particles: 'sparkle',intensity: 0.9 },
+  calm:       { fog: false,  particles: 'drift',  intensity: 0.4 },
+  angry:      { fog: false,  particles: 'ember',  intensity: 0.8 },
+  surprised:  { fog: false,  particles: 'sparkle',intensity: 0.7 }
+};
+
+function detectEnvironment(bgPrompt) {
+  var prompt = (bgPrompt || '').toLowerCase();
+  for (var env in SCENE_ENVIRONMENTS) {
+    if (SCENE_ENVIRONMENTS[env].test(prompt)) return env;
+  }
+  return 'village'; // default warm Indian setting
+}
+
+// ── PARTICLE SYSTEM ────────────────────────────────────
+var particleCanvas = null;
+var pctx = null;
+var particles = [];
+var particleAnimId = null;
+var currentEnv = 'village';
+var currentEmotion = 'calm';
+
+function initParticleCanvas() {
+  particleCanvas = document.getElementById('particle-canvas');
+  pctx = particleCanvas.getContext('2d');
+  sizeCanvas();
+  window.addEventListener('resize', sizeCanvas);
+}
+
+function sizeCanvas() {
+  if (!particleCanvas) return;
+  var viewer = document.getElementById('scene-viewer');
+  particleCanvas.width  = viewer.offsetWidth;
+  particleCanvas.height = viewer.offsetHeight;
+}
+
+// Build particle config based on environment + emotion
+function buildParticleConfig(env, emotion) {
+  var mod = EMOTION_MODIFIERS[emotion] || EMOTION_MODIFIERS.calm;
+  var intensity = mod.intensity;
+
+  var configs = {
+    forest: {
+      count: Math.round(22 * intensity),
+      types: ['dust', 'leaf'],
+      colors: ['rgba(200,220,160,', 'rgba(180,200,100,', 'rgba(240,220,180,'],
+      sizes: [1.5, 3.5],
+      speedY: [-0.18, -0.06],
+      speedX: [-0.25, 0.25],
+      drift: true,
+      opacity: [0.12, 0.45]
+    },
+    rain: {
+      count: Math.round(40 * intensity),
+      types: ['rain'],
+      colors: ['rgba(180,210,240,', 'rgba(160,195,230,'],
+      sizes: [1, 1.8],
+      speedY: [3.5, 6],
+      speedX: [-0.8, -0.3],
+      drift: false,
+      opacity: [0.25, 0.55]
+    },
+    palace: {
+      count: Math.round(20 * intensity),
+      types: ['sparkle', 'dust'],
+      colors: ['rgba(255,220,100,', 'rgba(255,200,80,', 'rgba(240,180,60,'],
+      sizes: [1, 2.5],
+      speedY: [-0.22, -0.08],
+      speedX: [-0.12, 0.12],
+      drift: true,
+      opacity: [0.15, 0.50]
+    },
+    night: {
+      count: Math.round(28 * intensity),
+      types: ['ember', 'star'],
+      colors: ['rgba(255,160,60,', 'rgba(255,120,40,', 'rgba(255,200,100,'],
+      sizes: [1, 2.8],
+      speedY: [-0.35, -0.10],
+      speedX: [-0.20, 0.20],
+      drift: true,
+      opacity: [0.20, 0.65]
+    },
+    fire: {
+      count: Math.round(32 * intensity),
+      types: ['ember'],
+      colors: ['rgba(255,140,30,', 'rgba(255,90,20,', 'rgba(255,200,80,'],
+      sizes: [1.5, 3],
+      speedY: [-0.55, -0.20],
+      speedX: [-0.30, 0.30],
+      drift: true,
+      opacity: [0.30, 0.75]
+    },
+    snow: {
+      count: Math.round(30 * intensity),
+      types: ['snow'],
+      colors: ['rgba(220,235,255,', 'rgba(255,255,255,'],
+      sizes: [1.5, 3.5],
+      speedY: [0.20, 0.60],
+      speedX: [-0.20, 0.20],
+      drift: true,
+      opacity: [0.30, 0.70]
+    },
+    classroom: {
+      count: Math.round(10 * intensity),
+      types: ['dust'],
+      colors: ['rgba(220,210,190,', 'rgba(200,195,180,'],
+      sizes: [1, 2],
+      speedY: [-0.08, -0.02],
+      speedX: [-0.08, 0.08],
+      drift: true,
+      opacity: [0.08, 0.22]
+    },
+    temple: {
+      count: Math.round(18 * intensity),
+      types: ['dust', 'sparkle'],
+      colors: ['rgba(255,200,100,', 'rgba(220,180,80,', 'rgba(255,220,150,'],
+      sizes: [1, 2.5],
+      speedY: [-0.18, -0.06],
+      speedX: [-0.10, 0.10],
+      drift: true,
+      opacity: [0.12, 0.40]
+    },
+    village: {
+      count: Math.round(14 * intensity),
+      types: ['dust'],
+      colors: ['rgba(220,200,160,', 'rgba(200,185,145,'],
+      sizes: [1, 2.2],
+      speedY: [-0.12, -0.04],
+      speedX: [-0.15, 0.15],
+      drift: true,
+      opacity: [0.08, 0.28]
+    },
+    ocean: {
+      count: Math.round(16 * intensity),
+      types: ['mist', 'dust'],
+      colors: ['rgba(180,220,240,', 'rgba(160,200,230,'],
+      sizes: [2, 5],
+      speedY: [-0.08, 0.08],
+      speedX: [0.10, 0.30],
+      drift: true,
+      opacity: [0.06, 0.20]
+    },
+    sky: {
+      count: Math.round(12 * intensity),
+      types: ['dust'],
+      colors: ['rgba(200,220,255,', 'rgba(255,245,220,'],
+      sizes: [1, 2],
+      speedY: [-0.10, -0.03],
+      speedX: [-0.18, 0.18],
+      drift: true,
+      opacity: [0.08, 0.22]
+    }
+  };
+
+  // Emotion modifier overrides
+  if (mod.particles === 'mist' || mod.fog) {
+    configs[env] = configs[env] || configs.village;
+    configs[env].opacity = [configs[env].opacity[0], Math.min(configs[env].opacity[1] * 1.3, 0.55)];
+    configs[env].sizes   = [configs[env].sizes[0] * 1.5, configs[env].sizes[1] * 2];
+  }
+  if (mod.particles === 'slow') {
+    configs[env] = configs[env] || configs.village;
+    configs[env].speedY = configs[env].speedY.map(function(v){ return v * 0.55; });
+    configs[env].speedX = configs[env].speedX.map(function(v){ return v * 0.55; });
+  }
+  if (mod.particles === 'sparkle' || mod.particles === 'warm') {
+    configs[env] = configs[env] || configs.village;
+    configs[env].count = Math.min(configs[env].count + 6, 50);
+  }
+
+  return configs[env] || configs.village;
+}
+
+function spawnParticle(cfg, w, h) {
+  var sMin = cfg.sizes[0], sMax = cfg.sizes[1];
+  var oMin = cfg.opacity[0], oMax = cfg.opacity[1];
+  var col  = cfg.colors[Math.floor(Math.random() * cfg.colors.length)];
+  var type = cfg.types[Math.floor(Math.random() * cfg.types.length)];
+
+  var vx = cfg.speedX[0] + Math.random() * (cfg.speedX[1] - cfg.speedX[0]);
+  var vy = cfg.speedY[0] + Math.random() * (cfg.speedY[1] - cfg.speedY[0]);
+
+  return {
+    x:    Math.random() * w,
+    y:    type === 'rain' ? Math.random() * h * 0.3 : Math.random() * h,
+    r:    sMin + Math.random() * (sMax - sMin),
+    vx:   vx,
+    vy:   vy,
+    op:   oMin + Math.random() * (oMax - oMin),
+    col:  col,
+    type: type,
+    life: 0,
+    maxLife: 180 + Math.random() * 240,
+    drift: cfg.drift ? (Math.random() - 0.5) * 0.003 : 0,
+    wobble: Math.random() * Math.PI * 2
+  };
+}
+
+function resetParticles(env, emotion) {
+  if (!pctx) return;
+  cancelAnimationFrame(particleAnimId);
+  particles = [];
+  var cfg = buildParticleConfig(env, emotion);
+  var w = particleCanvas.width, h = particleCanvas.height;
+  for (var i = 0; i < cfg.count; i++) {
+    var p = spawnParticle(cfg, w, h);
+    p.life = Math.random() * p.maxLife; // stagger
+    particles.push(p);
+  }
+  particleCanvas.classList.add('active');
+  animateParticles(env, emotion);
+}
+
+function animateParticles(env, emotion) {
+  if (!pctx) return;
+  var w = particleCanvas.width, h = particleCanvas.height;
+  var cfg = buildParticleConfig(env, emotion);
+  pctx.clearRect(0, 0, w, h);
+
+  for (var i = 0; i < particles.length; i++) {
+    var p = particles[i];
+    p.life++;
+    p.wobble += 0.02;
+    p.x += p.vx + Math.sin(p.wobble) * p.drift * 10;
+    p.y += p.vy;
+
+    // Fade in/out based on life
+    var lifeFrac = p.life / p.maxLife;
+    var fade = lifeFrac < 0.15 ? lifeFrac / 0.15
+              : lifeFrac > 0.8  ? (1 - lifeFrac) / 0.2
+              : 1;
+    var alpha = p.op * fade;
+
+    pctx.save();
+    pctx.globalAlpha = Math.max(0, alpha);
+
+    if (p.type === 'rain') {
+      pctx.strokeStyle = p.col + alpha + ')';
+      pctx.lineWidth = p.r * 0.6;
+      pctx.beginPath();
+      pctx.moveTo(p.x, p.y);
+      pctx.lineTo(p.x + p.vx * 4, p.y + p.vy * 4);
+      pctx.stroke();
+    } else if (p.type === 'leaf') {
+      pctx.fillStyle = p.col + alpha + ')';
+      pctx.beginPath();
+      pctx.ellipse(p.x, p.y, p.r * 1.6, p.r * 0.8,
+                   p.wobble, 0, Math.PI * 2);
+      pctx.fill();
+    } else if (p.type === 'ember') {
+      // Glowing ember
+      var grad = pctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r * 2);
+      grad.addColorStop(0, p.col + Math.min(alpha * 1.5, 1) + ')');
+      grad.addColorStop(1, p.col + '0)');
+      pctx.fillStyle = grad;
+      pctx.beginPath();
+      pctx.arc(p.x, p.y, p.r * 2, 0, Math.PI * 2);
+      pctx.fill();
+    } else if (p.type === 'sparkle') {
+      // Star sparkle
+      pctx.strokeStyle = p.col + alpha + ')';
+      pctx.lineWidth = 0.8;
+      for (var s = 0; s < 4; s++) {
+        var angle = (s / 4) * Math.PI * 2 + p.wobble * 0.5;
+        pctx.beginPath();
+        pctx.moveTo(p.x, p.y);
+        pctx.lineTo(p.x + Math.cos(angle) * p.r * 2,
+                    p.y + Math.sin(angle) * p.r * 2);
+        pctx.stroke();
+      }
+    } else {
+      // Default: soft circle (dust, snow, mist)
+      var grad2 = pctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+      grad2.addColorStop(0, p.col + alpha + ')');
+      grad2.addColorStop(1, p.col + '0)');
+      pctx.fillStyle = grad2;
+      pctx.beginPath();
+      pctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      pctx.fill();
+    }
+    pctx.restore();
+
+    // Respawn particle when it exits or life ends
+    if (p.life >= p.maxLife ||
+        p.y > h + 20 || p.y < -20 ||
+        p.x > w + 20 || p.x < -20) {
+      particles[i] = spawnParticle(cfg, w, h);
+      if (p.type !== 'rain') particles[i].y = h + 5; // enter from bottom for rising particles
+      if (p.vy < 0) particles[i].y = h + 5;
+      if (p.vy > 0) particles[i].y = -5;
+    }
+  }
+
+  particleAnimId = requestAnimationFrame(function(){ animateParticles(env, emotion); });
+}
+
+function stopParticles() {
+  cancelAnimationFrame(particleAnimId);
+  if (pctx && particleCanvas) {
+    pctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  }
+  if (particleCanvas) particleCanvas.classList.remove('active');
+  particles = [];
+}
+
+// ── LIGHT OVERLAY SYSTEM ──────────────────────────────
+function applyLightOverlay(env, emotion) {
+  var overlay = document.getElementById('light-overlay');
+  if (!overlay) return;
+  overlay.innerHTML = '';
+  overlay.className = '';
+  overlay.style.cssText = '';
+
+  var html = '';
+  var style = '';
+
+  if (env === 'fire' || env === 'night') {
+    // Warm torch/fire glow from bottom
+    style = 'background:radial-gradient(ellipse at 50% 100%, rgba(255,140,30,0.22) 0%, rgba(255,80,10,0.08) 45%, transparent 70%);' +
+            'animation:torch-flicker 1.8s ease-in-out infinite;';
+  } else if (env === 'palace' || env === 'temple') {
+    // Soft golden light rays from top-left
+    style = 'overflow:hidden;';
+    html = '<div style="position:absolute;top:-20%;left:10%;width:55%;height:160%;' +
+           'background:linear-gradient(170deg,rgba(255,220,100,0.13) 0%,transparent 60%);' +
+           'transform-origin:top left;' +
+           'animation:light-ray-drift 9s ease-in-out infinite;border-radius:40%;"></div>' +
+           '<div style="position:absolute;top:-20%;left:30%;width:30%;height:140%;' +
+           'background:linear-gradient(170deg,rgba(255,200,80,0.07) 0%,transparent 55%);' +
+           'transform-origin:top left;' +
+           'animation:light-ray-drift 12s ease-in-out infinite reverse;border-radius:40%;"></div>';
+  } else if (env === 'forest') {
+    // Green-tinted dappled light from top
+    style = 'overflow:hidden;';
+    html = '<div style="position:absolute;top:0;left:20%;width:25%;height:80%;' +
+           'background:linear-gradient(180deg,rgba(160,220,100,0.09) 0%,transparent 70%);' +
+           'animation:light-ray-drift 11s ease-in-out infinite;border-radius:50%;"></div>' +
+           '<div style="position:absolute;top:0;left:55%;width:20%;height:70%;' +
+           'background:linear-gradient(180deg,rgba(180,230,120,0.07) 0%,transparent 65%);' +
+           'animation:light-ray-drift 14s ease-in-out infinite reverse;border-radius:50%;"></div>';
+  } else if (env === 'rain') {
+    // Cool blue-grey tint
+    style = 'background:linear-gradient(180deg,rgba(120,160,200,0.10) 0%,transparent 60%);' +
+            'animation:fog-drift 8s ease-in-out infinite;';
+  } else if (env === 'ocean' || env === 'sky') {
+    // Soft blue shimmer from top
+    style = 'background:linear-gradient(180deg,rgba(100,180,220,0.08) 0%,transparent 55%);' +
+            'animation:fog-drift 10s ease-in-out infinite;';
+  } else if (env === 'snow') {
+    // Cold blue-white from top
+    style = 'background:linear-gradient(180deg,rgba(200,225,255,0.10) 0%,transparent 50%);';
+  } else if (env === 'village' || env === 'classroom') {
+    // Gentle warm sunlight from top-right
+    style = 'overflow:hidden;';
+    html = '<div style="position:absolute;top:-15%;right:5%;width:40%;height:120%;' +
+           'background:linear-gradient(160deg,rgba(255,230,160,0.09) 0%,transparent 60%);' +
+           'animation:light-ray-drift 13s ease-in-out infinite;border-radius:40%;"></div>';
+  }
+
+  // Emotion: scared → add dark shadow vignette boost
+  if (emotion === 'scared' || emotion === 'mysterious') {
+    html += '<div style="position:absolute;inset:0;background:radial-gradient(ellipse at center,transparent 30%,rgba(0,0,0,0.35) 100%);"></div>';
+  }
+  // Emotion: happy/excited → warm bottom glow
+  if (emotion === 'happy' || emotion === 'excited') {
+    html += '<div style="position:absolute;bottom:0;left:0;right:0;height:30%;background:linear-gradient(0deg,rgba(255,200,80,0.08),transparent);"></div>';
+  }
+
+  overlay.style.cssText = style;
+  overlay.innerHTML = html;
+  overlay.classList.add('active');
+}
+
+// ── DIALOGUE GLOW ─────────────────────────────────────
+function activateDialogueGlow() {
+  var dp = document.getElementById('dialogue-panel');
+  if (dp && dp.classList.contains('show')) {
+    dp.classList.add('speaking');
+  }
+}
+function deactivateDialogueGlow() {
+  var dp = document.getElementById('dialogue-panel');
+  if (dp) dp.classList.remove('speaking');
+}
+
+// ── SCENE MOTION TRIGGER ──────────────────────────────
+// Called after renderScene — reads bg_prompt + emotion
+function triggerCinematicMotion(sc) {
+  if (!sc) return;
+  var env     = detectEnvironment(sc.bg_prompt || sc.name || '');
+  var emotion = (sc.emotion || 'calm').toLowerCase();
+  currentEnv     = env;
+  currentEmotion = emotion;
+
+  // Size canvas to viewer
+  sizeCanvas();
+
+  // Start particles
+  stopParticles();
+  // Small delay so image is visible first
+  setTimeout(function() {
+    resetParticles(env, emotion);
+  }, 600);
+
+  // Apply light overlay
+  applyLightOverlay(env, emotion);
+
+  // Dialogue glow (activate after particles settle)
+  deactivateDialogueGlow();
+  if (sc.dialogue && sc.dialogue.trim()) {
+    setTimeout(activateDialogueGlow, 900);
+  }
+}
+
+// ── HOOK INTO EXISTING renderScene ────────────────────
+// We patch renderScene to also trigger motion AFTER it runs.
+// Original renderScene is preserved — we just add a wrapper.
+(function() {
+  var _orig = renderScene;
+  renderScene = function(idx, isFirst) {
+    _orig(idx, isFirst);
+    // Trigger cinematic motion for the new scene
+    var sc = scenes[idx];
+    if (sc) {
+      // Small delay: let background image start loading first
+      setTimeout(function() {
+        triggerCinematicMotion(sc);
+      }, 200);
+    }
+  };
+})();
+
+// ── HOOK INTO EXISTING speak() to glow dialogue ───────
+(function() {
+  var _origSpeak = speak;
+  speak = function(txt, lang, onEnd) {
+    deactivateDialogueGlow();
+    _origSpeak(txt, lang, function() {
+      deactivateDialogueGlow();
+      if (onEnd) onEnd();
+    });
+    // If current scene has dialogue, glow it while speaking
+    var sc = scenes[curIdx];
+    if (sc && sc.dialogue && sc.dialogue.trim() && txt.indexOf(sc.dialogue) >= 0) {
+      setTimeout(activateDialogueGlow, 300);
+    }
+  };
+})();
+
+// ── INIT ON LOAD ──────────────────────────────────────
+document.addEventListener('DOMContentLoaded', function() {
+  initParticleCanvas();
+});
+
+// ═══════════════════════════════════════════════════════
+// END CINEMATIC MOTION SYSTEM
+// ═══════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════
 // INIT
