@@ -6272,27 +6272,53 @@ async function loadLibrary() {
 
   listEl.innerHTML = '<div style="text-align:center;padding:30px;color:var(--maroon-mid);font-weight:700;">⏳ Loading lessons…</div>';
 
-  // Try lesson_library table first
   var data = null;
-  var usedFallback = false;
   try {
     var sb = getSB();
-    if (sb && schoolId) {
-      var res = await sb.from('lesson_library').select('*')
-        .eq('school_id', schoolId)
-        .order('class_name').order('subject').order('updated_at',{ascending:false});
-      if (!res.error) {
-        data = res.data;
+    if (sb) {
+      // Fetch lessons saved WITH this school_id
+      var rows = [];
+      if (schoolId) {
+        var res1 = await sb.from('lesson_library').select('*')
+          .eq('school_id', schoolId)
+          .order('class_name').order('subject').order('updated_at',{ascending:false});
+        if (!res1.error && res1.data) rows = res1.data;
       }
+
+      // ALSO fetch old lessons saved with empty school_id (before fix)
+      // These belong to this school — no other school would have uploaded them
+      var res2 = await sb.from('lesson_library').select('*')
+        .eq('school_id', '')
+        .order('class_name').order('subject').order('updated_at',{ascending:false});
+      var emptyRows = (!res2.error && res2.data) ? res2.data : [];
+
+      // Silently patch old empty-school_id rows to use real school_id
+      if (emptyRows.length > 0 && schoolId) {
+        try {
+          sb.from('lesson_library')
+            .update({ school_id: schoolId })
+            .eq('school_id', '');
+        } catch(e) {}
+      }
+
+      // Merge — deduplicate by class+subject+chapter
+      var seen = {};
+      rows.forEach(function(r){
+        var key = (r.class_name||'')+'|'+(r.subject||'')+'|'+(r.chapter||'');
+        seen[key] = r;
+      });
+      emptyRows.forEach(function(r){
+        var key = (r.class_name||'')+'|'+(r.subject||'')+'|'+(r.chapter||'');
+        if (!seen[key]) { r.school_id = schoolId; seen[key] = r; }
+      });
+      data = Object.values(seen);
     }
   } catch(e) {}
 
   // Fallback: load from active_lessons via /api/auth
   if (!data) {
-    usedFallback = true;
     try {
       var lessons = await loadAllLessons();
-      // Convert active_lessons format to lesson_library format
       data = (lessons||[]).map(function(l){
         return {
           id: l.class_id || (l.class_name+'_'+l.subject),
@@ -6310,8 +6336,6 @@ async function loadLibrary() {
 
   _libAllLessons = data || [];
   if (countEl) countEl.textContent = _libAllLessons.length + ' lesson' + (_libAllLessons.length!==1?'s':'') + ' saved';
-
-  // Note: lesson_library_setup.sql enables advanced features — silently skip warning
 
   renderLibrary(_libAllLessons);
 }
