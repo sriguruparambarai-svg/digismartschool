@@ -1462,7 +1462,7 @@ async function tpUploadBook(input){
   var ab=await file.arrayBuffer();
   if(typeof pdfjsLib!=='undefined'){_tpPdf=await pdfjsLib.getDocument({data:ab.slice(0)}).promise;_tpPages=_tpPdf.numPages;}
   _tpSetProg('Saving to library…',55);
-  try{await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_post',table:'textbook_library',body:{id:bookId,title:file.name.replace(/\.pdf$/i,'').replace(/[-_]/g,' '),subject:sub,class_name:cls,medium:'English',syllabus_type:'private',publisher:'Private',total_pages:_tpPages,status:'ready',raw_text:'',created_by:'teacher'}})});}catch(e){}
+  // Private books are stored locally only — do NOT save to global textbook_library (that is for Samacheer/Super Admin)
   _tpSavePdf(bookId,ab,{title:file.name,cls,sub,pages:_tpPages});
   _tpBookId=bookId;
   var zone=document.getElementById('tp-upzone');
@@ -1481,17 +1481,40 @@ async function tpLoadLessons(){
   var list=document.getElementById('tp-les-list');
   list.innerHTML='<div style="font-size:0.75rem;color:#aaa;padding:4px 0;">Loading…</div>';
   try{
-    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',params:'book_id=eq.'+_tpBookId+'&select=id,chapter_number,chapter_title,page_from,page_to&order=chapter_number.asc'})});
-    var d=await r.json();_tpLessons=Array.isArray(d)?d:(d.chapters||[]);
-    // Fallback: if no lessons found, also check lesson_library table for this class+subject
-    if(!_tpLessons.length){
-      var cls2=document.getElementById('tp-cls').value;
-      var sub2=document.getElementById('tp-sub').value;
-      var r2=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'get_active_lessons',school_id:getTeacherSchoolId?getTeacherSchoolId():'',class_name:cls2,subject:sub2})});
-      var d2=await r2.json();
-      var libLessons=(d2.lessons||[]).filter(function(x){return x.class_name===cls2&&x.subject===sub2;});
-      if(libLessons.length){
-        _tpLessons=libLessons.map(function(x,i){return{id:x.id||i,chapter_number:i+1,chapter_title:x.chapter||x.topic||'Lesson',page_from:0,page_to:0};});
+    var cls2=document.getElementById('tp-cls').value;
+    var sub2=document.getElementById('tp-sub').value;
+
+    // Private books: load lessons from school's own lesson_library (by school_id)
+    if(_tpSource === 'private'){
+      var schoolId=getTeacherSchoolId();
+      if(!schoolId){ try{ var _u2=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=_u2.school_id||_u2.id||''; }catch(e){} }
+      var sb=getSB();
+      _tpLessons=[];
+      if(sb && schoolId){
+        // Load from lesson_library where school_id matches AND class+subject match
+        var privRes = await sb.from('lesson_library').select('*')
+          .eq('school_id', schoolId)
+          .eq('class_name', cls2)
+          .eq('subject', sub2)
+          .order('updated_at',{ascending:false});
+        if(!privRes.error && privRes.data){
+          _tpLessons = privRes.data.map(function(x,i){
+            return {id:x.id||i, chapter_number:i+1, chapter_title:x.chapter||'Lesson', page_from:x.page_from||0, page_to:x.page_to||0};
+          });
+        }
+      }
+    } else {
+      // Samacheer books: load from textbook_chapters (global — set by Super Admin)
+      var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',params:'book_id=eq.'+_tpBookId+'&select=id,chapter_number,chapter_title,page_from,page_to&order=chapter_number.asc'})});
+      var d=await r.json();_tpLessons=Array.isArray(d)?d:(d.chapters||[]);
+      // Fallback: check lesson_library for this class+subject
+      if(!_tpLessons.length){
+        var r2=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'get_active_lessons',school_id:getTeacherSchoolId?getTeacherSchoolId():'',class_name:cls2,subject:sub2})});
+        var d2=await r2.json();
+        var libLessons=(d2.lessons||[]).filter(function(x){return x.class_name===cls2&&x.subject===sub2;});
+        if(libLessons.length){
+          _tpLessons=libLessons.map(function(x,i){return{id:x.id||i,chapter_number:i+1,chapter_title:x.chapter||x.topic||'Lesson',page_from:0,page_to:0};});
+        }
       }
     }
     if(!_tpLessons.length){list.innerHTML='<div style="font-size:0.78rem;color:#aaa;padding:4px 0;">No lessons yet. Click <strong>+ New Lesson</strong>.</div>';return;}
@@ -1564,14 +1587,12 @@ async function tpSaveLesson(){
     var sub=document.getElementById('tp-sub').value;
     var schoolId=typeof getTeacherSchoolId==='function'?getTeacherSchoolId():'';
 
-    // 1. Save to textbook_chapters (for Teacher Panel)
-    await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_post',table:'textbook_chapters',body:{book_id:_tpBookId,chapter_number:n,chapter_title:name,page_from:from,page_to:to,syllabus_type:'samacheer',class_name:cls,subject:sub}})});
-
-    // 2. Also save to lesson_library (for Lesson Library tab & all schools)
-    // Use saveLessonToDB if available, else direct save
-    if(typeof saveLessonToDB==='function'){
-      try{ await saveLessonToDB(cls,sub,name,''); }catch(e){}
+    // 1. Save to textbook_chapters ONLY for Samacheer books (not private school books)
+    if(_tpSource !== 'private'){
+      await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_post',table:'textbook_chapters',body:{book_id:_tpBookId,chapter_number:n,chapter_title:name,page_from:from,page_to:to,syllabus_type:'samacheer',class_name:cls,subject:sub}})});
     }
+
+    // 2. For private books: save to lesson_library with school_id only (not global tables)
     // Also save via Supabase directly for lesson_library table
     try{
       var sb=typeof getSB==='function'?getSB():null;
