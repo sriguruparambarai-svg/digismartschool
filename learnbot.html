@@ -1575,15 +1575,19 @@ async function tpSaveLesson(){
     // Also save via Supabase directly for lesson_library table
     try{
       var sb=typeof getSB==='function'?getSB():null;
-      if(sb&&schoolId){
-        var lessonKey=schoolId+'_'+cls.replace(/\s+/g,'-').toLowerCase()+'_'+sub.replace(/\s+/g,'-').toLowerCase();
-        sb.from('lesson_library').upsert({
-          school_id:schoolId,class_name:cls,subject:sub,chapter:name,
-          lesson_text:'',is_active:true,page_from:from,page_to:to,
-          book_id:_tpBookId,updated_at:new Date().toISOString()
+      // Get school_id from all possible sources
+      if(!schoolId){ try{ var _u=JSON.parse(localStorage.getItem('dss_user')||'{}'); schoolId=_u.school_id||_u.id||''; }catch(e){} }
+      if(!schoolId && window._fetchedSchoolId) schoolId=window._fetchedSchoolId;
+      if(sb && schoolId){
+        await sb.from('lesson_library').upsert({
+          school_id:schoolId, class_name:cls, subject:sub, chapter:name,
+          lesson_text:'', is_active:true, page_from:from, page_to:to,
+          book_id:_tpBookId, updated_at:new Date().toISOString()
         },{onConflict:'school_id,class_name,subject,chapter'});
+        // Cache school_id for this session
+        window._schoolId = schoolId;
       }
-    }catch(e){}
+    }catch(e){ console.error('lesson_library save error:',e); }
 
     document.getElementById('nl-ok').textContent='✅ Lesson saved! Visible in Library tab too.';
     document.getElementById('nl-ok').style.display='block';
