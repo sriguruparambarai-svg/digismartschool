@@ -1496,8 +1496,8 @@ async function tpLoadLessons(){
     }
     if(!_tpLessons.length){list.innerHTML='<div style="font-size:0.78rem;color:#aaa;padding:4px 0;">No lessons yet. Click <strong>+ New Lesson</strong>.</div>';return;}
     list.innerHTML='';
-    var storySubjects=['English','Tamil','EVS','Social Science'];
-    var isStory=storySubjects.indexOf(document.getElementById('tp-sub').value)>=0;
+    var storySubjects=['english','tamil','evs','social science','environmental studies','evs - our environment','social'];
+    var isStory=storySubjects.indexOf((document.getElementById('tp-sub').value||'').toLowerCase().trim())>=0;
     _tpLessons.forEach(function(les){
       var pc=les.page_to&&les.page_from?les.page_to-les.page_from+1:0;
       var div=document.createElement('div');div.className='les-card';div.style.flexWrap='wrap';
@@ -2792,10 +2792,12 @@ async function activateLesson(){
   lessonImgs=[...teacherImgs];
   window.AL={cls,sub,ch};
 
+  var _activSchoolId = getTeacherSchoolId();
   var activatedData = {
     subject: sub, cls: cls, topic: ch,
     lessonText: lessonTxt.substring(0, 4000),
-    hasPDF: hasPDF, lang: 'en'
+    hasPDF: hasPDF, lang: 'en',
+    school_id: _activSchoolId
   };
   try { sessionStorage.setItem('tm_activated', JSON.stringify(activatedData)); } catch(e){}
 
@@ -2821,12 +2823,12 @@ async function activateLesson(){
   var sClass=document.getElementById('s-class'); if(sClass) sClass.value=cls;
   var sSubj=document.getElementById('s-subject'); if(sSubj) sSubj.value=sub;
 
-  // Also save to lesson_library silently  
+  // Also save to lesson_library (awaited so save completes before redirect)
   try {
     var schoolId2 = getTeacherSchoolId();
     var sb2 = getSB();
     if(sb2 && schoolId2){
-      sb2.from('lesson_library').upsert({
+      await sb2.from('lesson_library').upsert({
         school_id:schoolId2, class_name:cls, subject:sub, chapter:ch,
         lesson_text:(lessonTxt||'').substring(0,8000), is_active:true,
         updated_at:new Date().toISOString()
@@ -6365,8 +6367,8 @@ function renderLibrary(lessons) {
       html += '<span style="font-size:0.72rem;font-weight:800;color:var(--gold-dark);background:rgba(201,168,76,0.12);padding:2px 7px;border-radius:6px;white-space:nowrap;">' + (l.subject||'') + '</span>';
       html += '<span style="flex:1;font-weight:700;color:var(--maroon);font-size:0.9rem;">📖 ' + (l.chapter||'') + activeBadge + '</span>';
       // Buttons
-      var storySubjs=['English','Tamil','EVS','Social Science'];
-      var isStoryLib=storySubjs.indexOf(l.subject||'')>=0;
+      var storySubjs=['english','tamil','evs','social science','environmental studies','evs - our environment','social'];
+      var isStoryLib=storySubjs.indexOf((l.subject||'').toLowerCase().trim())>=0;
       html += '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-end;">';
       html += '<button onclick="teachFromLibrary(\'' + lessonData + '\',\'standard\')" style="background:var(--maroon);color:var(--gold-light);border:none;border-radius:7px;padding:5px 11px;font-size:0.75rem;font-weight:800;cursor:pointer;font-family:Nunito,sans-serif;white-space:nowrap;">▶ Teach</button>';
       if(isStoryLib){
@@ -6582,16 +6584,22 @@ function openTextbookTeaching() {
 // STUDENT MANAGEMENT — diary_students table
 // ══════════════════════════════════════════════════════
 function getTeacherSchoolId(){
-  // Get school_id from session (set during teacher login)
+  // 1. From window cache (set at login)
+  if(window._schoolId) return window._schoolId;
+  // 2. From tm_activated sessionStorage
   try{
     var sess = JSON.parse(sessionStorage.getItem('tm_activated')||'{}');
-    if(sess.school_id) return sess.school_id;
+    if(sess.school_id){ window._schoolId=sess.school_id; return sess.school_id; }
   }catch(e){}
-  // Fallback: from dss_user in localStorage
+  // 3. From dss_user localStorage
   try{
     var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
-    return u.school_id || u.id || '';
-  }catch(e){ return ''; }
+    var sid = u.school_id || u.id || '';
+    if(sid){ window._schoolId=sid; return sid; }
+  }catch(e){}
+  // 4. From _fetchedSchoolId
+  if(window._fetchedSchoolId) return window._fetchedSchoolId;
+  return '';
 }
 
 async function addStudent(){
