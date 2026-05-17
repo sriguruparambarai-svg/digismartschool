@@ -115,6 +115,19 @@ html,body{height:100%;overflow:hidden;font-family:'Lexend',sans-serif;background
 ::-webkit-scrollbar{width:4px;height:4px;}
 ::-webkit-scrollbar-track{background:rgba(0,0,0,0.1);}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px;}
+
+/* OCR status banner — shown only for image PDFs */
+.ocr-banner{display:none;position:absolute;bottom:10px;left:50%;transform:translateX(-50%);
+  background:rgba(13,8,6,0.92);border:1px solid rgba(201,168,76,0.35);
+  border-radius:10px;padding:8px 16px;z-index:30;
+  font-size:0.72rem;color:var(--gl);font-weight:700;
+  white-space:nowrap;box-shadow:0 4px 14px rgba(0,0,0,0.5);
+  display:none;align-items:center;gap:8px;}
+.ocr-banner.show{display:flex;}
+.ocr-spin{width:13px;height:13px;border:2px solid rgba(201,168,76,0.25);
+  border-top-color:var(--g);border-radius:50%;
+  animation:spin 0.8s linear infinite;flex-shrink:0;}
+@keyframes spin{to{transform:rotate(360deg)}}
 </style>
 </head>
 <body>
@@ -153,6 +166,11 @@ html,body{height:100%;overflow:hidden;font-family:'Lexend',sans-serif;background
     </div>
     <div class="pdf-wrap" id="pdf-wrap" style="position:relative;">
       <div class="ld-bar" id="ld-bar"><div class="ld-fill" id="ld-fill"></div></div>
+      <!-- OCR status banner — only visible for image PDFs -->
+      <div class="ocr-banner" id="ocr-banner">
+        <div class="ocr-spin"></div>
+        <span id="ocr-msg">📷 Image PDF detected — running OCR…</span>
+      </div>
       <!-- No textbook message -->
       <div class="no-tb" id="no-tb">
         <div class="no-tb-icon">📄</div>
@@ -312,7 +330,81 @@ async function extractParas(fromPg,toPg){
       ps.forEach(function(p){if(!p.text||p.text.trim().length<15)return;paras.push({order:order++,text:p.text.trim(),pageNum:pn,bbox:p.bbox,pageW:vp.width,pageH:vp.height});});
     }catch(e){}
   }
+  // ── OCR FALLBACK: only if no text was found (image-based PDF like CamScanner) ──
+  if(paras.length===0) await runOCR(fromPg,toPg);
 }
+// ── OCR ENGINE — runs ONLY when extractParas finds zero text (image PDF) ──
+async function runOCR(fromPg,toPg){
+  var banner=document.getElementById('ocr-banner');
+  var msg=document.getElementById('ocr-msg');
+
+  // Load Tesseract.js from CDN if not already loaded
+  if(typeof Tesseract==='undefined'){
+    await new Promise(function(resolve,reject){
+      var s=document.createElement('script');
+      s.src='https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/4.1.1/tesseract.min.js';
+      s.onload=resolve;s.onerror=reject;
+      document.head.appendChild(s);
+    });
+  }
+
+  banner.classList.add('show');
+  var order=0;
+  var totalPages=Math.min(toPg,totPg)-fromPg+1;
+
+  // Create Tesseract worker — English language for textbook OCR
+  var worker=await Tesseract.createWorker('eng',1,{
+    logger:function(){}  // suppress verbose logs
+  });
+
+  for(var pn=fromPg;pn<=Math.min(toPg,totPg);pn++){
+    var pageNum=pn-fromPg+1;
+    msg.textContent='📷 OCR: Page '+pageNum+' of '+totalPages+'…';
+
+    try{
+      // Render page to canvas at scale 2.0 for better OCR accuracy
+      var page=await pdfDoc.getPage(pn);
+      var vp=page.getViewport({scale:2.0});
+      var cv=document.createElement('canvas');
+      cv.width=vp.width;cv.height=vp.height;
+      var ctx=cv.getContext('2d');
+      await page.render({canvasContext:ctx,viewport:vp}).promise;
+
+      // Run OCR on the canvas image
+      var result=await worker.recognize(cv);
+      var rawText=result.data.text||'';
+
+      // Split OCR output into paragraphs by blank lines
+      var blocks=rawText.split(/\n{2,}/);
+      blocks.forEach(function(block){
+        var clean=block.replace(/\n/g,' ').replace(/\s+/g,' ').trim();
+        // Only keep blocks with meaningful content (>20 chars, not just numbers/symbols)
+        if(clean.length>20&&/[a-zA-Z]{3,}/.test(clean)){
+          paras.push({
+            order:order++,
+            text:clean,
+            pageNum:pn,
+            // No bbox available from OCR — highlight whole page area
+            bbox:null,
+            pageW:vp.width/2,   // divide by scale factor
+            pageH:vp.height/2
+          });
+        }
+      });
+    }catch(e){}
+  }
+
+  await worker.terminate();
+  banner.classList.remove('show');
+
+  // If OCR still found nothing — show a helpful message
+  if(paras.length===0){
+    msg.textContent='⚠️ OCR found no text. Try a clearer scan.';
+    banner.classList.add('show');
+    setTimeout(function(){banner.classList.remove('show');},4000);
+  }
+}
+
 function groupLines(items,vp){
   // Detect if page has two columns by checking x-distribution
   var midX=vp.width/2;
