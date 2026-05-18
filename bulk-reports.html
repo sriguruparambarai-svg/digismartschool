@@ -217,6 +217,7 @@ body{font-family:'Nunito',sans-serif;background:#f0f2f5;color:var(--t);}
     <div class="field"><label>Academic Year</label><input type="text" id="sc-year" value="2025-2026"/></div>
     <div class="field"><label>Class Teacher Name</label><input type="text" id="sc-teacher" placeholder="e.g. Mrs. Shalini"/></div>
     <div class="field"><label>Principal Name</label><input type="text" id="sc-principal" placeholder="e.g. Mr. Rajesh"/></div>
+    <div class="field"><label>Correspondent Name</label><input type="text" id="sc-corr" placeholder="e.g. Thiru. P. Rajendran"/></div>
     <div class="field"><label>Total Working Days</label><input type="number" id="sc-days" placeholder="e.g. 115"/></div>
     <div class="field"><label>Report Date</label><input type="date" id="sc-date"/></div>
   </div>
@@ -482,6 +483,7 @@ async function startGen(){
   var year    =document.getElementById('sc-year').value||'2025-2026';
   var teacher =document.getElementById('sc-teacher').value||'Class Teacher';
   var principal=document.getElementById('sc-principal').value||'Principal';
+  var correspondent=(document.getElementById('sc-corr')?document.getElementById('sc-corr').value.trim():'')||'';
   var workdays=document.getElementById('sc-days').value||'';
   var date    =document.getElementById('sc-date').value||new Date().toLocaleDateString('en-IN');
 
@@ -558,7 +560,7 @@ async function startGen(){
     }).filter(function(m){return m.obtained>0||s.marks[m.name]!==null;});
 
     rcs.push({rollNo:s.roll,name:s.name,school:school,addr:addr,cls:cls,exam:exam,year:year,
-      teacher:teacher,principal:principal,workdays:workdays,present:s.att||'',
+      teacher:teacher,principal:principal,correspondent:correspondent,workdays:workdays,present:s.att||'',
       mmax:mmax,marksData:marksData,total:s._tot,totalMax:totalMax,pct:pct,
       grade:grade,rank:s._rank,total_stu:total,remarks:remarks,date:date});
   }
@@ -637,9 +639,11 @@ function showResults(){
   document.getElementById('rc-cnt').textContent=rcs.length;
   document.getElementById('rc-out').innerHTML=rcs.map(function(rc,i){
     return '<div class="rcwrap" style="margin-bottom:32px;" id="rc'+i+'">'
-      +'<div class="no-print" style="display:flex;justify-content:flex-end;margin-bottom:6px;gap:6px;">'
-      +'<span style="font-size:.75rem;color:#888;font-weight:700;">'+(i+1)+' of '+rcs.length+'</span>'
-      +'<button onclick="printOne('+i+')" style="background:var(--m);color:var(--gl);border:none;border-radius:7px;padding:5px 12px;font-family:Nunito,sans-serif;font-weight:700;font-size:.75rem;cursor:pointer;">🖨 Print</button>'
+      +'<div class="no-print" style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px;background:#fff;border:1.5px solid #EDD9A3;border-radius:10px;padding:8px 12px;">'
+      +'<span style="font-weight:800;color:var(--m);font-size:.82rem;flex:1;">'+rc.name+' &nbsp;&middot;&nbsp; <span style="color:#888;font-weight:600;">Roll '+rc.rollNo+'</span></span>'
+      +'<button onclick="printOne('+i+')" style="background:var(--m);color:var(--gl);border:none;border-radius:7px;padding:6px 14px;font-family:Nunito,sans-serif;font-weight:700;font-size:.78rem;cursor:pointer;">&#x1F5A8; Print</button>'
+      +'<input type="tel" id="wa-ph-'+i+'" placeholder="Parent mobile (10 digits)" maxlength="10" style="width:175px;padding:6px 10px;font-size:.8rem;border:1.5px solid #EDD9A3;border-radius:7px;font-family:Nunito,sans-serif;font-weight:600;outline:none;"/>'
+      +'<button onclick="sendWA('+i+')" style="background:linear-gradient(135deg,#128C7E,#25D366);color:white;border:none;border-radius:7px;padding:6px 14px;font-family:Nunito,sans-serif;font-weight:800;font-size:.78rem;cursor:pointer;white-space:nowrap;">&#x1F4F2; Send WhatsApp</button>'
       +'</div>'
       +buildRC(rc)+'</div>';
   }).join('');
@@ -739,12 +743,14 @@ function buildRC(d){
     +'<tr><td style="padding:10px 12px;border:1px solid #EDD9A3;font-weight:800;color:#6B0F1A;background:#FFFDF5;">Result</td><td style="padding:10px 12px;border:1px solid #EDD9A3;"><span style="background:'+gradeObj(d.pct).bg+';color:'+gradeObj(d.pct).color+';font-weight:800;padding:3px 11px;border-radius:7px;">'+d.grade+' — '+(d.pct>=91?'Outstanding':d.pct>=81?'Excellent':d.pct>=71?'Very Good':d.pct>=61?'Good':'Satisfactory')+'</span></td></tr>'
     +'</tbody></table>';
 
-  // Signatures
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;padding-top:12px;border-top:2px solid #EDD9A3;">';
-  html+='<div style="text-align:center;padding:8px;"><div style="height:40px;"></div><div style="border-top:1px solid #333;padding-top:6px;font-size:.8rem;"><div style="font-weight:700;">'+esc(d.teacher)+'</div><div style="color:#888;font-size:.7rem;margin-top:1px;">Class Teacher\'s Signature</div></div></div>';
-  html+='<div style="text-align:center;padding:8px;"><div style="height:40px;border:2px dashed #EDD9A3;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#A07830;font-size:.7rem;">School Seal</div><div style="border-top:1px solid #333;margin-top:6px;padding-top:6px;font-size:.7rem;color:#888;">Official Seal</div></div>';
-  html+='<div style="text-align:center;padding:8px;"><div style="height:40px;"></div><div style="border-top:1px solid #333;padding-top:6px;font-size:.8rem;"><div style="font-weight:700;">'+esc(d.principal)+'</div><div style="color:#888;font-size:.7rem;margin-top:1px;">Principal\'s Signature</div></div></div>';
-  html+='</div>';
+   // Signatures — Class Teacher | Seal | Principal | Correspondent
+   var sigCols=d.correspondent?'1fr 1fr 1fr 1fr':'1fr 1fr 1fr';
+   html+='<div style="display:grid;grid-template-columns:'+sigCols+';gap:10px;padding-top:12px;border-top:2px solid #EDD9A3;">';
+   html+='<div style="text-align:center;padding:8px;"><div style="height:38px;"></div><div style="border-top:1.5px solid #333;padding-top:5px;font-size:.78rem;"><div style="font-weight:700;color:#2A0A0F;">'+esc(d.teacher)+'</div><div style="color:#888;font-size:.68rem;margin-top:1px;">Class Teacher</div></div></div>';
+   html+='<div style="text-align:center;padding:8px;"><div style="height:38px;border:2px dashed #EDD9A3;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#A07830;font-size:.68rem;">School Seal</div><div style="border-top:1px solid #aaa;margin-top:5px;padding-top:5px;font-size:.68rem;color:#888;">Official Seal</div></div>';
+   html+='<div style="text-align:center;padding:8px;"><div style="height:38px;"></div><div style="border-top:1.5px solid #333;padding-top:5px;font-size:.78rem;"><div style="font-weight:700;color:#2A0A0F;">'+esc(d.principal)+'</div><div style="color:#888;font-size:.68rem;margin-top:1px;">Principal</div></div></div>';
+   if(d.correspondent){html+='<div style="text-align:center;padding:8px;"><div style="height:38px;"></div><div style="border-top:1.5px solid #333;padding-top:5px;font-size:.78rem;"><div style="font-weight:700;color:#2A0A0F;">'+esc(d.correspondent)+'</div><div style="color:#888;font-size:.68rem;margin-top:1px;">Correspondent</div></div></div>';}
+   html+='</div>';
 
   // Footer
   html+='<div style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);padding:8px 18px;margin-top:12px;text-align:center;">';
@@ -769,6 +775,61 @@ function dlSummary(){
   ws['!cols']=[{wch:8},{wch:22},{wch:8},{wch:12},{wch:6},{wch:6},{wch:70}];
   XLSX.utils.book_append_sheet(wb,ws,'Summary');
   XLSX.writeFile(wb,'ReportCards_Summary.xlsx');
+}
+
+function sendWA(i){
+  var rc=rcs[i];
+  var ph=document.getElementById('wa-ph-'+i).value.trim().replace(/\D/g,'');
+  if(!ph||ph.length<10){
+    alert('Please enter the parent\'s 10-digit mobile number first.');
+    document.getElementById('wa-ph-'+i).focus();
+    return;
+  }
+  // Build full Indian number
+  if(ph.length===10) ph='91'+ph;
+
+  // Build WhatsApp message — complete result summary
+  var lines=[];
+  lines.push('📊 *Progress Report Card*');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('🏫 *'+rc.school+'*');
+  if(rc.addr) lines.push('📍 '+rc.addr);
+  lines.push('');
+  lines.push('👤 *Student:* '+rc.name);
+  lines.push('🎓 *Class:* '+rc.cls+'   📋 *Roll No:* '+rc.rollNo);
+  lines.push('📝 *Exam:* '+rc.exam);
+  lines.push('📅 *Year:* '+rc.year);
+  lines.push('');
+  lines.push('📚 *Subject-wise Marks:*');
+  rc.marksData.forEach(function(m){
+    var bar=m.pct>=90?'🟢':m.pct>=75?'🔵':m.pct>=50?'🟡':'🔴';
+    lines.push(bar+' '+m.name+': *'+m.obtained+'/'+m.max+'* ('+m.pct+'%) — '+m.grade);
+  });
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('📊 *Total: '+Math.round(rc.total)+'/'+rc.totalMax+'*');
+  lines.push('📈 *Percentage: '+rc.pct.toFixed(1)+'%*');
+  lines.push('🏆 *Grade: '+rc.grade+'*');
+  lines.push('🥇 *Rank: '+rc.rank+' / '+rc.total_stu+'*');
+  if(rc.workdays&&rc.present){
+    var att=Math.round(parseInt(rc.present)/parseInt(rc.workdays)*100);
+    lines.push('📅 *Attendance: '+rc.present+'/'+rc.workdays+' days ('+att+'%)*');
+  }
+  lines.push('');
+  lines.push('💬 *Teacher\'s Remarks:*');
+  lines.push(rc.remarks);
+  lines.push('');
+  lines.push('━━━━━━━━━━━━━━━━━━━━');
+  lines.push('✍️ *Class Teacher:* '+rc.teacher);
+  if(rc.principal) lines.push('🎓 *Principal:* '+rc.principal);
+  if(rc.correspondent) lines.push('📋 *Correspondent:* '+rc.correspondent);
+  lines.push('📆 *Date:* '+rc.date);
+  lines.push('');
+  lines.push('_Powered by DigiSmartSchool_');
+
+  var msg=lines.join('\n');
+  var url='https://wa.me/'+ph+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
 }
 
 function resetAll(){
