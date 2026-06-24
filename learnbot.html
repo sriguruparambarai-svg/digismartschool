@@ -1150,10 +1150,10 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
   <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Teach</button>
-  <!-- Hidden tabs kept for JS compatibility -->
-  <button class="tab-btn" id="tab-btn-library" style="display:none;" onclick="openLibraryTab(this)">📚 Lesson Library</button>
-  <button class="tab-btn" id="tab-btn-notes" style="display:none;" onclick="showTab('notes',this)">📋 Class Notes</button>
-  <button class="tab-btn" id="tab-btn-revision" style="display:none;" onclick="openRevisionPage()">🔁 Class Revision</button>
+  <!-- Hidden tabs kept for JS compatibility — must not show -->
+  <button class="tab-btn" id="tab-btn-library" style="display:none!important;" onclick="openLibraryTab(this)">📚 Lesson Library</button>
+  <button class="tab-btn" id="tab-btn-notes" style="display:none!important;" onclick="showTab('notes',this)">📋 Class Notes</button>
+  <button class="tab-btn" id="tab-btn-revision" style="display:none!important;" onclick="openRevisionPage()">🔁 Class Revision</button>
 </div>
 
 <!-- ROLE ACCESS BANNER — shown to students/parents who try to access teacher panel -->
@@ -1386,10 +1386,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
      (Inside Teacher Panel, below lessons)
 ══════════════════════════════════════ -->
 <script>
-// ── MY BOOKS — upload to Supabase storage bucket ──
-var SB_BOOKS_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
-var SB_BOOKS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
-
+// ── MY BOOKS — upload via server (auth.js) ──
 function getSchoolIdForBooks(){
   try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); return u.school_id||u.id||''; }catch(e){ return ''; }
 }
@@ -1399,28 +1396,26 @@ async function mbLoadBooks(){
   if(!list)return;
   list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">Loading books…</div>';
   var schoolId=getSchoolIdForBooks();
-  if(!schoolId){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Not logged in.</div>';return;}
+  if(!schoolId){list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">No books yet. Upload your first book.</div>';return;}
   try{
-    var res=await fetch(SB_BOOKS_URL+'/rest/v1/school_books?school_id=eq.'+encodeURIComponent(schoolId)+'&select=*&order=created_at.desc',{
-      headers:{'apikey':SB_BOOKS_KEY,'Authorization':'Bearer '+SB_BOOKS_KEY}
-    });
-    var books=await res.json();
-    if(!books||!books.length){list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">No books uploaded yet. Upload your first book above.</div>';return;}
+    var res=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'get_school_books',school_id:schoolId})});
+    var d=await res.json();
+    var books=d.books||[];
+    if(!books.length){list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">No books uploaded yet. Upload your first book above.</div>';return;}
     list.innerHTML='';
     books.forEach(function(b){
       var card=document.createElement('div');
-      card.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #e8dfc8;border-radius:10px;background:#faf6ee;margin-bottom:8px;cursor:pointer;transition:all 0.15s;';
+      card.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #e8dfc8;border-radius:10px;background:#faf6ee;margin-bottom:8px;transition:all 0.15s;';
       card.innerHTML='<span style="font-size:1.6rem;flex-shrink:0;">📚</span>'
         +'<div style="flex:1;min-width:0;">'
         +'<div style="font-weight:800;color:var(--maroon);font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHTP(b.book_name)+'</div>'
-        +'<div style="font-size:0.72rem;color:#888;margin-top:2px;">'+escHTP(b.class_name)+' · Term '+escHTP(b.term)+'</div>'
+        +'<div style="font-size:0.72rem;color:#888;margin-top:2px;">'+escHTP(b.class_name)+' · Term '+escHTP(String(b.term))+'</div>'
         +'</div>'
-        +'<button onclick="mbStartLesson(\''+b.id+'\',\''+escHTP(b.book_name)+'\',\''+escHTP(b.class_name)+'\',\''+b.pdf_url+'\')" style="padding:7px 14px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;font-family:Nunito,sans-serif;font-size:0.78rem;font-weight:800;cursor:pointer;white-space:nowrap;">▶ Use Book</button>';
-      card.onmouseenter=function(){this.style.borderColor='var(--maroon)';this.style.background='white';};
-      card.onmouseleave=function(){this.style.borderColor='#e8dfc8';this.style.background='#faf6ee';};
+        +'<button onclick="mbStartLesson(\''+b.id+'\',\''+escHTP(b.book_name)+'\',\''+escHTP(b.class_name)+'\',\''+escHTP(b.pdf_url||'')+'\')" style="padding:7px 14px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;font-family:Nunito,sans-serif;font-size:0.78rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;">▶ Use Book</button>';
       list.appendChild(card);
     });
-  }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Error loading books: '+e.message+'</div>';}
+  }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Error: '+e.message+'</div>';}
 }
 
 async function mbUploadBook(){
@@ -1444,56 +1439,47 @@ async function mbUploadBook(){
   var schoolId=getSchoolIdForBooks();
   if(!schoolId){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Not logged in.';return;}
 
+  // Check file size — warn if over 15MB
+  if(file.size > 15*1024*1024){
+    statusEl.style.color='#c0392b';
+    statusEl.textContent='⚠️ File too large (max 15MB). Please compress the PDF first.';
+    return;
+  }
+
   btn.disabled=true;btn.textContent='⏳ Uploading…';
-  statusEl.style.color='var(--maroon)';statusEl.textContent='Uploading PDF to cloud…';
+  statusEl.style.color='var(--maroon)';statusEl.textContent='Reading PDF…';
 
   try{
-    // 1. Upload PDF to Supabase storage bucket
-    var filePath=schoolId+'/'+cls.replace(/\s+/g,'-')+'_term'+term+'_'+Date.now()+'.pdf';
-    var uploadRes=await fetch(SB_BOOKS_URL+'/storage/v1/object/school-books/'+filePath,{
-      method:'POST',
-      headers:{
-        'apikey':SB_BOOKS_KEY,
-        'Authorization':'Bearer '+SB_BOOKS_KEY,
-        'Content-Type':'application/pdf',
-        'x-upsert':'true'
-      },
-      body:file
+    // Convert PDF to base64
+    var base64=await new Promise(function(resolve,reject){
+      var reader=new FileReader();
+      reader.onload=function(e){ resolve(e.target.result.split(',')[1]); };
+      reader.onerror=reject;
+      reader.readAsDataURL(file);
     });
-    if(!uploadRes.ok){
-      var errTxt=await uploadRes.text();
-      throw new Error('Upload failed: '+errTxt);
-    }
 
-    // 2. Get public URL
-    var pdfUrl=SB_BOOKS_URL+'/storage/v1/object/public/school-books/'+filePath;
+    statusEl.textContent='Uploading to cloud… (may take 30 seconds for large files)';
 
-    // 3. Save book record to school_books table
-    var saveRes=await fetch(SB_BOOKS_URL+'/rest/v1/school_books',{
+    // Send to server — server uses service key to upload
+    var uploadRes=await fetch('/api/auth',{
       method:'POST',
-      headers:{
-        'apikey':SB_BOOKS_KEY,
-        'Authorization':'Bearer '+SB_BOOKS_KEY,
-        'Content-Type':'application/json',
-        'Prefer':'return=representation'
-      },
+      headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
+        action:'upload_book',
         school_id:schoolId,
         book_name:name,
         class_name:cls,
         term:term,
-        pdf_url:pdfUrl,
-        file_path:filePath,
-        uploaded_by:localStorage.getItem('dss_user')?JSON.parse(localStorage.getItem('dss_user')).email||'':''
+        file_base64:base64,
+        file_name:file.name,
+        uploaded_by:localStorage.getItem('dss_user')?JSON.parse(localStorage.getItem('dss_user')||'{}').email||'':''
       })
     });
-    if(!saveRes.ok){
-      var errTxt2=await saveRes.text();
-      throw new Error('Save failed: '+errTxt2);
-    }
+    var result=await uploadRes.json();
+    if(result.error){throw new Error(result.error);}
 
     statusEl.style.color='#1a5c2a';
-    statusEl.textContent='✅ Book uploaded successfully! All teachers in your school can now use it.';
+    statusEl.textContent='✅ Book uploaded! All teachers in your school can now use it.';
     nameEl.value='';clsEl.value='';termEl.value='';fileInp.value='';
     document.getElementById('mb-form').style.display='none';
     mbLoadBooks();
@@ -1507,11 +1493,11 @@ async function mbUploadBook(){
 }
 
 function mbStartLesson(bookId,bookName,cls,pdfUrl){
-  // Store selected book info — teacher will enter page range in the popup
   document.getElementById('mb-teach-popup').style.display='flex';
   document.getElementById('mb-popup-bookname').textContent=bookName+' ('+cls+')';
   document.getElementById('mb-popup-from').value='';
   document.getElementById('mb-popup-to').value='';
+  document.getElementById('mb-popup-lesson').value='';
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
 }
@@ -1519,33 +1505,75 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
 function mbGoTeach(){
   var from=parseInt(document.getElementById('mb-popup-from').value)||0;
   var to=parseInt(document.getElementById('mb-popup-to').value)||0;
+  var lessonName=document.getElementById('mb-popup-lesson').value.trim();
   var statusEl=document.getElementById('mb-popup-status');
   if(!from||!to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Enter start and end page numbers.';return;}
   if(from>to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Start page must be less than end page.';return;}
   var b=window._mbSelectedBook||{};
-  // Save to sessionStorage so Teach tab and teaching modes can use it
+  var topic=lessonName||b.bookName;
   try{
     sessionStorage.setItem('tm_activated',JSON.stringify({
-      subject:'',cls:b.cls,topic:b.bookName,lessonText:'',
+      subject:'',cls:b.cls,topic:topic,lessonText:'',
       lang:'en',autostart:false,
       pageFrom:from,pageTo:to,
       bookId:b.bookId,pdfUrl:b.pdfUrl
     }));
-    // Also update banner on Teach tab
     var banner=document.getElementById('active-lesson-banner');
     var bannerName=document.getElementById('banner-lesson-name');
     var bannerInfo=document.getElementById('banner-lesson-info');
     if(banner){banner.style.display='flex';}
-    if(bannerName)bannerName.textContent='📖 '+b.bookName;
-    if(bannerInfo)bannerInfo.textContent=b.cls+' · Pages '+from+' to '+to+' · Click a teaching style to start';
-    // Update hidden fields for compatibility
+    if(bannerName)bannerName.textContent='📖 '+topic;
+    if(bannerInfo)bannerInfo.textContent=b.cls+' · Pages '+from+' – '+to+' · Choose a teaching style below';
     var tCls=document.getElementById('t-class');if(tCls)tCls.value=b.cls;
-    window.AL={cls:b.cls,sub:'',ch:b.bookName};
+    window.AL={cls:b.cls,sub:'',ch:topic};
   }catch(e){}
   document.getElementById('mb-teach-popup').style.display='none';
-  // Switch to Teach tab
   var teachBtn=document.getElementById('tab-btn-student');
   if(teachBtn)teachBtn.click();
+}
+
+// ── SAMACHEER SECTION ──
+async function samLoadBooks(cls,sub){
+  var box=document.getElementById('sam-books-list');
+  if(!box)return;
+  if(!cls||!sub){box.innerHTML='<div style="color:#aaa;font-size:0.78rem;">Select class and subject above.</div>';return;}
+  box.innerHTML='<div style="color:#aaa;font-size:0.78rem;">Loading…</div>';
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_library',
+        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject'})});
+    var d=await r.json();
+    var books=Array.isArray(d)?d:(d.books||[]);
+    if(!books.length){
+      box.innerHTML='<div style="font-size:0.78rem;color:#888;line-height:1.7;">No Samacheer book found for '+cls+' '+sub+'.<br/>Ask your admin to upload it in the Super Admin panel.</div>';
+      return;
+    }
+    box.innerHTML='';
+    books.forEach(function(b){
+      var card=document.createElement('div');
+      card.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #c8e6c9;border-radius:9px;background:#f8fff8;margin-bottom:7px;cursor:pointer;transition:all 0.15s;';
+      card.innerHTML='<span style="font-size:1.4rem;">📗</span>'
+        +'<div style="flex:1;">'
+        +'<div style="font-weight:800;color:var(--maroon);font-size:0.82rem;">'+escHTP(b.title||b.subject)+'</div>'
+        +'<div style="font-size:0.68rem;color:#888;">'+escHTP(b.class_name)+' · Samacheer</div>'
+        +'</div>'
+        +'<span style="background:#d4edda;color:#155724;padding:2px 8px;border-radius:6px;font-size:0.65rem;font-weight:700;">✅ Ready</span>';
+      card.onmouseenter=function(){this.style.borderColor='var(--maroon)';};
+      card.onmouseleave=function(){this.style.borderColor='#c8e6c9';};
+      card.onclick=function(){samSelectBook(b);};
+      box.appendChild(card);
+    });
+  }catch(e){box.innerHTML='<div style="color:#c0392b;font-size:0.78rem;">Error: '+e.message+'</div>';}
+}
+
+function samSelectBook(book){
+  document.getElementById('mb-teach-popup').style.display='flex';
+  document.getElementById('mb-popup-bookname').textContent=(book.title||book.subject)+' ('+book.class_name+')';
+  document.getElementById('mb-popup-from').value='';
+  document.getElementById('mb-popup-to').value='';
+  document.getElementById('mb-popup-lesson').value='';
+  document.getElementById('mb-popup-status').textContent='';
+  window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:''};
 }
 
 // Load books on page load
@@ -1562,16 +1590,17 @@ document.addEventListener('DOMContentLoaded', function(){
   var mbSection=document.createElement('div');
   mbSection.innerHTML=`
   <div style="margin-top:18px;">
-    <!-- MY BOOKS HEADER -->
+
+    <!-- ══ SECTION A: MY BOOKS (Private/CBSE) ══ -->
     <div style="background:linear-gradient(135deg,var(--maroon-dark),var(--maroon));border-radius:14px 14px 0 0;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
       <div>
-        <div style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold-light);">📚 My Books</div>
+        <div style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold-light);">📚 My Books — Private / CBSE</div>
         <div style="font-size:0.72rem;color:var(--sandal);margin-top:2px;opacity:0.85;">Upload once — all teachers in your school can use</div>
       </div>
       <button onclick="document.getElementById('mb-form').style.display=document.getElementById('mb-form').style.display==='none'?'block':'none'" style="background:rgba(201,168,76,0.2);border:1px solid var(--gold-dark);color:var(--gold-light);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:700;font-family:Nunito,sans-serif;">+ Upload New Book</button>
     </div>
 
-    <!-- UPLOAD FORM (hidden by default) -->
+    <!-- Upload Form -->
     <div id="mb-form" style="display:none;background:#faf6ee;border:1.5px solid #e8dfc8;border-top:none;padding:16px 18px;">
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
         <div>
@@ -1585,8 +1614,7 @@ document.addEventListener('DOMContentLoaded', function(){
             <option>Pre KG</option><option>LKG</option><option>UKG</option>
             <option>Class 1</option><option>Class 2</option><option>Class 3</option>
             <option>Class 4</option><option>Class 5</option><option>Class 6</option>
-            <option>Class 7</option><option>Class 8</option><option>Class 9</option>
-            <option>Class 10</option>
+            <option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option>
           </select>
         </div>
       </div>
@@ -1595,13 +1623,11 @@ document.addEventListener('DOMContentLoaded', function(){
           <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Term</span>
           <select id="mb-book-term" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
             <option value="">Select Term</option>
-            <option value="1">Term 1</option>
-            <option value="2">Term 2</option>
-            <option value="3">Term 3</option>
+            <option value="1">Term 1</option><option value="2">Term 2</option><option value="3">Term 3</option>
           </select>
         </div>
         <div>
-          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">PDF File</span>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">PDF File (max 15MB)</span>
           <input type="file" id="mb-file-inp" accept=".pdf" style="width:100%;padding:7px;font-size:0.8rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;"/>
         </div>
       </div>
@@ -1609,24 +1635,58 @@ document.addEventListener('DOMContentLoaded', function(){
       <button id="mb-upload-btn" onclick="mbUploadBook()" style="padding:9px 22px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.88rem;cursor:pointer;">⬆️ Upload Book</button>
     </div>
 
-    <!-- BOOKS LIST -->
-    <div style="background:white;border:1.5px solid #e8dfc8;border-top:none;border-radius:0 0 14px 14px;padding:14px 18px;min-height:80px;">
+    <!-- Uploaded Books List -->
+    <div style="background:white;border:1.5px solid #e8dfc8;border-top:none;border-radius:0 0 14px 14px;padding:14px 18px;min-height:60px;">
       <div id="mb-list"></div>
     </div>
+
+    <!-- ══ SECTION B: SAMACHEER BOOKS ══ -->
+    <div style="margin-top:18px;background:linear-gradient(135deg,#0d3320,#1a5c2a);border-radius:14px 14px 0 0;padding:14px 18px;">
+      <div style="font-family:'Cinzel',serif;font-size:1rem;color:#d4edda;">📗 Samacheer Books</div>
+      <div style="font-size:0.72rem;color:#a3d9b1;margin-top:2px;">Government textbooks uploaded by admin</div>
+    </div>
+    <div style="background:#f8fff8;border:1.5px solid #c8e6c9;border-top:none;border-radius:0 0 14px 14px;padding:14px 18px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:#155724;display:block;margin-bottom:4px;">Class</span>
+          <select id="sam-cls" onchange="samLoadBooks(this.value,document.getElementById('sam-sub').value)" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #c8e6c9;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+            <option value="">Select Class</option>
+            <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+            <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+            <option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option>
+          </select>
+        </div>
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:#155724;display:block;margin-bottom:4px;">Subject</span>
+          <select id="sam-sub" onchange="samLoadBooks(document.getElementById('sam-cls').value,this.value)" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #c8e6c9;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+            <option value="">Select Subject</option>
+            <option>Science</option><option>Mathematics</option><option>Social Science</option>
+            <option>English</option><option>Tamil</option><option>EVS</option>
+            <option>Computer Science</option><option>Hindi</option>
+          </select>
+        </div>
+      </div>
+      <div id="sam-books-list"><div style="color:#aaa;font-size:0.78rem;">Select class and subject to see books.</div></div>
+    </div>
+
   </div>
 
-  <!-- PAGE RANGE POPUP -->
+  <!-- ══ PAGE RANGE POPUP (shared by both sections) ══ -->
   <div id="mb-teach-popup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;padding:20px;">
     <div style="background:white;border-radius:18px;width:100%;max-width:400px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
       <div style="font-family:'Cinzel',serif;font-size:1.05rem;color:var(--maroon);margin-bottom:4px;">📖 Select Pages to Teach</div>
-      <div id="mb-popup-bookname" style="font-size:0.8rem;color:#888;margin-bottom:16px;"></div>
+      <div id="mb-popup-bookname" style="font-size:0.8rem;color:#888;margin-bottom:12px;"></div>
+      <div style="margin-bottom:10px;">
+        <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Lesson / Topic Name <span style="font-weight:400;color:#aaa;">(optional)</span></span>
+        <input id="mb-popup-lesson" placeholder="e.g. Nervous System, Chapter 3" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
         <div>
-          <span style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Start Page</span>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Start Page</span>
           <input id="mb-popup-from" type="number" min="1" placeholder="e.g. 45" style="width:100%;padding:10px;font-size:1rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;text-align:center;"/>
         </div>
         <div>
-          <span style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">End Page</span>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">End Page</span>
           <input id="mb-popup-to" type="number" min="1" placeholder="e.g. 67" style="width:100%;padding:10px;font-size:1rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;text-align:center;"/>
         </div>
       </div>
