@@ -1,6 +1,6 @@
 const https = require('https');
 
-module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
+module.exports.config = { api: { bodyParser: { sizeLimit: '20mb' } } };
 
 const HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 
@@ -476,6 +476,102 @@ module.exports = async function(req2, res) {
       } else {
         await req('DELETE', `/rest/v1/school_library_access?school_id=eq.${encodeURIComponent(school_id)}`, null);
       }
+      return res.json({ success: true });
+    }
+
+    // ── UPLOAD BOOK TO SUPABASE STORAGE ──
+    if (action === 'upload_book') {
+      const { school_id, book_name, class_name, term, file_base64, file_name } = body;
+      if (!school_id || !book_name || !class_name || !term || !file_base64) {
+        return res.json({ error: 'Missing required fields.' });
+      }
+
+      const key = process.env.SUPABASE_SECRET_KEY;
+      const fileBuffer = Buffer.from(file_base64, 'base64');
+      const filePath = school_id + '/' + class_name.replace(/\s+/g, '-') + '_term' + term + '_' + Date.now() + '.pdf';
+
+      // Upload PDF to storage bucket using service key (bypasses RLS)
+      await new Promise((resolve, reject) => {
+        const opts = {
+          hostname: HOST,
+          path: '/storage/v1/object/school-books/' + filePath,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/pdf',
+            'apikey': key,
+            'Authorization': 'Bearer ' + key,
+            'x-upsert': 'true',
+            'Content-Length': fileBuffer.length
+          }
+        };
+        const r = https.request(opts, response => {
+          let d = '';
+          response.on('data', c => d += c);
+          response.on('end', () => {
+            if (response.statusCode >= 200 && response.statusCode < 300) {
+              resolve(d);
+            } else {
+              reject(new Error('Storage upload failed: ' + d));
+            }
+          });
+        });
+        r.on('error', reject);
+        r.write(fileBuffer);
+        r.end();
+      });
+
+      const pdfUrl = 'https://' + HOST + '/storage/v1/object/public/school-books/' + filePath;
+
+      // Save book record to school_books table
+      const saveRes = await req('POST', '/rest/v1/school_books', {
+        school_id,
+        book_name,
+        class_name,
+        term,
+        pdf_url: pdfUrl,
+        file_path: filePath,
+        uploaded_by: body.uploaded_by || ''
+      });
+
+      if (saveRes.status !== 201) {
+        const msg = typeof saveRes.data === 'object' ? JSON.stringify(saveRes.data) : saveRes.data;
+        return res.json({ error: 'Book record save failed: ' + msg });
+      }
+
+      return res.json({ success: true, pdf_url: pdfUrl, book: Array.isArray(saveRes.data) ? saveRes.data[0] : saveRes.data });
+    }
+
+    // ── GET SCHOOL BOOKS ──
+    if (action === 'get_school_books') {
+      const { school_id } = body;
+      if (!school_id) return res.json({ books: [] });
+      const r = await req('GET', '/rest/v1/school_books?school_id=eq.' + encodeURIComponent(school_id) + '&select=*&order=created_at.desc');
+      return res.json({ success: true, books: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    // ── DELETE SCHOOL BOOK ──
+    if (action === 'delete_school_book') {
+      const { book_id, file_path } = body;
+      if (!book_id) return res.json({ error: 'book_id required' });
+
+      // Delete from storage if file_path provided
+      if (file_path) {
+        const key = process.env.SUPABASE_SECRET_KEY;
+        await new Promise((resolve) => {
+          const opts = {
+            hostname: HOST,
+            path: '/storage/v1/object/school-books/' + file_path,
+            method: 'DELETE',
+            headers: { 'apikey': key, 'Authorization': 'Bearer ' + key }
+          };
+          const r = https.request(opts, res2 => { res2.on('data', () => {}); res2.on('end', resolve); });
+          r.on('error', resolve);
+          r.end();
+        });
+      }
+
+      // Delete from table
+      await req('DELETE', '/rest/v1/school_books?id=eq.' + encodeURIComponent(book_id), null);
       return res.json({ success: true });
     }
 
