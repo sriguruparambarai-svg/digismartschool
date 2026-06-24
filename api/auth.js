@@ -479,6 +479,24 @@ module.exports = async function(req2, res) {
       return res.json({ success: true });
     }
 
+    // ── SAVE BOOK RECORD (after browser uploads PDF directly to storage) ──
+    if (action === 'save_book_record') {
+      const { school_id, book_name, class_name, term, pdf_url, file_path, uploaded_by } = body;
+      if (!school_id || !book_name || !class_name || !term || !pdf_url) {
+        return res.json({ error: 'Missing required fields.' });
+      }
+      const saveRes = await req('POST', '/rest/v1/school_books', {
+        school_id, book_name, class_name, term, pdf_url,
+        file_path: file_path || '',
+        uploaded_by: uploaded_by || ''
+      });
+      if (saveRes.status !== 201) {
+        const msg = typeof saveRes.data === 'object' ? JSON.stringify(saveRes.data) : saveRes.data;
+        return res.json({ error: 'Save failed: ' + msg });
+      }
+      return res.json({ success: true, book: Array.isArray(saveRes.data) ? saveRes.data[0] : saveRes.data });
+    }
+
     // ── UPLOAD BOOK TO SUPABASE STORAGE ──
     if (action === 'upload_book') {
       const { school_id, book_name, class_name, term, file_base64, file_name } = body;
