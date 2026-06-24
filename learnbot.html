@@ -1146,13 +1146,14 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
   <div class="header-right"><span class="ai-badge">✨ AI Powered</span></div>
 </div>
 
-<!-- ROLE TABS — shown based on role -->
+<!-- ROLE TABS — 2 tabs only -->
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
-  <button class="tab-btn" id="tab-btn-library" onclick="openLibraryTab(this)">📚 Lesson Library</button>
-  <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Student TeachBot</button>
-  <button class="tab-btn" id="tab-btn-notes" onclick="showTab('notes',this)">📋 Class Notes</button>
-  <button class="tab-btn" id="tab-btn-revision" onclick="openRevisionPage()">🔁 Class Revision</button>
+  <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Teach</button>
+  <!-- Hidden tabs kept for JS compatibility -->
+  <button class="tab-btn" id="tab-btn-library" style="display:none;" onclick="openLibraryTab(this)">📚 Lesson Library</button>
+  <button class="tab-btn" id="tab-btn-notes" style="display:none;" onclick="showTab('notes',this)">📋 Class Notes</button>
+  <button class="tab-btn" id="tab-btn-revision" style="display:none;" onclick="openRevisionPage()">🔁 Class Revision</button>
 </div>
 
 <!-- ROLE ACCESS BANNER — shown to students/parents who try to access teacher panel -->
@@ -1171,8 +1172,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <!-- App layout: left sidebar + main content -->
 <div class="app-layout">
 
-<!-- LEFT SIDEBAR — Subject navigation -->
-<div class="subj-sidebar">
+<!-- LEFT SIDEBAR — hidden, kept for JS compatibility -->
+<div class="subj-sidebar" style="display:none!important;width:0!important;">
   <div class="subj-sidebar-title">Subjects</div>
   <button class="subj-nav-btn active" id="subj-maths-btn"   onclick="showSubject('maths',this)">
     <span class="subj-nav-icon">📐</span><span class="subj-nav-label">Maths</span>
@@ -1379,6 +1380,267 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 
 </div><!-- scroll wrap -->
 </div><!-- tab-teacher -->
+
+<!-- ══════════════════════════════════════
+     MY BOOKS — SUPABASE STORAGE SECTION
+     (Inside Teacher Panel, below lessons)
+══════════════════════════════════════ -->
+<script>
+// ── MY BOOKS — upload to Supabase storage bucket ──
+var SB_BOOKS_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+var SB_BOOKS_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
+
+function getSchoolIdForBooks(){
+  try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); return u.school_id||u.id||''; }catch(e){ return ''; }
+}
+
+async function mbLoadBooks(){
+  var list=document.getElementById('mb-list');
+  if(!list)return;
+  list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">Loading books…</div>';
+  var schoolId=getSchoolIdForBooks();
+  if(!schoolId){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Not logged in.</div>';return;}
+  try{
+    var res=await fetch(SB_BOOKS_URL+'/rest/v1/school_books?school_id=eq.'+encodeURIComponent(schoolId)+'&select=*&order=created_at.desc',{
+      headers:{'apikey':SB_BOOKS_KEY,'Authorization':'Bearer '+SB_BOOKS_KEY}
+    });
+    var books=await res.json();
+    if(!books||!books.length){list.innerHTML='<div style="color:#aaa;font-size:0.82rem;padding:10px 0;">No books uploaded yet. Upload your first book above.</div>';return;}
+    list.innerHTML='';
+    books.forEach(function(b){
+      var card=document.createElement('div');
+      card.style.cssText='display:flex;align-items:center;gap:12px;padding:12px 14px;border:1.5px solid #e8dfc8;border-radius:10px;background:#faf6ee;margin-bottom:8px;cursor:pointer;transition:all 0.15s;';
+      card.innerHTML='<span style="font-size:1.6rem;flex-shrink:0;">📚</span>'
+        +'<div style="flex:1;min-width:0;">'
+        +'<div style="font-weight:800;color:var(--maroon);font-size:0.88rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'+escHTP(b.book_name)+'</div>'
+        +'<div style="font-size:0.72rem;color:#888;margin-top:2px;">'+escHTP(b.class_name)+' · Term '+escHTP(b.term)+'</div>'
+        +'</div>'
+        +'<button onclick="mbStartLesson(\''+b.id+'\',\''+escHTP(b.book_name)+'\',\''+escHTP(b.class_name)+'\',\''+b.pdf_url+'\')" style="padding:7px 14px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;font-family:Nunito,sans-serif;font-size:0.78rem;font-weight:800;cursor:pointer;white-space:nowrap;">▶ Use Book</button>';
+      card.onmouseenter=function(){this.style.borderColor='var(--maroon)';this.style.background='white';};
+      card.onmouseleave=function(){this.style.borderColor='#e8dfc8';this.style.background='#faf6ee';};
+      list.appendChild(card);
+    });
+  }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Error loading books: '+e.message+'</div>';}
+}
+
+async function mbUploadBook(){
+  var nameEl=document.getElementById('mb-book-name');
+  var clsEl=document.getElementById('mb-book-class');
+  var termEl=document.getElementById('mb-book-term');
+  var fileInp=document.getElementById('mb-file-inp');
+  var statusEl=document.getElementById('mb-status');
+  var btn=document.getElementById('mb-upload-btn');
+
+  var name=nameEl.value.trim();
+  var cls=clsEl.value;
+  var term=termEl.value;
+  var file=fileInp.files&&fileInp.files[0];
+
+  if(!name){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Enter book name.';return;}
+  if(!cls){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Select class.';return;}
+  if(!term){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Select term.';return;}
+  if(!file){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Select a PDF file.';return;}
+
+  var schoolId=getSchoolIdForBooks();
+  if(!schoolId){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Not logged in.';return;}
+
+  btn.disabled=true;btn.textContent='⏳ Uploading…';
+  statusEl.style.color='var(--maroon)';statusEl.textContent='Uploading PDF to cloud…';
+
+  try{
+    // 1. Upload PDF to Supabase storage bucket
+    var filePath=schoolId+'/'+cls.replace(/\s+/g,'-')+'_term'+term+'_'+Date.now()+'.pdf';
+    var uploadRes=await fetch(SB_BOOKS_URL+'/storage/v1/object/school-books/'+filePath,{
+      method:'POST',
+      headers:{
+        'apikey':SB_BOOKS_KEY,
+        'Authorization':'Bearer '+SB_BOOKS_KEY,
+        'Content-Type':'application/pdf',
+        'x-upsert':'true'
+      },
+      body:file
+    });
+    if(!uploadRes.ok){
+      var errTxt=await uploadRes.text();
+      throw new Error('Upload failed: '+errTxt);
+    }
+
+    // 2. Get public URL
+    var pdfUrl=SB_BOOKS_URL+'/storage/v1/object/public/school-books/'+filePath;
+
+    // 3. Save book record to school_books table
+    var saveRes=await fetch(SB_BOOKS_URL+'/rest/v1/school_books',{
+      method:'POST',
+      headers:{
+        'apikey':SB_BOOKS_KEY,
+        'Authorization':'Bearer '+SB_BOOKS_KEY,
+        'Content-Type':'application/json',
+        'Prefer':'return=representation'
+      },
+      body:JSON.stringify({
+        school_id:schoolId,
+        book_name:name,
+        class_name:cls,
+        term:term,
+        pdf_url:pdfUrl,
+        file_path:filePath,
+        uploaded_by:localStorage.getItem('dss_user')?JSON.parse(localStorage.getItem('dss_user')).email||'':''
+      })
+    });
+    if(!saveRes.ok){
+      var errTxt2=await saveRes.text();
+      throw new Error('Save failed: '+errTxt2);
+    }
+
+    statusEl.style.color='#1a5c2a';
+    statusEl.textContent='✅ Book uploaded successfully! All teachers in your school can now use it.';
+    nameEl.value='';clsEl.value='';termEl.value='';fileInp.value='';
+    document.getElementById('mb-form').style.display='none';
+    mbLoadBooks();
+
+  }catch(e){
+    statusEl.style.color='#c0392b';
+    statusEl.textContent='❌ Error: '+e.message;
+  }finally{
+    btn.disabled=false;btn.textContent='⬆️ Upload Book';
+  }
+}
+
+function mbStartLesson(bookId,bookName,cls,pdfUrl){
+  // Store selected book info — teacher will enter page range in the popup
+  document.getElementById('mb-teach-popup').style.display='flex';
+  document.getElementById('mb-popup-bookname').textContent=bookName+' ('+cls+')';
+  document.getElementById('mb-popup-from').value='';
+  document.getElementById('mb-popup-to').value='';
+  document.getElementById('mb-popup-status').textContent='';
+  window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
+}
+
+function mbGoTeach(){
+  var from=parseInt(document.getElementById('mb-popup-from').value)||0;
+  var to=parseInt(document.getElementById('mb-popup-to').value)||0;
+  var statusEl=document.getElementById('mb-popup-status');
+  if(!from||!to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Enter start and end page numbers.';return;}
+  if(from>to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Start page must be less than end page.';return;}
+  var b=window._mbSelectedBook||{};
+  // Save to sessionStorage so Teach tab and teaching modes can use it
+  try{
+    sessionStorage.setItem('tm_activated',JSON.stringify({
+      subject:'',cls:b.cls,topic:b.bookName,lessonText:'',
+      lang:'en',autostart:false,
+      pageFrom:from,pageTo:to,
+      bookId:b.bookId,pdfUrl:b.pdfUrl
+    }));
+    // Also update banner on Teach tab
+    var banner=document.getElementById('active-lesson-banner');
+    var bannerName=document.getElementById('banner-lesson-name');
+    var bannerInfo=document.getElementById('banner-lesson-info');
+    if(banner){banner.style.display='flex';}
+    if(bannerName)bannerName.textContent='📖 '+b.bookName;
+    if(bannerInfo)bannerInfo.textContent=b.cls+' · Pages '+from+' to '+to+' · Click a teaching style to start';
+    // Update hidden fields for compatibility
+    var tCls=document.getElementById('t-class');if(tCls)tCls.value=b.cls;
+    window.AL={cls:b.cls,sub:'',ch:b.bookName};
+  }catch(e){}
+  document.getElementById('mb-teach-popup').style.display='none';
+  // Switch to Teach tab
+  var teachBtn=document.getElementById('tab-btn-student');
+  if(teachBtn)teachBtn.click();
+}
+
+// Load books on page load
+document.addEventListener('DOMContentLoaded',function(){ mbLoadBooks(); });
+</script>
+
+<!-- MY BOOKS HTML — appended inside Teacher Panel scroll area -->
+<script>
+// Inject My Books section at bottom of Teacher Panel
+document.addEventListener('DOMContentLoaded', function(){
+  var teacherPanel=document.getElementById('tab-teacher');
+  if(!teacherPanel)return;
+  var scrollWrap=teacherPanel.querySelector('div[style*="overflow-y:auto"]')||teacherPanel;
+  var mbSection=document.createElement('div');
+  mbSection.innerHTML=`
+  <div style="margin-top:18px;">
+    <!-- MY BOOKS HEADER -->
+    <div style="background:linear-gradient(135deg,var(--maroon-dark),var(--maroon));border-radius:14px 14px 0 0;padding:14px 18px;display:flex;align-items:center;justify-content:space-between;">
+      <div>
+        <div style="font-family:'Cinzel',serif;font-size:1rem;color:var(--gold-light);">📚 My Books</div>
+        <div style="font-size:0.72rem;color:var(--sandal);margin-top:2px;opacity:0.85;">Upload once — all teachers in your school can use</div>
+      </div>
+      <button onclick="document.getElementById('mb-form').style.display=document.getElementById('mb-form').style.display==='none'?'block':'none'" style="background:rgba(201,168,76,0.2);border:1px solid var(--gold-dark);color:var(--gold-light);padding:6px 14px;border-radius:8px;cursor:pointer;font-size:0.82rem;font-weight:700;font-family:Nunito,sans-serif;">+ Upload New Book</button>
+    </div>
+
+    <!-- UPLOAD FORM (hidden by default) -->
+    <div id="mb-form" style="display:none;background:#faf6ee;border:1.5px solid #e8dfc8;border-top:none;padding:16px 18px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Book Name</span>
+          <input id="mb-book-name" placeholder="e.g. Class 1 Term 1 All Subjects" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
+        </div>
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Class</span>
+          <select id="mb-book-class" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+            <option value="">Select Class</option>
+            <option>Pre KG</option><option>LKG</option><option>UKG</option>
+            <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+            <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+            <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+            <option>Class 10</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Term</span>
+          <select id="mb-book-term" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+            <option value="">Select Term</option>
+            <option value="1">Term 1</option>
+            <option value="2">Term 2</option>
+            <option value="3">Term 3</option>
+          </select>
+        </div>
+        <div>
+          <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">PDF File</span>
+          <input type="file" id="mb-file-inp" accept=".pdf" style="width:100%;padding:7px;font-size:0.8rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;"/>
+        </div>
+      </div>
+      <div id="mb-status" style="font-size:0.78rem;font-weight:700;margin-bottom:8px;min-height:18px;"></div>
+      <button id="mb-upload-btn" onclick="mbUploadBook()" style="padding:9px 22px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.88rem;cursor:pointer;">⬆️ Upload Book</button>
+    </div>
+
+    <!-- BOOKS LIST -->
+    <div style="background:white;border:1.5px solid #e8dfc8;border-top:none;border-radius:0 0 14px 14px;padding:14px 18px;min-height:80px;">
+      <div id="mb-list"></div>
+    </div>
+  </div>
+
+  <!-- PAGE RANGE POPUP -->
+  <div id="mb-teach-popup" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:white;border-radius:18px;width:100%;max-width:400px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
+      <div style="font-family:'Cinzel',serif;font-size:1.05rem;color:var(--maroon);margin-bottom:4px;">📖 Select Pages to Teach</div>
+      <div id="mb-popup-bookname" style="font-size:0.8rem;color:#888;margin-bottom:16px;"></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div>
+          <span style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Start Page</span>
+          <input id="mb-popup-from" type="number" min="1" placeholder="e.g. 45" style="width:100%;padding:10px;font-size:1rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;text-align:center;"/>
+        </div>
+        <div>
+          <span style="font-size:0.78rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">End Page</span>
+          <input id="mb-popup-to" type="number" min="1" placeholder="e.g. 67" style="width:100%;padding:10px;font-size:1rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;text-align:center;"/>
+        </div>
+      </div>
+      <div id="mb-popup-status" style="font-size:0.78rem;font-weight:700;margin-bottom:10px;min-height:18px;"></div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="mbGoTeach()" style="flex:1;padding:12px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:10px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">▶ Go to Teach Tab</button>
+        <button onclick="document.getElementById('mb-teach-popup').style.display='none'" style="padding:12px 18px;background:#eee;color:#333;border:none;border-radius:10px;font-family:Nunito,sans-serif;font-weight:700;cursor:pointer;">Cancel</button>
+      </div>
+    </div>
+  </div>
+  `;
+  scrollWrap.appendChild(mbSection);
+});
+</script>
 
 <!-- ══════════════════════════════════════
      TEACHER PANEL JAVASCRIPT
@@ -1709,84 +1971,64 @@ if(typeof pdfjsLib==='undefined'){var _s=document.createElement('script');_s.src
 <div id="tab-student" class="panel">
   <div id="student-setup" class="card" style="display:block;">
 
-<!-- ONE-SCREEN STUDENT SETUP: selectors + mode cards together -->
+<!-- TEACH TAB: Language selector + 4 teaching style cards -->
 <div id="sp-step1-wrap">
 
-  <!-- ── TOP ROW: Class + Subject + Language ── -->
-  <div class="ssp-top">
-    <div class="ssp-selectors">
-      <div class="ssp-field">
-        <label class="ssp-label">Class</label>
-        <select id="s-class" class="ssp-select"><option value="">Select Class</option><option>Pre KG</option><option>LKG</option><option>UKG</option><option>Class 1</option><option>Class 2</option><option>Class 3</option><option>Class 4</option><option>Class 5</option><option>Class 6</option><option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option><option>Class 11</option><option>Class 12</option></select>
-      </div>
-      <div class="ssp-field">
-        <label class="ssp-label">Subject</label>
-        <select id="s-subject" class="ssp-select"><option value="">Select Subject</option><option>English</option><option>Tamil</option><option>Maths</option><option>Science</option><option>Social Science</option><option>EVS</option><option>Computer Science</option><option>Hindi</option></select>
-      </div>
-      <div class="ssp-field">
-        <label class="ssp-label">Language</label>
-        <div class="ssp-lang-row">
-          <button class="ssp-lang-btn lang-card selected" id="slang-english" onclick="setLangBtn('english',this)">🇬🇧 English</button>
-          <button class="ssp-lang-btn lang-card" id="slang-tamil"   onclick="setLangBtn('tamil',this)">🇮🇳 Tamil</button>
-          <button class="ssp-lang-btn lang-card" id="slang-bi"      onclick="setLangBtn('bilingual',this)">🔀 Both</button>
-        </div>
-      </div>
-    </div>
-    <div class="ssp-heading">
-      <div class="ssp-title">Choose Your Learning Mode</div>
-      <div class="ssp-sub">Click any card to start immediately</div>
+  <!-- Hidden selectors kept for JS compatibility -->
+  <select id="s-class" style="display:none;"><option value="">Select Class</option><option>Pre KG</option><option>LKG</option><option>UKG</option><option>Class 1</option><option>Class 2</option><option>Class 3</option><option>Class 4</option><option>Class 5</option><option>Class 6</option><option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option><option>Class 11</option><option>Class 12</option></select>
+  <select id="s-subject" style="display:none;"><option value="">Select Subject</option><option>English</option><option>Tamil</option><option>Maths</option><option>Science</option><option>Social Science</option><option>EVS</option><option>Computer Science</option><option>Hindi</option></select>
+
+  <!-- Language selector -->
+  <div style="background:linear-gradient(145deg,var(--sandal),var(--white));border:1.5px solid rgba(160,120,48,0.3);border-radius:16px;padding:18px 20px;margin-bottom:18px;box-shadow:0 4px 18px rgba(107,15,26,0.1);">
+    <div style="font-family:'Cinzel',serif;font-size:0.85rem;color:var(--maroon);font-weight:700;margin-bottom:10px;letter-spacing:1px;">🌐 TEACHING LANGUAGE</div>
+    <div style="display:flex;gap:10px;">
+      <button class="ssp-lang-btn lang-card selected" id="slang-english" onclick="setLangBtn('english',this)" style="flex:1;padding:12px;border-radius:10px;border:2px solid var(--gold-dark);background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);font-weight:800;font-size:0.95rem;cursor:pointer;">🇬🇧 English</button>
+      <button class="ssp-lang-btn lang-card" id="slang-tamil" onclick="setLangBtn('tamil',this)" style="flex:1;padding:12px;border-radius:10px;border:2px solid var(--gold-dark);background:var(--white);color:var(--maroon);font-weight:800;font-size:0.95rem;cursor:pointer;">🇮🇳 Tamil</button>
+      <button class="ssp-lang-btn lang-card" id="slang-bi" onclick="setLangBtn('bilingual',this)" style="flex:1;padding:12px;border-radius:10px;border:2px solid var(--gold-dark);background:var(--white);color:var(--maroon);font-weight:800;font-size:0.95rem;cursor:pointer;">🔀 Both</button>
     </div>
   </div>
 
-  <!-- ── MODE CARDS ── -->
-  <div class="ssp-mode-grid" id="mode-grid-area">
+  <!-- Lesson info banner — shown after teacher selects lesson from Teacher Panel -->
+  <div id="active-lesson-banner" style="display:none;background:linear-gradient(135deg,#1a5c2a,#155724);border-radius:12px;padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+    <span style="font-size:1.5rem;">📖</span>
+    <div>
+      <div style="font-weight:800;color:#d4edda;font-size:0.9rem;" id="banner-lesson-name">Ready to teach</div>
+      <div style="font-size:0.75rem;color:#a3d9b1;margin-top:2px;" id="banner-lesson-info">Select a lesson from Teacher Panel first</div>
+    </div>
+  </div>
 
-    <!-- Teaching Mode — shows subject picker -->
-    <div class="ssp-card ssp-card-featured mode-card" id="mode-teaching-card" onclick="openTeachingPicker()">
+  <!-- 4 Teaching Style Cards in 2x2 grid -->
+  <div style="margin-bottom:10px;">
+    <div style="font-family:'Cinzel',serif;font-size:0.85rem;color:var(--maroon);font-weight:700;letter-spacing:1px;margin-bottom:12px;">🎯 CHOOSE TEACHING STYLE</div>
+    <div style="font-size:0.75rem;color:var(--maroon-mid);margin-bottom:14px;">Click any style to start teaching immediately</div>
+  </div>
+
+  <div class="ssp-mode-grid" id="mode-grid-area" style="grid-template-columns:1fr 1fr;gap:14px;">
+
+    <!-- 1. Teaching Mode -->
+    <div class="ssp-card ssp-card-featured mode-card" id="mode-teaching-card" onclick="openTeachingPicker()" style="padding:22px 16px;">
       <span class="ssp-ai-pill">AI ✦</span>
       <span class="ssp-card-icon">🎓</span>
       <div class="ssp-card-name">Teaching Mode</div>
       <div class="ssp-card-desc">AI teacher takes class with voice</div>
     </div>
 
-    <div class="ssp-card mode-card" onclick="checkAndLaunch('video')">
+    <!-- 2. Blackboard AI -->
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('video')" style="padding:22px 16px;">
       <span class="ssp-card-icon">🖥️</span>
       <div class="ssp-card-name">Blackboard AI</div>
       <div class="ssp-card-desc">Live diagrams & explanations</div>
     </div>
 
-    <div class="ssp-card mode-card" onclick="checkAndLaunch('slides')">
+    <!-- 3. Slide Mode -->
+    <div class="ssp-card mode-card" onclick="checkAndLaunch('slides')" style="padding:22px 16px;">
       <span class="ssp-card-icon">🖼️</span>
       <div class="ssp-card-name">Slide Mode</div>
       <div class="ssp-card-desc">Full lesson as structured slides</div>
     </div>
 
-    <div class="ssp-card mode-card" onclick="checkAndLaunch('quiz')">
-      <span class="ssp-card-icon">🧪</span>
-      <div class="ssp-card-name">Quiz Mode</div>
-      <div class="ssp-card-desc">Test your understanding</div>
-    </div>
-
-    <div class="ssp-card mode-card" onclick="checkAndLaunch('chat')">
-      <span class="ssp-card-icon">💬</span>
-      <div class="ssp-card-name">Doubt Mode</div>
-      <div class="ssp-card-desc">Ask anything about the lesson</div>
-    </div>
-
-    <div class="ssp-card mode-card" onclick="checkAndLaunch('exam')">
-      <span class="ssp-card-icon">🏆</span>
-      <div class="ssp-card-name">Exam Prep</div>
-      <div class="ssp-card-desc">Competitive exam questions</div>
-    </div>
-
-    <div class="ssp-card mode-card" id="mode-diagram-card" onclick="checkAndLaunch('diagram')">
-      <span class="ssp-card-icon">🔬</span>
-      <div class="ssp-card-name">Diagram Mode</div>
-      <div class="ssp-card-desc">Visual science diagrams</div>
-    </div>
-
-    <!-- AI Teacher — Bilingual Classroom Mode -->
-    <div class="ssp-card ssp-card-featured mode-card" onclick="openAITeacher()" style="grid-column:span 2;background:linear-gradient(135deg,#0a0020,#1a0010,#2d0f1a);border:2px solid var(--gold);position:relative;overflow:hidden;">
+    <!-- 4. AI Teacher — Bilingual Classroom -->
+    <div class="ssp-card ssp-card-featured mode-card" onclick="openAITeacher()" style="padding:22px 16px;background:linear-gradient(135deg,#0a0020,#1a0010,#2d0f1a);border:2px solid var(--gold);position:relative;overflow:hidden;">
       <div style="position:absolute;inset:0;background:radial-gradient(ellipse at 60% 40%,rgba(201,168,76,0.15),transparent 65%);pointer-events:none;"></div>
       <span class="ssp-ai-pill" style="background:linear-gradient(135deg,#C9A84C,#FFD700);color:#0a0020;">🎙️ CLASSROOM</span>
       <span class="ssp-card-icon" style="color:var(--gold-light);">🏫</span>
@@ -1794,7 +2036,7 @@ if(typeof pdfjsLib==='undefined'){var _s=document.createElement('script');_s.src
       <div class="ssp-card-desc" style="color:var(--sandal);opacity:0.85;">Bilingual voice teaching with 3D visuals</div>
     </div>
 
-  </div><!-- /ssp-mode-grid / mode-grid-area -->
+  </div><!-- /mode-grid-area -->
 
 </div><!-- /sp-step1-wrap -->
 
