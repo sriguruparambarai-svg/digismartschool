@@ -1276,8 +1276,8 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <div id="save-status" style="display:none;"></div>
 <div id="lib-pick-status" style="display:none;"></div>
 
-<!-- STEP 1: CLASS + SUBJECT -->
-<div class="tp">
+<!-- STEP 1: CLASS + SUBJECT — hidden, My Books handles everything now -->
+<div class="tp" id="tp-s1-wrap" style="display:none!important;">
   <div class="tp-title"><span class="tp-n">1</span> Select Class & Subject</div>
   <div class="tp-g2">
     <div>
@@ -1439,43 +1439,55 @@ async function mbUploadBook(){
   var schoolId=getSchoolIdForBooks();
   if(!schoolId){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Not logged in.';return;}
 
-  // Check file size — warn if over 15MB
-  if(file.size > 15*1024*1024){
+  if(file.size > 45*1024*1024){
     statusEl.style.color='#c0392b';
-    statusEl.textContent='⚠️ File too large (max 15MB). Please compress the PDF first.';
+    statusEl.textContent='⚠️ File too large (max 45MB). Please compress the PDF first.';
     return;
   }
 
   btn.disabled=true;btn.textContent='⏳ Uploading…';
-  statusEl.style.color='var(--maroon)';statusEl.textContent='Reading PDF…';
+  statusEl.style.color='var(--maroon)';statusEl.textContent='Uploading PDF to cloud…';
+
+  var SB_URL='https://pzxosqukijwpjdlfdfst.supabase.co';
+  var SB_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MTI2NTQzODcsImV4cCI6MjAyODIzMDM4N30.Ry3DGBFSlFtBNyFpHMeiHMVp8Kgj2QyUjXEJnXfkMnY';
 
   try{
-    // Convert PDF to base64
-    var base64=await new Promise(function(resolve,reject){
-      var reader=new FileReader();
-      reader.onload=function(e){ resolve(e.target.result.split(',')[1]); };
-      reader.onerror=reject;
-      reader.readAsDataURL(file);
+    // Step 1: Upload PDF directly to Supabase storage (public bucket — anon key works)
+    var filePath=schoolId+'/'+cls.replace(/\s+/g,'-')+'_term'+term+'_'+Date.now()+'.pdf';
+    var uploadRes=await fetch(SB_URL+'/storage/v1/object/school-books/'+filePath,{
+      method:'POST',
+      headers:{
+        'apikey':SB_KEY,
+        'Authorization':'Bearer '+SB_KEY,
+        'Content-Type':'application/pdf',
+        'x-upsert':'true'
+      },
+      body:file
     });
+    if(!uploadRes.ok){
+      var errTxt=await uploadRes.text();
+      throw new Error('Upload failed: '+errTxt);
+    }
 
-    statusEl.textContent='Uploading to cloud… (may take 30 seconds for large files)';
+    statusEl.textContent='Saving book details…';
 
-    // Send to server — server uses service key to upload
-    var uploadRes=await fetch('/api/auth',{
+    // Step 2: Save book record via auth.js server (uses service key for table insert)
+    var pdfUrl=SB_URL+'/storage/v1/object/public/school-books/'+filePath;
+    var saveRes=await fetch('/api/auth',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
-        action:'upload_book',
+        action:'save_book_record',
         school_id:schoolId,
         book_name:name,
         class_name:cls,
         term:term,
-        file_base64:base64,
-        file_name:file.name,
-        uploaded_by:localStorage.getItem('dss_user')?JSON.parse(localStorage.getItem('dss_user')||'{}').email||'':''
+        pdf_url:pdfUrl,
+        file_path:filePath,
+        uploaded_by:''
       })
     });
-    var result=await uploadRes.json();
+    var result=await saveRes.json();
     if(result.error){throw new Error(result.error);}
 
     statusEl.style.color='#1a5c2a';
