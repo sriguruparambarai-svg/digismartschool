@@ -1514,6 +1514,7 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
   document.getElementById('mb-popup-from').value='';
   document.getElementById('mb-popup-to').value='';
   document.getElementById('mb-popup-lesson').value='';
+  document.getElementById('mb-popup-subject').value='';
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
 }
@@ -1522,14 +1523,16 @@ function mbGoTeach(){
   var from=parseInt(document.getElementById('mb-popup-from').value)||0;
   var to=parseInt(document.getElementById('mb-popup-to').value)||0;
   var lessonName=document.getElementById('mb-popup-lesson').value.trim();
+  var subject=document.getElementById('mb-popup-subject').value;
   var statusEl=document.getElementById('mb-popup-status');
+  if(!subject){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Please select a subject.';return;}
   if(!from||!to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Enter start and end page numbers.';return;}
   if(from>to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Start page must be less than end page.';return;}
   var b=window._mbSelectedBook||{};
-  var topic=lessonName||b.bookName;
+  var topic=lessonName||(subject+' — '+b.bookName);
   try{
     sessionStorage.setItem('tm_activated',JSON.stringify({
-      subject:'',cls:b.cls,topic:topic,lessonText:'',
+      subject:subject,cls:b.cls,topic:topic,lessonText:'',
       lang:'en',autostart:false,
       pageFrom:from,pageTo:to,
       bookId:b.bookId,pdfUrl:b.pdfUrl
@@ -1539,9 +1542,12 @@ function mbGoTeach(){
     var bannerInfo=document.getElementById('banner-lesson-info');
     if(banner){banner.style.display='flex';}
     if(bannerName)bannerName.textContent='📖 '+topic;
-    if(bannerInfo)bannerInfo.textContent=b.cls+' · Pages '+from+' – '+to+' · Choose a teaching style below';
+    if(bannerInfo)bannerInfo.textContent=b.cls+' · '+subject+' · Pages '+from+' – '+to+' · Choose a teaching style below';
     var tCls=document.getElementById('t-class');if(tCls)tCls.value=b.cls;
-    window.AL={cls:b.cls,sub:'',ch:topic};
+    var tSub=document.getElementById('t-subject');if(tSub)tSub.value=subject;
+    var sCls=document.getElementById('s-class');if(sCls)sCls.value=b.cls;
+    var sSub=document.getElementById('s-subject');if(sSub)sSub.value=subject;
+    window.AL={cls:b.cls,sub:subject,ch:topic};
   }catch(e){}
   document.getElementById('mb-teach-popup').style.display='none';
   var teachBtn=document.getElementById('tab-btn-student');
@@ -1588,6 +1594,10 @@ function samSelectBook(book){
   document.getElementById('mb-popup-from').value='';
   document.getElementById('mb-popup-to').value='';
   document.getElementById('mb-popup-lesson').value='';
+  // Pre-fill subject from Samacheer search filter
+  var samSub=(document.getElementById('sam-sub')||{}).value || book.subject || '';
+  var subEl=document.getElementById('mb-popup-subject');
+  if(subEl)subEl.value=samSub;
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:''};
 }
@@ -1697,6 +1707,20 @@ function injectMyBooksSection(){
     <div style="background:white;border-radius:18px;width:100%;max-width:400px;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.4);">
       <div style="font-family:'Cinzel',serif;font-size:1.05rem;color:var(--maroon);margin-bottom:4px;">📖 Select Pages to Teach</div>
       <div id="mb-popup-bookname" style="font-size:0.8rem;color:#888;margin-bottom:12px;"></div>
+      <div style="margin-bottom:10px;">
+        <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Subject <span style="color:#c0392b;">*</span></span>
+        <select id="mb-popup-subject" style="width:100%;padding:10px 11px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;background:white;">
+          <option value="">Select Subject</option>
+          <option value="English">English</option>
+          <option value="Tamil">Tamil</option>
+          <option value="Maths">Maths</option>
+          <option value="Science">Science</option>
+          <option value="Social Science">Social Science</option>
+          <option value="EVS">EVS</option>
+          <option value="Computer Science">Computer Science</option>
+          <option value="Hindi">Hindi</option>
+        </select>
+      </div>
       <div style="margin-bottom:10px;">
         <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Lesson / Topic Name <span style="font-weight:400;color:#aaa;">(optional)</span></span>
         <input id="mb-popup-lesson" placeholder="e.g. Nervous System, Chapter 3" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
