@@ -1519,7 +1519,71 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
 }
 
-function mbGoTeach(){
+// ── IndexedDB helpers for PDF caching ──
+var _mbIdb=null;
+function mbOpenIDB(){
+  return new Promise(function(resolve){
+    try{
+      var req=indexedDB.open('dss_textbooks',1);
+      req.onupgradeneeded=function(e){
+        try{ e.target.result.createObjectStore('pdfs',{keyPath:'key'}); }catch(err){}
+      };
+      req.onsuccess=function(e){ _mbIdb=e.target.result; resolve(true); };
+      req.onerror=function(){ resolve(false); };
+    }catch(e){ resolve(false); }
+  });
+}
+function mbSavePdfToIDB(key,arrayBuffer,meta){
+  if(!_mbIdb)return;
+  try{
+    var tx=_mbIdb.transaction('pdfs','readwrite');
+    tx.objectStore('pdfs').put({key:key,data:arrayBuffer,meta:meta,savedAt:Date.now()});
+  }catch(e){}
+}
+function mbLoadPdfFromIDB(key){
+  return new Promise(function(resolve){
+    if(!_mbIdb){ resolve(null); return; }
+    try{
+      var tx=_mbIdb.transaction('pdfs','readonly');
+      var req=tx.objectStore('pdfs').get(key);
+      req.onsuccess=function(e){ resolve(e.target.result||null); };
+      req.onerror=function(){ resolve(null); };
+    }catch(e){ resolve(null); }
+  });
+}
+function mbMakePdfKey(subj,cls){
+  return ('pdf_'+subj+'_'+cls).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+}
+
+// ── Extract text from PDF pages with [Page N] markers ──
+async function mbExtractPagesText(pdfDoc,pageFrom,pageTo){
+  var allText=[];
+  var totalPages=pdfDoc.numPages;
+  var from=Math.max(1,pageFrom);
+  var to=Math.min(totalPages,pageTo);
+  for(var pn=from; pn<=to; pn++){
+    try{
+      var page=await pdfDoc.getPage(pn);
+      var tc=await page.getTextContent();
+      var pageText='';
+      var lastY=null;
+      tc.items.forEach(function(item){
+        if(!item.str)return;
+        var y=item.transform&&item.transform[5];
+        if(lastY!==null && Math.abs(lastY-y)>5){ pageText+='\n'; }
+        pageText+=item.str+' ';
+        lastY=y;
+      });
+      pageText=pageText.replace(/\s+/g,' ').replace(/\n\s+/g,'\n').trim();
+      if(pageText.length>10){
+        allText.push('[Page '+pn+']\n'+pageText);
+      }
+    }catch(e){ console.log('Page '+pn+' err:',e); }
+  }
+  return allText.join('\n\n');
+}
+
+async function mbGoTeach(){
   var from=parseInt(document.getElementById('mb-popup-from').value)||0;
   var to=parseInt(document.getElementById('mb-popup-to').value)||0;
   var lessonName=document.getElementById('mb-popup-lesson').value.trim();
@@ -1530,28 +1594,100 @@ function mbGoTeach(){
   if(from>to){statusEl.style.color='#c0392b';statusEl.textContent='⚠️ Start page must be less than end page.';return;}
   var b=window._mbSelectedBook||{};
   var topic=lessonName||(subject+' — '+b.bookName);
+  var goBtn=document.querySelector('#mb-teach-popup button[onclick="mbGoTeach()"]');
+  var cancelBtn=document.querySelector('#mb-teach-popup button[onclick*="display=\'none\'"]');
+
+  statusEl.style.color='var(--maroon)';
+  if(goBtn){goBtn.disabled=true;goBtn.textContent='⏳ Loading PDF…';}
+  if(cancelBtn)cancelBtn.disabled=true;
+
   try{
+    // Step 1: Open IndexedDB
+    await mbOpenIDB();
+    var pdfKey=mbMakePdfKey(subject,b.cls);
+
+    // Step 2: Try to load from IndexedDB cache first
+    var savedPdf=await mbLoadPdfFromIDB(pdfKey);
+    var pdfArrayBuffer=null;
+
+    if(savedPdf && savedPdf.data){
+      statusEl.textContent='📚 Loading saved book from cache…';
+      pdfArrayBuffer=savedPdf.data;
+    } else {
+      // Step 3: Download from Supabase (first time)
+      statusEl.textContent='⬇️ Downloading book from cloud…';
+      var resp=await fetch(b.pdfUrl);
+      if(!resp.ok)throw new Error('Cannot download PDF');
+      pdfArrayBuffer=await resp.arrayBuffer();
+
+      // Save to IndexedDB for next time
+      statusEl.textContent='💾 Saving to device cache…';
+      mbSavePdfToIDB(pdfKey,pdfArrayBuffer.slice(0),{fileName:b.bookName,subj:subject,cls:b.cls,savedAt:Date.now()});
+    }
+
+    // Step 4: Extract text from selected pages
+    statusEl.textContent='📖 Extracting pages '+from+' to '+to+'…';
+    if(typeof pdfjsLib==='undefined'){
+      await new Promise(function(res){ setTimeout(res,800); });
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    var pdfDoc=await pdfjsLib.getDocument({data:pdfArrayBuffer.slice(0)}).promise;
+    var lessonText=await mbExtractPagesText(pdfDoc,from,to);
+
+    if(!lessonText || lessonText.length<30){
+      statusEl.style.color='#c0392b';
+      statusEl.textContent='⚠️ Could not extract text. PDF may be scanned images. Try a different page range.';
+      if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
+      if(cancelBtn)cancelBtn.disabled=false;
+      return;
+    }
+
+    // Step 5: Save everything to sessionStorage
     sessionStorage.setItem('tm_activated',JSON.stringify({
-      subject:subject,cls:b.cls,topic:topic,lessonText:'',
-      lang:'en',autostart:false,
-      pageFrom:from,pageTo:to,
-      bookId:b.bookId,pdfUrl:b.pdfUrl
+      subject:subject, cls:b.cls, topic:topic,
+      lessonText:lessonText.substring(0,15000),
+      lang:'en', autostart:false,
+      pageFrom:from, pageTo:to,
+      bookId:b.bookId, pdfUrl:b.pdfUrl,
+      pdfKey:pdfKey
     }));
+    sessionStorage.setItem('science_autostart',JSON.stringify({
+      chapter:topic, cls:b.cls, subject:subject,
+      lessonText:lessonText.substring(0,15000),
+      pdfKey:pdfKey
+    }));
+    sessionStorage.setItem('tm_lesson',lessonText.substring(0,15000));
+
+    // Update banner on Teach tab
     var banner=document.getElementById('active-lesson-banner');
     var bannerName=document.getElementById('banner-lesson-name');
     var bannerInfo=document.getElementById('banner-lesson-info');
-    if(banner){banner.style.display='flex';}
+    if(banner)banner.style.display='flex';
     if(bannerName)bannerName.textContent='📖 '+topic;
-    if(bannerInfo)bannerInfo.textContent=b.cls+' · '+subject+' · Pages '+from+' – '+to+' · Choose a teaching style below';
+    if(bannerInfo)bannerInfo.textContent=b.cls+' · '+subject+' · Pages '+from+'–'+to+' · Choose a teaching style below';
+
     var tCls=document.getElementById('t-class');if(tCls)tCls.value=b.cls;
     var tSub=document.getElementById('t-subject');if(tSub)tSub.value=subject;
     var sCls=document.getElementById('s-class');if(sCls)sCls.value=b.cls;
     var sSub=document.getElementById('s-subject');if(sSub)sSub.value=subject;
     window.AL={cls:b.cls,sub:subject,ch:topic};
-  }catch(e){}
-  document.getElementById('mb-teach-popup').style.display='none';
-  var teachBtn=document.getElementById('tab-btn-student');
-  if(teachBtn)teachBtn.click();
+
+    statusEl.style.color='#1a5c2a';
+    statusEl.textContent='✅ Ready! Opening teach tab…';
+    setTimeout(function(){
+      document.getElementById('mb-teach-popup').style.display='none';
+      var teachBtn=document.getElementById('tab-btn-student');
+      if(teachBtn)teachBtn.click();
+      if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
+      if(cancelBtn)cancelBtn.disabled=false;
+    },400);
+
+  }catch(err){
+    statusEl.style.color='#c0392b';
+    statusEl.textContent='❌ '+err.message;
+    if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
+    if(cancelBtn)cancelBtn.disabled=false;
+  }
 }
 
 // ── SAMACHEER SECTION ──
