@@ -406,17 +406,57 @@ window.addEventListener('load',function(){
   var chapter=decodeURIComponent(params.get('chapter')||params.get('topic')||'');
   var cls=decodeURIComponent(params.get('cls')||'');
   var subj=decodeURIComponent(params.get('subject')||'Science');
-  var lessonText='',ssChap=chapter,ssCls=cls,ssSubj=subj;
-  try{var raw=sessionStorage.getItem('science_autostart');if(raw){var d=JSON.parse(raw);sessionStorage.removeItem('science_autostart');ssChap=ssChap||d.chapter||'';ssCls=ssCls||d.cls||'';ssSubj=ssSubj||d.subject||'Science';lessonText=d.lessonText||'';}}catch(e){}
-  if(!lessonText){try{var act=sessionStorage.getItem('tm_activated');if(act){var ad=JSON.parse(act);ssChap=ssChap||ad.topic||'';ssCls=ssCls||ad.cls||'';ssSubj=ssSubj||ad.subject||'Science';lessonText=ad.lessonText||'';}}catch(e){}}
+  var lessonText='',ssChap=chapter,ssCls=cls,ssSubj=subj,ssPdfKey='',ssPageFrom=0;
+  try{var raw=sessionStorage.getItem('science_autostart');if(raw){var d=JSON.parse(raw);sessionStorage.removeItem('science_autostart');ssChap=ssChap||d.chapter||'';ssCls=ssCls||d.cls||'';ssSubj=ssSubj||d.subject||'Science';lessonText=d.lessonText||'';ssPdfKey=d.pdfKey||'';}}catch(e){}
+  if(!lessonText){try{var act=sessionStorage.getItem('tm_activated');if(act){var ad=JSON.parse(act);ssChap=ssChap||ad.topic||'';ssCls=ssCls||ad.cls||'';ssSubj=ssSubj||ad.subject||'Science';lessonText=ad.lessonText||'';ssPdfKey=ssPdfKey||ad.pdfKey||'';ssPageFrom=ad.pageFrom||0;}}catch(e){}}
   if(!lessonText){try{lessonText=sessionStorage.getItem('tm_lesson')||'';}catch(e){}}
   setTimeout(function(){
     document.getElementById('loading').classList.remove('on');
     if(!lessonText||lessonText.trim().length<30){document.getElementById('waiting').classList.add('on');return;}
-    try{paras=parseText(lessonText.trim(),ssChap||ssSubj);if(!paras.length){document.getElementById('waiting').classList.add('on');return;}buildClassroom(ssSubj,ssChap||ssSubj,ssCls);}
+    try{paras=parseText(lessonText.trim(),ssChap||ssSubj);if(!paras.length){document.getElementById('waiting').classList.add('on');return;}buildClassroom(ssSubj,ssChap||ssSubj,ssCls);
+      // ── AUTO-LOAD PDF FROM INDEXEDDB (cached by learnbot My Books) ──
+      if(ssPdfKey){ autoLoadPdfFromIDB(ssPdfKey, ssPageFrom); }
+    }
     catch(e){document.getElementById('waiting').classList.add('on');}
   },300);
 });
+
+// ── Load cached PDF from IndexedDB (set by My Books in learnbot.html) ──
+async function autoLoadPdfFromIDB(pdfKey, jumpToPage){
+  try{
+    var idb=await new Promise(function(resolve){
+      var req=indexedDB.open('dss_textbooks',1);
+      req.onupgradeneeded=function(e){ try{ e.target.result.createObjectStore('pdfs',{keyPath:'key'}); }catch(err){} };
+      req.onsuccess=function(e){ resolve(e.target.result); };
+      req.onerror=function(){ resolve(null); };
+    });
+    if(!idb)return;
+    var savedPdf=await new Promise(function(resolve){
+      try{
+        var tx=idb.transaction('pdfs','readonly');
+        var req=tx.objectStore('pdfs').get(pdfKey);
+        req.onsuccess=function(e){ resolve(e.target.result||null); };
+        req.onerror=function(){ resolve(null); };
+      }catch(e){ resolve(null); }
+    });
+    if(!savedPdf || !savedPdf.data)return;
+    // Hide upload prompt
+    var noPdf=document.getElementById('no-pdf');
+    var canvas=document.getElementById('pdf-canvas');
+    if(noPdf)noPdf.style.display='none';
+    if(canvas)canvas.style.display='block';
+    var titleEl=document.getElementById('pdf-header-title');
+    if(titleEl && savedPdf.meta && savedPdf.meta.fileName){
+      titleEl.textContent='📄 '+savedPdf.meta.fileName.substring(0,28);
+    }
+    // Load PDF
+    pdfDoc=await pdfjsLib.getDocument({data:savedPdf.data.slice(0)}).promise;
+    pdfTotalPages=pdfDoc.numPages;
+    var startPage=jumpToPage>0?jumpToPage:1;
+    await renderPdfPage(startPage);
+    updatePdfNav();
+  }catch(e){ console.log('PDF auto-load err:',e); }
+}
 </script>
 </body>
 </html>
