@@ -23,8 +23,9 @@
   .top-bar .info{font-size:0.78rem;color:var(--cream);margin-left:14px;opacity:0.95;}
   .top-bar .exit-btn{margin-left:auto;background:rgba(255,255,255,0.15);border:1.5px solid rgba(255,255,255,0.4);color:white;padding:6px 12px;border-radius:7px;cursor:pointer;font-weight:700;font-size:0.78rem;}
 
-  .stage{position:fixed;top:50px;bottom:95px;left:0;right:0;background:linear-gradient(135deg,#FFF8E7,#FFE9C2);display:flex;align-items:center;justify-content:center;overflow:auto;padding:10px;}
-  .stage canvas{max-width:100%;max-height:100%;box-shadow:0 8px 30px rgba(107,26,26,0.18),0 0 0 3px white,0 0 0 4px var(--gold-dark);background:white;border-radius:3px;}
+  .stage{position:fixed;top:50px;bottom:95px;left:0;right:0;background:linear-gradient(135deg,#FFF8E7,#FFE9C2);overflow:auto;padding:10px;text-align:center;}
+  .stage canvas{box-shadow:0 8px 30px rgba(107,26,26,0.18),0 0 0 3px white,0 0 0 4px var(--gold-dark);background:white;border-radius:3px;display:inline-block;vertical-align:middle;margin:auto;}
+  .stage::before{content:'';display:inline-block;height:100%;vertical-align:middle;}
 
   .loading{position:fixed;inset:0;background:linear-gradient(135deg,#FFF8E7,#FFE9C2,#FFDAA0);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:500;}
   .loading .spinner{width:60px;height:60px;border:5px solid rgba(107,26,26,0.15);border-top-color:var(--maroon);border-radius:50%;animation:spin 1s linear infinite;}
@@ -288,10 +289,19 @@ async function renderPage(pageNum){
     var stageH=$('stage').clientHeight - 20;
     var stageW=$('stage').clientWidth - 20;
     var rawVp=page.getViewport({scale:1});
-    var scale=Math.min(stageH/rawVp.height, stageW/rawVp.width);
-    if(scale<0.5)scale=0.5;
-    var vp=page.getViewport({scale:scale});
-    canvas.width=vp.width; canvas.height=vp.height;
+    // Fit-to-screen scale (no cap - can grow beyond 1x for small pages)
+    var scaleH=stageH/rawVp.height;
+    var scaleW=stageW/rawVp.width;
+    var scale=Math.min(scaleH, scaleW);
+    // For sharp rendering on high-DPI
+    var devicePixelRatio=window.devicePixelRatio||1;
+    var renderScale=scale * Math.min(devicePixelRatio, 2);
+    var vp=page.getViewport({scale:renderScale});
+    canvas.width=vp.width;
+    canvas.height=vp.height;
+    // Display size is the fit-to-screen scale
+    canvas.style.width=(rawVp.width*scale)+'px';
+    canvas.style.height=(rawVp.height*scale)+'px';
     await page.render({canvasContext:ctx, viewport:vp}).promise;
     $('pg-current').textContent=pageNum;
     updateButtons();
@@ -449,14 +459,19 @@ async function explainTamil(){
       })
     });
     var aiData=await aiRes.json();
+    console.log('AI response:', aiData); // Debug
     var tamilText='';
     if(aiData && Array.isArray(aiData.content)){
       tamilText=aiData.content.map(function(b){ return b.type==='text'?b.text:''; }).join('').trim();
     } else if(aiData && aiData.text){
       tamilText=aiData.text.trim();
+    } else if(aiData && aiData.message){
+      tamilText=aiData.message.trim();
+    } else if(typeof aiData==='string'){
+      tamilText=aiData.trim();
     }
     if(!tamilText){
-      throw new Error('No Tamil text generated');
+      throw new Error('AI returned: '+JSON.stringify(aiData).substring(0,300));
     }
     $('tamil-text').textContent=tamilText;
 
