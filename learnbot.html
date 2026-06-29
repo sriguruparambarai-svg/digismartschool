@@ -1675,16 +1675,36 @@ async function mbGoTeach(){
     statusEl.style.color='#1a5c2a';
     statusEl.textContent='✅ Ready! Opening teach tab…';
     setTimeout(function(){
-      document.getElementById('mb-teach-popup').style.display='none';
-      // Directly switch to Teach tab (more reliable than .click())
-      var teachBtn=document.getElementById('tab-btn-student');
-      if(typeof showTab==='function' && teachBtn){
-        showTab('student', teachBtn);
-      } else if(teachBtn){
-        teachBtn.click();
+      try{
+        // 1. Hide popup
+        document.getElementById('mb-teach-popup').style.display='none';
+
+        // 2. Force-switch tabs by directly manipulating classes (bulletproof)
+        var teacherPanel=document.getElementById('tab-teacher');
+        var studentPanel=document.getElementById('tab-student');
+        var teacherBtn=document.getElementById('tab-btn-teacher');
+        var studentBtn=document.getElementById('tab-btn-student');
+
+        if(teacherPanel) teacherPanel.classList.remove('active');
+        if(teacherBtn)   teacherBtn.classList.remove('active');
+        if(studentPanel){
+          studentPanel.classList.add('active');
+          studentPanel.style.display='block'; // force visible
+        }
+        if(studentBtn) studentBtn.classList.add('active');
+
+        // 3. Also call showTab if exists (for any side effects)
+        if(typeof showTab==='function' && studentBtn){
+          try{ showTab('student', studentBtn); }catch(e){}
+        }
+
+        // 4. Scroll to top so mode cards are visible
+        try{ window.scrollTo({top:0,behavior:'smooth'}); }catch(e){ window.scrollTo(0,0); }
+
+        console.log('[mbGoTeach] Tab switched to student');
+      }catch(e){
+        console.error('[mbGoTeach] Tab switch failed:',e);
       }
-      // Scroll to top so teacher sees mode cards
-      try{ window.scrollTo({top:0, behavior:'smooth'}); }catch(e){ window.scrollTo(0,0); }
       if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
       if(cancelBtn)cancelBtn.disabled=false;
     },400);
@@ -3459,6 +3479,8 @@ function launchCartoonStory(){
   }catch(e){}
   window.location.href='cartoon-story.html';
 }
+
+function launchTeachingMode(){
   var activated=null;
   try{ activated=JSON.parse(sessionStorage.getItem('tm_activated')||'null'); }catch(e){}
   if(!activated||!activated.cls||!activated.topic){
