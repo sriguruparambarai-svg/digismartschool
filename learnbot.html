@@ -5377,7 +5377,10 @@ function setLangBtn(l, btn){
 function checkAndLaunch(mode){
   var cls  = document.getElementById('s-class').value;
   var subj = document.getElementById('s-subject').value;
-  if(!cls){  alert('Please select your Class first.'); return; }
+  // For video/slides modes, lesson comes from tm_activated — skip dropdown check
+  if(mode !== 'video' && mode !== 'slides' && !cls){
+    alert('Please select your Class first.'); return;
+  }
 
   if(mode === 'teaching'){
     openTeachingPicker();
@@ -5385,15 +5388,26 @@ function checkAndLaunch(mode){
   }
 
   if(mode === 'video'){
-    // Read language from teachLang (set by setLangBtn via setLang)
-    // teachLang is always current — buttons call setLang() which updates it directly
-    var currentLang = typeof teachLang !== 'undefined' ? teachLang : 'english';
+    // Read activated lesson from sessionStorage (single source of truth)
+    var activated = null;
+    try { activated = JSON.parse(sessionStorage.getItem('tm_activated')||'null'); } catch(e){}
+    if(!activated || !activated.subject || !activated.lessonText || activated.lessonText.length < 30){
+      alert('No lesson activated.\n\nPlease go to Teacher Panel → My Books → pick a book → enter page range → "Go to Teach Tab" first.\n\nBlackboard AI will then teach from your actual textbook.');
+      return;
+    }
+
+    // Use activated lesson — overrides any stale form values
+    var bbCls     = activated.cls     || cls;
+    var bbSubject = activated.subject || subj;
+    var bbChapter = activated.topic   || (window.AL ? (window.AL.ch||'') : '');
+    var bbLessonText = (activated.lessonText || '').substring(0, 3000);
+    var currentLang  = typeof teachLang !== 'undefined' ? teachLang : 'english';
 
     var bbData = {
-      cls:        cls,
-      subject:    subj,
-      chapter:    window.AL ? (window.AL.ch || '') : '',
-      lessonText: (typeof lessonTxt !== 'undefined' ? lessonTxt : '').substring(0, 3000),
+      cls:        bbCls,
+      subject:    bbSubject,
+      chapter:    bbChapter,
+      lessonText: bbLessonText,
       lang:       currentLang
     };
     // Store return URL so Back button in blackboard-ai returns here
@@ -5409,13 +5423,22 @@ function checkAndLaunch(mode){
   }
 
   if(mode === 'slides'){
-    var info = window.AL || {};
+    // Read activated lesson from sessionStorage (single source of truth)
+    var smActivated = null;
+    try { smActivated = JSON.parse(sessionStorage.getItem('tm_activated')||'null'); } catch(e){}
+    if(!smActivated || !smActivated.subject || !smActivated.lessonText || smActivated.lessonText.length < 30){
+      alert('No lesson activated.\n\nPlease go to Teacher Panel → My Books → pick a book → enter page range → "Go to Teach Tab" first.');
+      return;
+    }
+    var smCls     = smActivated.cls     || cls;
+    var smSubject = smActivated.subject || subj;
+    var smChapter = smActivated.topic   || (window.AL?(window.AL.ch||''):'');
     sessionStorage.setItem('sm_lesson', JSON.stringify({
-      cls:        cls,
-      subject:    subj,
-      chapter:    info.ch  || '',
-      lesson:     info.ch  || (typeof lessonTxt!=='undefined' ? lessonTxt.substring(0,80) : '') || subj,
-      lessonText: typeof lessonTxt !== 'undefined' ? lessonTxt : '',
+      cls:        smCls,
+      subject:    smSubject,
+      chapter:    smChapter,
+      lesson:     smChapter || smSubject,
+      lessonText: smActivated.lessonText || '',
       lang:       typeof teachLang !== 'undefined' ? teachLang : 'english'
     }));
     window.open('slide-mode.html', '_blank');
