@@ -799,6 +799,15 @@ body {
       <input type="text" id="inp-lesson" placeholder="e.g. Our Environment, Photosynthesis, Fractions..." value="Our Environment">
     </div>
 
+    <div class="config-group lesson-input-full">
+      <label>Lesson Depth</label>
+      <div class="mode-tabs" id="depth-tabs" style="margin-top:0;">
+        <button type="button" class="mode-tab" onclick="selectDepth('quick',this)">⚡ Quick (5 min)</button>
+        <button type="button" class="mode-tab" onclick="selectDepth('standard',this)">📚 Standard (10 min)</button>
+        <button type="button" class="mode-tab active" onclick="selectDepth('detailed',this)">🎓 Detailed (20 min)</button>
+      </div>
+    </div>
+
     <!-- API key handled by Vercel backend — not exposed to users -->
 
     <button class="btn-start" onclick="startLesson()">
@@ -937,6 +946,7 @@ let isPaused      = false;
 let voiceOn       = true;
 let writeSpeed    = 1;
 let teachingMode  = 'standard';
+let lessonDepth   = 'detailed';  // 'quick' | 'standard' | 'detailed' — default detailed (20 min)
 let langCode      = 'en';
 let isAnimating   = false;
 let currentSpeech = null;
@@ -969,9 +979,17 @@ const COLOR_MAP = {
 // ═══════════════════════════════════════════════════════════
 function selectMode(m) {
   teachingMode = m;
-  document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
-  event.target.classList.add('active');
+  // Scope to language tabs only (not depth tabs)
+  const langTabs = document.querySelectorAll('#welcome-screen .mode-tabs:not(#depth-tabs) .mode-tab');
+  langTabs.forEach(t => t.classList.remove('active'));
+  if (event && event.target) event.target.classList.add('active');
   langCode = m === 'tamil' ? 'ta' : m === 'bilingual' ? 'bilingual' : 'en';
+}
+
+function selectDepth(d, el) {
+  lessonDepth = d;
+  document.querySelectorAll('#depth-tabs .mode-tab').forEach(t => t.classList.remove('active'));
+  if (el) el.classList.add('active');
 }
 
 function toggleSidebar() {
@@ -983,8 +1001,9 @@ function toggleSidebar() {
 // ═══════════════════════════════════════════════════════════
 // CACHE HELPERS
 // ═══════════════════════════════════════════════════════════
-function lessonCacheKey(cls, subject, lesson, mode) {
-  return `bb_lesson__${cls}__${subject}__${lesson.substring(0,40)}__${mode}`.replace(/\s+/g,'_');
+function lessonCacheKey(cls, subject, lesson, mode, depth) {
+  const d = depth || lessonDepth || 'detailed';
+  return `bb_lesson__${cls}__${subject}__${lesson.substring(0,40)}__${mode}__${d}`.replace(/\s+/g,'_');
 }
 
 function cacheLesson(key, steps) {
@@ -1156,27 +1175,91 @@ async function greetStudents(skip) {
 // GENERATE LESSON (unchanged API logic)
 // ═══════════════════════════════════════════════════════════
 async function generateLessonSteps(cls, subject, lesson, lessonText) {
-  const langInstruction = teachingMode === 'tamil'
-    ? 'Respond in Tamil language only. Use simple Tamil words for school students.'
-    : teachingMode === 'bilingual'
-    ? 'Write each "write" field in both English and Tamil (Tamil in parentheses). Speech in English.'
-    : 'Respond in simple English suitable for Indian school students.';
+  // ── Depth controls ──
+  const depthCfg = {
+    quick:    { stepsMin: 8,  stepsMax: 10, tokens: 2200, desc: 'concise but complete' },
+    standard: { stepsMin: 12, stepsMax: 15, tokens: 3200, desc: 'thorough classroom lesson' },
+    detailed: { stepsMin: 16, stepsMax: 20, tokens: 4200, desc: 'deep classroom lesson with full explanations, multiple examples, and student engagement' }
+  };
+  const dc = depthCfg[lessonDepth] || depthCfg.detailed;
 
-  // Use actual lesson text from teacher if provided
-  const lessonContext = lessonText && lessonText.trim()
-    ? `\nTEXTBOOK CONTENT:\n${lessonText.substring(0, 1600)}\n`
-    : '';
+  // ── Language instruction ──
+  let langInstruction;
+  if (teachingMode === 'tamil') {
+    langInstruction = `CRITICAL TAMIL TEACHING STYLE — write/speech like a real Tamil Nadu classroom teacher who mixes Tamil and English naturally:
 
-  const prompt = `You are a school teacher in Tamil Nadu, India, teaching ${subject} to ${cls} students (CBSE curriculum).
-The lesson is: "${lesson}"
+EXAMPLE STYLE:
+"Land Animals என்றால் நிலத்தில் வாழும் விலங்குகள். அவைகளில் பெரும்பான்மை கால்களால் நடப்பவை. Limbs என்றால் முன் பின் இருக்கும் கால்கள். அவைகள் Lungs மூலமா சுவாசிக்கும். நாமெல்லாம் எப்படி breathe பண்றோம்? Yes, Lungs மூலமா breathe பண்றோம்."
+
+RULES:
+- Keep English keywords in English (Photosynthesis, Limbs, Lungs, Chlorophyll, etc.)
+- Immediately give Tamil meaning after each English keyword (keyword என்றால் meaning)
+- Ask students simple engagement questions in Tamil-English mix
+- Use Tamil Nadu local examples (mango tree, paddy field, cow, Chennai, Madurai, sambar, dosa)
+- NO full paragraph translation — explain key concepts only`;
+  } else if (teachingMode === 'bilingual') {
+    langInstruction = `BILINGUAL TEACHING — write field shows BOTH English and Tamil (Tamil in brackets after each line). Speech in English with occasional Tamil keyword translations.`;
+  } else {
+    langInstruction = `Teach in simple clear English suitable for Indian school students. Pronunciation should be perfect — students learn from this. Use Tamil Nadu / Indian real-life examples (mango tree, Chennai, paddy field, sambar, monsoon, etc.) wherever possible.`;
+  }
+
+  // ── Use actual textbook content ──
+  const lessonContext = lessonText && lessonText.trim().length > 30
+    ? `\n══════ ACTUAL TEXTBOOK CONTENT ══════\n${lessonText.substring(0, 5000)}\n══════ END TEXTBOOK ══════\n\nYou MUST teach from this exact textbook content — do not invent your own version. Stay faithful to what the book says. Cover EVERY paragraph and EVERY key concept from above. Do not skip sections.\n`
+    : '\n(No textbook content provided — teach the topic using standard CBSE/Samacheer syllabus knowledge.)\n';
+
+  // ── Subject-specific diagram hint ──
+  const subjLower = (subject || '').toLowerCase();
+  let diagramHint = '';
+  if (/science|biology|physics|chem/.test(subjLower)) {
+    diagramHint = '\nMANDATORY: Include AT LEAST 2 diagram steps — use science diagrams (heart/plant_cell/photosynthesis/solar_system/dna_structure/digestive/respiratory/circulatory/nervous/skeletal/eye/atom_structure/magnet_field/electric_circuit/states_of_matter/layers_earth/cell_division) when relevant, OR generic shapes (circle_labels/boxes/tree/food_chain/water_cycle).';
+  } else if (/social|geography|history|civics/.test(subjLower)) {
+    diagramHint = '\nMANDATORY: Include AT LEAST 1 map step (india/tamilnadu/world_simple). For history topics use timeline-style boxes.';
+  } else if (/math/.test(subjLower)) {
+    diagramHint = '\nMANDATORY: Include formula steps AND visual diagrams (fraction_visual/pythagoras for relevant topics). Show step-by-step working.';
+  } else {
+    diagramHint = '\nUse boxes/tree/circle_labels diagrams where they help explain concepts.';
+  }
+
+  // ── The full structured prompt ──
+  const prompt = `You are an excellent school teacher in Tamil Nadu, India, teaching ${subject} to ${cls} students.
+Your lesson topic: "${lesson}"
+Depth required: ${lessonDepth.toUpperCase()} (${dc.desc})
 ${lessonContext}
 ${langInstruction}
+${diagramHint}
 
-Convert this lesson into 8–12 step-by-step teaching actions for a blackboard teaching session.
+══════ YOUR TASK ══════
 
-IMPORTANT: Output ONLY valid JSON. No extra text, no markdown, no code blocks.
+Create a complete blackboard teaching session of ${dc.stepsMin}–${dc.stepsMax} steps that follows this STRUCTURE (do NOT skip any phase):
 
-Return a JSON array. Each object must use ONE of these formats:
+PHASE 1 — INTRODUCTION (2 steps):
+  Step 1: heading — lesson title (color: yellow)
+  Step 2: explain — Hook the students. Why is this topic important? Real-life connection.
+
+PHASE 2 — CORE TEACHING (most steps, ${Math.max(dc.stepsMin-6, 6)}–${dc.stepsMax-6} steps):
+  Cover each key concept from the textbook one by one. For EACH concept:
+  • subheading — the concept name
+  • explain — what it means in simple words (1–2 sentences)
+  • Optionally: list/formula/diagram/highlight to reinforce
+  • Cover the textbook content paragraph by paragraph — do not skip paragraphs
+
+PHASE 3 — VISUAL DIAGRAMS (1–3 steps):
+  At least one diagram step where it adds value. For biology/science topics MANDATORY.
+
+PHASE 4 — STUDENT ENGAGEMENT (2 steps):
+  Insert 2 "question" steps mid-lesson — speech asks students a simple question to check understanding.
+  Use highlight type with a "?" symbol. Example: {"type":"highlight","speech":"Tell me — can you name one example of this?","write":"❓ Quick Question","color":"yellow"}
+
+PHASE 5 — KEY TAKEAWAYS + RECAP (last 2 steps):
+  Second-to-last: list — bullet points of all key concepts learned today
+  Last step: highlight — final motivational summary in red/yellow chalk
+
+══════ OUTPUT FORMAT ══════
+
+Output ONLY a valid JSON array. No markdown fences. No preamble. Start with [ and end with ].
+
+Each object uses ONE of these formats:
 
 TEXT STEPS:
 {"type":"heading",    "speech":"...", "write":"...",  "color":"yellow"}
@@ -1186,39 +1269,45 @@ TEXT STEPS:
 {"type":"formula",    "speech":"...", "write":"...",  "color":"green"}
 {"type":"highlight",  "speech":"...", "write":"...",  "color":"red"}
 
-DIAGRAM STEPS (use when showing a visual is helpful):
+GENERIC DIAGRAMS:
 {"type":"diagram", "speech":"...", "write":"Label", "diagram":"circle_labels", "labels":["A","B","C"], "color":"green"}
 {"type":"diagram", "speech":"...", "write":"Label", "diagram":"boxes",         "labels":["Step1","Step2","Step3"], "color":"blue"}
-{"type":"diagram", "speech":"...", "write":"Label", "diagram":"tree",          "labels":["Branch1","Branch2"],    "color":"yellow"}
+{"type":"diagram", "speech":"...", "write":"Label", "diagram":"tree",          "labels":["Branch1","Branch2"], "color":"yellow"}
 {"type":"diagram", "speech":"...", "write":"Label", "diagram":"water_cycle",   "color":"blue"}
 {"type":"diagram", "speech":"...", "write":"Label", "diagram":"food_chain",    "labels":["Plants","Deer","Tiger"], "color":"green"}
 
-SCIENCE DIAGRAM STEPS (use for biology/physics topics):
-{"type":"diagram", "speech":"...", "write":"Human Heart", "drawType":"science", "science":"heart",          "color":"red"}
-{"type":"diagram", "speech":"...", "write":"Plant Cell",  "drawType":"science", "science":"plant_cell",     "color":"green"}
-{"type":"diagram", "speech":"...", "write":"Photosynthesis","drawType":"science","science":"photosynthesis", "color":"green"}
-{"type":"diagram", "speech":"...", "write":"Solar System","drawType":"science", "science":"solar_system",   "color":"yellow"}
+SCIENCE DIAGRAMS (use only when topic matches):
+{"type":"diagram", "speech":"...", "write":"Human Heart","drawType":"science","science":"heart","color":"red"}
+{"type":"diagram", "speech":"...", "write":"Plant Cell","drawType":"science","science":"plant_cell","color":"green"}
+{"type":"diagram", "speech":"...", "write":"Photosynthesis","drawType":"science","science":"photosynthesis","color":"green"}
+{"type":"diagram", "speech":"...", "write":"Solar System","drawType":"science","science":"solar_system","color":"yellow"}
+Other science values: dna_structure, human_digestive, human_respiratory, human_circulatory, human_nervous, human_skeletal, human_eye, atom_structure, magnet_field, electric_circuit, states_of_matter, layers_earth, cell_division, plant_anatomy, fraction_visual, pythagoras.
 
-MAP STEPS (use for geography topics):
-{"type":"diagram", "speech":"...", "write":"India Map",      "drawType":"map", "map":"india",        "highlight":"tamilnadu", "color":"green"}
-{"type":"diagram", "speech":"...", "write":"Tamil Nadu Map", "drawType":"map", "map":"tamilnadu",    "color":"yellow"}
-{"type":"diagram", "speech":"...", "write":"World Map",      "drawType":"map", "map":"world_simple", "color":"blue"}
+MAPS:
+{"type":"diagram", "speech":"...", "write":"India Map", "drawType":"map", "map":"india", "highlight":"tamilnadu", "color":"green"}
+{"type":"diagram", "speech":"...", "write":"Tamil Nadu","drawType":"map","map":"tamilnadu","color":"yellow"}
+{"type":"diagram", "speech":"...", "write":"World",    "drawType":"map","map":"world_simple","color":"blue"}
 
-Rules:
-- One concept per step. Keep speech simple and student-friendly.
-- color must be: yellow, white, blue, green, or red
-- Use diagram/science/map steps where they add genuine value
-- For biology lessons: include a science diagram step
-- For geography lessons: include a map step
-- Add relatable Tamil Nadu / Indian examples where possible`;
+══════ STRICT RULES ══════
+- MINIMUM ${dc.stepsMin} steps. MAXIMUM ${dc.stepsMax} steps.
+- Every "write" field must be SHORT (under 80 chars for text steps, under 25 chars for headings).
+- Every "speech" must be substantial (1–3 sentences) — this is what the AI teacher actually SAYS.
+- color values must be exactly: yellow, white, blue, green, or red.
+- Do NOT just write captions — speech is the actual teaching.
+- The "write" field is what gets written on the blackboard (short, like real chalk writing).
+- The "speech" field is what the teacher SAYS aloud (longer explanation).
+- Do not write more than 2 lines in any "write" field — blackboards have limited space.
+- Be faithful to the textbook content above.
+
+OUTPUT NOW — JSON array only:`;
 
   const response = await fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      system: 'You are a school teacher creating step-by-step blackboard teaching content. You MUST return ONLY valid JSON array — no markdown, no code fences, no extra text before or after.',
+      system: 'You are an expert school teacher creating high-quality step-by-step blackboard teaching content. You ALWAYS return ONLY a valid JSON array starting with [ and ending with ]. No markdown fences. No preamble. No text after the array.',
       messages: [{ role: 'user', content: prompt }],
-      max_tokens: 2000
+      max_tokens: dc.tokens
     })
   });
 
@@ -3067,6 +3156,12 @@ document.addEventListener('DOMContentLoaded', function() {
   const chapter    = data.chapter    || '';
   const lessonText = data.lessonText || '';
   const lang       = data.lang       || 'english';
+  // Depth from autostart (default detailed for school value)
+  if (data.depth && ['quick','standard','detailed'].indexOf(data.depth) >= 0) {
+    lessonDepth = data.depth;
+  } else {
+    lessonDepth = 'detailed';
+  }
 
   if (!cls || !subject) return;
 
