@@ -148,6 +148,12 @@
       <button class="tb-btn tamil" id="btn-tamil" onclick="explainTamil()">🇮🇳 தமிழ் Explanation</button>
     </div>
     <div class="ctrl-right">
+      <div class="speed-group" title="Zoom">
+        <button class="speed-btn" onclick="zoomPdf(-1)" title="Zoom Out">➖</button>
+        <button class="speed-btn" id="zoom-label">100%</button>
+        <button class="speed-btn" onclick="zoomPdf(1)" title="Zoom In">➕</button>
+        <button class="speed-btn" onclick="zoomPdf(0)" title="Reset">⊡</button>
+      </div>
       <button class="tb-btn primary" id="btn-next" onclick="nextPage()">Next ▶</button>
     </div>
   </div>
@@ -162,7 +168,7 @@ var LESSON={ subject:'', cls:'', topic:'', lessonText:'', pdfKey:'', pageFrom:0,
 var PDF_DOC=null, CURRENT_PAGE=1, TOTAL_PAGES=1;
 var PARAS_BY_PAGE={}, CURRENT_PARA_IDX=0;
 var IS_PAUSED=false, IS_PLAYING_TAMIL=false;
-var CURRENT_AUDIO=null, SPEED=1.0;
+var CURRENT_AUDIO=null, SPEED=1.0, ZOOM=1.0;
 
 function $(id){ return document.getElementById(id); }
 function showStatus(msg, duration){
@@ -289,17 +295,17 @@ async function renderPage(pageNum){
     var stageH=(stageEl.clientHeight>100?stageEl.clientHeight:window.innerHeight-50-95) - 8;
     var stageW=(stageEl.clientWidth>100?stageEl.clientWidth:window.innerWidth) - 8;
     var rawVp=page.getViewport({scale:1});
-    // Fit-to-screen scale (no cap - can grow beyond 1x for small pages)
+    // Fit-to-screen scale, then apply zoom
     var scaleH=stageH/rawVp.height;
     var scaleW=stageW/rawVp.width;
-    var scale=Math.min(scaleH, scaleW);
+    var scale=Math.min(scaleH, scaleW) * ZOOM;
     // For sharp rendering on high-DPI
     var devicePixelRatio=window.devicePixelRatio||1;
     var renderScale=scale * Math.min(devicePixelRatio, 2);
     var vp=page.getViewport({scale:renderScale});
     canvas.width=vp.width;
     canvas.height=vp.height;
-    // Display size is the fit-to-screen scale
+    // Display size is the fit-to-screen scale with zoom
     canvas.style.width=(rawVp.width*scale)+'px';
     canvas.style.height=(rawVp.height*scale)+'px';
     await page.render({canvasContext:ctx, viewport:vp}).promise;
@@ -353,6 +359,29 @@ function setSpeed(s){
   else if(s===1.25) $('sp-fast').classList.add('active');
   else $('sp-normal').classList.add('active');
   if(CURRENT_AUDIO){ try{ CURRENT_AUDIO.playbackRate=s; }catch(e){} }
+}
+
+function zoomPdf(dir){
+  if(dir===0){
+    ZOOM=1.0; // reset
+  } else if(dir===1){
+    ZOOM=Math.min(ZOOM+0.25, 3.0); // max 3x
+  } else {
+    ZOOM=Math.max(ZOOM-0.25, 0.5); // min 0.5x
+  }
+  $('zoom-label').textContent=Math.round(ZOOM*100)+'%';
+  // Switch stage to scrollable when zoomed in
+  var stageEl=$('stage');
+  if(ZOOM>1.0){
+    stageEl.style.overflow='auto';
+    stageEl.style.alignItems='flex-start';
+    stageEl.style.justifyContent='flex-start';
+  } else {
+    stageEl.style.overflow='hidden';
+    stageEl.style.alignItems='center';
+    stageEl.style.justifyContent='center';
+  }
+  if(PDF_DOC) renderPage(CURRENT_PAGE);
 }
 
 // ── VOICE ──
