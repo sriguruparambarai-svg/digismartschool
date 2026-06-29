@@ -82,6 +82,9 @@
   .status-pill{position:fixed;top:60px;left:50%;transform:translateX(-50%);background:white;border:2px solid var(--gold);color:var(--maroon);padding:7px 16px;border-radius:18px;font-size:0.78rem;font-weight:800;z-index:60;display:none;box-shadow:0 4px 14px rgba(0,0,0,0.15);}
   .status-pill.on{display:block;}
 
+  .tb-btn.story-off{background:linear-gradient(135deg,rgba(255,255,255,0.1),rgba(255,255,255,0.05));color:var(--cream);border-color:rgba(255,255,255,0.3);}
+  .tb-btn.story-on{background:linear-gradient(135deg,#1a5c2a,#2d8043);color:white;border-color:#3b8d4c;box-shadow:0 0 10px rgba(45,128,67,0.5);}
+
   @media (max-width:768px){
     .top-bar h1{font-size:0.92rem;}
     .top-bar .info{display:none;}
@@ -145,6 +148,7 @@
         <button class="speed-btn active" id="sp-normal" onclick="setSpeed(1)">Normal</button>
         <button class="speed-btn" id="sp-fast" onclick="setSpeed(1.25)">🏃 Fast</button>
       </div>
+      <button class="tb-btn story-off" id="btn-story" onclick="toggleStoryMode()" title="Story Mode — reads full page continuously">📖 Story Mode</button>
       <button class="tb-btn tamil" id="btn-tamil" onclick="explainTamil()">🇮🇳 தமிழ் Explanation</button>
     </div>
     <div class="ctrl-right">
@@ -168,7 +172,7 @@ var LESSON={ subject:'', cls:'', topic:'', lessonText:'', pdfKey:'', pageFrom:0,
 var PDF_DOC=null, CURRENT_PAGE=1, TOTAL_PAGES=1;
 var PARAS_BY_PAGE={}, CURRENT_PARA_IDX=0;
 var IS_PAUSED=false, IS_PLAYING_TAMIL=false;
-var CURRENT_AUDIO=null, SPEED=1.0, ZOOM=1.0;
+var CURRENT_AUDIO=null, SPEED=1.0, ZOOM=1.0, STORY_MODE=false;
 
 function $(id){ return document.getElementById(id); }
 function showStatus(msg, duration){
@@ -437,6 +441,20 @@ function speakBrowser(text, lang){
   });
 }
 
+function toggleStoryMode(){
+  STORY_MODE=!STORY_MODE;
+  var btn=$('btn-story');
+  if(STORY_MODE){
+    btn.className='tb-btn story-on';
+    btn.innerHTML='📖 Story Mode ON';
+    showStatus('📖 Story Mode ON — reading full page continuously', 2500);
+  } else {
+    btn.className='tb-btn story-off';
+    btn.innerHTML='📖 Story Mode';
+    showStatus('📖 Story Mode OFF — paragraph by paragraph', 2500);
+  }
+}
+
 async function readCurrentPara(){
   var paras=PARAS_BY_PAGE[CURRENT_PAGE]||[];
   if(CURRENT_PARA_IDX>=paras.length){
@@ -451,12 +469,22 @@ async function readCurrentPara(){
   $('reading-label').textContent='Now reading paragraph '+(CURRENT_PARA_IDX+1);
   updateChips();
   await speakEnglish(text);
-  if(IS_PAUSED || IS_PLAYING_TAMIL)return;
+  if(IS_PAUSED || IS_PLAYING_TAMIL) return;
+  CURRENT_PARA_IDX++;
+  if(CURRENT_PARA_IDX>=paras.length){
+    // Page done
+    $('reading-dot').classList.remove('on');
+    $('btn-next').classList.add('glow');
+    showStatus('✅ Page '+CURRENT_PAGE+' complete. Click Next to continue.', 4000);
+    return;
+  }
+  // In story mode — continue immediately with short breath pause
+  // In para mode — stop and wait (teacher reads, thinks, then next para auto-starts after 1.2s)
+  var pauseMs = STORY_MODE ? 600 : 1200;
   setTimeout(function(){
-    if(IS_PAUSED || IS_PLAYING_TAMIL)return;
-    CURRENT_PARA_IDX++;
+    if(IS_PAUSED || IS_PLAYING_TAMIL) return;
     readCurrentPara();
-  }, 1200);
+  }, pauseMs);
 }
 
 async function explainTamil(){
