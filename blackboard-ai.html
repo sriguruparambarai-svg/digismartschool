@@ -1101,9 +1101,9 @@ async function startLesson() {
       buildSidebar();
       buildProgressDots();
 
-      // If still on step 0 (placeholder), move to real step 1
+      // Replace placeholder by re-rendering step 0 (now the real first step)
       if (currentStep === 0) {
-        renderStep(1);
+        renderStep(0);
       }
     } catch(e) {
       stopLoadingMessages();
@@ -1215,20 +1215,38 @@ Rules:
   const response = await fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ payload: {
-      model: 'claude-sonnet-4-5',
-      max_tokens: 2000,
-      messages: [{ role: 'user', content: prompt }]
-    }})
+    body: JSON.stringify({
+      system: 'You are a school teacher creating step-by-step blackboard teaching content. You MUST return ONLY valid JSON array — no markdown, no code fences, no extra text before or after.',
+      messages: [{ role: 'user', content: prompt }],
+      max_tokens: 2000
+    })
   });
 
   if (!response.ok) {
     const err = await response.json().catch(()=>({}));
-    throw new Error(err.error?.message || 'API request failed (' + response.status + ')');
+    throw new Error((err && err.error && err.error.message) || ('API request failed (' + response.status + ')'));
   }
   const data = await response.json();
-  const text = data.content[0].text.trim();
-  const jsonStr = text.replace(/```json|```/g, '').trim();
+  // Handle both formats: {content:[{type:'text',text:'...'}]} and {text:'...'}
+  let text = '';
+  if (data && Array.isArray(data.content)) {
+    text = data.content.map(b => b.type === 'text' ? b.text : '').join('').trim();
+  } else if (data && data.text) {
+    text = data.text.trim();
+  } else if (typeof data === 'string') {
+    text = data.trim();
+  }
+  if (!text) {
+    throw new Error('AI returned empty response: ' + JSON.stringify(data).substring(0, 200));
+  }
+  // Strip markdown fences if AI added them anyway
+  let jsonStr = text.replace(/^```json\s*|^```\s*|\s*```$/gm, '').trim();
+  // Find first [ and last ] to extract JSON array
+  const firstBracket = jsonStr.indexOf('[');
+  const lastBracket  = jsonStr.lastIndexOf(']');
+  if (firstBracket >= 0 && lastBracket > firstBracket) {
+    jsonStr = jsonStr.substring(firstBracket, lastBracket + 1);
+  }
   return JSON.parse(jsonStr);
 }
 
@@ -3148,15 +3166,27 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       const steps = await generateLessonSteps(cls, subject, chapter || subject, lessonText);
       try { hideLoadingBar(); stopLoadingMessages(); hideLoading(); } catch(e) {}
+      if (!steps || !Array.isArray(steps) || steps.length < 2) {
+        throw new Error('AI returned too few steps');
+      }
       lessonSteps = steps;
       try {
         const cacheKey = lessonCacheKey(cls, subject, chapter || subject, teachingMode);
         cacheLesson(cacheKey, steps);
       } catch(e) {}
       buildSidebar(); buildProgressDots();
-      if (currentStep === 0) renderStep(1);
+      // Render the first real step (replacing the placeholder)
+      renderStep(0);
     } catch(e) {
       try { hideLoadingBar(); stopLoadingMessages(); hideLoading(); } catch(e2) {}
+      // Show the error on the board so the teacher knows what's wrong
+      try {
+        const board = document.getElementById('board-content');
+        if (board) {
+          board.innerHTML = '<div style="color:#f4a0a0;font-family:Caveat,cursive;font-size:1.6rem;padding:1.5rem;line-height:1.4;">⚠️ Could not generate lesson.<br/><br/><span style="color:#c8c4be;font-size:1.1rem;">Reason: ' + (e.message || 'Unknown error') + '</span><br/><br/><span style="color:#f5e87a;font-size:1.05rem;">Please go Back and try again. If problem persists, check API key in Vercel.</span></div>';
+        }
+        console.error('[Blackboard AI] generateLessonSteps failed:', e);
+      } catch(e3) {}
     }
   }, 100);  // minimal delay — just enough for DOM to settle
 });
