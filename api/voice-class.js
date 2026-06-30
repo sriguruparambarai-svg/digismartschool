@@ -1,134 +1,135 @@
-// /api/voice-class.js
-// Class-based voice for fullscreen-class.html
-// One-shot: text in → base64 audio out. No caching, no storage.
+// api/voice-class.js
+// ElevenLabs TTS — class-based voice mapping for DigiSmartSchool
+// Teacher-quality voices selected for educational delivery (not audiobook narration)
 
 const https = require('https');
 
-module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
-
-const EL_HOST = 'api.elevenlabs.io';
-
-// Class-based voice mapping (matches voice-config.js)
+// ─── VOICE MAPPING BY CLASS GROUP ──────────────────────────
+// All these are ElevenLabs official library voices (free to use with API)
 const VOICE_MAP = {
-  primary: {
-    voice_id: 'EXAVITQu4vr4xnSDxMaL', // Bella — warm, child-friendly
-    stability: 0.75, similarity_boost: 0.85, style: 0.20
-  },
-  middle: {
-    voice_id: 'ThT5KcBeYPX3keUQqHPh', // Dorothy — clear, encouraging
-    stability: 0.70, similarity_boost: 0.80, style: 0.15
-  },
-  senior: {
-    voice_id: 'TxGEqnHWrfWFTfGW9XjX', // Josh — confident, neutral
-    stability: 0.65, similarity_boost: 0.78, style: 0.10
-  },
-  higher: {
-    voice_id: 'VR6AewLTigWG4xSOukaG', // Arnold — authoritative
-    stability: 0.60, similarity_boost: 0.75, style: 0.08
-  }
+  // PreKG–Class 3 → Lily (warm, gentle female, perfect for small children)
+  'PreKG':   'pFZP5JQG7iQjIQuC4Bku',
+  'LKG':     'pFZP5JQG7iQjIQuC4Bku',
+  'UKG':     'pFZP5JQG7iQjIQuC4Bku',
+  'Class 1': 'pFZP5JQG7iQjIQuC4Bku',
+  'Class 2': 'pFZP5JQG7iQjIQuC4Bku',
+  'Class 3': 'pFZP5JQG7iQjIQuC4Bku',
+
+  // Class 4–7 → Monika Sogam (Indian English female teacher voice — most popular for Indian EdTech)
+  'Class 4': '5lf6Bj1bjbGRTV68afJj',
+  'Class 5': '5lf6Bj1bjbGRTV68afJj',
+  'Class 6': '5lf6Bj1bjbGRTV68afJj',
+  'Class 7': '5lf6Bj1bjbGRTV68afJj',
+
+  // Class 8–10 → Brian (calm confident American male, clear teacher tone)
+  'Class 8':  'nPczCjzI2devNBz1zQrb',
+  'Class 9':  'nPczCjzI2devNBz1zQrb',
+  'Class 10': 'nPczCjzI2devNBz1zQrb',
+
+  // Class 11–12 → Daniel (British male, authoritative but kind — senior teacher)
+  'Class 11': 'onwK4e9ZLuTAKqWW03F9',
+  'Class 12': 'onwK4e9ZLuTAKqWW03F9'
 };
 
-function pickVoice(cls) {
-  // Extract number from "Class 1", "Class 10", "LKG", "UKG", "Pre KG"
-  var s = (cls || '').toLowerCase();
-  if (s.indexOf('pre') >= 0 || s.indexOf('lkg') >= 0 || s.indexOf('ukg') >= 0) return VOICE_MAP.primary;
-  var match = s.match(/\d+/);
-  var num = match ? parseInt(match[0]) : 7;
-  if (num <= 3) return VOICE_MAP.primary;
-  if (num <= 7) return VOICE_MAP.middle;
-  if (num <= 10) return VOICE_MAP.senior;
-  return VOICE_MAP.higher;
+// Fallback if class not recognized
+const DEFAULT_VOICE = '5lf6Bj1bjbGRTV68afJj'; // Monika Sogam
+
+// ─── TEXT CLEANING ─────────────────────────────────────────
+function cleanText(text) {
+  if (!text) return '';
+  return String(text)
+    .replace(/\[Page\s+\d+\]/gi, '')        // Remove [Page N] markers
+    .replace(/♦/g, '')                       // Remove ♦ symbols
+    .replace(/\*+/g, '')                     // Remove asterisks (markdown)
+    .replace(/#/g, '')                       // Remove hashes
+    .replace(/\.{3,}/g, '. ')                // Replace ... with single period
+    .replace(/\s+/g, ' ')                    // Normalize whitespace
+    .trim();
 }
 
-// Light formatting - natural punctuation, NO "..." spam that makes TTS say "dot dot dot"
-function formatForSpeech(text) {
-  var t = text.trim();
-  // Remove [Page N] markers if any leaked in
-  t = t.replace(/\[Page\s+\d+\]/gi, '');
-  // Collapse whitespace
-  t = t.replace(/\s+/g, ' ').trim();
-  // Natural sentence breaks - just commas and periods
-  t = t.replace(/\.\s+/g, '. ');
-  t = t.replace(/,\s+/g, ', ');
-  t = t.replace(/\?\s+/g, '? ');
-  t = t.replace(/!\s+/g, '! ');
-  return t;
-}
+// ─── MAIN HANDLER ──────────────────────────────────────────
+module.exports = async (req, res) => {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
-function callElevenLabs(voiceId, text, settings) {
-  return new Promise(function(resolve) {
-    var key = process.env.ELEVENLABS_API_KEY;
-    if (!key) { resolve({ ok: false, error: 'No ElevenLabs API key' }); return; }
+  try {
+    const { text, cls } = req.body || {};
 
-    var payload = JSON.stringify({
-      text: text,
+    if (!text || !text.trim()) {
+      return res.status(400).json({ error: 'Missing text' });
+    }
+
+    const cleanedText = cleanText(text);
+    if (!cleanedText) {
+      return res.status(400).json({ error: 'Text empty after cleaning' });
+    }
+
+    // Pick voice based on class
+    const voiceId = VOICE_MAP[cls] || DEFAULT_VOICE;
+
+    // ElevenLabs API key from Vercel env
+    const apiKey = process.env.ELEVENLABS_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'ElevenLabs API key not configured' });
+    }
+
+    // Build request body for ElevenLabs
+    const payload = JSON.stringify({
+      text: cleanedText,
       model_id: 'eleven_multilingual_v2',
       voice_settings: {
-        stability: settings.stability,
-        similarity_boost: settings.similarity_boost,
-        style: settings.style,
+        stability: 0.55,         // Slightly more stable for teaching
+        similarity_boost: 0.75,  // Strong voice character
+        style: 0.30,             // Some expressiveness, not flat
         use_speaker_boost: true
       }
     });
 
-    var opts = {
-      hostname: EL_HOST,
-      path: '/v1/text-to-speech/' + voiceId,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'xi-api-key': key,
-        'Content-Length': Buffer.byteLength(payload)
-      }
-    };
-
-    var chunks = [];
-    var r = https.request(opts, function(res) {
-      res.on('data', function(c) { chunks.push(c); });
-      res.on('end', function() {
-        if (res.statusCode === 200) {
-          resolve({ ok: true, audio: Buffer.concat(chunks) });
-        } else {
-          var err = Buffer.concat(chunks).toString();
-          resolve({ ok: false, error: err, status: res.statusCode });
+    // Call ElevenLabs API
+    const audioBuffer = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.elevenlabs.io',
+        path: `/v1/text-to-speech/${voiceId}`,
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+          'Content-Length': Buffer.byteLength(payload)
         }
+      };
+
+      const req2 = https.request(options, (response) => {
+        if (response.statusCode !== 200) {
+          let errBody = '';
+          response.on('data', (chunk) => { errBody += chunk; });
+          response.on('end', () => {
+            reject(new Error('ElevenLabs error ' + response.statusCode + ': ' + errBody));
+          });
+          return;
+        }
+        const chunks = [];
+        response.on('data', (chunk) => chunks.push(chunk));
+        response.on('end', () => resolve(Buffer.concat(chunks)));
+        response.on('error', reject);
       });
+
+      req2.on('error', reject);
+      req2.write(payload);
+      req2.end();
     });
-    r.on('error', function(e) { resolve({ ok: false, error: e.message }); });
-    r.write(payload);
-    r.end();
-  });
-}
 
-module.exports = async function(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+    // Return base64 audio (field name matches existing client code)
+    const audioBase64 = audioBuffer.toString('base64');
+    return res.status(200).json({
+      audio_b64: audioBase64,
+      voiceId: voiceId,
+      cls: cls || 'default'
+    });
 
-  var body = req.body || {};
-  var text = (body.text || '').trim();
-  var cls = body.cls || body.class || 'Class 7';
-
-  if (!text || text.length < 3) {
-    return res.json({ error: 'text required' });
-  }
-
-  // Limit text length to avoid huge generation
-  if (text.length > 1500) text = text.substring(0, 1500);
-
-  var voice = pickVoice(cls);
-  var formattedText = formatForSpeech(text);
-
-  try {
-    var result = await callElevenLabs(voice.voice_id, formattedText, voice);
-    if (!result.ok) {
-      return res.json({ error: 'ElevenLabs: ' + (result.error || 'unknown'), status: result.status });
-    }
-    var base64 = result.audio.toString('base64');
-    return res.json({ success: true, audio_b64: base64, voice_id: voice.voice_id });
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
+  } catch (err) {
+    console.error('[voice-class] Error:', err);
+    return res.status(500).json({ error: err.message || 'Voice generation failed' });
   }
 };
