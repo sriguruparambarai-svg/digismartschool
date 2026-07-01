@@ -219,6 +219,26 @@ html,body{
 .chalk.green{color:var(--chalk-green);}
 .chalk.red{color:var(--chalk-red);}
 
+/* CHALK WRITING ANIMATION */
+@keyframes chalk-write-in{
+  0%{opacity:0;transform:translateY(4px) scale(.7);filter:blur(2px);}
+  60%{opacity:1;filter:blur(0);}
+  100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0);}
+}
+.chalk-char{
+  display:inline-block;
+  opacity:0;
+  animation:chalk-write-in .18s ease-out forwards;
+  text-shadow:0 0 4px currentColor,0 0 12px rgba(255,255,255,.12);
+}
+.chalk-char.space{width:.35em;}
+/* subtle chalk dust flash on each character */
+@keyframes chalk-dust{
+  0%{box-shadow:0 0 0 rgba(255,255,255,0);}
+  30%{box-shadow:0 0 6px 1px rgba(255,255,255,.18);}
+  100%{box-shadow:0 0 0 rgba(255,255,255,0);}
+}
+
 .problem-title{
   font-family:'Caveat',cursive;
   font-size:1.8rem;font-weight:700;
@@ -674,12 +694,10 @@ function showClassroom(){
     var div = document.createElement('div');
     div.className = 'step-item';
     div.id = 'step-' + i;
+    // Only the "main" (math) is written on blackboard. "explanation" is spoken only.
     div.innerHTML =
       '<div class="step-num">' + (i + 1) + '.</div>' +
-      '<div class="step-content">' +
-        escapeHtml(s.main || '') +
-        (s.explanation ? '<span class="step-explanation">' + escapeHtml(s.explanation) + '</span>' : '') +
-      '</div>';
+      '<div class="step-content" id="step-content-' + i + '"></div>';
     $('steps-list').appendChild(div);
   });
 
@@ -692,6 +710,82 @@ function showClassroom(){
 
 function escapeHtml(s){
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ═══════════════════════════════════════════
+// CHALK WRITING ANIMATION — writes text character by character
+// ═══════════════════════════════════════════
+function chalkWrite(el, text, charDelayMs){
+  return new Promise(function(resolve){
+    if(!el || !text){ resolve(); return; }
+    var delay = charDelayMs || 22;
+    el.innerHTML = ''; // clear
+    var chars = String(text).split('');
+    var frag = document.createDocumentFragment();
+    chars.forEach(function(ch, i){
+      var span = document.createElement('span');
+      span.className = 'chalk-char' + (ch === ' ' ? ' space' : '');
+      span.textContent = ch === ' ' ? '\u00a0' : ch;
+      span.style.animationDelay = (i * delay) + 'ms';
+      frag.appendChild(span);
+    });
+    el.appendChild(frag);
+    // Resolve when last character is finished animating
+    var totalTime = chars.length * delay + 200;
+    setTimeout(resolve, totalTime);
+  });
+}
+
+// ═══════════════════════════════════════════
+// MATH-TO-SPEECH — convert math expressions to spoken words
+// ═══════════════════════════════════════════
+function mathToSpeech(text){
+  if(!text) return '';
+  var t = String(text);
+  // Superscripts (must run first)
+  t = t.replace(/²/g, ' squared ');
+  t = t.replace(/³/g, ' cubed ');
+  t = t.replace(/⁴/g, ' to the power 4 ');
+  t = t.replace(/([a-zA-Z0-9])\^([0-9]+)/g, function(m, base, pow){
+    if(pow === '2') return base + ' squared ';
+    if(pow === '3') return base + ' cubed ';
+    return base + ' to the power ' + pow + ' ';
+  });
+  // Symbols
+  t = t.replace(/×/g, ' into ');       // Indian convention: × is "into"
+  t = t.replace(/\*/g, ' into ');
+  t = t.replace(/÷/g, ' divided by ');
+  t = t.replace(/π/g, ' pi ');
+  t = t.replace(/√/g, ' square root of ');
+  t = t.replace(/∴/g, ' therefore ');
+  t = t.replace(/∵/g, ' because ');
+  t = t.replace(/≠/g, ' not equal to ');
+  t = t.replace(/≤/g, ' less than or equal to ');
+  t = t.replace(/≥/g, ' greater than or equal to ');
+  t = t.replace(/±/g, ' plus or minus ');
+  t = t.replace(/∞/g, ' infinity ');
+  t = t.replace(/°/g, ' degrees ');
+  t = t.replace(/₀/g, ' zero ');
+  t = t.replace(/₁/g, ' one ');
+  t = t.replace(/₂/g, ' two ');
+  t = t.replace(/ₙ/g, ' n ');
+  // Subscript patterns like S_n or Sn
+  t = t.replace(/S_?n\b/gi, 'S n ');
+  // Fractions like 3/4 (only when both sides are numbers or variables)
+  t = t.replace(/(\d+)\/(\d+)/g, '$1 by $2');
+  t = t.replace(/([a-zA-Z])\/([a-zA-Z0-9])/g, '$1 by $2');
+  // Parentheses (spoken as open/close bracket for clarity)
+  t = t.replace(/\(/g, ' open bracket ');
+  t = t.replace(/\)/g, ' close bracket ');
+  // Equals sign (already reads OK, but add spaces)
+  t = t.replace(/=/g, ' equals ');
+  // Plus and minus (Indian teachers usually say "plus" and "minus" clearly)
+  t = t.replace(/\+/g, ' plus ');
+  // Only convert standalone minus (not negative numbers at start)
+  t = t.replace(/(\S)\s*-\s*(\S)/g, '$1 minus $2');
+  // Collapse multiple spaces
+  t = t.replace(/\s+/g, ' ').trim();
+  return t;
 }
 
 // ═══════════════════════════════════════════
@@ -737,8 +831,9 @@ async function runPlayback(){
 
     // Show formula if exists
     if(SOLUTION.formula && SOLUTION.formula.trim()){
-      $('formula-text').textContent = SOLUTION.formula;
       $('formula-block').classList.add('show');
+      await chalkWrite($('formula-text'), SOLUTION.formula, 28);
+      if(!IS_PLAYING) return;
       var formulaIntro = "First, let us remember the formula we need. " + SOLUTION.formula;
       await speakStep(formulaIntro);
       if(!IS_PLAYING) return;
@@ -774,30 +869,43 @@ async function showStep(idx){
   var step = SOLUTION.steps[idx];
   if(!step) return;
 
-  // Mark current step active
+  // Mark current step active, reveal all previous steps
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
     if(i <= idx) el.classList.add('show');
   });
   var stepEl = $('step-' + idx);
+  var contentEl = $('step-content-' + idx);
   if(stepEl){
     stepEl.classList.add('show');
     stepEl.classList.add('current');
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  // Add rough work if any
+  // CHALK-WRITE the math on the blackboard (character by character)
+  if(contentEl){
+    // Start voice + chalk writing in parallel so they feel synchronized
+    var writePromise = chalkWrite(contentEl, step.main || '', 26);
+    // Add rough work while writing
+    if(step.rough && step.rough.trim()){
+      addRoughWork(step.roughLabel || ('Step ' + (idx + 1) + ' working'), step.rough);
+    }
+    // Speak the explanation (this is what the teacher SAYS — not written)
+    var spoken = step.explanation && step.explanation.trim()
+      ? step.explanation + '. ' + step.main
+      : step.main;
+    // Wait for chalk to finish, then wait for speech to finish
+    await writePromise;
+    if(!IS_PLAYING) return;
+    await speakStep(spoken);
+    return;
+  }
+
+  // Fallback if no content element
   if(step.rough && step.rough.trim()){
     addRoughWork(step.roughLabel || ('Step ' + (idx + 1) + ' working'), step.rough);
   }
-
-  // Speak the explanation
-  var spoken = step.explanation || step.main;
-  // Prepend the math expression in spoken-friendly way if explanation is short
-  if(step.main && (!step.explanation || step.explanation.length < 30)){
-    spoken = step.main + '. ' + (step.explanation || '');
-  }
-  await speakStep(spoken);
+  await speakStep(step.explanation || step.main);
 }
 
 async function showFinalAnswer(){
@@ -866,18 +974,22 @@ function replayStep(){
 }
 
 function showStepInstant(idx){
-  // Show all steps up to idx without speech
-  // Also show formula if not visible
+  // Show all steps up to idx without speech but with proper chalk text
   if(SOLUTION.formula && SOLUTION.formula.trim()){
     $('formula-text').textContent = SOLUTION.formula;
     $('formula-block').classList.add('show');
   }
-  // Show steps and rebuild rough work
+  // Reset rough work
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
+    var contentEl = $('step-content-' + i);
     if(i <= idx){
       el.classList.add('show');
+      // Fill step content (no animation — instant)
+      if(contentEl && SOLUTION.steps[i]){
+        contentEl.textContent = SOLUTION.steps[i].main || '';
+      }
       // Add corresponding rough work
       var s = SOLUTION.steps[i];
       if(s && s.rough && s.rough.trim()){
@@ -885,6 +997,7 @@ function showStepInstant(idx){
       }
     } else {
       el.classList.remove('show');
+      if(contentEl) contentEl.textContent = '';
     }
   });
   var stepEl = $('step-' + idx);
@@ -900,10 +1013,10 @@ function showStepInstant(idx){
 function speakStep(text){
   return new Promise(function(resolve){
     if(!IS_PLAYING && !text){ resolve(); return; }
-    var cleanText = String(text || '').replace(/\*+/g,'').replace(/[×÷²³π]/g, function(c){
-      // Pronounce math symbols clearly
-      return ({'×':' times ', '÷':' divided by ', '²':' squared ', '³':' cubed ', 'π':' pi '})[c] || c;
-    });
+    // Convert math symbols/expressions into spoken words BEFORE voice generation
+    // e.g. n(n+1)/2 → "n into open bracket n plus 1 close bracket by 2"
+    var cleanText = mathToSpeech(text);
+    cleanText = cleanText.replace(/\*+/g, '');
     if(!cleanText.trim()){ resolve(); return; }
 
     fetch('/api/voice-class', {
