@@ -1686,7 +1686,7 @@ async function mbGoTeach(){
                     'anthropic-dangerous-direct-browser-access':'true'
                   },
                   body:JSON.stringify({
-                    model:'claude-sonnet-4-20250514',
+                    model:'claude-sonnet-4-5',
                     max_tokens:4000,
                     system:'Extract all text from textbook page images exactly as they appear. Preserve Tamil script and math notation. Output text only.',
                     messages:[{role:'user',content:vcontent}]
@@ -1694,7 +1694,10 @@ async function mbGoTeach(){
                 });
                 var vData=await vRes.json();
                 if(vData.content && vData.content[0]) pageText=(vData.content[0].text||'').trim();
+                else console.warn('Direct API returned no content for page '+pageNum+':', vData);
               }catch(vde){ console.warn('Direct API failed for page '+pageNum+':',vde); }
+            } else {
+              console.warn('No API key available, skipping direct API');
             }
 
             // Fallback: proxy through /api/ai with smaller image
@@ -1720,8 +1723,11 @@ async function mbGoTeach(){
                 var bData=await bRes.json();
                 if(bData.content && bData.content[0]) pageText=(bData.content[0].text||'').trim();
                 else if(bData.text) pageText=String(bData.text).trim();
+                else console.warn('Proxy API returned no content for page '+pageNum+':', bData);
               }catch(pe){ console.warn('Proxy API failed for page '+pageNum+':',pe); }
             }
+
+            console.log('[Vision Page '+pageNum+'] Extracted '+(pageText?pageText.length:0)+' chars');
 
             if(pageText && pageText.length>10){
               visionTexts.push('[Page '+pageNum+']\n'+pageText);
