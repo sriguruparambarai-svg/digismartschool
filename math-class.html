@@ -94,6 +94,31 @@ html,body{
   color:var(--sandal);outline:none;
 }
 .meta-inp:focus{border-color:var(--gold);}
+
+/* Language Toggle */
+.lang-toggle{
+  display:flex;gap:10px;margin-top:8px;
+}
+.lang-btn{
+  flex:1;padding:12px 16px;
+  background:rgba(255,255,255,.05);
+  border:2px solid rgba(201,168,76,.25);
+  border-radius:12px;
+  color:rgba(232,201,154,.7);
+  font-family:Nunito,sans-serif;font-weight:800;font-size:.88rem;
+  cursor:pointer;transition:all .2s;
+  display:flex;align-items:center;justify-content:center;gap:8px;
+}
+.lang-btn:hover{background:rgba(255,255,255,.09);}
+.lang-btn.active{
+  background:linear-gradient(135deg,var(--gold),#FFD86A);
+  color:#3a1b0a;border-color:var(--gold);
+  box-shadow:0 4px 14px rgba(201,168,76,.35);
+}
+.lang-btn .lang-emoji{font-size:1.1rem;}
+.lang-btn .lang-sub{
+  display:block;font-size:.68rem;font-weight:700;opacity:.75;margin-top:2px;
+}
 .example-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;}
 .ec{
   padding:6px 12px;border-radius:18px;
@@ -354,6 +379,45 @@ html,body{
   letter-spacing:.02em;
 }
 .rough-entry.show{opacity:1;transform:translateX(0);}
+
+/* Vertical multiplication / division column format */
+.calc-vertical{
+  font-family:'Courier New','Consolas',monospace;
+  font-size:1.35rem;
+  color:var(--chalk-white);
+  line-height:1.4;
+  letter-spacing:.05em;
+  padding:6px 4px;
+  white-space:pre;
+}
+.calc-row{
+  padding:1px 0;
+  color:var(--chalk-white);
+}
+.calc-row.calc-op{color:var(--chalk-yellow);}
+.calc-row.calc-partial{color:var(--chalk-blue);}
+.calc-row.calc-result{color:var(--chalk-green);font-weight:700;}
+.calc-row.calc-header{color:var(--chalk-yellow);font-weight:600;letter-spacing:.08em;}
+.calc-divider{
+  border-top:2px solid rgba(244,244,240,.7);
+  margin:3px 0;
+  height:0;
+}
+.calc-divider-inline{
+  color:rgba(244,244,240,.7);
+  padding:1px 0;
+}
+.calc-simple{
+  font-family:'Caveat',cursive;
+  font-size:1.35rem;
+  color:var(--chalk-white);
+  padding:4px 0;
+}
+.calc-div .calc-header{
+  padding-bottom:4px;
+  border-bottom:1px solid rgba(245,232,122,.2);
+  margin-bottom:2px;
+}
 .rough-entry .rough-label-inline{
   display:block;
   font-size:.8rem;
@@ -494,6 +558,22 @@ html,body{
     </div>
   </div>
 
+  <div class="field-label">🗣️ Teaching Language</div>
+  <div class="lang-toggle">
+    <button class="lang-btn active" id="lang-en" onclick="selectLang('en')">
+      <span>
+        <span class="lang-emoji">🇬🇧</span> English Mode
+        <span class="lang-sub">Full English teaching</span>
+      </span>
+    </button>
+    <button class="lang-btn" id="lang-mix" onclick="selectLang('mix')">
+      <span>
+        <span class="lang-emoji">🇮🇳</span> தமிழ் + English Mode
+        <span class="lang-sub">Real Tamil Nadu teacher style</span>
+      </span>
+    </button>
+  </div>
+
   <div class="err-msg" id="err-msg"></div>
 
   <button class="solve-btn" id="solve-btn" onclick="solveAndTeach()">
@@ -574,6 +654,13 @@ var IS_PAUSED = false;
 var SPEED = 1.0;
 var CURRENT_AUDIO = null;
 var SCHOOL_CLASS = 'Class 7';
+var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
+
+function selectLang(lang){
+  TEACH_LANG = lang;
+  document.getElementById('lang-en').classList.toggle('active', lang === 'en');
+  document.getElementById('lang-mix').classList.toggle('active', lang === 'mix');
+}
 
 // ═══════════════════════════════════════════
 // EXAMPLES
@@ -605,75 +692,108 @@ async function solveAndTeach(){
   hideError();
   $('solve-btn').disabled = true;
   $('loading').classList.add('show');
+  var lt = document.querySelector('.loading-text');
+  var ls = document.querySelector('.loading-sub');
+  if(TEACH_LANG === 'mix'){
+    if(lt) lt.textContent = 'Preparing Tamil + English teacher...';
+    if(ls) ls.textContent = 'Mrs. Priya is preparing the class in Tamil-English mix style with rough work.';
+  } else {
+    if(lt) lt.textContent = 'Preparing English teacher...';
+    if(ls) ls.textContent = 'Mrs. Priya is preparing the step-by-step class with rough work.';
+  }
 
   try {
-    var systemPrompt = 'You are an experienced math teacher in Tamil Nadu, India, teaching CBSE/State board students. You solve problems EXACTLY like a real classroom teacher writes on a blackboard — clean, step by step, atomic (one small operation per step), with proper long-form rough work in the corner. You NEVER combine multiple operations into one step. You return ONLY valid JSON, no markdown, no code fences, no extra text.';
+    // Different system prompts based on language mode
+    var systemPrompt, styleGuide, exampleScripts;
+
+    if(TEACH_LANG === 'mix'){
+      // Tamil + English mixed teacher (Tamil Nadu style)
+      systemPrompt = 'You are Mrs. Priya, a warm and experienced math teacher in a Tamil Nadu school. You teach in a natural mix of Tamil and English — like a real classroom teacher who speaks to students. You use words like "ok children", "so", "correct-a?", "very good", "let me show you", and Tamil words naturally between English. You NEVER read out formulas mechanically — you always explain WHY and check if students understand. You return ONLY valid JSON.';
+
+      styleGuide = 'TEACHER STYLE (Tamil Nadu classroom, Tamil + English mix):\n\n'
+        + 'Real teacher script examples:\n\n'
+        + '1. INTRO: "Ok children, இப்போ ஒரு problem பாக்கலாம். Problem is — Find 1 plus 2 plus 3 all the way to 40. இது சும்மா add பண்ண போய்ட்டா full day-um போய்டும். So we use a special formula. Let me show you!"\n\n'
+        + '2. FORMULA: "The formula-a note பண்ணிக்கோங்க children — S sub n equals n into n plus 1 by 2. இது super shortcut. இதுக்கு proof lesson இல்ல but very useful."\n\n'
+        + '3. STEP: "First step என்னான்னா, identify பண்ணனும் — n என்றால் என்ன? Here we have 40 terms, so n equals 40. Simple, correct-a?"\n\n'
+        + '4. STEP WITH ROUGH: "இப்போ substitute பண்றேன். S sub 40 equals 40 into 40 plus 1 by 2. இப்போ 40 plus 1 என்னா? Come on, tell me! Yes, 41. Very good!"\n\n'
+        + '5. ROUGH EXPLAIN: "Now this multiplication 40 into 41 — கொஞ்சம் big number. Rough work-la பாக்கலாம். 40 into 1 என்ன? 40. Correct. 40 into 4 என்ன? 160. So total 40 plus 160 shifted equals 1640. Simple-a இல்ல?"\n\n'
+        + '6. ANSWER: "So final answer, Sum equals 820. Super! Understood-a children?"\n\n'
+        + 'RULES:\n'
+        + '- Mix Tamil and English naturally — do NOT translate everything\n'
+        + '- Use "children", "correct-a?", "understood-a?", "very good", "come on tell me"\n'
+        + '- Small Tamil words: என்ன, இப்போ, சரி, இல்ல, படிக்குறோம், பண்றோம், கொஞ்சம், simple-a\n'
+        + '- English for math terms: formula, substitute, multiply, answer, step, problem\n'
+        + '- Ask students questions to check understanding\n'
+        + '- Encourage: "very good", "super", "correct"\n'
+        + '- NEVER use pure Tamil translation of formulas — always English formula, Tamil explanation\n'
+        + '- 2-4 sentences per teacherScript field';
+    } else {
+      // Pure English teacher
+      systemPrompt = 'You are Mrs. Priya, a warm and experienced Indian math teacher speaking clearly in English. You teach with personality — you ask students questions, encourage them, and explain WHY at each step. You NEVER read formulas mechanically. You use phrases like "ok children", "so", "correct?", "very good", "let me show you". You return ONLY valid JSON.';
+
+      styleGuide = 'TEACHER STYLE (warm English, Indian classroom):\n\n'
+        + 'Real teacher script examples:\n\n'
+        + '1. INTRO: "Ok children, let us look at this problem. We have to find 1 plus 2 plus 3 all the way up to 40. Now, if we add all these one by one, it will take forever! So we use a special formula. Let me show you."\n\n'
+        + '2. FORMULA: "Note this down please — S sub n equals n into n plus 1 by 2. This is a super shortcut for sum of natural numbers. Very important formula."\n\n'
+        + '3. STEP: "First step — we identify n. Here we have 40 terms, so n equals 40. Simple, correct?"\n\n'
+        + '4. STEP WITH ROUGH: "Now let us substitute. S sub 40 equals 40 into 40 plus 1 by 2. What is 40 plus 1? Come on, tell me! Yes, 41. Very good!"\n\n'
+        + '5. ROUGH EXPLAIN: "Now this multiplication 40 into 41 — it is a big number. Let us do it step by step in rough work. 40 into 1 is 40. Then 40 into 4 is 160, shifted one place. Add them — 1640. Simple, right?"\n\n'
+        + '6. ANSWER: "So our final answer, Sum equals 820. Excellent! Do you all understand?"\n\n'
+        + 'RULES:\n'
+        + '- Warm, friendly Indian English — not formal\n'
+        + '- Use "children", "correct?", "understand?", "very good", "come on tell me"\n'
+        + '- Ask students questions to check understanding\n'
+        + '- Encourage with "excellent", "very good", "super"\n'
+        + '- Explain WHY, not just WHAT\n'
+        + '- 2-4 sentences per teacherScript field';
+    }
 
     var userPrompt = 'Solve this math problem for ' + SCHOOL_CLASS + ' students' + (chapter ? ' (' + chapter + ')' : '') + ':\n\n"' + problem + '"\n\n'
-      + '════════ TEACHING STYLE (like Indian classroom teacher writing in notebook) ════════\n\n'
-      + 'CORRECT EXAMPLE — for "Find 1+2+3+...+40":\n'
-      + '  Formula: Sn = n(n+1)/2\n'
-      + '  Step 1 main: "Here, n = 40"\n'
-      + '  Step 2 main: "S40 = 40(40+1)/2"\n'
-      + '  Step 3 main: "S40 = 40(41)/2"\n'
-      + '  Step 4 main: "S40 = 1640/2"\n'
-      + '  Step 5 main: "S40 = 820"\n'
-      + '  Final answer: "Sum = 820"\n\n'
-      + 'WRONG EXAMPLES (do NOT do these):\n'
-      + '  ❌ Combining "Given: Find 1+2+3+...+40  Formula: Sum = n(n+1)/2" into one step\n'
-      + '  ❌ Writing "We use the standard formula because..." on the blackboard (that is spoken only)\n'
-      + '  ❌ Skipping calculation steps (e.g. jumping from 40(41)/2 straight to 820)\n'
-      + '  ❌ Doing 40 × 41 = 1640 mentally without showing rough work\n\n'
+      + styleGuide + '\n\n'
       + '════════ RETURN THIS EXACT JSON ════════\n\n'
       + '{\n'
-      + '  "problem": "the cleaned problem statement (short, one line)",\n'
-      + '  "formula": "the formula used, e.g. Sn = n(n+1)/2  (empty string if no formula)",\n'
+      + '  "problem": "clean short problem statement",\n'
+      + '  "intro": "REAL TEACHER SCRIPT introducing the problem (like real classroom start) — 2-3 sentences",\n'
+      + '  "formula": "the formula used, e.g. Sn = n(n+1)/2 (empty string if no formula)",\n'
+      + '  "formulaScript": "REAL TEACHER SCRIPT introducing the formula — 2 sentences",\n'
       + '  "steps": [\n'
       + '    {\n'
-      + '      "main": "ONE atomic math line to write on blackboard, e.g. \'S40 = 40(41)/2\' — SHORT, ONE OPERATION ONLY, NO English sentences",\n'
-      + '      "explanation": "1 short sentence teacher says while writing this step (spoken only, NOT written on board)",\n'
-      + '      "rough": "if this step requires arithmetic (multiplication, division, addition of multi-digit numbers), show FULL vertical working in rough work. Use \\n for new lines. Empty string if no rough work needed.",\n'
-      + '      "roughLabel": "short label for rough work, e.g. \'Multiplying 40 × 41\'"\n'
+      + '      "main": "ONE atomic math line to write on blackboard (short, one operation, NO English sentences)",\n'
+      + '      "teacherScript": "REAL TEACHER SCRIPT — what teacher SAYS while writing this step. Include questions like \\"correct?\\", encouragement, natural pauses. 2-4 sentences.",\n'
+      + '      "roughLabel": "short label for rough work e.g. Multiplying 40 × 41 (empty if no rough)",\n'
+      + '      "roughScript": "REAL TEACHER SCRIPT explaining the rough work step by step. Include questions to students. 2-4 sentences.",\n'
+      + '      "roughType": "one of: none, add, sub, mul, div, custom",\n'
+      + '      "roughA": "first number for arithmetic e.g. 40",\n'
+      + '      "roughB": "second number for arithmetic e.g. 41",\n'
+      + '      "roughResult": "the result e.g. 1640",\n'
+      + '      "roughCustom": "only used if roughType is custom — free-form text"\n'
       + '    }\n'
       + '  ],\n'
-      + '  "finalAnswer": "final boxed answer, e.g. \'Sum = 820\' or \'x = 5\' or \'Area = 96 cm²\'",\n'
-      + '  "verification": "OPTIONAL verification — empty string \\"\\" if not applicable"\n'
+      + '  "finalAnswer": "short final answer e.g. Sum = 820 or x = 5",\n'
+      + '  "finalScript": "REAL TEACHER SCRIPT celebrating the answer — 1-2 sentences with encouragement",\n'
+      + '  "verificationScript": "OPTIONAL verification teacher script, empty string if none"\n'
       + '}\n\n'
+      + '════════ ROUGH WORK TYPES ════════\n\n'
+      + 'For roughType, use:\n'
+      + '  - "none": no rough work needed for this step\n'
+      + '  - "add":  simple addition (roughA + roughB = roughResult)\n'
+      + '  - "sub":  subtraction (roughA - roughB = roughResult)\n'
+      + '  - "mul":  multiplication — auto-renders vertical column format\n'
+      + '  - "div":  division — auto-renders Indian bracket format\n'
+      + '  - "custom": for complex — put full explanation in roughCustom field\n\n'
       + '════════ STRICT RULES ════════\n\n'
-      + '1. STEPS MUST BE ATOMIC — one small operation per step. No combining. If 5 operations, then 5 steps.\n'
-      + '2. main field = ONLY the math expression (like a real teacher writes). No English sentences, no "Given:", no "Formula:", no "Substituting values:". Just the math.\n'
-      + '3. explanation field = what teacher SAYS (spoken). Keep short (5-15 words). This is NEVER shown on the board.\n'
-      + '4. ROUGH WORK is critical — show FULL long-form working like a real classroom:\n'
-      + '   - Multiplication like 40 × 41: show vertical multiplication with CORRECT PARTIAL PRODUCTS\n'
-      + '     CORRECT EXAMPLE for 40 × 41:\n'
-      + '       "  40\\n × 41\\n ----\\n   40\\n  160\\n ----\\n 1640"\n'
-      + '     (First partial: 40×1=40. Second partial: 40×4=160 written shifted one place left, but showing digits as 160 not 1600.)\n'
-      + '     CORRECT EXAMPLE for 25 × 13:\n'
-      + '       "  25\\n × 13\\n ----\\n   75\\n  25\\n ----\\n 325"\n'
-      + '     (First: 25×3=75. Second: 25×1=25 shifted, shown as "25" indented.)\n'
-      + '     CORRECT EXAMPLE for 123 × 45:\n'
-      + '       "  123\\n ×  45\\n ----\\n  615\\n 492\\n ----\\n 5535"\n'
-      + '     (First: 123×5=615. Second: 123×4=492 shifted one place left.)\n'
-      + '     ⚠️ CRITICAL: Each partial product uses only that ONE digit, not the full number.\n'
-      + '        40 × 41 has partials 40 (from ×1) and 160 (from ×4), NOT 40 and 1600.\n'
-      + '        25 × 13 has partials 75 and 25, NOT 75 and 250.\n'
-      + '     ⚠️ VERIFY: sum of partial products = final answer (40+160=200? NO. 40+1600=1640? shift matters. Use spacing to show shift.)\n'
-      + '     ACTUALLY simpler: think column by column. 40×41 = 40×(40+1) = 1600+40 = 1640. If confused, use this expanded form instead.\n'
-      + '   - Long division like 1640 ÷ 2: show proper division bracket format\n'
-      + '     CORRECT EXAMPLE for 1640 ÷ 2:\n'
-      + '       "2)1640(820\\n   16\\n   --\\n    04\\n     4\\n    --\\n     00\\n      0\\n     --\\n      0"\n'
-      + '     Or simpler expanded working:\n'
-      + '       "1640 ÷ 2:\\n1600 ÷ 2 = 800\\n  40 ÷ 2 =  20\\n---------------\\n1640 ÷ 2 = 820"\n'
-      + '   - Simple subtraction/addition of small numbers: can be short like "15 - 5 = 10"\n'
-      + '   - Do NOT skip arithmetic — if the step involves 2-digit or more calculation, show the working.\n'
-      + '   - PREFER expanded form (40×41 = 40×40 + 40×1 = 1600 + 40 = 1640) over column format if unsure.\n'
-      + '5. Use proper math symbols: × (times), ÷ (divide), ² (squared), ³ (cubed), π (pi), √ (root), ° (degrees).\n'
-      + '   Never use * or / for multiplication/division in main field (only in fractions like 40/2).\n'
-      + '6. Write brackets naturally: n(n+1), 40(41), 2(x+3) — parentheses right after number/variable means multiplication.\n'
-      + '7. For fractions in main field, use / like: 40/2, 1640/2, n(n+1)/2\n'
-      + '8. 4 to 8 steps total. Never fewer than 4, never more than 8.\n'
-      + '9. Final answer must be short and clear — like "Sum = 820" or "x = 5", not a full sentence.\n'
-      + '10. For word problems: Step 1 identifies given values (e.g. "Distance = 240 km, Time = 4 hr"), then formula, then substitution, then calculation, then answer.';
+      + '1. STEPS MUST BE ATOMIC — one small operation per step. No combining. If 5 operations needed, then 5 steps.\n'
+      + '2. main field = ONLY the math expression. NO "Given:", NO "Formula:", NO "Substituting:", NO English sentences.\n'
+      + '3. teacherScript = REAL TEACHER MONOLOGUE with personality, questions, encouragement.\n'
+      + '4. roughScript = REAL TEACHER MONOLOGUE explaining the calculation step-by-step.\n'
+      + '5. Whenever a step involves 2-digit or larger multiplication → set roughType="mul" and provide roughA, roughB, roughResult.\n'
+      + '6. Whenever a step involves 2-digit or larger division → set roughType="div" and provide roughA, roughB, roughResult.\n'
+      + '7. Use proper symbols: × (times), ÷ (divide), ² (squared), ³ (cubed), π (pi), √ (root), ° (degrees).\n'
+      + '8. Brackets naturally: n(n+1), 40(41), 2(x+3) — means multiplication.\n'
+      + '9. Fractions in main field: use / like 40/2, 1640/2, n(n+1)/2\n'
+      + '10. 4 to 8 steps total.\n'
+      + '11. Final answer must be SHORT — like "Sum = 820" or "x = 5", not full sentence.\n'
+      + '12. Every teacherScript must sound like a REAL teacher talking — warm, engaging, natural.';
 
     var resp = await fetch('/api/ai', {
       method: 'POST',
@@ -681,7 +801,7 @@ async function solveAndTeach(){
       body: JSON.stringify({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        max_tokens: 3000
+        max_tokens: 4500
       })
     });
     if(!resp.ok){
@@ -771,8 +891,150 @@ function escapeHtml(s){
 }
 
 // ═══════════════════════════════════════════
-// CHALK WRITING ANIMATION — writes text character by character
+// ARITHMETIC RENDERERS — proper Indian column/bracket format
 // ═══════════════════════════════════════════
+
+// Vertical multiplication renderer
+// e.g. renderMultiplication(40, 41, 1640) →
+//    40
+//  × 41
+//  ----
+//    40      (40 × 1)
+//   160      (40 × 4, shifted one place)
+//  ----
+//  1640
+function renderMultiplication(a, b, result){
+  var aNum = parseInt(a, 10);
+  var bNum = parseInt(b, 10);
+  if(isNaN(aNum) || isNaN(bNum)){
+    // Fallback for non-numeric
+    return renderSimpleCalc(a + ' × ' + b + ' = ' + result);
+  }
+  var aStr = String(aNum);
+  var bStr = String(bNum);
+  var digitsB = bStr.split('').reverse(); // units first
+  // Compute partial products (each digit of b times a)
+  var partials = digitsB.map(function(d, i){
+    var val = aNum * parseInt(d, 10);
+    return { value: val, shift: i };
+  });
+  var finalRes = result || String(aNum * bNum);
+  // Max width for right-alignment (final result width or partial widths)
+  var maxWidth = Math.max(
+    String(finalRes).length,
+    Math.max.apply(null, partials.map(function(p){ return String(p.value).length + p.shift; }))
+  );
+
+  var html = '<div class="calc-vertical">';
+  // Top number (a) — right-aligned
+  html += '<div class="calc-row">' + padRight(aStr, maxWidth) + '</div>';
+  // Operator + b
+  html += '<div class="calc-row calc-op">× ' + padRight(bStr, maxWidth - 2) + '</div>';
+  html += '<div class="calc-divider"></div>';
+  // Each partial product (right-aligned with shift)
+  partials.forEach(function(p){
+    if(p.value === 0) return; // skip zero partials (from digit 0)
+    var content = String(p.value);
+    var shiftedContent = content + spaces(p.shift);
+    html += '<div class="calc-row calc-partial">' + padRight(shiftedContent, maxWidth) + '</div>';
+  });
+  if(partials.length > 1){
+    html += '<div class="calc-divider"></div>';
+    html += '<div class="calc-row calc-result">' + padRight(finalRes, maxWidth) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+// Indian long division renderer
+// e.g. renderDivision(1640, 2, 820) →
+// 2 ) 1640 ( 820
+//      16
+//      --
+//       4
+//       4
+//       --
+//        0
+function renderDivision(dividend, divisor, quotient){
+  var divd = parseInt(dividend, 10);
+  var divs = parseInt(divisor, 10);
+  if(isNaN(divd) || isNaN(divs) || divs === 0){
+    return renderSimpleCalc(dividend + ' ÷ ' + divisor + ' = ' + quotient);
+  }
+  var quot = quotient !== undefined ? String(quotient) : String(Math.floor(divd / divs));
+  var divdStr = String(divd);
+
+  // Walk through digits of dividend, doing long division step by step
+  var lines = [];
+  var current = 0;
+  var quotDigits = '';
+  var workLines = []; // each entry: { indent, content, type }
+
+  // Header line: divisor ) dividend ( quotient
+  var headerLen = String(divs).length + 3; // "N ) "
+  lines.push({ text: String(divs) + ' ) ' + divdStr + ' ( ' + quot, type: 'header' });
+
+  var carriedIndent = 0;
+  for(var i = 0; i < divdStr.length; i++){
+    var digit = parseInt(divdStr.charAt(i), 10);
+    current = current * 10 + digit;
+    if(current < divs && i < divdStr.length - 1){
+      // Not enough yet, bring down next digit — still show 0 in quotient? Skip for simplicity.
+      continue;
+    }
+    if(current < divs){
+      break;
+    }
+    var q = Math.floor(current / divs);
+    var multiplied = q * divs;
+    quotDigits += q;
+    // Indent for this subtraction — align with the last digit we've consumed
+    var indent = headerLen + i - String(multiplied).length + 1;
+    if(indent < headerLen) indent = headerLen;
+    lines.push({ text: spaces(indent) + String(multiplied), type: 'sub' });
+    // Divider under the subtracted number
+    lines.push({ text: spaces(indent) + repeat('-', String(multiplied).length), type: 'divider' });
+    current = current - multiplied;
+    // Show remainder + next digit (if any)
+    if(i < divdStr.length - 1){
+      var next = parseInt(divdStr.charAt(i + 1), 10);
+      var remStr = (current === 0 ? '' : String(current)) + String(next);
+      var remIndent = headerLen + i - remStr.length + 2;
+      if(remIndent < headerLen) remIndent = headerLen;
+      lines.push({ text: spaces(remIndent) + remStr, type: 'bring-down' });
+    } else if(current === 0){
+      lines.push({ text: spaces(headerLen + i + 1) + '0', type: 'remainder' });
+    } else {
+      lines.push({ text: spaces(headerLen + i + 1) + String(current), type: 'remainder' });
+    }
+  }
+
+  var html = '<div class="calc-vertical calc-div">';
+  lines.forEach(function(l){
+    var cls = 'calc-row';
+    if(l.type === 'divider') cls += ' calc-divider-inline';
+    else if(l.type === 'header') cls += ' calc-header';
+    else if(l.type === 'remainder') cls += ' calc-result';
+    html += '<div class="' + cls + '">' + escapeHtml(l.text) + '</div>';
+  });
+  html += '</div>';
+  return html;
+}
+
+// Simple horizontal calc like "40 + 1 = 41"
+function renderSimpleCalc(text){
+  return '<div class="calc-simple">' + escapeHtml(text) + '</div>';
+}
+
+// Helpers
+function spaces(n){ return n > 0 ? new Array(n + 1).join(' ') : ''; }
+function repeat(ch, n){ return n > 0 ? new Array(n + 1).join(ch) : ''; }
+function padRight(s, width){
+  var pad = width - s.length;
+  return spaces(pad > 0 ? pad : 0) + s;
+}
+
+
 function chalkWrite(el, text, charDelayMs){
   return new Promise(function(resolve){
     if(!el || !text){ resolve(); return; }
@@ -951,8 +1213,8 @@ function pausePlayback(){
 async function runPlayback(){
   // If just started (STEP_IDX === -1), show problem + formula first
   if(STEP_IDX === -1){
-    // Speak intro
-    var intro = "Let us solve this problem together. The problem is: " + SOLUTION.problem;
+    // Speak warm intro (real teacher opening the class)
+    var intro = SOLUTION.intro || ("Let us solve this problem together. The problem is: " + SOLUTION.problem);
     await speakStep(intro);
     if(!IS_PLAYING) return;
 
@@ -961,7 +1223,7 @@ async function runPlayback(){
       $('formula-block').classList.add('show');
       await chalkWrite($('formula-text'), SOLUTION.formula, 28);
       if(!IS_PLAYING) return;
-      var formulaIntro = "First, let us remember the formula we need. " + SOLUTION.formula;
+      var formulaIntro = SOLUTION.formulaScript || ("First, let us remember the formula we need. " + SOLUTION.formula);
       await speakStep(formulaIntro);
       if(!IS_PLAYING) return;
     }
@@ -996,7 +1258,7 @@ async function showStep(idx){
   var step = SOLUTION.steps[idx];
   if(!step) return;
 
-  // Mark current step active, reveal all previous steps
+  // Mark current step active
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
     if(i <= idx) el.classList.add('show');
@@ -1009,30 +1271,49 @@ async function showStep(idx){
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
-  // CHALK-WRITE the math on the blackboard (character by character)
+  // ── PHASE 1: Chalk-write the math on the blackboard ──
   if(contentEl){
-    // Start voice + chalk writing in parallel so they feel synchronized
     var writePromise = chalkWrite(contentEl, step.main || '', 26);
-    // Add rough work while writing
-    if(step.rough && step.rough.trim()){
-      addRoughWork(step.roughLabel || ('Step ' + (idx + 1) + ' working'), step.rough);
-    }
-    // Speak the explanation (this is what the teacher SAYS — not written)
-    var spoken = step.explanation && step.explanation.trim()
-      ? step.explanation + '. ' + step.main
-      : step.main;
-    // Wait for chalk to finish, then wait for speech to finish
     await writePromise;
-    if(!IS_PLAYING) return;
-    await speakStep(spoken);
-    return;
   }
+  if(!IS_PLAYING) return;
 
-  // Fallback if no content element
-  if(step.rough && step.rough.trim()){
-    addRoughWork(step.roughLabel || ('Step ' + (idx + 1) + ' working'), step.rough);
+  // ── PHASE 2: Teacher speaks about this step (warm, natural script) ──
+  var spoken = step.teacherScript || step.explanation || step.main;
+  await speakStep(spoken);
+  if(!IS_PLAYING) return;
+
+  // ── PHASE 3: If this step has rough work, do it with teacher explanation ──
+  var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
+  if(hasRough){
+    // Small pause before starting rough work
+    await sleep(500);
+    if(!IS_PLAYING) return;
+
+    // Add the rough work to the right panel
+    var roughData = null;
+    if(step.roughType === 'custom'){
+      roughData = { type: 'custom', custom: step.roughCustom || '' };
+    } else {
+      roughData = {
+        type: step.roughType,
+        a: step.roughA,
+        b: step.roughB,
+        result: step.roughResult
+      };
+    }
+    addRoughWork(step.roughLabel || 'Rough working', roughData);
+
+    // Teacher explains the rough work with warm script
+    var roughText = step.roughScript || step.roughExplain;
+    if(roughText && roughText.trim()){
+      await speakStep(roughText);
+      if(!IS_PLAYING) return;
+    }
+
+    // Pause so students can absorb
+    await sleep(600);
   }
-  await speakStep(step.explanation || step.main);
 }
 
 async function showFinalAnswer(){
@@ -1040,26 +1321,53 @@ async function showFinalAnswer(){
     $('final-answer').textContent = '✓ ' + SOLUTION.finalAnswer;
     $('final-answer').classList.add('show');
     $('final-answer').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    await speakStep('And so, the final answer is: ' + SOLUTION.finalAnswer);
+    var finalScript = SOLUTION.finalScript || ('And so, the final answer is: ' + SOLUTION.finalAnswer + '. Very good children!');
+    await speakStep(finalScript);
   }
-  if(IS_PLAYING && SOLUTION.verification && SOLUTION.verification.trim()){
-    $('verification').textContent = 'Verification: ' + SOLUTION.verification;
-    $('verification').classList.add('show');
-    await speakStep('Let us verify our answer. ' + SOLUTION.verification);
+  if(IS_PLAYING && (SOLUTION.verificationScript || SOLUTION.verification)){
+    var vText = SOLUTION.verification || '';
+    if(vText.trim()){
+      $('verification').textContent = 'Verification: ' + vText;
+      $('verification').classList.add('show');
+    }
+    var vScript = SOLUTION.verificationScript || ('Let us verify our answer. ' + vText);
+    if(vScript && vScript.trim()){
+      await speakStep(vScript);
+    }
   }
 }
 
-function addRoughWork(label, content){
+function addRoughWork(label, roughData){
   var rc = $('rough-content');
   // Remove "empty" placeholder if present
   var empty = rc.querySelector('.rough-empty');
   if(empty) empty.remove();
 
+  var bodyHtml = '';
+  if(typeof roughData === 'string'){
+    // Legacy: just raw text
+    bodyHtml = '<span class="rough-body">' + escapeHtml(roughData) + '</span>';
+  } else if(roughData && typeof roughData === 'object'){
+    var type = roughData.type || 'custom';
+    if(type === 'mul'){
+      bodyHtml = renderMultiplication(roughData.a, roughData.b, roughData.result);
+    } else if(type === 'div'){
+      bodyHtml = renderDivision(roughData.a, roughData.b, roughData.result);
+    } else if(type === 'add'){
+      bodyHtml = renderSimpleCalc(roughData.a + ' + ' + roughData.b + ' = ' + roughData.result);
+    } else if(type === 'sub'){
+      bodyHtml = renderSimpleCalc(roughData.a + ' − ' + roughData.b + ' = ' + roughData.result);
+    } else {
+      // custom
+      bodyHtml = '<span class="rough-body">' + escapeHtml(roughData.custom || '') + '</span>';
+    }
+  }
+
   var entry = document.createElement('div');
   entry.className = 'rough-entry';
   entry.innerHTML =
     '<span class="rough-label-inline">' + escapeHtml(label) + '</span>' +
-    '<span class="rough-body">' + escapeHtml(content) + '</span>';
+    bodyHtml;
   rc.appendChild(entry);
   setTimeout(function(){ entry.classList.add('show'); }, 50);
   // Auto-scroll rough pad to bottom
@@ -1113,14 +1421,19 @@ function showStepInstant(idx){
     var contentEl = $('step-content-' + i);
     if(i <= idx){
       el.classList.add('show');
-      // Fill step content (no animation — instant)
       if(contentEl && SOLUTION.steps[i]){
         contentEl.textContent = SOLUTION.steps[i].main || '';
       }
-      // Add corresponding rough work
+      // Add corresponding rough work using new structured format
       var s = SOLUTION.steps[i];
-      if(s && s.rough && s.rough.trim()){
-        addRoughWork(s.roughLabel || ('Step ' + (i + 1) + ' working'), s.rough);
+      if(s && s.roughType && s.roughType !== 'none' && s.roughType !== ''){
+        var roughData;
+        if(s.roughType === 'custom'){
+          roughData = { type: 'custom', custom: s.roughCustom || '' };
+        } else {
+          roughData = { type: s.roughType, a: s.roughA, b: s.roughB, result: s.roughResult };
+        }
+        addRoughWork(s.roughLabel || 'Rough working', roughData);
       }
     } else {
       el.classList.remove('show');
@@ -1141,15 +1454,18 @@ function speakStep(text){
   return new Promise(function(resolve){
     if(!IS_PLAYING && !text){ resolve(); return; }
     // Convert math symbols/expressions into spoken words BEFORE voice generation
-    // e.g. n(n+1)/2 → "n into open bracket n plus 1 close bracket by 2"
     var cleanText = mathToSpeech(text);
     cleanText = cleanText.replace(/\*+/g, '');
     if(!cleanText.trim()){ resolve(); return; }
 
+    // Math class ALWAYS uses Monika Sogam (Indian female teacher voice)
+    // regardless of school class — best voice for warm math teaching
+    var voiceClass = 'Class 5';
+
     fetch('/api/voice-class', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: cleanText, cls: SCHOOL_CLASS })
+      body: JSON.stringify({ text: cleanText, cls: voiceClass })
     }).then(function(r){ return r.json(); }).then(function(d){
       if(d && d.audio_b64){
         playAudio('data:audio/mpeg;base64,' + d.audio_b64, resolve);
