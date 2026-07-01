@@ -245,17 +245,36 @@ html,body{
 .chalk.red{color:var(--chalk-red);}
 
 /* CHALK WRITING ANIMATION */
+/* CHALK WRITING ANIMATION — visible letter-by-letter reveal */
 @keyframes chalk-write-in{
-  0%{opacity:0;transform:translateY(6px) scale(.5);filter:blur(3px);}
-  40%{opacity:.6;filter:blur(1px);}
-  70%{opacity:1;filter:blur(0);}
-  100%{opacity:1;transform:translateY(0) scale(1);filter:blur(0);}
+  0%{
+    opacity:0;
+    transform:translateY(8px) translateX(-4px) scale(.3) rotate(-8deg);
+    filter:blur(5px);
+    color:#ffffff;
+  }
+  30%{
+    opacity:.5;
+    transform:translateY(4px) translateX(-2px) scale(.7) rotate(-4deg);
+    filter:blur(2px);
+  }
+  60%{
+    opacity:.9;
+    transform:translateY(1px) scale(.95);
+    filter:blur(0);
+  }
+  100%{
+    opacity:1;
+    transform:translateY(0) scale(1) rotate(0);
+    filter:blur(0);
+  }
 }
 .chalk-char{
   display:inline-block;
   opacity:0;
-  animation:chalk-write-in .35s ease-out forwards;
-  text-shadow:0 0 4px currentColor,0 0 12px rgba(255,255,255,.15);
+  animation:chalk-write-in .5s ease-out forwards;
+  text-shadow:0 0 6px currentColor,0 0 14px rgba(255,255,255,.25);
+  transform-origin:center bottom;
 }
 .chalk-char.space{width:.35em;}
 /* subtle chalk dust flash on each character */
@@ -818,6 +837,9 @@ async function solveAndTeach(){
       + '3. teacherScript = DIRECT INTELLECTUAL explanation. No filler.\n'
       + '4. Any 2-digit or larger multiplication → roughType="mul" with numbers.\n'
       + '5. Any 2-digit or larger division → roughType="div" with numbers.\n'
+      + '   ⚠️ CRITICAL: If a step contains number/number (like 6480/2 or 1640/2), the NEXT step MUST have roughType="div" with roughA=numerator, roughB=denominator, roughResult=answer\n'
+      + '   Example: Step "S80 = 6480/2" → next step "S80 = 3240" MUST have roughType="div", roughA="6480", roughB="2", roughResult="3240", roughLabel="Dividing 6480 by 2"\n'
+      + '   NEVER skip the division rough work — students need to see the long division worked out!\n'
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
       + '7. Brackets naturally: n(n+1), 40(41), 2(x+3)\n'
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
@@ -859,6 +881,66 @@ async function solveAndTeach(){
     if(!solution.steps || !Array.isArray(solution.steps) || solution.steps.length === 0){
       throw new Error('Could not break down the problem into steps. Try a simpler problem.');
     }
+
+    // ── AUTO-FIX MISSING ROUGH WORK ──
+    // Scan each step: if previous step showed a/b (division) and current step shows result,
+    // inject roughType="div" on this step if missing.
+    // Same for multiplication: if previous step had X*Y (implicit or explicit) and current is result.
+    for(var si = 1; si < solution.steps.length; si++){
+      var curStep = solution.steps[si];
+      var prevStep = solution.steps[si - 1];
+      // Skip if current step already has rough work
+      if(curStep.roughType && curStep.roughType !== 'none' && curStep.roughType !== '') continue;
+      var prevMain = (prevStep.main || '').replace(/\s/g, '');
+      var curMain = (curStep.main || '').replace(/\s/g, '');
+
+      // DIVISION pattern: prev has "X/Y" (both numbers), current has smaller number as answer
+      // e.g. prev: "S80=6480/2"  cur: "S80=3240"
+      var divMatch = prevMain.match(/(\d+)\/(\d+)/);
+      if(divMatch){
+        var numerator = parseInt(divMatch[1], 10);
+        var denominator = parseInt(divMatch[2], 10);
+        if(denominator > 0 && !isNaN(numerator) && !isNaN(denominator)){
+          var expectedResult = numerator / denominator;
+          // Check if current step contains the expected result
+          var curResultMatch = curMain.match(/=(\d+)$/) || curMain.match(/(\d+)$/);
+          if(curResultMatch && parseInt(curResultMatch[1], 10) === expectedResult){
+            curStep.roughType = 'div';
+            curStep.roughA = String(numerator);
+            curStep.roughB = String(denominator);
+            curStep.roughResult = String(expectedResult);
+            curStep.roughLabel = curStep.roughLabel || ('Dividing ' + numerator + ' ÷ ' + denominator);
+            curStep.roughScript = curStep.roughScript || ('Now divide ' + numerator + ' by ' + denominator + '.');
+            console.log('[AUTO-FIX] Injected div rough work for step ' + (si+1));
+          }
+        }
+      }
+
+      // MULTIPLICATION pattern: prev has "N(M)" implicit mult or "N*M" or "N×M"
+      // e.g. prev: "S80=80(81)/2"  cur: "S80=6480/2"  → 80*81=6480
+      if(!curStep.roughType || curStep.roughType === 'none' || curStep.roughType === ''){
+        var mulMatch = prevMain.match(/(\d+)\((\d+)\)/) || prevMain.match(/(\d+)[×*](\d+)/);
+        if(mulMatch){
+          var mA = parseInt(mulMatch[1], 10);
+          var mB = parseInt(mulMatch[2], 10);
+          if(!isNaN(mA) && !isNaN(mB)){
+            var expectedMulResult = mA * mB;
+            // Check if current step contains the multiplied number (anywhere)
+            var curNumbers = (curMain.match(/\d+/g) || []).map(function(n){ return parseInt(n, 10); });
+            if(curNumbers.indexOf(expectedMulResult) >= 0){
+              curStep.roughType = 'mul';
+              curStep.roughA = String(mA);
+              curStep.roughB = String(mB);
+              curStep.roughResult = String(expectedMulResult);
+              curStep.roughLabel = curStep.roughLabel || ('Multiplying ' + mA + ' × ' + mB);
+              curStep.roughScript = curStep.roughScript || ('Now multiply ' + mA + ' into ' + mB + '.');
+              console.log('[AUTO-FIX] Injected mul rough work for step ' + (si+1));
+            }
+          }
+        }
+      }
+    }
+
     SOLUTION = solution;
     $('loading').classList.remove('show');
     showClassroom();
@@ -1116,7 +1198,7 @@ function padRight(s, width){
 function chalkWrite(el, text, charDelayMs){
   return new Promise(function(resolve){
     if(!el || !text){ resolve(); return; }
-    var delay = charDelayMs || 55;  // 55ms per char = visible writing motion
+    var delay = charDelayMs || 90;  // 90ms per char = clearly visible writing motion
     el.innerHTML = ''; // clear
     var chars = String(text).split('');
     var frag = document.createDocumentFragment();
@@ -1128,8 +1210,8 @@ function chalkWrite(el, text, charDelayMs){
       frag.appendChild(span);
     });
     el.appendChild(frag);
-    // Resolve when last character finishes animating (delay per char + animation duration)
-    var totalTime = chars.length * delay + 350;
+    // Resolve when last character finishes animating (delay per char + animation duration 500ms)
+    var totalTime = chars.length * delay + 500;
     setTimeout(resolve, totalTime);
   });
 }
@@ -1438,7 +1520,7 @@ async function runPlayback(){
     // Show formula if exists
     if(SOLUTION.formula && SOLUTION.formula.trim()){
       $('formula-block').classList.add('show');
-      await chalkWrite($('formula-text'), SOLUTION.formula, 55);
+      await chalkWrite($('formula-text'), SOLUTION.formula, 90);
       if(!IS_PLAYING) return;
       var formulaIntro = SOLUTION.formulaScript || ("First, let us remember the formula we need. " + SOLUTION.formula);
       await speakStep(formulaIntro);
@@ -1490,7 +1572,7 @@ async function showStep(idx){
 
   // ── PHASE 1: Chalk-write the math on the blackboard ──
   if(contentEl){
-    var writePromise = chalkWrite(contentEl, step.main || '', 55);
+    var writePromise = chalkWrite(contentEl, step.main || '', 90);
     await writePromise;
   }
   if(!IS_PLAYING) return;
@@ -1665,7 +1747,7 @@ async function addRoughWorkAnimated(label, roughData, narrateFn){
 
     // Chalk-write the row content (preserving spaces as non-breaking)
     var textForChalk = r.text.replace(/ /g, '\u00a0');
-    await chalkWrite(rowDiv, textForChalk, 45);
+    await chalkWrite(rowDiv, textForChalk, 60);
     if(!IS_PLAYING) return;
 
     // Narrate this row (if it has narration)
