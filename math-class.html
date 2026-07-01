@@ -1119,10 +1119,23 @@ function mathToSpeech(text){
 
   // Equals sign
   t = t.replace(/=/g, ' equals ');
-  // Plus and minus (Indian teachers usually say "plus" and "minus" clearly)
+  // Plus (always safe — no Tamil word uses + as suffix)
   t = t.replace(/\+/g, ' plus ');
-  // Only convert standalone minus (not negative numbers at start)
-  t = t.replace(/(\S)\s*-\s*(\S)/g, '$1 minus $2');
+
+  // MINUS — only for real math (between numbers or algebra terms)
+  // Do NOT convert hyphens that connect to Tamil words like "Bracket-க்குள்ள"
+  // First: subscript-like patterns S-40, S-1, S-n should just remove the hyphen (S 40)
+  t = t.replace(/\b([A-Z])-(\d+|n|m|k)\b/g, '$1 $2');
+  // Now real math minus patterns:
+  //   "15 - 5", "40-10" (number - number)
+  t = t.replace(/(\d)\s*-\s*(\d)/g, '$1 minus $2');
+  //   "2x - 3", "5a - 7" (number+letter followed by minus and number)
+  t = t.replace(/(\d[a-zA-Z]?)\s+-\s+(\d)/g, '$1 minus $2');
+  //   "x - y", "a - b" (single letter with SPACES both sides)
+  t = t.replace(/\b([a-zA-Z])\s+-\s+([a-zA-Z])\b/g, '$1 minus $2');
+  // Any remaining hyphens (Tamil word connectors, English-Tamil joins) — remove
+  t = t.replace(/-/g, ' ');
+
   // Collapse multiple spaces
   t = t.replace(/\s+/g, ' ').trim();
   return t;
