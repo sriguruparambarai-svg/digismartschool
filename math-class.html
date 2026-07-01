@@ -733,7 +733,17 @@ async function solveAndTeach(){
         + '- Use Tamil script (இப்போ) — NOT romanized (ippo)\n'
         + '- SHORT: 1 sentence per script field (bare minimum)\n'
         + '- NO "children", NO "correct-a?", NO "very good"\n'
-        + '- Direct intellectual explanation';
+        + '- Direct intellectual explanation\n\n'
+        + 'CRITICAL WORD ORDER for multiplication/division (English, not Tamil):\n'
+        + '  - For 2 × 7 = 14: say "2 into 7 equals 14" or "2 sevens are 14" (NEVER "fourteen twos are seven")\n'
+        + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7" (NEVER "fourteen twos are seven")\n'
+        + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n'
+        + '  - NEVER use Tamil multiplication table word order (which reverses to "answer first")\n\n'
+        + 'CRITICAL BRACKET RULE:\n'
+        + '  - NEVER write words "open bracket" or "close bracket" in any script\n'
+        + '  - For n(n+1): write "n into n plus 1" (implicit multiplication, no bracket words)\n'
+        + '  - For 40(41): write "40 into 41"\n'
+        + '  - For 2(x+3): write "2 into x plus 3"';
     } else {
       // Pure English — VERY SHORT intellectual professor (1 sentence per step)
       systemPrompt = 'You are an intellectual math tutor. Extremely direct and concise. '
@@ -755,7 +765,15 @@ async function solveAndTeach(){
         + '- Direct sharp intellectual tone\n'
         + '- State the operation and result cleanly\n'
         + '- Precise math language: substitute, evaluate, simplify, apply\n'
-        + '- Read the problem ONCE at intro. Then formula. Then steps.';
+        + '- Read the problem ONCE at intro. Then formula. Then steps.\n\n'
+        + 'CRITICAL WORD ORDER for multiplication/division:\n'
+        + '  - For 2 × 7 = 14: say "2 into 7 equals 14" (NEVER "fourteen twos are seven")\n'
+        + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7"\n'
+        + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n\n'
+        + 'CRITICAL BRACKET RULE:\n'
+        + '  - NEVER write "open bracket" or "close bracket" as words\n'
+        + '  - For n(n+1): write "n into n plus 1"\n'
+        + '  - For 40(41): write "40 into 41"';
     }
 
     var userPrompt = 'Solve this math problem for ' + SCHOOL_CLASS + ' students' + (chapter ? ' (' + chapter + ')' : '') + ':\n\n"' + problem + '"\n\n'
@@ -1067,6 +1085,73 @@ function chalkWrite(el, text, charDelayMs){
 // ═══════════════════════════════════════════
 // MATH-TO-SPEECH — convert math expressions to spoken words (Indian classroom style)
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// NUMBER-TO-WORDS — spell large numbers for correct pronunciation
+// e.g. 1275 → "one thousand two hundred seventy five"
+// (Otherwise ElevenLabs may read as "twelve seventy five" for 4-digit numbers)
+// ═══════════════════════════════════════════
+function numberToWords(num){
+  if(num === 0) return 'zero';
+  if(num < 0) return 'minus ' + numberToWords(-num);
+  var ones = ['','one','two','three','four','five','six','seven','eight','nine',
+              'ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen',
+              'seventeen','eighteen','nineteen'];
+  var tens = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+
+  function twoDigit(n){
+    if(n < 20) return ones[n];
+    var t = Math.floor(n / 10);
+    var o = n % 10;
+    return tens[t] + (o ? ' ' + ones[o] : '');
+  }
+  function threeDigit(n){
+    var h = Math.floor(n / 100);
+    var rest = n % 100;
+    var s = '';
+    if(h > 0) s = ones[h] + ' hundred';
+    if(rest > 0) s += (s ? ' ' : '') + twoDigit(rest);
+    return s;
+  }
+
+  if(num < 1000) return threeDigit(num);
+  if(num < 100000){
+    // Indian system: thousands
+    var th = Math.floor(num / 1000);
+    var rest3 = num % 1000;
+    var s = threeDigit(th) + ' thousand';
+    if(rest3 > 0) s += ' ' + threeDigit(rest3);
+    return s;
+  }
+  if(num < 10000000){
+    // Lakhs (Indian system)
+    var lk = Math.floor(num / 100000);
+    var rest5 = num % 100000;
+    var s = threeDigit(lk) + ' lakh';
+    if(rest5 > 0) s += ' ' + numberToWords(rest5);
+    return s;
+  }
+  // Crores
+  var cr = Math.floor(num / 10000000);
+  var rest7 = num % 10000000;
+  var s = threeDigit(cr) + ' crore';
+  if(rest7 > 0) s += ' ' + numberToWords(rest7);
+  return s;
+}
+
+// Replace all numbers >= 100 in text with their word form
+// Small numbers (0-99) left as digits — ElevenLabs reads them correctly
+function spellOutLargeNumbers(text){
+  return text.replace(/\b(\d+)\b/g, function(match, num){
+    var n = parseInt(num, 10);
+    // Only spell out numbers that are commonly misread (100 and above)
+    // Keep small numbers as digits so they read naturally
+    if(n >= 100 && n < 100000000){
+      return numberToWords(n);
+    }
+    return match;
+  });
+}
+
 function mathToSpeech(text){
   if(!text) return '';
   var t = String(text);
@@ -1137,6 +1222,20 @@ function mathToSpeech(text){
   t = t.replace(/-/g, ' ');
 
   // Collapse multiple spaces
+  t = t.replace(/\s+/g, ' ').trim();
+
+  // Clean up any AI-generated "open bracket" / "close bracket" phrases
+  // (sometimes AI writes these words directly in the script instead of using symbols)
+  t = t.replace(/\bopen\s+bracket\b/gi, 'into');
+  t = t.replace(/\bclose\s+bracket\b/gi, '');
+  t = t.replace(/\bopen\s+parenthesis\b/gi, 'into');
+  t = t.replace(/\bclose\s+parenthesis\b/gi, '');
+
+  // Spell out large numbers so voice reads them correctly
+  // e.g. 1275 → "one thousand two hundred seventy five"
+  t = spellOutLargeNumbers(t);
+
+  // Final space cleanup
   t = t.replace(/\s+/g, ' ').trim();
   return t;
 }
