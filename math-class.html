@@ -718,32 +718,36 @@ async function solveAndTeach(){
         + 'You return ONLY valid JSON.';
 
       styleGuide = 'TAMIL-MIX RULES (English medium students, Tamil mother tongue):\n\n'
-        + 'CRITICAL CORRECT EXAMPLES:\n\n'
-        + '1. INTRO: "இந்த problem-la, we have to find the sum of 1 plus 2 plus 3 up to 40. Direct addition long process, so we use sum of natural numbers formula."\n\n'
+        + '⚠️⚠️⚠️ ABSOLUTE RULE: MATH TERMS ONLY IN ENGLISH ⚠️⚠️⚠️\n'
+        + 'FORBIDDEN Tamil words that mean math things: கணக்கு, எண், கூட்டல், கழித்தல், பெருக்கல், வகுத்தல், சமன், வரிசை, எண்பது, ஆயிரம், நூறு, நாற்பது, ஒன்று முதல், வரை உள்ள\n'
+        + 'ALWAYS use ENGLISH for: numbers (40, 80, 1275), calculations (calculation), operations (add/subtract/multiply/divide), sequences (1 to 40), quantities (sum, product, formula)\n\n'
+        + 'CORRECT EXAMPLES:\n\n'
+        + '1. INTRO: "இந்த problem-la, we have to find the sum of numbers from 1 to 40. Direct addition long process, so we use sum of natural numbers formula."\n'
+        + '   ✅ Says "1 to 40" not "ஒன்று முதல் நாற்பது வரை"\n'
+        + '   ✅ Says "sum" not "கூட்டுத்தொகை"\n\n'
         + '2. FORMULA: "Formula is S sub n equals n into n plus 1 by 2. இது very standard identity."\n\n'
         + '3. STEP: "Here n equals 40. Substitute பண்றோம்."\n\n'
         + '4. STEP WITH MULT: "S 40 equals 40 into 40 plus 1 by 2. Bracket-க்குள்ள add பண்றோம்."\n\n'
-        + '5. ROUGH EXPLAIN: "40 plus 1 equals 41. Now 40 into 41. 40 into 1 equals 40. 40 into 4 equals 160, one place shift. Total 1640."\n\n'
-        + '6. ANSWER: "Final result: Sum equals 820."\n\n'
+        + '5. ROUGH SCRIPT: "40 plus 1 equals 41. Now multiply 40 into 41."\n\n'
+        + '6. ANSWER: "Final result: Sum equals 3240."\n\n'
         + 'STRICT RULES:\n'
-        + '- ALL numbers in ENGLISH digits/words: 40, 41, 1640 (NEVER நாற்பது, நாற்பத்தொன்று)\n'
-        + '- ALL math operations in ENGLISH: multiply, divide, substitute, add, equals\n'
+        + '- ALL numbers as English digits: 40, 41, 80, 1275, 3240 (NEVER நாற்பது, ஆயிரம்)\n'
+        + '- ALL math operations in ENGLISH: multiply, divide, substitute, add, equals, sum, product, formula\n'
         + '- ALL formulas in ENGLISH: n(n+1)/2, ax+b=c\n'
-        + '- Tamil script ONLY for connecting words: இது, அப்போ, செய்யுவோம், க்குள்ள, பார்க்கலாம்\n'
+        + '- Range expressions in ENGLISH: "1 to 40", "1 plus 2 plus 3 up to 40"\n'
+        + '- Tamil script ONLY for connecting/reasoning words: இது, அப்போ, செய்யுவோம், க்குள்ள, பார்க்கலாம், பண்றோம், முடிக்கலாம்\n'
         + '- Use Tamil script (இப்போ) — NOT romanized (ippo)\n'
         + '- SHORT: 1 sentence per script field (bare minimum)\n'
         + '- NO "children", NO "correct-a?", NO "very good"\n'
         + '- Direct intellectual explanation\n\n'
         + 'CRITICAL WORD ORDER for multiplication/division (English, not Tamil):\n'
-        + '  - For 2 × 7 = 14: say "2 into 7 equals 14" or "2 sevens are 14" (NEVER "fourteen twos are seven")\n'
-        + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7" (NEVER "fourteen twos are seven")\n'
-        + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n'
-        + '  - NEVER use Tamil multiplication table word order (which reverses to "answer first")\n\n'
+        + '  - For 2 × 7 = 14: say "2 into 7 equals 14" (NEVER "fourteen twos are seven")\n'
+        + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7"\n'
+        + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n\n'
         + 'CRITICAL BRACKET RULE:\n'
-        + '  - NEVER write words "open bracket" or "close bracket" in any script\n'
-        + '  - For n(n+1): write "n into n plus 1" (implicit multiplication, no bracket words)\n'
-        + '  - For 40(41): write "40 into 41"\n'
-        + '  - For 2(x+3): write "2 into x plus 3"';
+        + '  - NEVER write "open bracket" or "close bracket" as words\n'
+        + '  - For n(n+1): write "n into n plus 1"\n'
+        + '  - For 40(41): write "40 into 41"';
     } else {
       // Pure English — VERY SHORT intellectual professor (1 sentence per step)
       systemPrompt = 'You are an intellectual math tutor. Extremely direct and concise. '
@@ -929,45 +933,69 @@ function escapeHtml(s){
 //   160      (40 × 4, shifted one place)
 //  ----
 //  1640
-function renderMultiplication(a, b, result){
+// Returns array of rows for step-by-step animation
+// Each row: { text, type: 'row'/'divider'/'result'/'partial'/'op', narrate: 'what to say' }
+function computeMultiplicationRows(a, b, result){
   var aNum = parseInt(a, 10);
   var bNum = parseInt(b, 10);
   if(isNaN(aNum) || isNaN(bNum)){
-    // Fallback for non-numeric
-    return renderSimpleCalc(a + ' × ' + b + ' = ' + result);
+    return [{ text: a + ' × ' + b + ' = ' + result, type: 'simple', narrate: a + ' into ' + b + ' equals ' + result }];
   }
   var aStr = String(aNum);
   var bStr = String(bNum);
   var digitsB = bStr.split('').reverse(); // units first
-  // Compute partial products (each digit of b times a)
   var partials = digitsB.map(function(d, i){
     var val = aNum * parseInt(d, 10);
-    return { value: val, shift: i };
+    return { value: val, shift: i, digit: parseInt(d, 10) };
   });
   var finalRes = result || String(aNum * bNum);
-  // Max width for right-alignment (final result width or partial widths)
   var maxWidth = Math.max(
     String(finalRes).length,
     Math.max.apply(null, partials.map(function(p){ return String(p.value).length + p.shift; }))
   );
 
-  var html = '<div class="calc-vertical">';
-  // Top number (a) — right-aligned
-  html += '<div class="calc-row">' + padRight(aStr, maxWidth) + '</div>';
-  // Operator + b
-  html += '<div class="calc-row calc-op">× ' + padRight(bStr, maxWidth - 2) + '</div>';
-  html += '<div class="calc-divider"></div>';
-  // Each partial product (right-aligned with shift)
-  partials.forEach(function(p){
-    if(p.value === 0) return; // skip zero partials (from digit 0)
+  var rows = [];
+  // Row 1: top number
+  rows.push({ text: padRight(aStr, maxWidth), type: 'top', narrate: '' });
+  // Row 2: × operator + bottom number
+  rows.push({ text: '× ' + padRight(bStr, maxWidth - 2), type: 'op', narrate: '' });
+  // Row 3: divider
+  rows.push({ text: repeat('-', maxWidth), type: 'divider', narrate: '' });
+  // Rows: each partial product
+  partials.forEach(function(p, idx){
+    if(p.value === 0) return;
     var content = String(p.value);
     var shiftedContent = content + spaces(p.shift);
-    html += '<div class="calc-row calc-partial">' + padRight(shiftedContent, maxWidth) + '</div>';
+    var placeName = idx === 0 ? 'units' : (idx === 1 ? 'tens' : 'hundreds');
+    var narrateText = aNum + ' into ' + p.digit + ' equals ' + p.value +
+      (p.shift > 0 ? ', shifted ' + p.shift + ' place' + (p.shift > 1 ? 's' : '') : '');
+    rows.push({ text: padRight(shiftedContent, maxWidth), type: 'partial', narrate: narrateText });
   });
-  if(partials.length > 1){
-    html += '<div class="calc-divider"></div>';
-    html += '<div class="calc-row calc-result">' + padRight(finalRes, maxWidth) + '</div>';
+  if(partials.filter(function(p){ return p.value !== 0; }).length > 1){
+    rows.push({ text: repeat('-', maxWidth), type: 'divider', narrate: '' });
+    rows.push({ text: padRight(finalRes, maxWidth), type: 'result', narrate: 'Adding gives ' + finalRes });
   }
+  return rows;
+}
+
+// Legacy synchronous renderer (kept for compatibility) — returns HTML string
+function renderMultiplication(a, b, result){
+  var rows = computeMultiplicationRows(a, b, result);
+  var html = '<div class="calc-vertical">';
+  rows.forEach(function(r){
+    if(r.type === 'simple'){
+      return '<div class="calc-simple">' + escapeHtml(r.text) + '</div>';
+    }
+    var cls = 'calc-row';
+    if(r.type === 'op') cls += ' calc-op';
+    else if(r.type === 'partial') cls += ' calc-partial';
+    else if(r.type === 'result') cls += ' calc-result';
+    if(r.type === 'divider'){
+      html += '<div class="calc-divider-inline">' + escapeHtml(r.text) + '</div>';
+    } else {
+      html += '<div class="' + cls + '">' + escapeHtml(r.text) + '</div>';
+    }
+  });
   html += '</div>';
   return html;
 }
@@ -981,67 +1009,91 @@ function renderMultiplication(a, b, result){
 //       4
 //       --
 //        0
-function renderDivision(dividend, divisor, quotient){
+function computeDivisionRows(dividend, divisor, quotient){
   var divd = parseInt(dividend, 10);
   var divs = parseInt(divisor, 10);
   if(isNaN(divd) || isNaN(divs) || divs === 0){
-    return renderSimpleCalc(dividend + ' ÷ ' + divisor + ' = ' + quotient);
+    return [{ text: dividend + ' ÷ ' + divisor + ' = ' + quotient, type: 'simple',
+              narrate: dividend + ' divided by ' + divisor + ' equals ' + quotient }];
   }
   var quot = quotient !== undefined ? String(quotient) : String(Math.floor(divd / divs));
   var divdStr = String(divd);
 
-  // Walk through digits of dividend, doing long division step by step
-  var lines = [];
+  var rows = [];
   var current = 0;
-  var quotDigits = '';
-  var workLines = []; // each entry: { indent, content, type }
+  var headerLen = String(divs).length + 3;
 
-  // Header line: divisor ) dividend ( quotient
-  var headerLen = String(divs).length + 3; // "N ) "
-  lines.push({ text: String(divs) + ' ) ' + divdStr + ' ( ' + quot, type: 'header' });
+  // Header row: divisor ) dividend ( quotient
+  rows.push({
+    text: String(divs) + ' ) ' + divdStr + ' ( ' + quot,
+    type: 'header',
+    narrate: 'Divide ' + divd + ' by ' + divs + '. Quotient is ' + quot
+  });
 
-  var carriedIndent = 0;
   for(var i = 0; i < divdStr.length; i++){
     var digit = parseInt(divdStr.charAt(i), 10);
     current = current * 10 + digit;
-    if(current < divs && i < divdStr.length - 1){
-      // Not enough yet, bring down next digit — still show 0 in quotient? Skip for simplicity.
-      continue;
-    }
-    if(current < divs){
-      break;
-    }
+    if(current < divs && i < divdStr.length - 1) continue;
+    if(current < divs) break;
+
     var q = Math.floor(current / divs);
     var multiplied = q * divs;
-    quotDigits += q;
-    // Indent for this subtraction — align with the last digit we've consumed
     var indent = headerLen + i - String(multiplied).length + 1;
     if(indent < headerLen) indent = headerLen;
-    lines.push({ text: spaces(indent) + String(multiplied), type: 'sub' });
+
+    // Subtraction line: what we subtract
+    rows.push({
+      text: spaces(indent) + String(multiplied),
+      type: 'sub',
+      narrate: divs + ' into ' + q + ' equals ' + multiplied
+    });
     // Divider under the subtracted number
-    lines.push({ text: spaces(indent) + repeat('-', String(multiplied).length), type: 'divider' });
+    rows.push({
+      text: spaces(indent) + repeat('-', String(multiplied).length),
+      type: 'divider',
+      narrate: ''
+    });
     current = current - multiplied;
-    // Show remainder + next digit (if any)
+
     if(i < divdStr.length - 1){
       var next = parseInt(divdStr.charAt(i + 1), 10);
       var remStr = (current === 0 ? '' : String(current)) + String(next);
       var remIndent = headerLen + i - remStr.length + 2;
       if(remIndent < headerLen) remIndent = headerLen;
-      lines.push({ text: spaces(remIndent) + remStr, type: 'bring-down' });
+      rows.push({
+        text: spaces(remIndent) + remStr,
+        type: 'bring-down',
+        narrate: current === 0
+          ? 'Bring down ' + next
+          : 'Remainder ' + current + ', bring down ' + next + ' to get ' + remStr
+      });
     } else if(current === 0){
-      lines.push({ text: spaces(headerLen + i + 1) + '0', type: 'remainder' });
+      rows.push({
+        text: spaces(headerLen + i + 1) + '0',
+        type: 'remainder',
+        narrate: 'Remainder zero. Division complete.'
+      });
     } else {
-      lines.push({ text: spaces(headerLen + i + 1) + String(current), type: 'remainder' });
+      rows.push({
+        text: spaces(headerLen + i + 1) + String(current),
+        type: 'remainder',
+        narrate: 'Remainder ' + current
+      });
     }
   }
+  return rows;
+}
 
+// Legacy synchronous renderer (kept for compatibility) — returns HTML string
+function renderDivision(dividend, divisor, quotient){
+  var rows = computeDivisionRows(dividend, divisor, quotient);
   var html = '<div class="calc-vertical calc-div">';
-  lines.forEach(function(l){
+  rows.forEach(function(r){
     var cls = 'calc-row';
-    if(l.type === 'divider') cls += ' calc-divider-inline';
-    else if(l.type === 'header') cls += ' calc-header';
-    else if(l.type === 'remainder') cls += ' calc-result';
-    html += '<div class="' + cls + '">' + escapeHtml(l.text) + '</div>';
+    if(r.type === 'divider') cls += ' calc-divider-inline';
+    else if(r.type === 'header') cls += ' calc-header';
+    else if(r.type === 'remainder') cls += ' calc-result';
+    html += '<div class="' + cls + '">' + escapeHtml(r.text) + '</div>';
   });
   html += '</div>';
   return html;
@@ -1225,14 +1277,59 @@ function mathToSpeech(text){
   t = t.replace(/\s+/g, ' ').trim();
 
   // Clean up any AI-generated "open bracket" / "close bracket" phrases
-  // (sometimes AI writes these words directly in the script instead of using symbols)
   t = t.replace(/\bopen\s+bracket\b/gi, 'into');
   t = t.replace(/\bclose\s+bracket\b/gi, '');
   t = t.replace(/\bopen\s+parenthesis\b/gi, 'into');
   t = t.replace(/\bclose\s+parenthesis\b/gi, '');
 
+  // ── TAMIL-MATH-TERM SAFETY NET ──
+  // AI sometimes slips Tamil math words into the mix. Replace them with English.
+  // These are common Tamil math vocabulary that should stay in English for English medium students.
+  var tamilMathReplacements = {
+    'கணக்கு': 'calculation',
+    'கணக்குகள்': 'calculations',
+    'எண்': 'number',
+    'எண்கள்': 'numbers',
+    'கூட்டல்': 'addition',
+    'கூட்டு': 'add',
+    'கூட்டுத்தொகை': 'sum',
+    'கழித்தல்': 'subtraction',
+    'கழி': 'subtract',
+    'பெருக்கல்': 'multiplication',
+    'பெருக்கு': 'multiply',
+    'வகுத்தல்': 'division',
+    'வகு': 'divide',
+    'சமன்': 'equals',
+    'சமம்': 'equal',
+    'வரிசை': 'sequence',
+    'ஒன்று': '1',
+    'இரண்டு': '2',
+    'மூன்று': '3',
+    'நான்கு': '4',
+    'ஐந்து': '5',
+    'ஆறு': '6',
+    'ஏழு': '7',
+    'எட்டு': '8',
+    'ஒன்பது': '9',
+    'பத்து': '10',
+    'நூறு': '100',
+    'ஆயிரம்': '1000',
+    'எண்பது': '80',
+    'நாற்பது': '40',
+    'ஐம்பது': '50',
+    'அறுபது': '60',
+    'எழுபது': '70',
+    'தொண்ணூறு': '90',
+    'வரை உள்ள': 'up to',
+    'முதல்': 'from',
+    'வரை': 'up to'
+  };
+  Object.keys(tamilMathReplacements).forEach(function(tam){
+    var re = new RegExp(tam.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    t = t.replace(re, ' ' + tamilMathReplacements[tam] + ' ');
+  });
+
   // Spell out large numbers so voice reads them correctly
-  // e.g. 1275 → "one thousand two hundred seventy five"
   t = spellOutLargeNumbers(t);
 
   // Final space cleanup
@@ -1410,7 +1507,6 @@ async function showStep(idx){
     await sleep(500);
     if(!IS_PLAYING) return;
 
-    // Add the rough work to the right panel
     var roughData = null;
     if(step.roughType === 'custom'){
       roughData = { type: 'custom', custom: step.roughCustom || '' };
@@ -1422,13 +1518,36 @@ async function showStep(idx){
         result: step.roughResult
       };
     }
-    addRoughWork(step.roughLabel || 'Rough working', roughData);
 
-    // Teacher explains the rough work with warm script
-    var roughText = step.roughScript || step.roughExplain;
-    if(roughText && roughText.trim()){
-      await speakStep(roughText);
+    // For mul/div — use animated row-by-row reveal WITH voice narration per line
+    if(step.roughType === 'mul' || step.roughType === 'div'){
+      // First: brief intro of what we're calculating
+      var roughIntro = step.roughScript && step.roughScript.trim()
+        ? step.roughScript
+        : (step.roughType === 'mul'
+            ? 'Now multiply ' + step.roughA + ' into ' + step.roughB
+            : 'Now divide ' + step.roughA + ' by ' + step.roughB);
+      await speakStep(roughIntro);
       if(!IS_PLAYING) return;
+
+      // Animate rough work rows one at a time, each narrated
+      await addRoughWorkAnimated(
+        step.roughLabel || 'Rough working',
+        roughData,
+        function(rowNarration){
+          // Narrate this row's text using math-aware speech
+          return speakStep(rowNarration);
+        }
+      );
+      if(!IS_PLAYING) return;
+    } else {
+      // For add/sub/custom — instant render with single narration
+      addRoughWork(step.roughLabel || 'Rough working', roughData);
+      var roughText = step.roughScript || step.roughExplain;
+      if(roughText && roughText.trim()){
+        await speakStep(roughText);
+        if(!IS_PLAYING) return;
+      }
     }
 
     // Pause so students can absorb
@@ -1465,7 +1584,6 @@ function addRoughWork(label, roughData){
 
   var bodyHtml = '';
   if(typeof roughData === 'string'){
-    // Legacy: just raw text
     bodyHtml = '<span class="rough-body">' + escapeHtml(roughData) + '</span>';
   } else if(roughData && typeof roughData === 'object'){
     var type = roughData.type || 'custom';
@@ -1478,7 +1596,6 @@ function addRoughWork(label, roughData){
     } else if(type === 'sub'){
       bodyHtml = renderSimpleCalc(roughData.a + ' − ' + roughData.b + ' = ' + roughData.result);
     } else {
-      // custom
       bodyHtml = '<span class="rough-body">' + escapeHtml(roughData.custom || '') + '</span>';
     }
   }
@@ -1490,8 +1607,76 @@ function addRoughWork(label, roughData){
     bodyHtml;
   rc.appendChild(entry);
   setTimeout(function(){ entry.classList.add('show'); }, 50);
-  // Auto-scroll rough pad to bottom
   rc.parentElement.scrollTop = rc.parentElement.scrollHeight;
+}
+
+// ═══════════════════════════════════════════
+// ANIMATED ROUGH WORK — reveals row by row with chalk writing + narration
+// Used for mul/div where step-by-step reveal helps student concentration
+// ═══════════════════════════════════════════
+async function addRoughWorkAnimated(label, roughData, narrateFn){
+  var rc = $('rough-content');
+  var empty = rc.querySelector('.rough-empty');
+  if(empty) empty.remove();
+
+  // Compute rows for animation
+  var rows = null;
+  if(roughData.type === 'mul'){
+    rows = computeMultiplicationRows(roughData.a, roughData.b, roughData.result);
+  } else if(roughData.type === 'div'){
+    rows = computeDivisionRows(roughData.a, roughData.b, roughData.result);
+  }
+
+  // Fallback to instant render for non-mul/div types
+  if(!rows){
+    addRoughWork(label, roughData);
+    return;
+  }
+
+  // Build entry with label
+  var entry = document.createElement('div');
+  entry.className = 'rough-entry';
+  entry.innerHTML = '<span class="rough-label-inline">' + escapeHtml(label) + '</span>';
+  var wrap = document.createElement('div');
+  wrap.className = 'calc-vertical' + (roughData.type === 'div' ? ' calc-div' : '');
+  entry.appendChild(wrap);
+  rc.appendChild(entry);
+  setTimeout(function(){ entry.classList.add('show'); }, 50);
+  rc.parentElement.scrollTop = rc.parentElement.scrollHeight;
+
+  // Reveal each row one at a time with chalk animation
+  for(var i = 0; i < rows.length; i++){
+    if(!IS_PLAYING) return;
+    var r = rows[i];
+
+    // Create the row div
+    var rowDiv = document.createElement('div');
+    var cls = 'calc-row';
+    if(r.type === 'divider') cls = 'calc-divider-inline';
+    else if(r.type === 'op') cls += ' calc-op';
+    else if(r.type === 'partial') cls += ' calc-partial';
+    else if(r.type === 'result') cls += ' calc-result';
+    else if(r.type === 'header') cls += ' calc-header';
+    else if(r.type === 'remainder') cls += ' calc-result';
+    else if(r.type === 'sub') cls += '';
+    rowDiv.className = cls;
+    wrap.appendChild(rowDiv);
+    rc.parentElement.scrollTop = rc.parentElement.scrollHeight;
+
+    // Chalk-write the row content (preserving spaces as non-breaking)
+    var textForChalk = r.text.replace(/ /g, '\u00a0');
+    await chalkWrite(rowDiv, textForChalk, 45);
+    if(!IS_PLAYING) return;
+
+    // Narrate this row (if it has narration)
+    if(r.narrate && r.narrate.trim() && narrateFn){
+      await narrateFn(r.narrate);
+      if(!IS_PLAYING) return;
+    } else {
+      // Small pause between silent rows (like dividers)
+      await sleep(250);
+    }
+  }
 }
 
 // ═══════════════════════════════════════════
