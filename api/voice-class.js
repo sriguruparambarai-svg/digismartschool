@@ -79,9 +79,9 @@ module.exports = async (req, res) => {
       text: cleanedText,
       model_id: 'eleven_multilingual_v2',
       voice_settings: {
-        stability: 0.45,         // Slightly less stable = more expressive variation
-        similarity_boost: 0.80,  // Stronger voice character
-        style: 0.55,             // More expressiveness (warmer teacher tone)
+        stability: 0.55,         // Slightly more stable for teaching
+        similarity_boost: 0.75,  // Strong voice character
+        style: 0.30,             // Some expressiveness, not flat
         use_speaker_boost: true
       }
     });
