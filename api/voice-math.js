@@ -1,15 +1,15 @@
 // api/voice-math.js
 // DEDICATED voice API for Math Class only
-// Uses Monika Sogam (Indian female teacher voice)
-// Intellectual professor settings — clear, confident, focused
+// English mode: Monika Sogam (Indian female teacher voice)
+// Tamil-mix mode: Sarah (multilingual voice good with Tamil script)
 // This is SEPARATE from voice-class.js so it doesn't affect Teaching Mode voices.
 
 const https = require('https');
 
-// Monika Sogam — Indian English female voice, calm and clear
-const MATH_VOICE_ID = '5lf6Bj1bjbGRTV68afJj';
+// Voice IDs
+const MATH_VOICE_ENGLISH = '5lf6Bj1bjbGRTV68afJj';  // Monika Sogam - clear Indian English
+const MATH_VOICE_TAMIL   = 'EXAVITQu4vr4xnSDxMaL';  // Sarah - multilingual, good with Tamil
 
-// Clean the text before sending to TTS
 function cleanText(text) {
   if (!text) return '';
   return String(text)
@@ -44,24 +44,37 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ElevenLabs API key not configured' });
     }
 
-    // Intellectual professor settings — clear, confident, focused (NOT warm/emotional)
-    // Slightly higher stability = more consistent = professor-like
-    // Lower style = focused delivery, not expressive
+    // Pick voice based on language mode
+    const isTamilMix = (lang === 'mix' || lang === 'ta');
+    const voiceId = isTamilMix ? MATH_VOICE_TAMIL : MATH_VOICE_ENGLISH;
+
+    // Voice settings differ by language for optimal delivery
+    const voiceSettings = isTamilMix
+      ? {
+          // Tamil-mix: slightly more expressive to handle script switching
+          stability: 0.55,
+          similarity_boost: 0.75,
+          style: 0.35,
+          use_speaker_boost: true
+        }
+      : {
+          // English: intellectual professor tone (focused, not expressive)
+          stability: 0.60,
+          similarity_boost: 0.78,
+          style: 0.25,
+          use_speaker_boost: true
+        };
+
     const payload = JSON.stringify({
       text: cleanedText,
-      model_id: 'eleven_multilingual_v2',  // multilingual supports Tamil
-      voice_settings: {
-        stability: 0.60,          // Confident, steady delivery
-        similarity_boost: 0.78,   // Strong voice character
-        style: 0.25,              // Focused, not overly expressive
-        use_speaker_boost: true
-      }
+      model_id: 'eleven_multilingual_v2',  // supports Tamil + English
+      voice_settings: voiceSettings
     });
 
     const audioBuffer = await new Promise((resolve, reject) => {
       const options = {
         hostname: 'api.elevenlabs.io',
-        path: `/v1/text-to-speech/${MATH_VOICE_ID}`,
+        path: `/v1/text-to-speech/${voiceId}`,
         method: 'POST',
         headers: {
           'Accept': 'audio/mpeg',
@@ -94,7 +107,7 @@ module.exports = async (req, res) => {
     const audioBase64 = audioBuffer.toString('base64');
     return res.status(200).json({
       audio_b64: audioBase64,
-      voiceId: MATH_VOICE_ID,
+      voiceId: voiceId,
       lang: lang || 'en'
     });
 
@@ -103,3 +116,4 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: err.message || 'Voice generation failed' });
   }
 };
+
