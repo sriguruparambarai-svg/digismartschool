@@ -337,13 +337,21 @@ html,body{
 .rough-entry{
   font-family:'Caveat',cursive;
   font-size:1.25rem;font-weight:500;
-  color:rgba(244,244,240,.85);
+  color:rgba(244,244,240,.9);
   margin-bottom:18px;
   padding-left:8px;
   opacity:0;transform:translateX(-8px);
   transition:opacity .5s,transform .5s;
-  white-space:pre-line;
-  line-height:1.8;
+  line-height:1.6;
+}
+/* Vertical arithmetic (long multiplication/division) needs monospace for column alignment */
+.rough-entry .rough-body{
+  font-family:'Courier New','Consolas',monospace;
+  font-size:1.15rem;
+  white-space:pre;
+  color:var(--chalk-white);
+  line-height:1.5;
+  letter-spacing:.02em;
 }
 .rough-entry.show{opacity:1;transform:translateX(0);}
 .rough-entry .rough-label-inline{
@@ -589,33 +597,56 @@ async function solveAndTeach(){
   $('loading').classList.add('show');
 
   try {
-    var systemPrompt = 'You are an experienced math teacher in Tamil Nadu, India. Solve math problems step-by-step like a real classroom teacher would on a blackboard. Show formula first, then each calculation step, with rough work where needed. Return ONLY valid JSON.';
+    var systemPrompt = 'You are an experienced math teacher in Tamil Nadu, India, teaching CBSE/State board students. You solve problems EXACTLY like a real classroom teacher writes on a blackboard — clean, step by step, atomic (one small operation per step), with proper long-form rough work in the corner. You NEVER combine multiple operations into one step. You return ONLY valid JSON, no markdown, no code fences, no extra text.';
 
     var userPrompt = 'Solve this math problem for ' + SCHOOL_CLASS + ' students' + (chapter ? ' (' + chapter + ')' : '') + ':\n\n"' + problem + '"\n\n'
-      + 'Return EXACTLY this JSON format (no markdown fences, no extra text):\n\n'
+      + '════════ TEACHING STYLE (like Indian classroom teacher writing in notebook) ════════\n\n'
+      + 'CORRECT EXAMPLE — for "Find 1+2+3+...+40":\n'
+      + '  Formula: Sn = n(n+1)/2\n'
+      + '  Step 1 main: "Here, n = 40"\n'
+      + '  Step 2 main: "S40 = 40(40+1)/2"\n'
+      + '  Step 3 main: "S40 = 40(41)/2"\n'
+      + '  Step 4 main: "S40 = 1640/2"\n'
+      + '  Step 5 main: "S40 = 820"\n'
+      + '  Final answer: "Sum = 820"\n\n'
+      + 'WRONG EXAMPLES (do NOT do these):\n'
+      + '  ❌ Combining "Given: Find 1+2+3+...+40  Formula: Sum = n(n+1)/2" into one step\n'
+      + '  ❌ Writing "We use the standard formula because..." on the blackboard (that is spoken only)\n'
+      + '  ❌ Skipping calculation steps (e.g. jumping from 40(41)/2 straight to 820)\n'
+      + '  ❌ Doing 40 × 41 = 1640 mentally without showing rough work\n\n'
+      + '════════ RETURN THIS EXACT JSON ════════\n\n'
       + '{\n'
-      + '  "problem": "the cleaned problem statement",\n'
-      + '  "formula": "the formula or rule used (if any) e.g. Speed = Distance ÷ Time",\n'
+      + '  "problem": "the cleaned problem statement (short, one line)",\n'
+      + '  "formula": "the formula used, e.g. Sn = n(n+1)/2  (empty string if no formula)",\n'
       + '  "steps": [\n'
       + '    {\n'
-      + '      "main": "what to write on main board for this step (the actual math)",\n'
-      + '      "explanation": "1-2 sentence explanation of WHY we do this step (teacher voice)",\n'
-      + '      "rough": "optional rough calculation to show in rough work area, use \\n for line breaks. Empty string if no rough work needed for this step.",\n'
-      + '      "roughLabel": "optional short label for the rough work, e.g. Subtracting 5 from 15"\n'
+      + '      "main": "ONE atomic math line to write on blackboard, e.g. \'S40 = 40(41)/2\' — SHORT, ONE OPERATION ONLY, NO English sentences",\n'
+      + '      "explanation": "1 short sentence teacher says while writing this step (spoken only, NOT written on board)",\n'
+      + '      "rough": "if this step requires arithmetic (multiplication, division, addition of multi-digit numbers), show FULL vertical working in rough work. Use \\n for new lines. Empty string if no rough work needed.",\n'
+      + '      "roughLabel": "short label for rough work, e.g. \'Multiplying 40 × 41\'"\n'
       + '    }\n'
       + '  ],\n'
-      + '  "finalAnswer": "the final answer, e.g. x = 5 or Area = 96 cm²",\n'
-      + '  "verification": "optional verification step text. Empty string if not applicable."\n'
+      + '  "finalAnswer": "final boxed answer, e.g. \'Sum = 820\' or \'x = 5\' or \'Area = 96 cm²\'",\n'
+      + '  "verification": "OPTIONAL verification — empty string \\"\\" if not applicable"\n'
       + '}\n\n'
-      + 'RULES:\n'
-      + '- 4 to 8 steps, each clear and atomic\n'
-      + '- Each step main field is what gets WRITTEN on the blackboard (short, like real chalk)\n'
-      + '- explanation is what the teacher SAYS to students\n'
-      + '- rough field is for actual scratch arithmetic (e.g. 15 - 5 = 10, or long division working)\n'
-      + '- Use proper math symbols (×, ÷, ², ³, π) not asterisks\n'
-      + '- For long division, show the full division process in rough work\n'
-      + '- For word problems, identify variables clearly\n'
-      + '- Always show verification if applicable';
+      + '════════ STRICT RULES ════════\n\n'
+      + '1. STEPS MUST BE ATOMIC — one small operation per step. No combining. If 5 operations, then 5 steps.\n'
+      + '2. main field = ONLY the math expression (like a real teacher writes). No English sentences, no "Given:", no "Formula:", no "Substituting values:". Just the math.\n'
+      + '3. explanation field = what teacher SAYS (spoken). Keep short (5-15 words). This is NEVER shown on the board.\n'
+      + '4. ROUGH WORK is critical — show FULL long-form working like a real classroom:\n'
+      + '   - Multiplication like 40 × 41: show vertical multiplication\n'
+      + '     Example rough field: "  40\\n × 41\\n ----\\n   40\\n 160\\n ----\\n 1640"\n'
+      + '   - Long division like 1640 ÷ 2: show proper division bracket\n'
+      + '     Example rough field: "2)1640(820\\n   16\\n   --\\n    40\\n    40\\n   ---\\n     0"\n'
+      + '   - Simple subtraction/addition of small numbers: can be short like "15 - 5 = 10"\n'
+      + '   - Do NOT skip arithmetic — if the step involves 2-digit or more calculation, show the working.\n'
+      + '5. Use proper math symbols: × (times), ÷ (divide), ² (squared), ³ (cubed), π (pi), √ (root), ° (degrees).\n'
+      + '   Never use * or / for multiplication/division in main field (only in fractions like 40/2).\n'
+      + '6. Write brackets naturally: n(n+1), 40(41), 2(x+3) — parentheses right after number/variable means multiplication.\n'
+      + '7. For fractions in main field, use / like: 40/2, 1640/2, n(n+1)/2\n'
+      + '8. 4 to 8 steps total. Never fewer than 4, never more than 8.\n'
+      + '9. Final answer must be short and clear — like "Sum = 820" or "x = 5", not a full sentence.\n'
+      + '10. For word problems: Step 1 identifies given values (e.g. "Distance = 240 km, Time = 4 hr"), then formula, then substitution, then calculation, then answer.';
 
     var resp = await fetch('/api/ai', {
       method: 'POST',
@@ -737,7 +768,7 @@ function chalkWrite(el, text, charDelayMs){
 }
 
 // ═══════════════════════════════════════════
-// MATH-TO-SPEECH — convert math expressions to spoken words
+// MATH-TO-SPEECH — convert math expressions to spoken words (Indian classroom style)
 // ═══════════════════════════════════════════
 function mathToSpeech(text){
   if(!text) return '';
@@ -771,13 +802,25 @@ function mathToSpeech(text){
   t = t.replace(/ₙ/g, ' n ');
   // Subscript patterns like S_n or Sn
   t = t.replace(/S_?n\b/gi, 'S n ');
+
+  // ── PARENTHESES — Indian classroom style ──
+  // Variable/number BEFORE opening bracket = implicit multiplication → say "into"
+  //   n(n+1)  → "n into n+1"
+  //   40(41)  → "40 into 41"
+  //   2(x+3)  → "2 into x+3"
+  // Handle bracket-then-fraction like n(n+1)/2 → "n into n+1 by 2"
+  // Do this BEFORE the general fraction regex
+  t = t.replace(/([a-zA-Z0-9])\(([^)]+)\)\/(\d+)/g, '$1 into $2 by $3');
+  // Now other implicit-multiplication parens
+  t = t.replace(/([a-zA-Z0-9])\s*\(([^)]+)\)/g, '$1 into $2');
+  // Any remaining lone parens — drop
+  t = t.replace(/[()]/g, ' ');
+
   // Fractions like 3/4 (only when both sides are numbers or variables)
   t = t.replace(/(\d+)\/(\d+)/g, '$1 by $2');
   t = t.replace(/([a-zA-Z])\/([a-zA-Z0-9])/g, '$1 by $2');
-  // Parentheses (spoken as open/close bracket for clarity)
-  t = t.replace(/\(/g, ' open bracket ');
-  t = t.replace(/\)/g, ' close bracket ');
-  // Equals sign (already reads OK, but add spaces)
+
+  // Equals sign
   t = t.replace(/=/g, ' equals ');
   // Plus and minus (Indian teachers usually say "plus" and "minus" clearly)
   t = t.replace(/\+/g, ' plus ');
@@ -932,7 +975,7 @@ function addRoughWork(label, content){
   entry.className = 'rough-entry';
   entry.innerHTML =
     '<span class="rough-label-inline">' + escapeHtml(label) + '</span>' +
-    escapeHtml(content);
+    '<span class="rough-body">' + escapeHtml(content) + '</span>';
   rc.appendChild(entry);
   setTimeout(function(){ entry.classList.add('show'); }, 50);
   // Auto-scroll rough pad to bottom
