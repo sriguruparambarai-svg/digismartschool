@@ -402,6 +402,14 @@ html,body{
   background:linear-gradient(135deg,#FF8C42,#FFA94D);
   color:#3a1b0a;border-color:#FF8C42;
 }
+.ctrl-btn.pause{
+  background:linear-gradient(135deg,#2b6cb0,#3182ce);
+  color:white;border-color:#3182ce;
+}
+.ctrl-btn.stop{
+  background:linear-gradient(135deg,#8b1e1e,#a02020);
+  color:#ffd8d8;border-color:#a02020;
+}
 .step-indicator{
   color:var(--gold-light);
   font-family:'Crimson Pro',serif;font-size:.95rem;font-weight:700;
@@ -534,6 +542,8 @@ html,body{
   <div class="tb-section">
     <button class="ctrl-btn" id="btn-prev" onclick="prevStep()">◀ Prev</button>
     <button class="ctrl-btn primary" id="btn-play" onclick="togglePlay()">▶ Play</button>
+    <button class="ctrl-btn pause" id="btn-pause" onclick="pauseClass()">⏸ Pause</button>
+    <button class="ctrl-btn stop" id="btn-stop" onclick="stopClass()">⏹ Stop</button>
     <button class="ctrl-btn" id="btn-next" onclick="nextStep()">Next ▶</button>
     <button class="ctrl-btn" id="btn-replay" onclick="replayStep()">↻ Replay</button>
   </div>
@@ -634,12 +644,29 @@ async function solveAndTeach(){
       + '2. main field = ONLY the math expression (like a real teacher writes). No English sentences, no "Given:", no "Formula:", no "Substituting values:". Just the math.\n'
       + '3. explanation field = what teacher SAYS (spoken). Keep short (5-15 words). This is NEVER shown on the board.\n'
       + '4. ROUGH WORK is critical — show FULL long-form working like a real classroom:\n'
-      + '   - Multiplication like 40 × 41: show vertical multiplication\n'
-      + '     Example rough field: "  40\\n × 41\\n ----\\n   40\\n 160\\n ----\\n 1640"\n'
-      + '   - Long division like 1640 ÷ 2: show proper division bracket\n'
-      + '     Example rough field: "2)1640(820\\n   16\\n   --\\n    40\\n    40\\n   ---\\n     0"\n'
+      + '   - Multiplication like 40 × 41: show vertical multiplication with CORRECT PARTIAL PRODUCTS\n'
+      + '     CORRECT EXAMPLE for 40 × 41:\n'
+      + '       "  40\\n × 41\\n ----\\n   40\\n  160\\n ----\\n 1640"\n'
+      + '     (First partial: 40×1=40. Second partial: 40×4=160 written shifted one place left, but showing digits as 160 not 1600.)\n'
+      + '     CORRECT EXAMPLE for 25 × 13:\n'
+      + '       "  25\\n × 13\\n ----\\n   75\\n  25\\n ----\\n 325"\n'
+      + '     (First: 25×3=75. Second: 25×1=25 shifted, shown as "25" indented.)\n'
+      + '     CORRECT EXAMPLE for 123 × 45:\n'
+      + '       "  123\\n ×  45\\n ----\\n  615\\n 492\\n ----\\n 5535"\n'
+      + '     (First: 123×5=615. Second: 123×4=492 shifted one place left.)\n'
+      + '     ⚠️ CRITICAL: Each partial product uses only that ONE digit, not the full number.\n'
+      + '        40 × 41 has partials 40 (from ×1) and 160 (from ×4), NOT 40 and 1600.\n'
+      + '        25 × 13 has partials 75 and 25, NOT 75 and 250.\n'
+      + '     ⚠️ VERIFY: sum of partial products = final answer (40+160=200? NO. 40+1600=1640? shift matters. Use spacing to show shift.)\n'
+      + '     ACTUALLY simpler: think column by column. 40×41 = 40×(40+1) = 1600+40 = 1640. If confused, use this expanded form instead.\n'
+      + '   - Long division like 1640 ÷ 2: show proper division bracket format\n'
+      + '     CORRECT EXAMPLE for 1640 ÷ 2:\n'
+      + '       "2)1640(820\\n   16\\n   --\\n    04\\n     4\\n    --\\n     00\\n      0\\n     --\\n      0"\n'
+      + '     Or simpler expanded working:\n'
+      + '       "1640 ÷ 2:\\n1600 ÷ 2 = 800\\n  40 ÷ 2 =  20\\n---------------\\n1640 ÷ 2 = 820"\n'
       + '   - Simple subtraction/addition of small numbers: can be short like "15 - 5 = 10"\n'
       + '   - Do NOT skip arithmetic — if the step involves 2-digit or more calculation, show the working.\n'
+      + '   - PREFER expanded form (40×41 = 40×40 + 40×1 = 1600 + 40 = 1640) over column format if unsure.\n'
       + '5. Use proper math symbols: × (times), ÷ (divide), ² (squared), ³ (cubed), π (pi), √ (root), ° (degrees).\n'
       + '   Never use * or / for multiplication/division in main field (only in fractions like 40/2).\n'
       + '6. Write brackets naturally: n(n+1), 40(41), 2(x+3) — parentheses right after number/variable means multiplication.\n'
@@ -847,21 +874,78 @@ function updateNavButtons(){
 
 async function togglePlay(){
   if(IS_PLAYING){
-    pausePlayback();
+    pauseClass();
   } else {
     IS_PLAYING = true;
     IS_PAUSED = false;
     $('btn-play').innerHTML = '<span class="reading-dot"></span>Teaching…';
+    $('btn-play').classList.remove('primary');
     await runPlayback();
   }
 }
 
-function pausePlayback(){
+// PAUSE — freezes teaching, keeps blackboard as-is so teacher can explain
+function pauseClass(){
+  if(!IS_PLAYING && !CURRENT_AUDIO && !IS_PAUSED){
+    // Nothing to pause
+    return;
+  }
   IS_PLAYING = false;
   IS_PAUSED = true;
   if(CURRENT_AUDIO){ try{ CURRENT_AUDIO.pause(); }catch(e){} }
   try{ speechSynthesis.cancel(); }catch(e){}
   $('btn-play').innerHTML = '▶ Resume';
+  $('btn-play').classList.add('primary');
+  showStatusToast('⏸ Paused — teacher can explain now. Click Resume to continue.');
+}
+
+// STOP — completely stops teaching, resets to start
+function stopClass(){
+  if(!confirm('Stop the current class?\n\nThe blackboard will be cleared and you can start a new problem or replay this one.')){
+    return;
+  }
+  IS_PLAYING = false;
+  IS_PAUSED = false;
+  if(CURRENT_AUDIO){ try{ CURRENT_AUDIO.pause(); CURRENT_AUDIO = null; }catch(e){} }
+  try{ speechSynthesis.cancel(); }catch(e){}
+  $('btn-play').innerHTML = '▶ Play from Start';
+  $('btn-play').classList.add('primary');
+  // Reset step index and clear blackboard
+  STEP_IDX = -1;
+  document.querySelectorAll('.step-item').forEach(function(el){
+    el.classList.remove('current');
+    el.classList.remove('show');
+    var content = el.querySelector('.step-content');
+    if(content) content.textContent = '';
+  });
+  $('formula-block').classList.remove('show');
+  $('formula-text').textContent = '';
+  $('final-answer').classList.remove('show');
+  $('verification').classList.remove('show');
+  $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
+  updateStepIndicator();
+  updateNavButtons();
+  showStatusToast('⏹ Class stopped. Click ▶ Play to start again.');
+}
+
+// Small toast notification
+function showStatusToast(msg){
+  var t = document.getElementById('status-toast');
+  if(!t){
+    t = document.createElement('div');
+    t.id = 'status-toast';
+    t.style.cssText = 'position:fixed;top:70px;left:50%;transform:translateX(-50%);background:rgba(20,10,5,.92);color:#FFD86A;padding:10px 20px;border-radius:10px;border:1.5px solid #C9A84C;font-family:Nunito,sans-serif;font-weight:700;font-size:.9rem;z-index:100;opacity:0;transition:opacity .3s;pointer-events:none;';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(function(){ t.style.opacity = '0'; }, 3000);
+}
+
+function pausePlayback(){
+  // Legacy alias — redirects to pauseClass
+  pauseClass();
 }
 
 async function runPlayback(){
