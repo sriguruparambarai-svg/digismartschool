@@ -318,7 +318,7 @@ html,body{
   margin-bottom:14px;
   display:flex;align-items:flex-start;gap:14px;
   opacity:0;transform:translateY(8px);
-  transition:opacity .6s,transform .6s;
+  transition:opacity .15s,transform .15s;
 }
 .step-item.show{opacity:1;transform:translateY(0);}
 .step-item.current{
@@ -671,10 +671,24 @@ var SOLUTION = null;      // The full problem solution from AI
 var STEP_IDX = -1;        // Current step (-1 = not started, 0 = first step)
 var IS_PLAYING = false;
 var IS_PAUSED = false;
+var IS_SPEAKING_INTRO = false;  // True while intro voice plays (row narrations wait)
 var SPEED = 1.0;
 var CURRENT_AUDIO = null;
 var SCHOOL_CLASS = 'Class 7';
 var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
+
+// Waits for intro voice to finish before speaking a row narration
+// (prevents overlapping voices when rough work animation runs during intro speech)
+async function waitForIntroThenSpeak(text){
+  // Poll every 100ms until intro is done (max 8 seconds safety)
+  var waited = 0;
+  while(IS_SPEAKING_INTRO && waited < 8000 && IS_PLAYING){
+    await sleep(100);
+    waited += 100;
+  }
+  if(!IS_PLAYING) return;
+  return speakStep(text);
+}
 
 function selectLang(lang){
   TEACH_LANG = lang;
@@ -1570,6 +1584,10 @@ async function showStep(idx){
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  // Wait for parent fade-in to finish so chalk animation isn't masked
+  await sleep(200);
+  if(!IS_PLAYING) return;
+
   // ── PHASE 1: Chalk-write the math on the blackboard ──
   if(contentEl){
     var writePromise = chalkWrite(contentEl, step.main || '', 90);
@@ -1603,24 +1621,30 @@ async function showStep(idx){
 
     // For mul/div — use animated row-by-row reveal WITH voice narration per line
     if(step.roughType === 'mul' || step.roughType === 'div'){
-      // First: brief intro of what we're calculating
+      // Show label + start writing FIRST row immediately (no silent blank screen)
+      // Voice intro plays WHILE first row is being written
       var roughIntro = step.roughScript && step.roughScript.trim()
         ? step.roughScript
         : (step.roughType === 'mul'
             ? 'Now multiply ' + step.roughA + ' into ' + step.roughB
             : 'Now divide ' + step.roughA + ' by ' + step.roughB);
-      await speakStep(roughIntro);
-      if(!IS_PLAYING) return;
 
-      // Animate rough work rows one at a time, each narrated
+      // Start both in parallel: voice speaks while first rows appear visually
+      // Note: row narrations skip until voice intro finishes (via IS_SPEAKING_INTRO flag)
+      IS_SPEAKING_INTRO = true;
+      var introPromise = speakStep(roughIntro).then(function(){ IS_SPEAKING_INTRO = false; });
+
       await addRoughWorkAnimated(
         step.roughLabel || 'Rough working',
         roughData,
         function(rowNarration){
-          // Narrate this row's text using math-aware speech
-          return speakStep(rowNarration);
+          // Wait for intro voice to finish before starting row narration
+          // (prevents voice collision)
+          return waitForIntroThenSpeak(rowNarration);
         }
       );
+      // Ensure intro voice also finishes
+      await introPromise;
       if(!IS_PLAYING) return;
     } else {
       // For add/sub/custom — instant render with single narration
@@ -1747,7 +1771,7 @@ async function addRoughWorkAnimated(label, roughData, narrateFn){
 
     // Chalk-write the row content (preserving spaces as non-breaking)
     var textForChalk = r.text.replace(/ /g, '\u00a0');
-    await chalkWrite(rowDiv, textForChalk, 60);
+    await chalkWrite(rowDiv, textForChalk, 70);
     if(!IS_PLAYING) return;
 
     // Narrate this row (if it has narration)
