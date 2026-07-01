@@ -1635,11 +1635,121 @@ async function mbGoTeach(){
     var lessonText=await mbExtractPagesText(pdfDoc,from,to);
 
     if(!lessonText || lessonText.length<30){
-      statusEl.style.color='#c0392b';
-      statusEl.textContent='⚠️ Could not extract text. PDF may be scanned images. Try a different page range.';
-      if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
-      if(cancelBtn)cancelBtn.disabled=false;
-      return;
+      // TIER 3: Scanned PDF — use Claude Vision API to read image pages
+      statusEl.style.color='var(--maroon)';
+      statusEl.textContent='📸 Scanned PDF detected — reading with AI Vision (please wait)…';
+
+      try{
+        var totalPages=(to-from+1);
+        var maxAllowed=Math.min(totalPages, 15); // Cap at 15 pages per Vision run
+        var visionTexts=[];
+
+        // Get API key from /api/ai endpoint for direct Anthropic access (bypasses Vercel size limit)
+        var apiKey='';
+        try{
+          var keyRes=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({getKey:true})});
+          var keyData=await keyRes.json();
+          apiKey=keyData.key||'';
+        }catch(ke){ console.warn('Could not get key:',ke); }
+
+        for(var vp=0; vp<maxAllowed; vp++){
+          var pageNum=from+vp;
+          if(pageNum>pdfDoc.numPages) break;
+          statusEl.textContent='📸 AI Vision reading page '+pageNum+' ('+(vp+1)+' of '+maxAllowed+')…';
+
+          try{
+            var vpage=await pdfDoc.getPage(pageNum);
+            var vviewport=vpage.getViewport({scale:1.5});
+            var vcanvas=document.createElement('canvas');
+            vcanvas.width=vviewport.width;
+            vcanvas.height=vviewport.height;
+            var vctx=vcanvas.getContext('2d');
+            await vpage.render({canvasContext:vctx,viewport:vviewport}).promise;
+            var vimgData=vcanvas.toDataURL('image/jpeg',0.85).split(',')[1];
+
+            var vcontent=[
+              {type:'image',source:{type:'base64',media_type:'image/jpeg',data:vimgData}},
+              {type:'text',text:'Extract ALL text from this textbook page exactly as it appears. Include every number, formula, equation, heading, sentence and paragraph. Preserve Tamil script if present. Output extracted text only — no commentary.'}
+            ];
+
+            var pageText='';
+
+            // Try DIRECT Anthropic API first (no Vercel size limit)
+            if(apiKey){
+              try{
+                var vRes=await fetch('https://api.anthropic.com/v1/messages',{
+                  method:'POST',
+                  headers:{
+                    'Content-Type':'application/json',
+                    'x-api-key':apiKey,
+                    'anthropic-version':'2023-06-01',
+                    'anthropic-dangerous-direct-browser-access':'true'
+                  },
+                  body:JSON.stringify({
+                    model:'claude-sonnet-4-20250514',
+                    max_tokens:4000,
+                    system:'Extract all text from textbook page images exactly as they appear. Preserve Tamil script and math notation. Output text only.',
+                    messages:[{role:'user',content:vcontent}]
+                  })
+                });
+                var vData=await vRes.json();
+                if(vData.content && vData.content[0]) pageText=(vData.content[0].text||'').trim();
+              }catch(vde){ console.warn('Direct API failed for page '+pageNum+':',vde); }
+            }
+
+            // Fallback: proxy through /api/ai with smaller image
+            if(!pageText){
+              var smallImg=vcanvas.toDataURL('image/jpeg',0.3).split(',')[1];
+              var vc2=[
+                {type:'image',source:{type:'base64',media_type:'image/jpeg',data:smallImg}},
+                {type:'text',text:'Extract ALL text from this textbook page. Preserve Tamil script. Output text only.'}
+              ];
+              try{
+                var bRes=await fetch('/api/ai',{
+                  method:'POST',
+                  headers:{'Content-Type':'application/json'},
+                  body:JSON.stringify({
+                    payload:{
+                      model:'claude-sonnet-4-20250514',
+                      max_tokens:4000,
+                      system:'Extract all text from textbook pages. Preserve Tamil script. Output text only.',
+                      messages:[{role:'user',content:vc2}]
+                    }
+                  })
+                });
+                var bData=await bRes.json();
+                if(bData.content && bData.content[0]) pageText=(bData.content[0].text||'').trim();
+                else if(bData.text) pageText=String(bData.text).trim();
+              }catch(pe){ console.warn('Proxy API failed for page '+pageNum+':',pe); }
+            }
+
+            if(pageText && pageText.length>10){
+              visionTexts.push('[Page '+pageNum+']\n'+pageText);
+            }
+          }catch(perr){
+            console.warn('Vision failed for page '+pageNum+':',perr);
+          }
+        }
+
+        lessonText=visionTexts.join('\n\n').trim();
+
+        if(!lessonText || lessonText.length<30){
+          statusEl.textContent='⚠️ AI Vision could not read text from these pages. Try a different range.';
+          if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
+          if(cancelBtn)cancelBtn.disabled=false;
+          return;
+        }
+
+        statusEl.style.color='#2c7a2c';
+        statusEl.textContent='✅ AI Vision extracted '+lessonText.length+' characters. Loading class…';
+      }catch(vErr){
+        console.error('Vision extraction failed:',vErr);
+        statusEl.style.color='#c0392b';
+        statusEl.textContent='⚠️ Could not extract text from this PDF. Try a different page range or check API.';
+        if(goBtn){goBtn.disabled=false;goBtn.textContent='▶ Go to Teach Tab';}
+        if(cancelBtn)cancelBtn.disabled=false;
+        return;
+      }
     }
 
     // Step 5: Save everything to sessionStorage
