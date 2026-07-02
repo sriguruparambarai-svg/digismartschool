@@ -581,7 +581,7 @@ async function generateReportCard() {
 
   try {
     var res = await fetch('/api/ai', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:400,messages:[{role:'user',content:prompt}]}})});
+      body: JSON.stringify({model:'claude-sonnet-4-5',max_tokens:400,messages:[{role:'user',content:prompt}]})});
     var data = await res.json();
     var remarksText = data.content && data.content[0] ? data.content[0].text : '';
     var ctRemarks = '', principalRemarks = '';
@@ -763,23 +763,21 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        payload: {
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 4000,
-          messages: [{
-            role: 'user',
-            content: [
-              {
-                type: 'document',
-                source: { type: 'base64', media_type: 'application/pdf', data: base64 }
-              },
-              {
-                type: 'text',
-                text: `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this PDF lesson, answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the PDF.\nNumber each answer clearly. Use simple language for ${cls} students.`
-              }
-            ]
-          }]
-        }
+        model: 'claude-sonnet-4-5',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: base64 }
+            },
+            {
+              type: 'text',
+              text: `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this PDF lesson, answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the PDF.\nNumber each answer clearly. Use simple language for ${cls} students.`
+            }
+          ]
+        }]
       })
     });
 
@@ -964,6 +962,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <button id="lp-tab-annual" onclick="switchLPTab('annual')"
       style="padding:10px 22px;border-radius:10px;border:2px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
       📚 Annual Planner
+    </button>
+    <button id="lp-tab-monthly" onclick="switchLPTab('monthly')"
+      style="padding:10px 22px;border-radius:10px;border:2px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
+      🗓️ Monthly Planner
     </button>
   </div>
 
@@ -1169,6 +1171,81 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       <button class="btn btn-gold btn-sm" onclick="copyOutput('out-annual')">📋 Copy</button>
       <button class="btn btn-outline btn-sm" onclick="printOutput('out-annual')">🖨️ Print</button>
       <button class="btn btn-outline btn-sm" onclick="whatsappOutput('out-annual')">📱 WhatsApp</button>
+    </div>
+  </div>
+
+  <!-- ══ MONTHLY PLANNER ══ -->
+  <div id="lp-monthly-section" style="display:none;">
+    <div class="card">
+      <div class="card-title">🗓️ Monthly Plan Details</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Class</label>
+          <select id="mp-class"><option value="">Select Class</option>
+            <option>Pre KG</option><option>LKG</option><option>UKG</option>
+            <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+            <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+            <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+            <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Subject</label>
+          <select id="mp-subject"><option value="">Select Subject</option>
+            <option>English</option><option>Tamil</option><option>Maths</option>
+            <option>Science</option><option>Social Science</option>
+            <option>EVS</option><option>Computer Science</option><option>Hindi</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Month</label>
+          <select id="mp-month">
+            <option value="">Select Month</option>
+            <option>June</option><option>July</option><option>August</option>
+            <option>September</option><option>October</option><option>November</option>
+            <option>December</option><option>January</option><option>February</option>
+            <option>March</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Working Days in This Month</label>
+          <select id="mp-wdays">
+            <option value="22">~22 Days</option>
+            <option value="26">~26 Days</option>
+            <option value="18">~18 Days (Short Month / Exams)</option>
+            <option value="15">~15 Days (Holidays)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Chapters / Topics for This Month (optional)</label>
+        <textarea id="mp-content" placeholder="e.g. Chapter 4: Fractions, Chapter 5: Decimals — or paste relevant textbook pages."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Upload Lesson PDF (optional)</label>
+        <div class="upload-box" onclick="document.getElementById('mp-file').click()">
+          <div class="u-icon">📄</div>
+          <p>Click to upload PDF or text file</p>
+          <input type="file" id="mp-file" accept=".pdf,.txt" onchange="handleUpload(this,'mp-content','mp-status')"/>
+        </div>
+        <div class="upload-note" id="mp-status"></div>
+      </div>
+      <div class="form-group">
+        <label>Additional Instructions (optional)</label>
+        <textarea id="mp-notes" rows="2" placeholder="e.g. Include a unit test in the last week, sports day on 15th..."></textarea>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="generateMonthlyPlan()" id="mp-gen-btn">
+        🗓️ Generate Monthly Plan
+      </button>
+    </div>
+    <div class="loading-box" id="load-monthly" style="display:none;"><div class="spinner"></div><span id="load-monthly-txt">Creating your monthly plan...</span></div>
+    <div class="output-box" id="out-monthly" style="display:none;"></div>
+    <div class="btn-row" id="actions-monthly" style="display:none">
+      <button class="btn btn-gold btn-sm" onclick="copyOutput('out-monthly')">📋 Copy</button>
+      <button class="btn btn-outline btn-sm" onclick="printOutput('out-monthly')">🖨️ Print</button>
+      <button class="btn btn-outline btn-sm" onclick="whatsappOutput('out-monthly')">📱 WhatsApp</button>
     </div>
   </div>
 
@@ -2054,11 +2131,9 @@ async function callAI(prompt, loadId, maxTok) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        payload: {
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: maxTok || 4000,
-          messages: [{ role: 'user', content: prompt }]
-        }
+        model: 'claude-sonnet-4-5',
+        max_tokens: maxTok || 4000,
+        messages: [{ role: 'user', content: prompt }]
       })
     });
     const rawText = await res.text();
@@ -2621,18 +2696,22 @@ async function saveDiaryToDB(){
 
 // ══ LESSON PLANNER TABS ══
 function switchLPTab(tab) {
-  var isWeekly = tab === 'weekly';
-  document.getElementById('lp-weekly-section').style.display = isWeekly ? 'block' : 'none';
-  document.getElementById('lp-annual-section').style.display = isWeekly ? 'none' : 'block';
-  var wBtn = document.getElementById('lp-tab-weekly');
-  var aBtn = document.getElementById('lp-tab-annual');
-  if (isWeekly) {
-    wBtn.style.background = 'var(--primary)'; wBtn.style.color = 'var(--gold)'; wBtn.style.borderColor = 'var(--primary)';
-    aBtn.style.background = 'transparent'; aBtn.style.color = '#666'; aBtn.style.borderColor = '#ddd';
-  } else {
-    aBtn.style.background = 'var(--primary)'; aBtn.style.color = 'var(--gold)'; aBtn.style.borderColor = 'var(--primary)';
-    wBtn.style.background = 'transparent'; wBtn.style.color = '#666'; wBtn.style.borderColor = '#ddd';
-  }
+  document.getElementById('lp-weekly-section').style.display  = tab === 'weekly'  ? 'block' : 'none';
+  document.getElementById('lp-annual-section').style.display  = tab === 'annual'  ? 'block' : 'none';
+  document.getElementById('lp-monthly-section').style.display = tab === 'monthly' ? 'block' : 'none';
+
+  var tabs = { weekly: document.getElementById('lp-tab-weekly'),
+               annual: document.getElementById('lp-tab-annual'),
+               monthly: document.getElementById('lp-tab-monthly') };
+
+  Object.keys(tabs).forEach(function(key) {
+    var btn = tabs[key];
+    if (key === tab) {
+      btn.style.background = 'var(--primary)'; btn.style.color = 'var(--gold)'; btn.style.borderColor = 'var(--primary)';
+    } else {
+      btn.style.background = 'transparent'; btn.style.color = '#666'; btn.style.borderColor = '#ddd';
+    }
+  });
 }
 
 function updateAPSubjects() {
@@ -2716,11 +2795,11 @@ async function generateAnnualPlan() {
     var res = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payload: {
-        model: 'claude-sonnet-4-20250514',
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
         max_tokens: 4000,
         messages: [{ role: 'user', content: prompt }]
-      }})
+      })
     });
 
     // Use res.text() + JSON.parse — same pattern as rest of app
@@ -2747,6 +2826,92 @@ async function generateAnnualPlan() {
     loadEl.style.display = 'none';
     genBtn.disabled = false;
     genBtn.textContent = '📚 Generate Annual Plan for All Subjects';
+  }
+}
+
+// ══ MONTHLY PLAN GENERATOR ══
+async function generateMonthlyPlan() {
+  var cls    = document.getElementById('mp-class').value;
+  var sub    = document.getElementById('mp-subject').value;
+  var month  = document.getElementById('mp-month').value;
+  var wdays  = document.getElementById('mp-wdays').value;
+  var content = document.getElementById('mp-content').value.trim();
+  var notes  = document.getElementById('mp-notes').value;
+
+  if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
+  if (!month) { alert('Please select a Month.'); return; }
+
+  var loadEl  = document.getElementById('load-monthly');
+  var loadTxt = document.getElementById('load-monthly-txt');
+  var outEl   = document.getElementById('out-monthly');
+  var actEl   = document.getElementById('actions-monthly');
+  var genBtn  = document.getElementById('mp-gen-btn');
+
+  loadEl.style.display = 'block';
+  outEl.style.display  = 'none';
+  actEl.style.display  = 'none';
+  genBtn.disabled = true;
+  genBtn.textContent = '⏳ Generating Monthly Plan...';
+
+  var contentSection = content
+    ? '\n\nCHAPTERS / TOPICS PROVIDED BY TEACHER:\n' + content.substring(0, 4000) + '\n\nUse the above as the primary reference for chapter names and order.'
+    : '\n\nUse standard Tamil Nadu textbook chapter names appropriate for this month.';
+
+  var prompt = 'You are an experienced school teacher in Tamil Nadu planning lessons for a single month.\n\n' +
+    'Create a detailed MONTHLY LESSON PLAN for:\n' +
+    'Class: ' + cls + '\n' +
+    'Subject: ' + sub + '\n' +
+    'Month: ' + month + '\n' +
+    'Working Days This Month: ~' + wdays + '\n' +
+    (notes ? 'Special Instructions: ' + notes + '\n' : '') +
+    contentSection + '\n\n' +
+    'Break the month down WEEK BY WEEK (Week 1, Week 2, Week 3, Week 4).\n\n' +
+    'For EACH WEEK use this format:\n' +
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+    '📅 Week [N]\n' +
+    '━━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+    '• Chapter/Topic: [name]\n' +
+    '• Key Concepts: [main points to teach]\n' +
+    '• Activity/Homework: [practice or activity]\n\n' +
+    '⚠️ Mark any test, revision, or holiday weeks clearly.\n' +
+    'Make it practical and realistic for a Tamil Nadu classroom.';
+
+  try {
+    loadTxt.textContent = 'AI is building your monthly plan...';
+
+    var res = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 3000,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    var rawText = await res.text();
+    var data = JSON.parse(rawText);
+
+    if (data.error) {
+      var errMsg = typeof data.error === 'object'
+        ? (data.error.message || JSON.stringify(data.error))
+        : String(data.error);
+      throw new Error(errMsg);
+    }
+
+    var text = data.content && data.content[0] ? data.content[0].text : '';
+    if (!text) throw new Error('No response received from AI. Please try again.');
+
+    outEl.style.display = 'block';
+    outEl.innerHTML = '<pre style="white-space:pre-wrap;font-family:inherit;font-size:0.9rem;line-height:1.8;">' + escapeHtml(text) + '</pre>';
+    actEl.style.display = 'flex';
+
+  } catch(e) {
+    alert('Error generating monthly plan: ' + e.message);
+  } finally {
+    loadEl.style.display = 'none';
+    genBtn.disabled = false;
+    genBtn.textContent = '🗓️ Generate Monthly Plan';
   }
 }
 
