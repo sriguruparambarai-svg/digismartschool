@@ -2734,6 +2734,65 @@ function getSchoolName(){
   try{ var u=JSON.parse(localStorage.getItem('dss_user')||'{}'); return u.school_name||u.name||''; }catch(e){ return ''; }
 }
 
+// ══════════════════════════════════════════════════════
+// ERP CONNECTION — only used if this school also owns ERP
+// ══════════════════════════════════════════════════════
+var _erpClient = null;
+function getERPDB(){
+  if(_erpClient) return _erpClient;
+  if(window.supabase && window.supabase.createClient){
+    _erpClient = window.supabase.createClient(
+      'https://nkfxrbumhjztmdyepygt.supabase.co',
+      'sb_publishable_7RgXFcDeOipMGoFuPI7XBQ_r_aJpZdL'
+    );
+  }
+  return _erpClient;
+}
+
+// Checks both possible shapes of dss_user (school_admin login = flat, teacher login = nested under .schools)
+function getERPInfo(){
+  try{
+    var u = JSON.parse(localStorage.getItem('dss_user')||'{}');
+    var src = (u.schools && typeof u.schools === 'object') ? u.schools : u;
+    return { hasERP: !!src.has_erp, erpSchoolId: src.erp_school_id || null };
+  }catch(e){ return { hasERP:false, erpSchoolId:null }; }
+}
+
+// Pushes the same homework into ERP's Parent Portal (communications table) — only runs if this school owns ERP.
+// Uses the exact same fields ERP's own Homework tab already saves, so ERP's Parent Portal needs no changes.
+async function pushHomeworkToERP(d){
+  var erp = getERPInfo();
+  if(!erp.hasERP || !erp.erpSchoolId) return; // school doesn't have ERP — nothing to do
+
+  var db = getERPDB();
+  if(!db) return;
+
+  var combined = d.subjectData.map(function(s){
+    return s.name + ': ' + (s.hw || s.cw || '');
+  }).join('\n');
+  var subjectNames = d.subjectData.map(function(s){ return s.name; }).join(', ');
+  var date = d.date || new Date().toISOString().split('T')[0];
+  var dateLabel = new Date(date+'T00:00:00').toLocaleDateString('en-IN',{day:'2-digit',month:'short'});
+
+  try{
+    await db.from('communications').insert([{
+      school_id: erp.erpSchoolId,
+      type: 'homework',
+      title: d.cls + ' Homework — ' + dateLabel,
+      message: combined,
+      subject: subjectNames,
+      target_class: d.cls,
+      target_section: null,
+      due_date: date,
+      priority: 'normal',
+      sender_name: 'Teacher',
+      created_at: new Date().toISOString()
+    }]);
+  }catch(e){
+    console.warn('ERP homework sync skipped:', e.message);
+  }
+}
+
 // ── Save Book Back Answers ──
 async function saveBookBackToDiary(){
   var cls = document.getElementById('bb-class').value;
@@ -2816,6 +2875,10 @@ async function saveDiaryToDB(){
 
     if(btn){ btn.textContent='✅ Saved! Students can view in their diary app.'; }
     clearDiaryRecording();
+
+    // If this school also owns ERP, the same homework shows up in ERP's Parent Portal automatically
+    pushHomeworkToERP(d);
+
     setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
   }catch(e){
     if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }
