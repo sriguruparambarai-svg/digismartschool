@@ -2118,22 +2118,45 @@ async function handleUpload(input, targetId, statusId) {
     document.getElementById(targetId).value = text;
     status.textContent = '✅ File loaded: ' + file.name;
   } else if (file.type === 'application/pdf') {
-    status.textContent = '✅ PDF ready: ' + file.name + ' (will be sent to AI)';
+    status.textContent = '✅ PDF ready: ' + file.name + ' — AI will read it directly (works for text or scanned pages)';
     input._pdfFile = file;
   }
 }
 
-// ── CALL AI ──
-async function callAI(prompt, loadId, maxTok) {
+// ── PDF → base64 (shared helper) ──
+function fileToBase64(file) {
+  return new Promise((res, rej) => {
+    const reader = new FileReader();
+    reader.onload = () => res(reader.result.split(',')[1]);
+    reader.onerror = () => rej(new Error('File read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+// ── CALL AI (optionally attach a PDF directly, same method as Book Back Answers) ──
+async function callAI(prompt, loadId, maxTok, pdfFile) {
   document.getElementById(loadId).classList.add('show');
   try {
+    let messages;
+    if (pdfFile) {
+      const base64 = await fileToBase64(pdfFile);
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }];
+    } else {
+      messages = [{ role: 'user', content: prompt }];
+    }
     const res = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-5',
         max_tokens: maxTok || 4000,
-        messages: [{ role: 'user', content: prompt }]
+        messages: messages
       })
     });
     const rawText = await res.text();
@@ -2312,6 +2335,7 @@ async function generateTool(tool) {
   let loadId = 'load-' + tool;
   let outId = 'out-' + tool;
   let actId = 'actions-' + tool;
+  let pdfFile = null; // set inside each tool branch if a PDF was uploaded
 
   if (tool === 'lesson') {
     const cls = document.getElementById('lp-class').value;
@@ -2319,6 +2343,8 @@ async function generateTool(tool) {
     const ch = document.getElementById('lp-chapter').value;
     const days = document.getElementById('lp-days').value;
     const content = document.getElementById('lp-content').value;
+    const lpFileInput = document.getElementById('lp-file');
+    pdfFile = lpFileInput && lpFileInput.files && lpFileInput.files[0] ? lpFileInput.files[0] : null;
     if (!cls || !sub || !ch) { alert('Please fill Class, Subject and Chapter name.'); return; }
     prompt = `You are an experienced CBSE school teacher in Tamil Nadu, India.
 Create a detailed ${days}-day lesson plan for:
@@ -2326,7 +2352,7 @@ Class: ${cls} | Subject: ${sub} | Chapter: ${ch}
 Curriculum: CBSE
 
 Lesson Content:
-${content || 'Use standard CBSE curriculum knowledge for this topic.'}
+${content || (pdfFile ? 'See the attached PDF document for the lesson content — read it carefully and base the plan on its actual content.' : 'Use standard CBSE curriculum knowledge for this topic.')}
 
 Format each day like this:
 DAY 1: [Title]
@@ -2345,6 +2371,8 @@ Make it practical, engaging and suitable for Indian school children.`;
     const topic = document.getElementById('ws-topic').value;
     const level = document.getElementById('ws-level').value;
     const content = document.getElementById('ws-content').value;
+    const wsFileInput = document.getElementById('ws-file');
+    pdfFile = wsFileInput && wsFileInput.files && wsFileInput.files[0] ? wsFileInput.files[0] : null;
     const types = [];
     if (document.getElementById('ws-mcq').checked) types.push('MCQ (4 options with answer)');
     if (document.getElementById('ws-fill').checked) types.push('Fill in the Blanks (with answers)');
@@ -2359,7 +2387,7 @@ Class: ${cls} | Subject: ${sub} | Topic: ${topic}
 Include these question types: ${types.join(', ')}
 
 Lesson Content to base questions on:
-${content || 'Use standard CBSE curriculum knowledge for this topic.'}
+${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge for this topic.')}
 
 Format it as a proper school worksheet with:
 - School name line, Date line, Name line, Class line at top
@@ -2379,6 +2407,8 @@ Make questions clear and age-appropriate for ${cls} students.`;
     const chapters = document.getElementById('qp-chapters').value;
     const content = document.getElementById('qp-content').value;
     const anskey = document.getElementById('qp-anskey').value;
+    const qpFileInput = document.getElementById('qp-file');
+    pdfFile = qpFileInput && qpFileInput.files && qpFileInput.files[0] ? qpFileInput.files[0] : null;
     if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
     prompt = `You are a CBSE school teacher in Tamil Nadu, India.
 Create a formal ${type} question paper for:
@@ -2386,7 +2416,7 @@ Class: ${cls} | Subject: ${sub} | Total Marks: ${marks} | Duration: ${duration}
 Chapters: ${chapters || 'As per syllabus'}
 
 Lesson Content:
-${content || 'Use standard CBSE curriculum knowledge.'}
+${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge.')}
 
 Format Requirements:
 - School name header area (leave blank)
@@ -2408,6 +2438,8 @@ Make it professional like a real Indian school exam paper.`;
     const topic = document.getElementById('ob-topic').value;
     const count = document.getElementById('ob-count').value;
     const content = document.getElementById('ob-content').value;
+    const obFileInput = document.getElementById('ob-file');
+    pdfFile = obFileInput && obFileInput.files && obFileInput.files[0] ? obFileInput.files[0] : null;
     const types = [];
     if (document.getElementById('ob-mcq').checked) types.push('MCQ with 4 options');
     if (document.getElementById('ob-tf').checked) types.push('True or False');
@@ -2422,7 +2454,7 @@ Class: ${cls} | Subject: ${sub} | Topic: ${topic}
 Question types to include: ${types.join(', ')}
 
 Lesson Content:
-${content || 'Use standard CBSE curriculum knowledge for this topic.'}
+${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions ONLY on its actual content.' : 'Use standard CBSE curriculum knowledge for this topic.')}
 
 Rules:
 - Questions must be ONLY from the lesson content provided
@@ -2523,7 +2555,7 @@ Keep it concise, warm and easy for parents to read on their phone.`;
     lesson: 2000, worksheet: 3000, qpaper: 4000,
     objective: 4000, bookback: 4000, reportcard: 3000, diary: 1500
   };
-  const result = await callAI(prompt, loadId, tokenMap[tool] || 4000);
+  const result = await callAI(prompt, loadId, tokenMap[tool] || 4000, pdfFile);
   showOutput(outId, actId, result, tool);
 }
 
@@ -2734,6 +2766,8 @@ async function generateAnnualPlan() {
   var wdays  = document.getElementById('ap-wdays').value;
   var notes  = document.getElementById('ap-notes').value;
   var bookContent = document.getElementById('ap-book-content').value.trim();
+  var apFileInput = document.getElementById('ap-file');
+  var pdfFile = apFileInput && apFileInput.files && apFileInput.files[0] ? apFileInput.files[0] : null;
 
   if (!cls) { alert('Please select a Class.'); return; }
 
@@ -2763,6 +2797,8 @@ async function generateAnnualPlan() {
 
   var bookSection = bookContent
     ? '\n\nSYLLABUS / TABLE OF CONTENTS PROVIDED BY TEACHER:\n' + bookContent.substring(0, 6000) + '\n\nUse the above syllabus as the primary reference for chapter names and order. Do not use generic chapter names if actual chapter names are provided above.'
+    : pdfFile
+    ? '\n\nSee the attached PDF document for the syllabus / table of contents — read it carefully and use the EXACT chapter names and order from it. Do not use generic chapter names.'
     : '\n\nUse standard ' + board + ' syllabus chapter names for ' + cls + '.';
 
   var prompt = 'You are a senior academic coordinator for a ' + board + ' school in Tamil Nadu, India.\n\n' +
@@ -2792,13 +2828,27 @@ async function generateAnnualPlan() {
   try {
     loadTxt.textContent = 'AI is building your full-year plan... this takes about 30 seconds.';
 
+    var messages;
+    if (pdfFile) {
+      var base64 = await fileToBase64(pdfFile);
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }];
+    } else {
+      messages = [{ role: 'user', content: prompt }];
+    }
+
     var res = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-5',
         max_tokens: 4000,
-        messages: [{ role: 'user', content: prompt }]
+        messages: messages
       })
     });
 
@@ -2837,6 +2887,8 @@ async function generateMonthlyPlan() {
   var wdays  = document.getElementById('mp-wdays').value;
   var content = document.getElementById('mp-content').value.trim();
   var notes  = document.getElementById('mp-notes').value;
+  var mpFileInput = document.getElementById('mp-file');
+  var pdfFile = mpFileInput && mpFileInput.files && mpFileInput.files[0] ? mpFileInput.files[0] : null;
 
   if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
   if (!month) { alert('Please select a Month.'); return; }
@@ -2855,6 +2907,8 @@ async function generateMonthlyPlan() {
 
   var contentSection = content
     ? '\n\nCHAPTERS / TOPICS PROVIDED BY TEACHER:\n' + content.substring(0, 4000) + '\n\nUse the above as the primary reference for chapter names and order.'
+    : pdfFile
+    ? '\n\nSee the attached PDF document — read it carefully and use its EXACT chapter names and content for this month\'s plan.'
     : '\n\nUse standard Tamil Nadu textbook chapter names appropriate for this month.';
 
   var prompt = 'You are an experienced school teacher in Tamil Nadu planning lessons for a single month.\n\n' +
@@ -2879,13 +2933,27 @@ async function generateMonthlyPlan() {
   try {
     loadTxt.textContent = 'AI is building your monthly plan...';
 
+    var messages;
+    if (pdfFile) {
+      var base64 = await fileToBase64(pdfFile);
+      messages = [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: prompt }
+        ]
+      }];
+    } else {
+      messages = [{ role: 'user', content: prompt }];
+    }
+
     var res = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-5',
         max_tokens: 3000,
-        messages: [{ role: 'user', content: prompt }]
+        messages: messages
       })
     });
 
