@@ -593,6 +593,84 @@ module.exports = async function(req2, res) {
       return res.json({ success: true });
     }
 
+    // ── SAVE DIARY ENTRY (Book Back Answers, Homework Diary — server-side, safe) ──
+    if (action === 'save_diary_entry') {
+      const { school_id, class_name, subject, lesson_title, lesson_date, class_notes, homework, announcements, book_back_answers, voice_url } = body;
+      if (!school_id || !class_name || !subject || !lesson_date) {
+        return res.json({ error: 'Missing required fields (school_id, class_name, subject, lesson_date).' });
+      }
+
+      const checkR = await req('GET',
+        `/rest/v1/diary_entries?school_id=eq.${encodeURIComponent(school_id)}&class_name=eq.${encodeURIComponent(class_name)}&subject=eq.${encodeURIComponent(subject)}&lesson_date=eq.${encodeURIComponent(lesson_date)}&select=id&limit=1`
+      );
+
+      const payload = {
+        school_id, class_name, subject,
+        lesson_title: lesson_title || (subject + ' — ' + lesson_date),
+        lesson_date,
+        updated_at: new Date().toISOString()
+      };
+      if (class_notes !== undefined) payload.class_notes = class_notes;
+      if (homework !== undefined) payload.homework = homework;
+      if (announcements !== undefined) payload.announcements = announcements;
+      if (book_back_answers !== undefined) payload.book_back_answers = book_back_answers;
+      if (voice_url !== undefined) payload.voice_url = voice_url;
+
+      let r;
+      if (checkR.data && checkR.data.length > 0) {
+        r = await req('PATCH', `/rest/v1/diary_entries?id=eq.${checkR.data[0].id}`, payload);
+      } else {
+        r = await req('POST', '/rest/v1/diary_entries', payload);
+      }
+
+      if (r.status !== 200 && r.status !== 201 && r.status !== 204) {
+        const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+        return res.json({ error: 'Save failed: ' + msg });
+      }
+      return res.json({ success: true });
+    }
+
+    // ── UPLOAD DIARY VOICE MESSAGE (teacher's recorded voice note for parents) ──
+    if (action === 'upload_diary_voice') {
+      const { school_id, file_base64 } = body;
+      if (!school_id || !file_base64) {
+        return res.json({ error: 'Missing required fields (school_id, file_base64).' });
+      }
+
+      const key = process.env.SUPABASE_SECRET_KEY;
+      const fileBuffer = Buffer.from(file_base64, 'base64');
+      const filePath = school_id + '/voice_' + Date.now() + '.webm';
+
+      await new Promise((resolve, reject) => {
+        const opts = {
+          hostname: HOST,
+          path: '/storage/v1/object/diary-voice/' + filePath,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'audio/webm',
+            'apikey': key,
+            'Authorization': 'Bearer ' + key,
+            'x-upsert': 'true',
+            'Content-Length': fileBuffer.length
+          }
+        };
+        const r = https.request(opts, response => {
+          let d = '';
+          response.on('data', c => d += c);
+          response.on('end', () => {
+            if (response.statusCode >= 200 && response.statusCode < 300) resolve(d);
+            else reject(new Error('Voice upload failed: ' + d));
+          });
+        });
+        r.on('error', reject);
+        r.write(fileBuffer);
+        r.end();
+      });
+
+      const voiceUrl = 'https://' + HOST + '/storage/v1/object/public/diary-voice/' + filePath;
+      return res.json({ success: true, voice_url: voiceUrl });
+    }
+
     return res.json({ error: 'Unknown action: ' + action });
 
   } catch(e) {
