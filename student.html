@@ -289,6 +289,14 @@ html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);m
     </div>
   </div>
 
+  <!-- REPORT CARDS -->
+  <div class="page" id="page-reportcards">
+    <div class="section-title">📊 My Report Cards</div>
+    <div id="reportcards-list">
+      <div class="spin-wrap"><div class="spinner"></div><div class="spin-txt">Loading report cards…</div></div>
+    </div>
+  </div>
+
   <!-- Bottom Navigation -->
   <div class="bottom-nav">
     <button class="bnav-btn active" id="bnav-home" onclick="showPage('home')">
@@ -302,6 +310,10 @@ html,body{font-family:'Nunito',sans-serif;background:#f7efe4;color:var(--text);m
     <button class="bnav-btn" id="bnav-diary" onclick="showPage('diary')">
       <span class="bnav-icon">📓</span>
       <span class="bnav-label">Diary</span>
+    </button>
+    <button class="bnav-btn" id="bnav-reportcards" onclick="showPage('reportcards')">
+      <span class="bnav-icon">📊</span>
+      <span class="bnav-label">Reports</span>
     </button>
   </div>
 
@@ -409,6 +421,7 @@ function startApp(){
   document.getElementById('app').classList.add('show');
 
   loadAllEntries();
+  loadReportCards();
 }
 
 function greetByTime(){
@@ -451,6 +464,70 @@ async function loadAllEntries(){
       '<div class="empty-sub">' + (e.message || 'Unknown error') + '</div>' +
       '</div>';
   }
+}
+
+// ══════════════════════════════════════════
+// REPORT CARDS
+// ══════════════════════════════════════════
+var allReportCards = [];
+
+async function loadReportCards(){
+  var s = currentStudent;
+  try{
+    var res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get_report_cards',
+        school_id: s.school_id,
+        roll_no: s.roll_no
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    allReportCards = d.report_cards || [];
+    renderReportCards();
+  }catch(e){
+    console.error('Failed to load report cards:', e);
+    var list = document.getElementById('reportcards-list');
+    if(list) list.innerHTML = '<div class="empty-state"><div class="empty-icon">😔</div><div class="empty-title">Could not load report cards</div><div class="empty-sub">'+escH(e.message||'Unknown error')+'</div></div>';
+  }
+}
+
+function renderReportCards(){
+  var list = document.getElementById('reportcards-list');
+  if(!allReportCards.length){
+    list.innerHTML = '<div class="empty-state"><div class="empty-icon">📊</div><div class="empty-title">No report cards yet</div><div class="empty-sub">Report cards will appear here once your teacher generates them</div></div>';
+    return;
+  }
+  var subjKeys = ['tamil','english','maths','science','social','hindi','computer'];
+  var subjLabels = {tamil:'Tamil',english:'English',maths:'Maths',science:'Science',social:'Social',hindi:'Hindi',computer:'Computer'};
+
+  var html = '';
+  allReportCards.forEach(function(rc){
+    var gradeColor = (rc.grade==='A+'||rc.grade==='A') ? 'var(--green)' : (rc.grade==='B+'||rc.grade==='B') ? 'var(--blue)' : 'var(--maroon)';
+    html += '<div class="lesson-item" style="flex-direction:column;align-items:stretch;cursor:default;margin-bottom:12px;">';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">';
+    html += '<div class="lesson-name">'+escH(rc.exam_type)+' — '+escH(rc.academic_year)+'</div>';
+    html += '<span style="font-weight:800;color:'+gradeColor+';font-size:1.05rem;">'+escH(rc.grade||'')+'</span>';
+    html += '</div>';
+    html += '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;">';
+    subjKeys.forEach(function(k){
+      if(rc[k]!==null && rc[k]!==undefined){
+        html += '<span style="background:var(--sandal);border-radius:8px;padding:3px 9px;font-size:.72rem;font-weight:700;color:var(--text2);">'+subjLabels[k]+': '+rc[k]+'</span>';
+      }
+    });
+    html += '</div>';
+    html += '<div style="font-size:.78rem;color:var(--dim);margin-bottom:4px;">Total: '+Math.round(rc.total_marks)+' &middot; Percentage: '+rc.total_percentage+'% &middot; Rank: '+(rc.rank||'—')+'</div>';
+    if(rc.attendance_pct!==null && rc.attendance_pct!==undefined){
+      html += '<div style="font-size:.78rem;color:var(--dim);margin-bottom:4px;">Attendance: '+rc.days_present+' days present ('+rc.attendance_pct+'%)</div>';
+    }
+    if(rc.ai_remarks){
+      html += '<div style="font-size:.8rem;color:var(--text);margin-top:6px;padding-top:6px;border-top:1px dashed var(--sandal);font-style:italic;">"'+escH(rc.ai_remarks)+'"</div>';
+    }
+    html += '</div>';
+  });
+  list.innerHTML = html;
 }
 
 // ══════════════════════════════════════════
