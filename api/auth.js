@@ -339,6 +339,29 @@ module.exports = async function(req2, res) {
       });
     }
 
+    // ── GET REPORT CARDS (for parent/student diary view) ──
+    if (action === 'get_report_cards') {
+      const { school_id, roll_no } = body;
+      if (!school_id || !roll_no)
+        return res.json({ error: 'school_id and roll_no required' });
+
+      // report_cards is saved with school_code (text), student session has school_id (UUID) — resolve it
+      const sr = await req('GET',
+        `/rest/v1/schools?id=eq.${encodeURIComponent(school_id)}&select=school_code&limit=1`
+      );
+      if (!sr.data || !sr.data.length)
+        return res.json({ success: true, report_cards: [] });
+
+      const schoolCode = sr.data[0].school_code;
+      if (!schoolCode) return res.json({ success: true, report_cards: [] });
+
+      const rr = await req('GET',
+        `/rest/v1/report_cards?school_code=eq.${encodeURIComponent(schoolCode)}&roll_no=eq.${encodeURIComponent(roll_no)}&select=*&order=created_at.desc`
+      );
+
+      return res.json({ success: true, report_cards: rr.data || [] });
+    }
+
     // ── DIARY STUDENT OPERATIONS ──
     if (action === 'add_diary_student') {
       const { school_id, class_name, roll_no, name } = body;
