@@ -1874,6 +1874,19 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
 
   <!-- ── FORM 2: PRINT / DIARY FORMAT ── -->
   <div id="diary-save-wrap" style="display:none;margin:12px 0;">
+    <div class="form-group" style="background:rgba(26,92,42,0.05);border:1.5px solid rgba(26,92,42,0.15);border-radius:10px;padding:14px;margin-bottom:10px;">
+      <label>🎙️ Voice Message for Parents (optional)</label>
+      <div style="font-size:0.8rem;color:#666;margin-bottom:10px;">Record a short voice note in your own voice — parents can play it in their diary app, just like a WhatsApp voice message.</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button type="button" id="hd-rec-start" class="btn btn-outline btn-sm" onclick="startDiaryRecording()">🔴 Record</button>
+        <button type="button" id="hd-rec-stop" class="btn btn-outline btn-sm" style="display:none;" onclick="stopDiaryRecording()">⏹ Stop</button>
+        <span id="hd-rec-status" style="font-size:0.82rem;color:#888;"></span>
+      </div>
+      <div id="hd-rec-preview" style="margin-top:10px;display:none;">
+        <audio id="hd-rec-audio" controls style="width:100%;"></audio>
+        <button type="button" class="btn btn-outline btn-sm" style="margin-top:6px;" onclick="clearDiaryRecording()">🗑️ Remove Recording</button>
+      </div>
+    </div>
     <button id="diary-save-btn" class="btn btn-full" style="background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:0.95rem;" onclick="saveDiaryToDB()">💾 Save to Student Diary</button>
     <div style="font-size:0.75rem;color:#888;margin-top:4px;text-align:center;">Students in this class can view homework & classwork in their diary app</div>
   </div>
@@ -2726,42 +2739,26 @@ async function saveBookBackToDiary(){
   var btn = document.getElementById('bb-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Saving…'; }
 
-  var db = getDB();
-  if(!db){ alert('Database not connected.'); if(btn){btn.disabled=false;btn.textContent='💾 Save to Student Diary';} return; }
-
   var schoolId = getSchoolId();
   var today = new Date().toISOString().split('T')[0];
 
-  // Check if entry exists for this class+subject+date, update or insert
   try{
-    var {data:existing} = await db.from('diary_entries')
-      .select('id')
-      .eq('school_id', schoolId)
-      .eq('class_name', cls)
-      .eq('subject', sub)
-      .eq('lesson_date', today)
-      .limit(1);
+    var res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'save_diary_entry',
+        school_id: schoolId,
+        class_name: cls,
+        subject: sub,
+        lesson_title: lesson.trim() || sub + ' — ' + today,
+        lesson_date: today,
+        book_back_answers: answers
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
 
-    var payload = {
-      school_id: schoolId,
-      class_name: cls,
-      subject: sub,
-      lesson_title: lesson.trim() || sub + ' — ' + today,
-      lesson_date: today,
-      book_back_answers: answers,
-      updated_at: new Date().toISOString()
-    };
-
-    var error;
-    if(existing && existing.length > 0){
-      var res = await db.from('diary_entries').update({book_back_answers: answers, updated_at: new Date().toISOString()}).eq('id', existing[0].id);
-      error = res.error;
-    } else {
-      var res = await db.from('diary_entries').insert(payload);
-      error = res.error;
-    }
-
-    if(error) throw new Error(error.message);
     if(btn){ btn.textContent='✅ Saved! Students can now view these answers.'; }
     setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
   }catch(e){
@@ -2778,25 +2775,17 @@ async function saveDiaryToDB(){
   var btn = document.getElementById('diary-save-btn');
   if(btn){ btn.disabled=true; btn.textContent='⏳ Saving…'; }
 
-  var db = getDB();
-  if(!db){ alert('Database not connected.'); if(btn){btn.disabled=false;btn.textContent='💾 Save to Student Diary';} return; }
-
   var schoolId = getSchoolId();
   var date = d.date || new Date().toISOString().split('T')[0];
 
   try{
-    // Save one diary entry per subject
+    // Upload voice recording first (if the teacher recorded one), so we can attach the same link to every subject below
+    var voiceUrl = await uploadDiaryVoiceIfAny(schoolId);
+
     for(var i=0; i<d.subjectData.length; i++){
       var s = d.subjectData[i];
-      var {data:existing} = await db.from('diary_entries')
-        .select('id')
-        .eq('school_id', schoolId)
-        .eq('class_name', d.cls)
-        .eq('subject', s.name)
-        .eq('lesson_date', date)
-        .limit(1);
-
       var payload = {
+        action: 'save_diary_entry',
         school_id: schoolId,
         class_name: d.cls,
         subject: s.name,
@@ -2804,26 +2793,82 @@ async function saveDiaryToDB(){
         lesson_date: date,
         class_notes: s.cw || '',
         homework: s.hw || '',
-        announcements: d.announce || '',
-        updated_at: new Date().toISOString()
+        announcements: d.announce || ''
       };
+      if (voiceUrl) payload.voice_url = voiceUrl;
 
-      if(existing && existing.length > 0){
-        await db.from('diary_entries').update({
-          class_notes: s.cw||'', homework: s.hw||'',
-          announcements: d.announce||'', updated_at: new Date().toISOString()
-        }).eq('id', existing[0].id);
-      } else {
-        await db.from('diary_entries').insert(payload);
-      }
+      var res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      var rd = await res.json();
+      if(rd.error) throw new Error(rd.error);
     }
 
     if(btn){ btn.textContent='✅ Saved! Students can view in their diary app.'; }
+    clearDiaryRecording();
     setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
   }catch(e){
     if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }
     alert('Save failed: ' + e.message);
   }
+}
+
+// ── Voice recording (Homework Diary — teacher records a real voice message for parents) ──
+var _diaryMediaRecorder = null;
+var _diaryRecChunks = [];
+var _diaryVoiceBlob = null;
+
+async function startDiaryRecording(){
+  try{
+    var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    _diaryRecChunks = [];
+    _diaryMediaRecorder = new MediaRecorder(stream);
+    _diaryMediaRecorder.ondataavailable = function(e){ if(e.data.size > 0) _diaryRecChunks.push(e.data); };
+    _diaryMediaRecorder.onstop = function(){
+      _diaryVoiceBlob = new Blob(_diaryRecChunks, { type: 'audio/webm' });
+      var url = URL.createObjectURL(_diaryVoiceBlob);
+      document.getElementById('hd-rec-audio').src = url;
+      document.getElementById('hd-rec-preview').style.display = 'block';
+      stream.getTracks().forEach(function(t){ t.stop(); });
+    };
+    _diaryMediaRecorder.start();
+    document.getElementById('hd-rec-start').style.display = 'none';
+    document.getElementById('hd-rec-stop').style.display = 'inline-block';
+    document.getElementById('hd-rec-status').textContent = '🔴 Recording...';
+  }catch(e){
+    alert('Could not access microphone: ' + e.message + '\n\nMake sure you allow microphone access, and that you\'re using https (or localhost).');
+  }
+}
+
+function stopDiaryRecording(){
+  if(_diaryMediaRecorder && _diaryMediaRecorder.state !== 'inactive'){
+    _diaryMediaRecorder.stop();
+  }
+  document.getElementById('hd-rec-start').style.display = 'inline-block';
+  document.getElementById('hd-rec-stop').style.display = 'none';
+  document.getElementById('hd-rec-status').textContent = '✅ Recorded — will be attached when you save';
+}
+
+function clearDiaryRecording(){
+  _diaryVoiceBlob = null;
+  document.getElementById('hd-rec-preview').style.display = 'none';
+  document.getElementById('hd-rec-status').textContent = '';
+}
+
+// Uploads the recorded voice note (if any) and returns its public URL, or null if nothing was recorded
+async function uploadDiaryVoiceIfAny(schoolId){
+  if(!_diaryVoiceBlob) return null;
+  var base64 = await fileToBase64(_diaryVoiceBlob); // fileToBase64 works on any Blob, not just files
+  var res = await fetch('/api/auth', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'upload_diary_voice', school_id: schoolId, file_base64: base64 })
+  });
+  var d = await res.json();
+  if(d.error) throw new Error('Voice upload failed: ' + d.error);
+  return d.voice_url || null;
 }
 
 // ══ LESSON PLANNER TABS ══
