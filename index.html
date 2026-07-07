@@ -742,6 +742,55 @@ function buildReportCardHTML(d) {
 }
 
 
+// ── Load PDF.js once, on demand (used to convert heavy PDFs into compressed page pictures) ──
+let _bbPdfJsLoading = null;
+function bbEnsurePdfJs() {
+  if (window.pdfjsLib) return Promise.resolve();
+  if (_bbPdfJsLoading) return _bbPdfJsLoading;
+  _bbPdfJsLoading = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = () => {
+      try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+      resolve();
+    };
+    s.onerror = () => reject(new Error('Could not load PDF reader library. Check internet connection.'));
+    document.head.appendChild(s);
+  });
+  return _bbPdfJsLoading;
+}
+
+// ── Convert a heavy PDF into compressed JPEG page pictures that fit under the upload limit ──
+// Tries normal quality first; if still too big, shrinks and retries automatically.
+async function bbPdfToCompressedImages(file) {
+  await bbEnsurePdfJs();
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const maxPages = Math.min(pdf.numPages, 20); // safety cap — one chapter never needs more
+  const budget = 3200000; // total picture data must stay under ~3.2 MB (safe for the server)
+  let quality = 0.62, targetWidth = 1200;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const images = [];
+    let total = 0;
+    for (let p = 1; p <= maxPages; p++) {
+      const page = await pdf.getPage(p);
+      const vp1 = page.getViewport({ scale: 1 });
+      const vp = page.getViewport({ scale: targetWidth / vp1.width });
+      const canvas = document.createElement('canvas');
+      canvas.width = vp.width; canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      const b64 = canvas.toDataURL('image/jpeg', quality).split(',')[1];
+      total += b64.length;
+      images.push(b64);
+    }
+    if (total <= budget) return images;
+    quality = Math.max(0.35, quality - 0.15);   // lower picture quality and try again
+    targetWidth = Math.max(800, targetWidth - 200);
+  }
+  return null; // could not fit even at lowest quality
+}
+
 // ── BOOK BACK FROM PDF ──
 async function generateBookBackFromPDF(file, cls, sub, questions, style) {
   document.getElementById('load-bookback').classList.add('show');
@@ -749,42 +798,54 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
   document.getElementById('actions-bookback').style.display = 'none';
 
   try {
-    // Convert PDF to base64
-    const base64 = await new Promise((res, rej) => {
-      const reader = new FileReader();
-      reader.onload = () => res(reader.result.split(',')[1]);
-      reader.onerror = () => rej(new Error('File read failed'));
-      reader.readAsDataURL(file);
-    });
-
     const qText = questions || 'Generate answers for all exercise questions in this lesson.';
-    
+    const promptText = `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this lesson (attached as PDF or page images), answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the lesson.\nNumber each answer clearly. Use simple language for ${cls} students.`;
+
+    let content;
+
+    // Small PDF (safe size) → send as-is, exactly like before.
+    // Heavy PDF → automatically convert pages to compressed pictures instead.
+    if (file.size <= 2400000) {
+      const base64 = await new Promise((res, rej) => {
+        const reader = new FileReader();
+        reader.onload = () => res(reader.result.split(',')[1]);
+        reader.onerror = () => rej(new Error('File read failed'));
+        reader.readAsDataURL(file);
+      });
+      content = [
+        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+        { type: 'text', text: promptText }
+      ];
+    } else {
+      const imgs = await bbPdfToCompressedImages(file);
+      if (!imgs) throw new Error('This PDF is too heavy even after compression. Please enter a smaller page range (fewer pages) and try again.');
+      content = imgs.map(d => ({ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: d } }));
+      content.push({ type: 'text', text: promptText });
+    }
+
     const response = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: 'claude-sonnet-4-5',
         max_tokens: 4000,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: { type: 'base64', media_type: 'application/pdf', data: base64 }
-            },
-            {
-              type: 'text',
-              text: `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this PDF lesson, answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the PDF.\nNumber each answer clearly. Use simple language for ${cls} students.`
-            }
-          ]
-        }]
+        messages: [{ role: 'user', content: content }]
       })
     });
 
-    const data = await response.json();
+    // Read as text first — if the server rejected the upload, the reply is not JSON,
+    // and this gives the teacher a clear message instead of "Unexpected token".
+    const rawText = await response.text();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      throw new Error('The file was too large for the server. Please enter a smaller page range and try again.');
+    }
+
     document.getElementById('load-bookback').classList.remove('show');
-    
-    if (data.error) throw new Error(data.error.message);
+
+    if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
     const result = data.content && data.content[0] ? data.content[0].text : 'Error generating answers';
     showOutput('out-bookback', 'actions-bookback', result, 'bookback');
 
