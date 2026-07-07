@@ -3,7 +3,7 @@
 
 const https = require('https');
 
-module.exports.config = { api: { bodyParser: { sizeLimit: '2mb' } } };
+module.exports.config = { api: { bodyParser: { sizeLimit: '4mb' } } };
 
 const ANTHROPIC_HOST = 'api.anthropic.com';
 const MODEL = 'claude-sonnet-4-5'; // current valid model
