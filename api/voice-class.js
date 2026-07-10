@@ -47,6 +47,23 @@ function cleanText(text) {
     .trim();
 }
 
+// ─── TEACHER PAUSES ────────────────────────────────────────
+// Inserts invisible ElevenLabs <break> tags after punctuation so the
+// voice pauses like a teacher reading aloud, instead of rushing.
+// Only fires when a SPACE follows the punctuation (or end of text),
+// so decimals like "3.5" and abbreviations like "e.g." stay untouched.
+function addTeacherPauses(text) {
+  return text
+    // full stop / question / exclamation → longer pause
+    .replace(/([.!?])(\s+|$)/g, '$1 <break time="0.7s" /> ')
+    // comma → short breath
+    .replace(/(,)(\s+|$)/g, '$1 <break time="0.3s" /> ')
+    // semicolon / colon → medium pause
+    .replace(/([;:])(\s+|$)/g, '$1 <break time="0.5s" /> ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
 // ─── MAIN HANDLER ──────────────────────────────────────────
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -65,6 +82,9 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Text empty after cleaning' });
     }
 
+    // Add teacher-style pauses at commas and full stops
+    const speechText = addTeacherPauses(cleanedText);
+
     // Pick voice based on class
     const voiceId = VOICE_MAP[cls] || DEFAULT_VOICE;
 
@@ -76,12 +96,12 @@ module.exports = async (req, res) => {
 
     // Build request body for ElevenLabs
     const payload = JSON.stringify({
-      text: cleanedText,
+      text: speechText,
       model_id: 'eleven_multilingual_v2',
       voice_settings: {
-        stability: 0.55,         // Slightly more stable for teaching
+        stability: 0.70,         // was 0.55 — steadier, calmer teacher reading
         similarity_boost: 0.75,  // Strong voice character
-        style: 0.30,             // Some expressiveness, not flat
+        style: 0.15,             // was 0.30 — less rushed / less "announcer"
         use_speaker_boost: true
       }
     });
