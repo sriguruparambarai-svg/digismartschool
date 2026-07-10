@@ -19,9 +19,9 @@ const TONE_SETTINGS = {
     use_speaker_boost: true
   },
   normal: {
-    stability: 0.70,
+    stability: 0.80,          // was 0.70 — steadier, calmer teacher reading
     similarity_boost: 0.80,
-    style: 0.30,
+    style: 0.15,              // was 0.30 — less rushed / less "announcer"
     use_speaker_boost: true
   },
   emphasis: {
@@ -43,6 +43,23 @@ const TONE_SETTINGS = {
     use_speaker_boost: true
   }
 };
+
+// ── TEACHER PAUSES ──
+// Inserts invisible ElevenLabs <break> tags after punctuation so the
+// voice pauses like a teacher reading aloud.
+// Only fires when a SPACE follows the punctuation (or end of text),
+// so decimals like "3.5" and abbreviations like "e.g." are untouched.
+function addTeacherPauses(text) {
+  return text
+    // full stop / question / exclamation → longer pause
+    .replace(/([.!?])(\s+|$)/g, '$1 <break time="0.7s" /> ')
+    // comma → short pause
+    .replace(/(,)(\s+|$)/g, '$1 <break time="0.3s" /> ')
+    // semicolon / colon → medium pause
+    .replace(/([;:])(\s+|$)/g, '$1 <break time="0.5s" /> ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
 
 export default async function handler(req, res) {
 
@@ -69,6 +86,9 @@ export default async function handler(req, res) {
 
   const voiceSettings = TONE_SETTINGS[tone] || TONE_SETTINGS.normal;
 
+  // Add teacher-style pauses before sending to ElevenLabs
+  const speechText = addTeacherPauses(text.trim());
+
   try {
     const elevenRes = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${VOICE_ID}`,
@@ -80,7 +100,7 @@ export default async function handler(req, res) {
           'Accept': 'audio/mpeg'
         },
         body: JSON.stringify({
-          text: text.trim(),
+          text: speechText,
           model_id: 'eleven_multilingual_v2',
           voice_settings: voiceSettings
         })
