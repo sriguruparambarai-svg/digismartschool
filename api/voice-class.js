@@ -7,19 +7,21 @@ const https = require('https');
 // ─── VOICE MAPPING BY CLASS GROUP ──────────────────────────
 // All these are ElevenLabs official library voices (free to use with API)
 const VOICE_MAP = {
-  // PreKG–Class 3 → Lily (warm, gentle female, perfect for small children)
-  'PreKG':   'pFZP5JQG7iQjIQuC4Bku',
-  'LKG':     'pFZP5JQG7iQjIQuC4Bku',
-  'UKG':     'pFZP5JQG7iQjIQuC4Bku',
-  'Class 1': 'pFZP5JQG7iQjIQuC4Bku',
-  'Class 2': 'pFZP5JQG7iQjIQuC4Bku',
-  'Class 3': 'pFZP5JQG7iQjIQuC4Bku',
+  // PreKG–Class 3 → Tripti — Warm & Sweet Training Voice (from Kayal's own ElevenLabs account)
+  // If this voice ever goes missing, the safety net auto-switches to Sarah
+  'PreKG':   'X5RWySWhCXiGdP9YIKck',
+  'LKG':     'X5RWySWhCXiGdP9YIKck',
+  'UKG':     'X5RWySWhCXiGdP9YIKck',
+  'Class 1': 'X5RWySWhCXiGdP9YIKck',
+  'Class 2': 'X5RWySWhCXiGdP9YIKck',
+  'Class 3': 'X5RWySWhCXiGdP9YIKck',
 
-  // Class 4–7 → Sarah (built-in ElevenLabs voice — calm, clear female teacher; exists in every account)
-  'Class 4': 'EXAVITQu4vr4xnSDxMaL',
-  'Class 5': 'EXAVITQu4vr4xnSDxMaL',
-  'Class 6': 'EXAVITQu4vr4xnSDxMaL',
-  'Class 7': 'EXAVITQu4vr4xnSDxMaL',
+  // Class 4–7 → Monika Sogam - Deep and Clear (from Kayal's own ElevenLabs account)
+  // If this voice ever goes missing, the safety net below auto-switches to Sarah
+  'Class 4': 'Ms9OTvWb99V6DwRHZn6q',
+  'Class 5': 'Ms9OTvWb99V6DwRHZn6q',
+  'Class 6': 'Ms9OTvWb99V6DwRHZn6q',
+  'Class 7': 'Ms9OTvWb99V6DwRHZn6q',
 
   // Class 8–10 → Brian (calm confident American male, clear teacher tone)
   'Class 8':  'nPczCjzI2devNBz1zQrb',
