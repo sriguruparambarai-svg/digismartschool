@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voice Test — DigiSmartSchool</title>
+<style>
+  body{font-family:Georgia,serif;background:#FDF6EC;margin:0;padding:20px;color:#333;}
+  h1{color:#6B1A1A;font-size:22px;}
+  .test{background:#fff;border:2px solid #C9A84C;border-radius:12px;padding:16px;margin:14px 0;}
+  .test h2{margin:0 0 8px;font-size:17px;color:#6B1A1A;}
+  button{background:#6B1A1A;color:#fff;border:none;border-radius:8px;padding:12px 22px;font-size:16px;cursor:pointer;}
+  button:disabled{opacity:.5;}
+  .result{margin-top:12px;padding:12px;border-radius:8px;font-family:monospace;font-size:14px;white-space:pre-wrap;word-break:break-all;display:none;}
+  .ok{background:#e8f5e9;border:1px solid #2c7a2c;color:#1b5e20;display:block;}
+  .fail{background:#fdecea;border:1px solid #c0392b;color:#7b241c;display:block;}
+  .note{font-size:13px;color:#666;margin-top:6px;}
+</style>
+</head>
+<body>
+<h1>🔊 DigiSmartSchool Voice Test</h1>
+<p>Press each button in order. Green = working, Red = the exact error. Screenshot this page after running all three.</p>
+
+<div class="test">
+  <h2>Test 1 — One simple voice call</h2>
+  <button onclick="test1(this)">▶ Run Test 1</button>
+  <div id="r1" class="result"></div>
+  <div class="note">Sends one short sentence to the voice server. If green, the API key and server file are healthy.</div>
+</div>
+
+<div class="test">
+  <h2>Test 2 — Real textbook text (symbols + pauses)</h2>
+  <button onclick="test2(this)">▶ Run Test 2</button>
+  <div id="r2" class="result"></div>
+  <div class="note">Sends bullet text with 🔍 ♦ symbols and punctuation, like a real lesson paragraph.</div>
+</div>
+
+<div class="test">
+  <h2>Test 3 — Five calls at the same time (classroom simulation)</h2>
+  <button onclick="test3(this)">▶ Run Test 3</button>
+  <div id="r3" class="result"></div>
+  <div class="note">Fires 5 requests together, like the classroom prefetch does. If some fail here while Test 1 passed, ElevenLabs is limiting simultaneous requests.</div>
+</div>
+
+<script>
+function show(id, ok, msg){
+  var el=document.getElementById(id);
+  el.className='result '+(ok?'ok':'fail');
+  el.textContent=msg;
+}
+async function callVoice(text){
+  var res=await fetch('/api/voice-class',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:text,cls:'Class 4'})
+  });
+  var body='';
+  try{ body=await res.text(); }catch(e){}
+  var data=null;
+  try{ data=JSON.parse(body); }catch(e){}
+  return {status:res.status, data:data, raw:body};
+}
+async function test1(btn){
+  btn.disabled=true;
+  show('r1',true,'Testing…');
+  try{
+    var r=await callVoice('Good morning students. Today we will learn about plants.');
+    if(r.status===200 && r.data && r.data.audio_b64){
+      show('r1',true,'✅ WORKING — voice received ('+Math.round(r.data.audio_b64.length/1024)+' KB, voice '+(r.data.voiceId||'')+')');
+      new Audio('data:audio/mpeg;base64,'+r.data.audio_b64).play();
+    } else {
+      show('r1',false,'❌ FAILED — HTTP '+r.status+'\nServer said:\n'+r.raw.substring(0,600));
+    }
+  }catch(e){ show('r1',false,'❌ FAILED — '+e.message); }
+  btn.disabled=false;
+}
+async function test2(btn){
+  btn.disabled=true;
+  show('r2',true,'Testing…');
+  try{
+    var t='🔍 We Will Explore.\n♦ Root System (Taproot and Fibrous root).\n♦ Shoot System (Stem, Leaves, Buds, Flowers, Fruits).\nPlants need food to grow, and get energy. Do you know how plants get their food?';
+    var r=await callVoice(t);
+    if(r.status===200 && r.data && r.data.audio_b64){
+      show('r2',true,'✅ WORKING — listen: it must NOT say "magnifying glass"');
+      new Audio('data:audio/mpeg;base64,'+r.data.audio_b64).play();
+    } else {
+      show('r2',false,'❌ FAILED — HTTP '+r.status+'\nServer said:\n'+r.raw.substring(0,600));
+    }
+  }catch(e){ show('r2',false,'❌ FAILED — '+e.message); }
+  btn.disabled=false;
+}
+async function test3(btn){
+  btn.disabled=true;
+  show('r3',true,'Firing 5 requests together…');
+  try{
+    var texts=['One plus one is two.','The sun rises in the east.','Water is essential for life.','Roots hold the plant firmly.','Leaves make food for the plant.'];
+    var results=await Promise.all(texts.map(function(t){ return callVoice(t).catch(function(e){ return {status:0, raw:e.message}; }); }));
+    var okCount=results.filter(function(r){return r.status===200;}).length;
+    var lines=results.map(function(r,i){ return 'Call '+(i+1)+': '+(r.status===200?'✅ OK':'❌ HTTP '+r.status+' — '+String(r.raw).substring(0,200)); });
+    show('r3', okCount===5, okCount+' of 5 succeeded\n\n'+lines.join('\n'));
+  }catch(e){ show('r3',false,'❌ FAILED — '+e.message); }
+  btn.disabled=false;
+}
+</script>
+</body>
+</html>
