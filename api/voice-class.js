@@ -40,7 +40,8 @@ function cleanText(text) {
   return String(text)
     .replace(/\[Page\s+\d+\]/gi, '')        // Remove [Page N] markers
     .replace(/♦/g, '')                       // Remove ♦ symbols
-    .replace(/[\p{Extended_Pictographic}\p{Co}\u{FE00}-\u{FE0F}\u{200D}\u{2022}\u{2023}\u{2043}\u{2190}-\u{21FF}\u{2300}-\u{23FF}\u{25A0}-\u{25FF}\u{2600}-\u{27BF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1FAFF}]/gu, ' ')  // Remove ALL emojis, icons & picture symbols (🔍 ▶ ✦ ⏵ 🔬 • etc.)
+    .replace(/[\u2022\u2023\u2043\u200D\u2190-\u21FF\u2300-\u23FF\u25A0-\u25FF\u2600-\u27BF\u2900-\u297F\u2B00-\u2BFF\uFE00-\uFE0F\uE000-\uF8FF]/g, ' ')   // icons & symbols: arrows, shapes, dingbats, technical (▶ ✦ ⏵ ► • etc.)
+    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, ' ')  // ALL emojis (🔍 🔬 ✨ 🌱 etc. — every character stored as a surrogate pair)
     .replace(/\*+/g, '')                     // Remove asterisks (markdown)
     .replace(/#/g, '')                       // Remove hashes
     .replace(/\.{3,}/g, '. ')                // Replace ... with single period
