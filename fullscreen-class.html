@@ -179,6 +179,8 @@ var CURRENT_AUDIO=null, SPEED=1.0, ZOOM=1.0, STORY_MODE=false;
 // so when teacher clicks Tamil button, it's already ready (0 wait time).
 var TAMIL_CACHE = {};        // key: 'page_paraIdx' → {text, audioUrl}
 var TAMIL_INFLIGHT = {};     // key → Promise (avoid duplicate requests)
+var ENG_AUDIO_CACHE = {};    // key: 'page_paraIdx' → base64 English audio (prefetched)
+var ENG_AUDIO_INFLIGHT = {}; // key → Promise (avoid duplicate requests)
 
 function tamilCacheKey(paraIdx){
   return 'p'+CURRENT_PAGE+'_para'+paraIdx;
@@ -284,6 +286,42 @@ function prefetchTamil(paraIdx){
 function clearTamilCache(){
   TAMIL_CACHE = {};
   TAMIL_INFLIGHT = {};
+  ENG_AUDIO_CACHE = {};
+  ENG_AUDIO_INFLIGHT = {};
+}
+
+// ── ENGLISH AUDIO PREFETCH (mirrors Tamil prefetch pattern) ──
+// While one paragraph is being read aloud, the next paragraph's English
+// audio is fetched silently in the background, so there is no dead
+// silence between paragraphs (only the natural 1.2s teacher pause).
+function fetchEnglishAudio(text){
+  return fetch('/api/voice-class',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ text:text, cls:LESSON.cls })
+  })
+  .then(function(r){ return r.json(); })
+  .then(function(d){ return (d && d.audio_b64) ? d.audio_b64 : null; });
+}
+
+function prefetchEnglish(paraIdx){
+  var paras = PARAS_BY_PAGE[CURRENT_PAGE] || [];
+  if(paraIdx < 0 || paraIdx >= paras.length) return;
+  var key = tamilCacheKey(paraIdx);
+  if(ENG_AUDIO_CACHE[key] || ENG_AUDIO_INFLIGHT[key]) return; // already ready or in progress
+  var paraText = paras[paraIdx];
+  ENG_AUDIO_INFLIGHT[key] = fetchEnglishAudio(paraText)
+    .then(function(b64){
+      if(b64) ENG_AUDIO_CACHE[key] = b64;
+      delete ENG_AUDIO_INFLIGHT[key];
+      if(b64) console.log('[English prefetch] Ready for para '+(paraIdx+1));
+      return b64;
+    })
+    .catch(function(err){
+      delete ENG_AUDIO_INFLIGHT[key];
+      console.log('[English prefetch] Failed:', err);
+      return null;
+    });
 }
 
 function $(id){ return document.getElementById(id); }
@@ -501,17 +539,28 @@ function zoomPdf(dir){
 }
 
 // ── VOICE ──
-async function speakEnglish(text){
+async function speakEnglish(text, paraIdx){
   if(IS_PAUSED || IS_PLAYING_TAMIL)return;
   try{
-    var res=await fetch('/api/voice-class',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ text:text, cls:LESSON.cls })
-    });
-    var data=await res.json();
-    if(data && data.audio_b64){
-      await playAudio('data:audio/mpeg;base64,'+data.audio_b64);
+    var b64=null;
+    // ⚡ Use prefetched audio if it's ready (or almost ready)
+    if(typeof paraIdx==='number'){
+      var key=tamilCacheKey(paraIdx);
+      if(ENG_AUDIO_CACHE[key]){ b64=ENG_AUDIO_CACHE[key]; }
+      else if(ENG_AUDIO_INFLIGHT[key]){ try{ b64=await ENG_AUDIO_INFLIGHT[key]; }catch(e){ b64=null; } }
+    }
+    // 🐢 Cold start — fetch now (old behavior, unchanged)
+    if(!b64){
+      var res=await fetch('/api/voice-class',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ text:text, cls:LESSON.cls })
+      });
+      var data=await res.json();
+      if(data && data.audio_b64) b64=data.audio_b64;
+    }
+    if(b64){
+      await playAudio('data:audio/mpeg;base64,'+b64);
     } else {
       await speakBrowser(text, 'en');
     }
@@ -584,12 +633,15 @@ async function readCurrentPara(){
   // ⚡ SPEED FIX: Prefetch Tamil for THIS paragraph silently in background
   // So when teacher clicks Tamil button, it's already ready (0 wait time)
   prefetchTamil(CURRENT_PARA_IDX);
+  // ⚡ Prefetch NEXT paragraph's ENGLISH audio while this one plays
+  // (removes the dead silence between paragraphs)
+  prefetchEnglish(CURRENT_PARA_IDX+1);
   // Also prefetch NEXT paragraph's Tamil (so even if teacher quickly moves on, it's ready)
   if(CURRENT_PARA_IDX+1 < paras.length){
     setTimeout(function(){ prefetchTamil(CURRENT_PARA_IDX+1); }, 2000);
   }
 
-  await speakEnglish(text);
+  await speakEnglish(text, CURRENT_PARA_IDX);
   if(IS_PAUSED || IS_PLAYING_TAMIL) return;
   CURRENT_PARA_IDX++;
   if(CURRENT_PARA_IDX>=paras.length){
