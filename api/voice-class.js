@@ -15,11 +15,11 @@ const VOICE_MAP = {
   'Class 2': 'pFZP5JQG7iQjIQuC4Bku',
   'Class 3': 'pFZP5JQG7iQjIQuC4Bku',
 
-  // Class 4–7 → Monika Sogam (Indian English female teacher voice — most popular for Indian EdTech)
-  'Class 4': '5lf6Bj1bjbGRTV68afJj',
-  'Class 5': '5lf6Bj1bjbGRTV68afJj',
-  'Class 6': '5lf6Bj1bjbGRTV68afJj',
-  'Class 7': '5lf6Bj1bjbGRTV68afJj',
+  // Class 4–7 → Sarah (built-in ElevenLabs voice — calm, clear female teacher; exists in every account)
+  'Class 4': 'EXAVITQu4vr4xnSDxMaL',
+  'Class 5': 'EXAVITQu4vr4xnSDxMaL',
+  'Class 6': 'EXAVITQu4vr4xnSDxMaL',
+  'Class 7': 'EXAVITQu4vr4xnSDxMaL',
 
   // Class 8–10 → Brian (calm confident American male, clear teacher tone)
   'Class 8':  'nPczCjzI2devNBz1zQrb',
@@ -31,8 +31,10 @@ const VOICE_MAP = {
   'Class 12': 'onwK4e9ZLuTAKqWW03F9'
 };
 
-// Fallback if class not recognized
-const DEFAULT_VOICE = '5lf6Bj1bjbGRTV68afJj'; // Monika Sogam
+// Fallback if class not recognized — Sarah (built-in, always exists)
+const DEFAULT_VOICE = 'EXAVITQu4vr4xnSDxMaL';
+// Emergency voice if the mapped voice is ever missing from the account
+const SAFE_VOICE = 'EXAVITQu4vr4xnSDxMaL';
 
 // ─── TEXT CLEANING ─────────────────────────────────────────
 function cleanText(text) {
@@ -108,45 +110,62 @@ module.exports = async (req, res) => {
       }
     });
 
-    // Call ElevenLabs API
-    const audioBuffer = await new Promise((resolve, reject) => {
-      const options = {
-        hostname: 'api.elevenlabs.io',
-        path: `/v1/text-to-speech/${voiceId}`,
-        method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
-          'Content-Length': Buffer.byteLength(payload)
-        }
-      };
+    // Call ElevenLabs API (as a reusable helper so we can retry with a safe voice)
+    function callEleven(vid) {
+      return new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.elevenlabs.io',
+          path: `/v1/text-to-speech/${vid}`,
+          method: 'POST',
+          headers: {
+            'Accept': 'audio/mpeg',
+            'Content-Type': 'application/json',
+            'xi-api-key': apiKey,
+            'Content-Length': Buffer.byteLength(payload)
+          }
+        };
 
-      const req2 = https.request(options, (response) => {
-        if (response.statusCode !== 200) {
-          let errBody = '';
-          response.on('data', (chunk) => { errBody += chunk; });
-          response.on('end', () => {
-            reject(new Error('ElevenLabs error ' + response.statusCode + ': ' + errBody));
-          });
-          return;
-        }
-        const chunks = [];
-        response.on('data', (chunk) => chunks.push(chunk));
-        response.on('end', () => resolve(Buffer.concat(chunks)));
-        response.on('error', reject);
+        const req2 = https.request(options, (response) => {
+          if (response.statusCode !== 200) {
+            let errBody = '';
+            response.on('data', (chunk) => { errBody += chunk; });
+            response.on('end', () => {
+              reject(new Error('ElevenLabs error ' + response.statusCode + ': ' + errBody));
+            });
+            return;
+          }
+          const chunks = [];
+          response.on('data', (chunk) => chunks.push(chunk));
+          response.on('end', () => resolve(Buffer.concat(chunks)));
+          response.on('error', reject);
+        });
+
+        req2.on('error', reject);
+        req2.write(payload);
+        req2.end();
       });
+    }
 
-      req2.on('error', reject);
-      req2.write(payload);
-      req2.end();
-    });
+    let usedVoice = voiceId;
+    let audioBuffer;
+    try {
+      audioBuffer = await callEleven(voiceId);
+    } catch (firstErr) {
+      // 🛟 Safety net: if this voice is missing from the account, retry with the built-in safe voice
+      if (String(firstErr.message).indexOf('voice_not_found') !== -1 && voiceId !== SAFE_VOICE) {
+        console.warn('[voice-class] Voice ' + voiceId + ' missing — retrying with safe voice');
+        usedVoice = SAFE_VOICE;
+        audioBuffer = await callEleven(SAFE_VOICE);
+      } else {
+        throw firstErr;
+      }
+    }
 
     // Return base64 audio (field name matches existing client code)
     const audioBase64 = audioBuffer.toString('base64');
     return res.status(200).json({
       audio_b64: audioBase64,
-      voiceId: voiceId,
+      voiceId: usedVoice,
       cls: cls || 'default'
     });
 
