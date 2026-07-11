@@ -488,6 +488,7 @@ async function tblUpload() {
   ok.style.display = 'none'; err.style.display = 'none';
   if (!title) { err.textContent = 'Enter book title'; err.style.display = 'block'; return; }
   if (!tblFile) { err.textContent = 'Select a PDF file'; err.style.display = 'block'; return; }
+  if (tblFile.size > 45*1024*1024) { err.textContent = 'File too large (max 45MB). Please compress the PDF first.'; err.style.display = 'block'; return; }
   var btn = document.getElementById('tbl-upload-btn');
   btn.disabled = true; btn.textContent = 'Processing...';
   document.getElementById('tbl-prog').style.display = 'block';
@@ -497,13 +498,36 @@ async function tblUpload() {
     if (!raw || raw.length < 100) throw new Error('Could not extract text. Use a text-based PDF.');
     tblProg('Detecting chapters...', 35);
     var chapters = tblDetectChapters(raw);
-    tblProg('Saving...', 60);
+    tblProg('Uploading PDF to cloud storage...', 50);
     var bookId = 'tbl_' + Date.now();
+    // Upload the actual PDF to Supabase Storage (same pattern as My Books)
+    // so page-range teaching + AI Vision work for every school.
+    var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+    var SB_KEY = 'sb_publishable_AeMrzyinAl4n2AifhC-j3A_wRh_nda3';
+    var libFilePath = bookId + '.pdf';
+    var upRes = await fetch(SB_URL + '/storage/v1/object/library-books/' + libFilePath, {
+      method: 'POST',
+      headers: {
+        'apikey': SB_KEY,
+        'Authorization': 'Bearer ' + SB_KEY,
+        'Content-Type': 'application/pdf',
+        'x-upsert': 'true'
+      },
+      body: tblFile
+    });
+    if (!upRes.ok) {
+      var upErr = await upRes.text();
+      throw new Error('PDF upload to storage failed: ' + upErr.substring(0, 120) + ' \u2014 run the library_pdf_upgrade.sql script first if the bucket is missing.');
+    }
+    var libPdfUrl = SB_URL + '/storage/v1/object/public/library-books/' + libFilePath;
+
+    tblProg('Saving...', 60);
     await tblDB('textbook_library', 'POST', {
       id: bookId, title: title, subject: subj, class_name: cls, medium: medium,
       syllabus_type: 'samacheer', publisher: 'Samacheer Kalvi', school_id: null,
       status: 'ready', total_pages: (raw.match(/\[Page \d+\]/g) || []).length,
       raw_text: raw.substring(0, 50000), created_by: 'super_admin',
+      pdf_url: libPdfUrl,
       created_at: new Date().toISOString()
     });
     tblProg('Saving ' + chapters.length + ' chapters...', 80);

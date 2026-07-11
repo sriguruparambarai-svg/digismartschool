@@ -1551,6 +1551,45 @@ function mbLoadPdfFromIDB(key){
     }catch(e){ resolve(null); }
   });
 }
+// True when the bytes really are a PDF (starts with %PDF)
+function mbIsPdfBytes(buf){
+  try{
+    var head=new Uint8Array(buf.slice(0,4));
+    return head[0]===0x25&&head[1]===0x50&&head[2]===0x44&&head[3]===0x46;
+  }catch(e){ return false; }
+}
+// Remove a corrupted cache entry so it gets re-downloaded cleanly
+function mbDeletePdfFromIDB(key){
+  return new Promise(function(resolve){
+    if(!_mbIdb){ resolve(); return; }
+    try{
+      var tx=_mbIdb.transaction('pdfs','readwrite');
+      var req=tx.objectStore('pdfs').delete(key);
+      req.onsuccess=function(){ resolve(); };
+      req.onerror=function(){ resolve(); };
+    }catch(e){ resolve(); }
+  });
+}
+// Older library books (uploaded before PDF storage): use the chapter text
+// already saved in the database, matched to the requested page range
+async function samChapterTextFallback(bookId, from, to){
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',
+        params:'book_id=eq.'+encodeURIComponent(bookId)+'&select=chapter_number,page_from,page_to,extracted_text&order=chapter_number.asc'})});
+    var rows=await r.json();
+    if(!Array.isArray(rows)) rows=rows.chapters||[];
+    var parts=[];
+    rows.forEach(function(ch){
+      var pf=parseInt(ch.page_from,10), pt=parseInt(ch.page_to,10);
+      if(isNaN(pf)||isNaN(pt)) return;
+      if(pt>=from && pf<=to && ch.extracted_text && ch.extracted_text.trim().length>30){
+        parts.push(ch.extracted_text.trim());
+      }
+    });
+    return parts.join('\n\n').trim();
+  }catch(e){ return ''; }
+}
 function mbMakePdfKey(subj,cls){
   return ('pdf_'+subj+'_'+cls).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
 }
@@ -1610,31 +1649,51 @@ async function mbGoTeach(){
     var savedPdf=await mbLoadPdfFromIDB(pdfKey);
     var pdfArrayBuffer=null;
 
-    if(savedPdf && savedPdf.data){
+    if(savedPdf && savedPdf.data && mbIsPdfBytes(savedPdf.data)){
       statusEl.textContent='📚 Loading saved book from cache…';
       pdfArrayBuffer=savedPdf.data;
     } else {
-      // Step 3: Download from Supabase (first time)
-      statusEl.textContent='⬇️ Downloading book from cloud…';
-      var resp=await fetch(b.pdfUrl);
-      if(!resp.ok)throw new Error('Cannot download PDF');
-      pdfArrayBuffer=await resp.arrayBuffer();
-
-      // Save to IndexedDB for next time
-      statusEl.textContent='💾 Saving to device cache…';
-      mbSavePdfToIDB(pdfKey,pdfArrayBuffer.slice(0),{fileName:b.bookName,subj:subject,cls:b.cls,savedAt:Date.now()});
+      if(savedPdf && savedPdf.data){
+        // Corrupted cache entry (e.g. saved by the old empty-URL bug) — clean it up
+        try{ await mbDeletePdfFromIDB(pdfKey); }catch(ce){}
+      }
+      if(b.pdfUrl){
+        // Step 3: Download from Supabase (first time)
+        statusEl.textContent='⬇️ Downloading book from cloud…';
+        var resp=await fetch(b.pdfUrl);
+        if(!resp.ok)throw new Error('Cannot download PDF');
+        pdfArrayBuffer=await resp.arrayBuffer();
+        if(!mbIsPdfBytes(pdfArrayBuffer)){
+          throw new Error('The downloaded file is not a valid PDF. Ask your admin to re-upload this book.');
+        }
+        // Save to IndexedDB for next time
+        statusEl.textContent='💾 Saving to device cache…';
+        mbSavePdfToIDB(pdfKey,pdfArrayBuffer.slice(0),{fileName:b.bookName,subj:subject,cls:b.cls,savedAt:Date.now()});
+      } else {
+        // Library book uploaded before PDF storage existed — use saved chapter text
+        statusEl.textContent='📖 Loading chapter text from library…';
+        window._samFallbackText=await samChapterTextFallback(b.bookId,from,to);
+        if(!window._samFallbackText || window._samFallbackText.length<30){
+          throw new Error('This library book has no stored PDF yet. Ask your Super Admin to re-upload it in the Admin panel to enable page teaching.');
+        }
+      }
     }
 
-    // Step 4: Extract text from selected pages
-    statusEl.textContent='📖 Extracting pages '+from+' to '+to+'…';
-    if(typeof pdfjsLib==='undefined'){
-      await new Promise(function(res){ setTimeout(res,800); });
+    // Step 4: Extract text from selected pages (skipped when library text fallback is used)
+    var pdfDoc=null;
+    var lessonText=window._samFallbackText||'';
+    window._samFallbackText='';
+    if(pdfArrayBuffer){
+      statusEl.textContent='📖 Extracting pages '+from+' to '+to+'…';
+      if(typeof pdfjsLib==='undefined'){
+        await new Promise(function(res){ setTimeout(res,800); });
+      }
+      pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      pdfDoc=await pdfjsLib.getDocument({data:pdfArrayBuffer.slice(0)}).promise;
+      lessonText=await mbExtractPagesText(pdfDoc,from,to);
     }
-    pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    var pdfDoc=await pdfjsLib.getDocument({data:pdfArrayBuffer.slice(0)}).promise;
-    var lessonText=await mbExtractPagesText(pdfDoc,from,to);
 
-    if(!lessonText || lessonText.length<30){
+    if(pdfArrayBuffer && (!lessonText || lessonText.length<30)){
       // TIER 3: Scanned PDF — use Claude Vision API to read image pages
       statusEl.style.color='var(--maroon)';
       statusEl.textContent='📸 Scanned PDF detected — reading with AI Vision (please wait)…';
@@ -1842,7 +1901,7 @@ async function samLoadBooks(cls,sub){
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'tbl_get',table:'textbook_library',
-        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject'})});
+        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject,pdf_url'})});
     var d=await r.json();
     var books=Array.isArray(d)?d:(d.books||[]);
     if(!books.length){
@@ -1878,7 +1937,7 @@ function samSelectBook(book){
   var subEl=document.getElementById('mb-popup-subject');
   if(subEl)subEl.value=samSub;
   document.getElementById('mb-popup-status').textContent='';
-  window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:''};
+  window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
 }
 
 // Load books on page load
