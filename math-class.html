@@ -1014,6 +1014,12 @@ async function solveAndTeach(){
       + '  - highlight one angle (transversal): "figRef":{"figure":"(c)","at":"top","pos":"ur"}\n'
       + '  - intersecting: "figRef":{"figure":"","at":"c","pos":"ur"}  (single figure: label may be "")\n'
       + '  - straight_line: "figRef":{"figure":"","angleIndex":1}  (0-based, left to right)\n'
+      + 'TRIANGLE figure types (chapter 4 geometry + heights and distances):\n'
+      + '  - "triangle": {"type":"triangle","labels":["A","B","C"],"rightAngleAt":"B","angles":[{"vertex":"C","value":"35\u00b0","approx":35}],"sides":[{"between":"AB","value":"6 cm"},{"between":"BC","value":"8 cm"},{"between":"AC","value":"x"}]}. labels order = [top vertex, bottom-left, bottom-right]. rightAngleAt optional. approx = numeric degrees for drawing when value is a variable.\n'
+      + '  - Similar triangles: give TWO separate "triangle" figures with labels like "\u0394ABC" and "\u0394PQR", matching side/angle values from the question.\n'
+      + '  - "triangle_parallel" (Thales/BPT, DE parallel to base BC): {"type":"triangle_parallel","labels":["A","B","C"],"pointLabels":["D","E"],"ratio":0.5,"segs":[{"seg":"AD","value":"2"},{"seg":"DB","value":"3"},{"seg":"AE","value":"x"},{"seg":"EC","value":"6"}]}. ratio = drawing position of DE (0.3-0.7).\n'
+      + '  - "height_distance" (angle of elevation): {"type":"height_distance","angle":{"value":"60\u00b0","approx":60},"height":{"value":"h"},"distance":{"value":"40 m"},"observerLabel":"A","baseLabel":"B","topLabel":"C"}\n'
+      + 'TRIANGLE step linking: vertex angle "figRef":{"figure":"","vertex":"C"}; side "figRef":{"figure":"","side":"BC"}; Thales segment "figRef":{"figure":"","seg":"AD"}; elevation angle "figRef":{"figure":"","elev":true}\n'
       + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
@@ -2361,6 +2367,131 @@ function _figSvgBase(w, h){
   return { svg: svg, marker: 'figah' + _figUid };
 }
 
+// ── Triangle helpers (Phase 2) ──
+function _figUnit(deg){ return { x: Math.cos(_figRad(deg)), y: Math.sin(_figRad(deg)) }; }
+function _figDeg(from, to){
+  var d = Math.atan2(to.y - from.y, to.x - from.x) * 180 / Math.PI;
+  return ((d % 360) + 360) % 360;
+}
+function _figPlainLine(svg, a, b, w){
+  svg.appendChild(_figEl('line', {
+    x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+    stroke: 'rgba(245,245,240,.92)', 'stroke-width': w || 2.4, 'stroke-linecap': 'round'
+  }));
+}
+function _figRightAngleMark(svg, v, d1, d2, size){
+  var s = size || 13;
+  var u1 = _figUnit(d1), u2 = _figUnit(d2);
+  var p1 = { x: v.x + u1.x * s, y: v.y + u1.y * s };
+  var p2 = { x: v.x + u1.x * s + u2.x * s, y: v.y + u1.y * s + u2.y * s };
+  var p3 = { x: v.x + u2.x * s, y: v.y + u2.y * s };
+  svg.appendChild(_figEl('path', {
+    d: 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + ' L ' + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1) + ' L ' + p3.x.toFixed(1) + ' ' + p3.y.toFixed(1),
+    fill: 'none', stroke: 'rgba(245,245,240,.9)', 'stroke-width': 1.7
+  }));
+}
+// Interior sector between two edge directions (span < 180)
+function _figInteriorSector(d1, d2){
+  var diff = ((d2 - d1) % 360 + 360) % 360;
+  if(diff <= 180) return { start: d1, end: d1 + diff, bis: d1 + diff / 2 };
+  return { start: d2, end: d2 + (360 - diff), bis: d2 + (360 - diff) / 2 };
+}
+// Labeled value text in a glow-able group
+function _figKeyedText(svg, x, y, str, key, color){
+  var g = _figEl('g', { 'class': 'fig-angle' });
+  if(key) g.setAttribute('data-figkey', key);
+  var t = _figEl('text', {
+    x: x, y: y, 'font-family': 'Caveat, cursive', 'font-size': 16.5,
+    fill: color || 'rgba(159,211,255,.95)', 'text-anchor': 'middle', 'dominant-baseline': 'middle'
+  });
+  t.textContent = str;
+  g.appendChild(t);
+  svg.appendChild(g);
+}
+// Compute the three vertices: labels order = [top, bottom-left, bottom-right]
+function _figTriVertices(fig){
+  var labels = (fig.labels && fig.labels.length === 3) ? fig.labels : ['A', 'B', 'C'];
+  var ra = fig.rightAngleAt || '';
+  var Bv = { x: 66, y: 190 }, Cv = { x: 254, y: 190 }, Av;
+  if(ra === labels[1]){        // right angle at bottom-left
+    Bv = { x: 72, y: 190 }; Cv = { x: 262, y: 190 }; Av = { x: 72, y: 66 };
+  } else if(ra === labels[2]){ // right angle at bottom-right
+    Bv = { x: 58, y: 190 }; Cv = { x: 248, y: 190 }; Av = { x: 248, y: 66 };
+  } else if(ra === labels[0]){ // right angle at apex (Thales circle point)
+    Bv = { x: 62, y: 190 }; Cv = { x: 258, y: 190 }; Av = { x: 160, y: 92 };
+  } else {
+    var beta = 58, gamma = 58;
+    (fig.angles || []).forEach(function(a){
+      var ap = (typeof a.approx === 'number') ? a.approx : parseFloat(String(a.value));
+      if(isNaN(ap)) return;
+      if(a.vertex === labels[1]) beta = ap;
+      else if(a.vertex === labels[2]) gamma = ap;
+    });
+    beta = Math.max(22, Math.min(95, beta));
+    gamma = Math.max(22, Math.min(95, gamma));
+    var guard = 0;
+    Av = _figIntersect(Bv, -beta, Cv, 180 + gamma) || { x: 160, y: 70 };
+    while(Av.y < 40 && guard < 12){
+      beta *= 0.88; gamma *= 0.88; guard++;
+      Av = _figIntersect(Bv, -beta, Cv, 180 + gamma) || { x: 160, y: 70 };
+    }
+  }
+  return { labels: labels, V: {}, A: Av, B: Bv, C: Cv };
+}
+function _figDrawTriangleCore(svg, fig, keyPrefix){
+  var t = _figTriVertices(fig);
+  var labels = t.labels;
+  var pts = {}; pts[labels[0]] = t.A; pts[labels[1]] = t.B; pts[labels[2]] = t.C;
+  var G = { x: (t.A.x + t.B.x + t.C.x) / 3, y: (t.A.y + t.B.y + t.C.y) / 3 };
+  _figPlainLine(svg, t.A, t.B); _figPlainLine(svg, t.B, t.C); _figPlainLine(svg, t.A, t.C);
+  // vertex name labels, pushed away from the centroid
+  labels.forEach(function(L){
+    var v = pts[L];
+    var dx = v.x - G.x, dy = v.y - G.y, m = Math.sqrt(dx * dx + dy * dy) || 1;
+    _figText(svg, v.x + dx / m * 17, v.y + dy / m * 17, L, 18);
+  });
+  // right-angle square
+  var ra = fig.rightAngleAt || '';
+  if(ra && pts[ra]){
+    var others = labels.filter(function(L){ return L !== ra; });
+    _figRightAngleMark(svg, pts[ra], _figDeg(pts[ra], pts[others[0]]), _figDeg(pts[ra], pts[others[1]]));
+  }
+  // marked angles (arc + value), skip arc where the right-angle square sits
+  (fig.angles || []).forEach(function(a){
+    var v = pts[a.vertex]; if(!v) return;
+    var others = labels.filter(function(L){ return L !== a.vertex; });
+    var sec = _figInteriorSector(_figDeg(v, pts[others[0]]), _figDeg(v, pts[others[1]]));
+    if(a.vertex === ra){
+      _figKeyedText(svg, _figPt(v.x, v.y, sec.bis, 30).x, _figPt(v.x, v.y, sec.bis, 30).y, a.value || '90\u00b0', keyPrefix + '|v' + a.vertex);
+    } else {
+      _figAngle(svg, v.x, v.y, sec, a.value, keyPrefix + '|v' + a.vertex);
+    }
+  });
+  // side labels
+  (fig.sides || []).forEach(function(s){
+    var nm = String(s.between || '');
+    if(nm.length < 2) return;
+    var p1 = pts[nm[0]], p2 = pts[nm[1]];
+    if(!p1 || !p2) return;
+    var M = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+    var dx = M.x - G.x, dy = M.y - G.y, m = Math.sqrt(dx * dx + dy * dy) || 1;
+    _figKeyedText(svg, M.x + dx / m * 16, M.y + dy / m * 16, s.value, keyPrefix + '|sd' + nm);
+  });
+  return { pts: pts, labels: labels, G: G, A: t.A, B: t.B, C: t.C };
+}
+// small parallel chevron '>' on a segment
+function _figParallelTick(svg, a, b){
+  var M = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  var d = _figDeg(a, b);
+  var tip = _figPt(M.x, M.y, d, 6);
+  var w1 = _figPt(tip.x, tip.y, d + 150, 9);
+  var w2 = _figPt(tip.x, tip.y, d - 150, 9);
+  svg.appendChild(_figEl('path', {
+    d: 'M ' + w1.x.toFixed(1) + ' ' + w1.y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2.x.toFixed(1) + ' ' + w2.y.toFixed(1),
+    fill: 'none', stroke: 'rgba(245,245,240,.9)', 'stroke-width': 1.7
+  }));
+}
+
 // ── The three figure types ──
 function renderLineFigure(fig, keyPrefix){
   if(keyPrefix == null) keyPrefix = '';
@@ -2435,6 +2566,65 @@ function renderLineFigure(fig, keyPrefix){
       _figAngle(svg, v.x, v.y, sec, vals[j].value, keyPrefix + '|s' + j, 20 + j * 7);
       acc += approxes[j];
     }
+
+  } else if(fig.type === 'triangle'){
+    _figDrawTriangleCore(svg, fig, keyPrefix);
+
+  } else if(fig.type === 'triangle_parallel'){
+    // Thales / BPT: triangle with DE parallel to the base BC
+    var tri = _figDrawTriangleCore(svg, { labels: fig.labels, angles: fig.angles, sides: fig.sides, rightAngleAt: '' }, keyPrefix);
+    var f = (typeof fig.ratio === 'number' && fig.ratio > 0.15 && fig.ratio < 0.85) ? fig.ratio : 0.5;
+    var D = { x: tri.A.x + (tri.B.x - tri.A.x) * f, y: tri.A.y + (tri.B.y - tri.A.y) * f };
+    var E = { x: tri.A.x + (tri.C.x - tri.A.x) * f, y: tri.A.y + (tri.C.y - tri.A.y) * f };
+    _figPlainLine(svg, D, E, 2.2);
+    _figParallelTick(svg, D, E);
+    _figParallelTick(svg, tri.B, tri.C);
+    var pl = (fig.pointLabels && fig.pointLabels.length === 2) ? fig.pointLabels : ['D', 'E'];
+    _figText(svg, D.x - 16, D.y, pl[0], 17);
+    _figText(svg, E.x + 16, E.y, pl[1], 17);
+    // sub-segment value labels: AD, DB, AE, EC (letters must match the labels)
+    var subPts = {}; subPts[tri.labels[0]] = tri.A; subPts[tri.labels[1]] = tri.B; subPts[tri.labels[2]] = tri.C;
+    subPts[pl[0]] = D; subPts[pl[1]] = E;
+    (fig.segs || []).forEach(function(s){
+      var nm = String(s.seg || '');
+      if(nm.length < 2) return;
+      var p1 = subPts[nm[0]], p2 = subPts[nm[1]];
+      if(!p1 || !p2) return;
+      var M = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+      var dx = M.x - tri.G.x, dy = M.y - tri.G.y, m2 = Math.sqrt(dx * dx + dy * dy) || 1;
+      _figKeyedText(svg, M.x + dx / m2 * 17, M.y + dy / m2 * 17, s.value, keyPrefix + '|sg' + nm);
+    });
+
+  } else if(fig.type === 'height_distance'){
+    // Heights & distances: observer, ground, tower, line of sight, angle of elevation
+    var ground = { x: 160, y: 198 };
+    _figLine(svg, ground, 0, 140, mk);
+    var O = { x: 66, y: 198 };
+    var baseT = { x: 244, y: 198 };
+    var ang = (fig.angle && typeof fig.angle.approx === 'number') ? fig.angle.approx
+            : (fig.angle ? parseFloat(String(fig.angle.value)) : 35);
+    if(isNaN(ang)) ang = 35;
+    ang = Math.max(15, Math.min(70, ang));
+    var run = baseT.x - O.x;
+    var hpx = Math.max(46, Math.min(150, run * Math.tan(_figRad(ang))));
+    var topT = { x: baseT.x, y: baseT.y - hpx };
+    _figPlainLine(svg, baseT, topT, 2.8);                 // tower
+    _figPlainLine(svg, O, topT, 2.0);                     // line of sight
+    _figRightAngleMark(svg, baseT, 180, 270);             // right angle at tower base
+    // angle of elevation arc at the observer
+    var sight = _figDeg(O, topT);                          // ~300-345 (up-right)
+    var sec2 = { start: sight, end: 360, bis: (sight + 360) / 2 };
+    _figAngle(svg, O.x, O.y, sec2, (fig.angle && fig.angle.value) || (ang + '°'), keyPrefix + '|elev');
+    // labels
+    if(fig.observerLabel) _figText(svg, O.x - 4, O.y + 18, fig.observerLabel, 16);
+    if(fig.baseLabel) _figText(svg, baseT.x + 6, baseT.y + 18, fig.baseLabel, 16);
+    if(fig.topLabel) _figText(svg, topT.x - 8, topT.y - 14, fig.topLabel, 16);
+    if(fig.distance && fig.distance.value){
+      _figKeyedText(svg, (O.x + baseT.x) / 2, ground.y + 18, fig.distance.value, keyPrefix + '|sdDIST');
+    }
+    if(fig.height && fig.height.value){
+      _figKeyedText(svg, baseT.x + 24, (baseT.y + topT.y) / 2, fig.height.value, keyPrefix + '|sdHT');
+    }
   }
   return svg;
 }
@@ -2486,6 +2676,14 @@ function applyStepFigRef(step){
   var key = null;
   if(typeof fr.angleIndex === 'number'){
     key = fig + '|s' + fr.angleIndex;
+  } else if(fr.vertex){
+    key = fig + '|v' + fr.vertex;
+  } else if(fr.seg){
+    key = fig + '|sg' + fr.seg;
+  } else if(fr.side){
+    key = fig + '|sd' + fr.side;
+  } else if(fr.elev){
+    key = fig + '|elev';
   } else if(fr.pos){
     var at = fr.at || 'c';
     key = fig + '|' + at + '|' + fr.pos;
@@ -2862,7 +3060,21 @@ window.addEventListener('load', function(){
     { label:'Intersecting lines', fig:{ type:'intersecting', labels:{a:'AB', b:'CD'},
         angles:[ {pos:'ur', value:'110°'}, {pos:'ll', value:'110°'}, {pos:'ul', value:'70°'} ] } },
     { label:'Angles on a line', fig:{ type:'straight_line',
-        angles:[ {value:'60°', approx:60}, {value:'x', approx:55}, {value:'65°', approx:65} ] } }
+        angles:[ {value:'60°', approx:60}, {value:'x', approx:55}, {value:'65°', approx:65} ] } },
+    { label:'Pythagoras', fig:{ type:'triangle', labels:['A','B','C'], rightAngleAt:'B',
+        angles:[ {vertex:'C', value:'θ', approx:37} ],
+        sides:[ {between:'AB', value:'6 cm'}, {between:'BC', value:'8 cm'}, {between:'AC', value:'x'} ] } },
+    { label:'Thales / BPT', fig:{ type:'triangle_parallel', labels:['A','B','C'], pointLabels:['D','E'], ratio:0.45,
+        segs:[ {seg:'AD', value:'2'}, {seg:'DB', value:'3'}, {seg:'AE', value:'x'}, {seg:'EC', value:'6'} ] } },
+    { label:'ΔABC ~ ΔPQR (i)', fig:{ type:'triangle', labels:['A','B','C'],
+        angles:[ {vertex:'B', value:'60°', approx:60}, {vertex:'C', value:'50°', approx:50} ],
+        sides:[ {between:'BC', value:'9 cm'} ] } },
+    { label:'ΔABC ~ ΔPQR (ii)', fig:{ type:'triangle', labels:['P','Q','R'],
+        angles:[ {vertex:'Q', value:'60°', approx:60}, {vertex:'R', value:'50°', approx:50} ],
+        sides:[ {between:'QR', value:'4.5 cm'} ] } },
+    { label:'Height & Distance', fig:{ type:'height_distance',
+        angle:{value:'60°', approx:60}, height:{value:'h'}, distance:{value:'40 m'},
+        observerLabel:'A', baseLabel:'B', topLabel:'C' } }
   ]);
   // Demo the highlight: option (c) glows after 2 seconds
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
