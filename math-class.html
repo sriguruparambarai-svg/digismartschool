@@ -1025,6 +1025,11 @@ async function solveAndTeach(){
       + '  - "circle_two_tangents" (two tangents from one external point): {"type":"circle_two_tangents","centerLabel":"O","externalLabel":"P","touchLabels":["A","B"],"tangents":[{"seg":"PA","value":"x"},{"seg":"PB","value":"x"}],"radius":{"value":"5"},"angleAtP":{"value":"60\u00b0","approx":60}} (angleAtP optional).\n'
       + '  - "circle_chord" (perpendicular from centre to a chord): {"type":"circle_chord","centerLabel":"O","chordLabels":["A","B"],"footLabel":"M","chord":{"value":"16 cm"},"perp":{"value":"6 cm"},"radius":{"value":"r"}}\n'
       + 'CIRCLE step linking uses the SAME letters as the labels: radius "figRef":{"figure":"","side":"OT"}; tangent "figRef":{"figure":"","side":"PT"}; line OP "figRef":{"figure":"","side":"OP"}; chord "figRef":{"figure":"","side":"AB"}; right angle at touch point "figRef":{"figure":"","vertex":"T"}; two-tangent segments "figRef":{"figure":"","seg":"PA"}\n'
+      + '  - "triangle_points" (FLEXIBLE — use for geometry PROOF questions: two-BPT proofs, midpoint theorem, points on sides, cevians): a triangle + named points ON its sides + segments + parallel pairs.\n'
+      + '    WORKED EXAMPLE for "Given DE || AC and DC || AP, prove that BE/EC = BC/CP" (triangle with apex B, base A-P; D on BA; E and C on BP):\n'
+      + '    {"type":"triangle_points","labels":["B","A","P"],"points":[{"label":"D","on":"BA","at":0.62},{"label":"E","on":"BP","at":0.385},{"label":"C","on":"BP","at":0.62}],"segments":[{"from":"D","to":"E"},{"from":"D","to":"C"},{"from":"A","to":"C"}],"parallels":[["DE","AC"],["DC","AP"]],"values":[]}\n'
+      + '    Rules: labels order = [top vertex, bottom-left, bottom-right]; every label ONE letter. "on" = two vertex letters; "at" = ratio 0.1-0.9 from the first letter (drawing only — pick ratios that make declared parallels LOOK parallel). parallels = pairs of 2-letter segment names; the 1st pair is drawn with single > marks, the 2nd with double >>. values optional: [{"seg":"BE","value":"3"}].\n'
+      + '    Step linking: "figRef":{"figure":"","seg":"BE"} for any labeled value; "figRef":{"figure":"","vertex":"B"} for vertex angles.\n'
       + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
@@ -2497,6 +2502,23 @@ function _figParallelTick(svg, a, b){
   }));
 }
 
+// Multiple parallel chevrons: 1 for the first parallel pair, 2 for the second
+function _figParallelTicks(svg, a, b, count){
+  var d = _figDeg(a, b);
+  var M = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  for(var k = 0; k < count; k++){
+    var off = (k - (count - 1) / 2) * 11;
+    var base = _figPt(M.x, M.y, d, off);
+    var tip = _figPt(base.x, base.y, d, 5);
+    var w1 = _figPt(tip.x, tip.y, d + 150, 8.5);
+    var w2 = _figPt(tip.x, tip.y, d - 150, 8.5);
+    svg.appendChild(_figEl('path', {
+      d: 'M ' + w1.x.toFixed(1) + ' ' + w1.y.toFixed(1) + ' L ' + tip.x.toFixed(1) + ' ' + tip.y.toFixed(1) + ' L ' + w2.x.toFixed(1) + ' ' + w2.y.toFixed(1),
+      fill: 'none', stroke: 'rgba(245,245,240,.9)', 'stroke-width': 1.7
+    }));
+  }
+}
+
 // ── Circle helpers (Phase 3) ──
 function _figCircle(svg, c, r){
   svg.appendChild(_figEl('circle', {
@@ -2636,6 +2658,58 @@ function renderLineFigure(fig, keyPrefix){
       var M = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
       var dx = M.x - tri.G.x, dy = M.y - tri.G.y, m2 = Math.sqrt(dx * dx + dy * dy) || 1;
       _figKeyedText(svg, M.x + dx / m2 * 17, M.y + dy / m2 * 17, s.value, keyPrefix + '|sg' + nm);
+    });
+
+  } else if(fig.type === 'triangle_points'){
+    // FLEXIBLE proof figure: triangle + named points on sides + segments + parallel pairs
+    var tp = _figTriVertices({ labels: fig.labels, angles: fig.angles, rightAngleAt: fig.rightAngleAt || '' });
+    var tpl = tp.labels;
+    var P = {}; P[tpl[0]] = tp.A; P[tpl[1]] = tp.B; P[tpl[2]] = tp.C;
+    var Gt = { x: (tp.A.x + tp.B.x + tp.C.x) / 3, y: (tp.A.y + tp.B.y + tp.C.y) / 3 };
+    _figPlainLine(svg, tp.A, tp.B); _figPlainLine(svg, tp.B, tp.C); _figPlainLine(svg, tp.A, tp.C);
+    // named points on sides
+    (fig.points || []).forEach(function(pt){
+      var on = String(pt.on || '');
+      if(on.length < 2 || !P[on[0]] || !P[on[1]]) return;
+      var f2 = (typeof pt.at === 'number' && pt.at > 0.1 && pt.at < 0.9) ? pt.at : 0.5;
+      var a2 = P[on[0]], b2 = P[on[1]];
+      P[pt.label] = { x: a2.x + (b2.x - a2.x) * f2, y: a2.y + (b2.y - a2.y) * f2 };
+    });
+    // segments between any named points
+    (fig.segments || []).forEach(function(sg){
+      var a3 = P[sg.from], b3 = P[sg.to];
+      if(a3 && b3) _figPlainLine(svg, a3, b3, 2.1);
+    });
+    // parallel chevrons: pair index 0 -> single >, pair index 1 -> double >>
+    (fig.parallels || []).forEach(function(pair, pi){
+      (pair || []).forEach(function(nm){
+        nm = String(nm || '');
+        if(nm.length < 2 || !P[nm[0]] || !P[nm[1]]) return;
+        _figParallelTicks(svg, P[nm[0]], P[nm[1]], Math.min(pi + 1, 3));
+      });
+    });
+    // all point labels (vertices + side points), pushed away from the centroid
+    Object.keys(P).forEach(function(L){
+      var v = P[L];
+      var dx3 = v.x - Gt.x, dy3 = v.y - Gt.y, m3 = Math.sqrt(dx3 * dx3 + dy3 * dy3) || 1;
+      _figText(svg, v.x + dx3 / m3 * 16, v.y + dy3 / m3 * 16, L, 17);
+    });
+    // marked angles at vertices
+    (fig.angles || []).forEach(function(a4){
+      var v4 = P[a4.vertex]; if(!v4) return;
+      var others4 = tpl.filter(function(L){ return L !== a4.vertex; });
+      if(others4.length < 2) return;
+      var sec4 = _figInteriorSector(_figDeg(v4, P[others4[0]]), _figDeg(v4, P[others4[1]]));
+      _figAngle(svg, v4.x, v4.y, sec4, a4.value, keyPrefix + '|v' + a4.vertex);
+    });
+    // optional value labels on any 2-letter segment
+    (fig.values || []).forEach(function(vl){
+      var nm2 = String(vl.seg || '');
+      if(nm2.length < 2 || !P[nm2[0]] || !P[nm2[1]]) return;
+      var p1v = P[nm2[0]], p2v = P[nm2[1]];
+      var Mv = { x: (p1v.x + p2v.x) / 2, y: (p1v.y + p2v.y) / 2 };
+      var dxv = Mv.x - Gt.x, dyv = Mv.y - Gt.y, mv = Math.sqrt(dxv * dxv + dyv * dyv) || 1;
+      _figKeyedText(svg, Mv.x + dxv / mv * 15, Mv.y + dyv / mv * 15, vl.value, keyPrefix + '|sg' + nm2);
     });
 
   } else if(fig.type === 'circle_tangent'){
@@ -3211,7 +3285,13 @@ window.addEventListener('load', function(){
         radius:{value:'5'}, angleAtP:{value:'θ', approx:40} } },
     { label:'Chord & perpendicular', fig:{ type:'circle_chord',
         centerLabel:'O', chordLabels:['A','B'], footLabel:'M',
-        chord:{value:'8'}, perp:{value:'6 cm'}, radius:{value:'r'} } }
+        chord:{value:'8'}, perp:{value:'6 cm'}, radius:{value:'r'} } },
+    { label:'Proof: DE∥AC, DC∥AP', fig:{ type:'triangle_points',
+        labels:['B','A','P'],
+        points:[ {label:'D', on:'BA', at:0.62}, {label:'E', on:'BP', at:0.385}, {label:'C', on:'BP', at:0.62} ],
+        segments:[ {from:'D', to:'E'}, {from:'D', to:'C'}, {from:'A', to:'C'} ],
+        parallels:[ ['DE','AC'], ['DC','AP'] ],
+        values:[] } }
   ]);
   // Demo the highlight: option (c) glows after 2 seconds
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
