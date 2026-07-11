@@ -223,6 +223,27 @@ html,body{
 .fig-angle text{transition:fill .25s;}
 .fig-angle.fig-glow path{stroke:#FFD86A;stroke-width:2.6;}
 .fig-angle.fig-glow text{fill:#FFD86A;}
+
+/* ── Matrix layout (Phase 6) ── */
+.mx{display:inline-flex;align-items:center;vertical-align:middle;margin:2px 8px;}
+.mx-grid{
+  position:relative;display:grid;gap:3px 18px;
+  padding:7px 15px;
+}
+.mx-grid::before{
+  content:'';position:absolute;top:0;bottom:0;left:0;width:8px;
+  border:2.4px solid rgba(245,245,240,.9);border-right:none;border-radius:2px 0 0 2px;
+}
+.mx-grid::after{
+  content:'';position:absolute;top:0;bottom:0;right:0;width:8px;
+  border:2.4px solid rgba(245,245,240,.9);border-left:none;border-radius:0 2px 2px 0;
+}
+.mx-cell{
+  text-align:center;font-family:'Caveat',cursive;
+  font-size:1em;color:inherit;min-width:16px;
+}
+.mx-fade{animation:mxIn .6s ease both;}
+@keyframes mxIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
 .review-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
 .review-btn{
   padding:13px 18px;border-radius:12px;border:2px solid rgba(201,168,76,.3);
@@ -1039,6 +1060,7 @@ async function solveAndTeach(){
       + '    shape choices: "cylinder", "cone", "sphere", "hemisphere", "frustum" (radius = bottom R, radius2 = top r), "cone_on_cylinder", "hemisphere_on_cylinder", "ice_cream" (cone below, hemisphere scoop on top).\n'
       + '    For combined shapes: height = the cylinder/lower part, height2 = the cone/upper part. Include ONLY the values the question gives (any value may be a variable like "h" or "l").\n'
       + '    Step linking: radius "figRef":{"figure":"","side":"R"}; top radius "side":"R2"; height "side":"H"; upper height "side":"H2"; slant "side":"L"\n'
+      + 'MATRICES (matrix chapter questions): write every matrix in "main" and "finalAnswer" using double-bracket notation with rows: [[1,2],[3,4]] means row 1 = 1,2 and row 2 = 3,4. The blackboard automatically renders it with proper big brackets. Example main: "A + B = [[4,6],[10,12]]". Keep ONE matrix operation per step. In SPOKEN scripts NEVER read bracket symbols — say the rows in words: "row 1: 4 and 6, row 2: 10 and 12".\n\n'
       + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
@@ -1519,6 +1541,8 @@ function spellOutLargeNumbers(text){
 function mathToSpeech(text){
   if(!text) return '';
   var t = String(text);
+  // Matrices first: [[1,2],[3,4]] -> spoken rows (safety net; scripts should already be in words)
+  if(hasMatrixNotation(t)) t = matrixToSpeech(t);
   // Superscripts (must run first)
   t = t.replace(/²/g, ' squared ');
   t = t.replace(/³/g, ' cubed ');
@@ -1657,6 +1681,79 @@ function mathToSpeech(text){
   // Final space cleanup
   t = t.replace(/\s+/g, ' ').trim();
   return t;
+}
+
+// ═══════════════════════════════════════════
+// MATRIX LAYOUT (Phase 6)
+// Detects [[1,2],[3,4]] notation and renders proper big-bracket grids
+// ═══════════════════════════════════════════
+var MX_RE = /\[\s*\[[^\[\]]*?\](?:\s*,\s*\[[^\[\]]*?\])*\s*\]/g;
+
+function hasMatrixNotation(text){
+  MX_RE.lastIndex = 0;
+  return MX_RE.test(String(text || ''));
+}
+
+// Build a .mx element from "[[1,2],[3,4]]"
+function buildMatrixEl(mtext){
+  var rows = [];
+  var rm = String(mtext).match(/\[([^\[\]]*)\]/g) || [];
+  rm.forEach(function(r){
+    var inner = r.replace(/^\[|\]$/g, '');
+    rows.push(inner.split(',').map(function(c){ return c.trim(); }));
+  });
+  var cols = rows.reduce(function(mx, r){ return Math.max(mx, r.length); }, 1);
+  var wrap = document.createElement('span');
+  wrap.className = 'mx';
+  var grid = document.createElement('span');
+  grid.className = 'mx-grid';
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', auto)';
+  rows.forEach(function(r){
+    for(var ci = 0; ci < cols; ci++){
+      var cell = document.createElement('span');
+      cell.className = 'mx-cell';
+      cell.textContent = (r[ci] != null && r[ci] !== '') ? r[ci] : '';
+      grid.appendChild(cell);
+    }
+  });
+  wrap.appendChild(grid);
+  return wrap;
+}
+
+// Render text that mixes normal maths and matrix notation
+function renderMathWithMatrices(el, text){
+  if(!el) return;
+  el.innerHTML = '';
+  var t = String(text || '');
+  var last = 0, m;
+  MX_RE.lastIndex = 0;
+  while((m = MX_RE.exec(t)) !== null){
+    if(m.index > last){
+      var s1 = document.createElement('span');
+      s1.textContent = t.substring(last, m.index);
+      el.appendChild(s1);
+    }
+    el.appendChild(buildMatrixEl(m[0]));
+    last = m.index + m[0].length;
+  }
+  if(last < t.length){
+    var s2 = document.createElement('span');
+    s2.textContent = t.substring(last);
+    el.appendChild(s2);
+  }
+}
+
+// Convert matrix notation into natural speech (safety net when scripts contain it)
+function matrixToSpeech(text){
+  return String(text || '').replace(MX_RE, function(mtext){
+    var rm = mtext.match(/\[([^\[\]]*)\]/g) || [];
+    var parts = [];
+    rm.forEach(function(r, i){
+      var inner = r.replace(/^\[|\]$/g, '');
+      parts.push('row ' + (i + 1) + ': ' + inner.split(',').map(function(c){ return c.trim(); }).join(', '));
+    });
+    return ' matrix with ' + parts.join('. ') + '. ';
+  });
 }
 
 // ═══════════════════════════════════════════
@@ -1819,8 +1916,14 @@ async function showStep(idx){
 
   // ── PHASE 1: Chalk-write the math on the blackboard ──
   if(contentEl){
-    var writePromise = chalkWrite(contentEl, step.main || '', 90);
-    await writePromise;
+    if(hasMatrixNotation(step.main)){
+      renderMathWithMatrices(contentEl, step.main || '');
+      contentEl.classList.add('mx-fade');
+      await sleep(650);
+    } else {
+      var writePromise = chalkWrite(contentEl, step.main || '', 90);
+      await writePromise;
+    }
   }
   if(!IS_PLAYING) return;
 
@@ -1892,7 +1995,11 @@ async function showStep(idx){
 
 async function showFinalAnswer(){
   if(SOLUTION.finalAnswer && SOLUTION.finalAnswer.trim()){
-    $('final-answer').textContent = '✓ ' + SOLUTION.finalAnswer;
+    if(hasMatrixNotation(SOLUTION.finalAnswer)){
+      renderMathWithMatrices($('final-answer'), '✓ ' + SOLUTION.finalAnswer);
+    } else {
+      $('final-answer').textContent = '✓ ' + SOLUTION.finalAnswer;
+    }
     $('final-answer').classList.add('show');
     $('final-answer').scrollIntoView({ behavior: 'smooth', block: 'center' });
     var finalScript = SOLUTION.finalScript || ('And so, the final answer is: ' + SOLUTION.finalAnswer + '. Very good children!');
@@ -2062,7 +2169,11 @@ function showStepInstant(idx){
     if(i <= idx){
       el.classList.add('show');
       if(contentEl && SOLUTION.steps[i]){
-        contentEl.textContent = SOLUTION.steps[i].main || '';
+        if(hasMatrixNotation(SOLUTION.steps[i].main)){
+          renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
+        } else {
+          contentEl.textContent = SOLUTION.steps[i].main || '';
+        }
       }
       // Add corresponding rough work using new structured format
       var s = SOLUTION.steps[i];
@@ -3606,6 +3717,14 @@ window.addEventListener('load', function(){
     { label:'Ice cream (cone + hemisphere)', fig:{ type:'solid', shape:'ice_cream',
         radius:{value:'3.5'}, height:{value:'12 cm'} } }
   ]);
+  // Matrix layout demo: a sample step rendered below the figures
+  try{
+    var mxDemo = document.createElement('div');
+    mxDemo.className = 'step-item show';
+    mxDemo.innerHTML = '<div class="step-num">M.</div><div class="step-content" id="mx-demo"></div>';
+    $('steps-list').appendChild(mxDemo);
+    renderMathWithMatrices($('mx-demo'), 'A + B = [[3,5],[7,9]]  and  2A = [[2,4],[6,8]]');
+  }catch(e){}
   // Demo the highlight: option (c) glows after 2 seconds
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
 });
