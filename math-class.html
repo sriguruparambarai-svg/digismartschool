@@ -176,6 +176,29 @@ html,body{
   background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.35);
   border-radius:8px;padding:6px 10px;
 }
+.lesson-banner{
+  display:flex;align-items:center;gap:14px;
+  margin-bottom:18px;padding:14px 16px;
+  background:linear-gradient(135deg,rgba(201,168,76,.18),rgba(107,26,26,.12));
+  border:2px solid rgba(201,168,76,.45);border-radius:14px;
+}
+.lesson-banner .lb-icon{font-size:1.6rem;}
+.lesson-banner .lb-info{flex:1;min-width:0;}
+.lesson-banner .lb-label{
+  font-size:.6rem;font-weight:800;color:rgba(232,201,154,.6);
+  text-transform:uppercase;letter-spacing:1.5px;
+}
+.lesson-banner .lb-title{
+  font-weight:900;color:var(--sandal);font-size:.95rem;margin-top:2px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lesson-banner .lb-btn{
+  flex-shrink:0;padding:11px 16px;border:none;border-radius:10px;
+  background:linear-gradient(135deg,var(--gold),#FFD86A);color:#3a1b0a;
+  font-family:Nunito,sans-serif;font-weight:900;font-size:.85rem;cursor:pointer;
+  box-shadow:0 4px 12px rgba(201,168,76,.3);transition:all .2s;
+}
+.lesson-banner .lb-btn:hover{transform:translateY(-1px);}
 .review-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
 .review-btn{
   padding:13px 18px;border-radius:12px;border:2px solid rgba(201,168,76,.3);
@@ -615,6 +638,15 @@ html,body{
       Paste any math problem from your textbook. AI will solve it step-by-step on the blackboard,
       show the formula, do rough work, and explain each step like a real teacher.
     </div>
+  </div>
+
+  <div class="lesson-banner" id="lesson-banner" style="display:none;">
+    <div class="lb-icon">📖</div>
+    <div class="lb-info">
+      <div class="lb-label">Activated lesson from Teacher Panel</div>
+      <div class="lb-title" id="lb-title"></div>
+    </div>
+    <button class="lb-btn" onclick="loadQuestionsFromLesson()">Load Questions</button>
   </div>
 
   <div class="field-label">📝 Paste the math problem you want to teach</div>
@@ -2142,6 +2174,72 @@ async function explainTamil(){
 // ═══════════════════════════════════════════
 var QUESTION_QUEUE = [];   // Selected questions from the review screen
 var QUEUE_IDX = 0;         // Which question is currently being taught
+var MC_LESSON = null;      // Activated Maths lesson from Teacher Panel (mc_activated)
+
+// Split the activated lesson text into individual questions via AI,
+// then reuse the same review screen (tick + edit) as the photo flow.
+async function loadQuestionsFromLesson(){
+  if(!MC_LESSON || !MC_LESSON.lessonText || MC_LESSON.lessonText.length < 20){
+    showError('No lesson text found. Please re-activate the Maths lesson from Teacher Panel \u2192 My Books, then come back.');
+    return;
+  }
+  hideError();
+  $('loading').classList.add('show');
+  var lt = document.querySelector('.loading-text');
+  var ls = document.querySelector('.loading-sub');
+  if(lt) lt.textContent = 'Reading questions from the lesson...';
+  if(ls) ls.textContent = 'AI is splitting the activated lesson into individual questions. This takes a few seconds.';
+
+  try{
+    var sys = 'You read maths textbook exercise text and split it into individual questions. '
+      + 'You return ONLY valid JSON - no markdown, no explanation.';
+    var prompt = 'Below is text extracted from a maths textbook. Split it into individual questions.\n'
+      + 'Rules:\n'
+      + '- Return ONLY valid JSON in this exact shape: {"questions":["question 1","question 2"]}\n'
+      + '- Each question must be complete with ALL its given numbers and values.\n'
+      + '- The extracted text may have broken maths notation - repair it clearly using symbols: \u00d7 \u00f7 \u00b2 \u00b3 \u03c0 \u221a and fractions as 3/4.\n'
+      + '- Remove question numbers like "3." or "Q5)" from the start of each question.\n'
+      + '- If a question refers to a figure or diagram whose values are NOT in the text, still include the question but start it with the tag [FIGURE] so the teacher can add the missing values.\n'
+      + '- If a question has sub-parts (a), (b), keep them together as ONE question.\n'
+      + '- Skip explanations, definitions, solved examples and answers - questions ONLY.\n'
+      + '- If no questions are found, return {"questions":[]}\n\n'
+      + 'TEXTBOOK TEXT:\n' + MC_LESSON.lessonText;
+
+    var resp = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: sys,
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 3000
+      })
+    });
+    if(!resp.ok) throw new Error('API error ' + resp.status);
+    var data = await resp.json();
+    var text = '';
+    if(data && Array.isArray(data.content)){
+      text = data.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('').trim();
+    } else if(data && data.text){
+      text = data.text.trim();
+    }
+    text = text.replace(/^```json\s*|^```\s*|\s*```$/gm, '').trim();
+    var fb = text.indexOf('{'), lb = text.lastIndexOf('}');
+    if(fb >= 0 && lb > fb) text = text.substring(fb, lb + 1);
+    var parsed = JSON.parse(text);
+    var qs = (parsed && Array.isArray(parsed.questions)) ? parsed.questions : [];
+    qs = qs.map(function(q){ return String(q).trim(); }).filter(function(q){ return q.length > 4; });
+
+    $('loading').classList.remove('show');
+    if(qs.length === 0){
+      showError('No questions were found in this lesson\'s pages. Please check the page range in Teacher Panel, or use the photo upload instead.');
+      return;
+    }
+    showReviewScreen(qs);
+  }catch(e){
+    $('loading').classList.remove('show');
+    showError('Could not read questions from the lesson. Please try again, or use the photo upload instead.');
+  }
+}
 
 function openPhotoUpload(){
   var inp = $('photo-file-input');
@@ -2399,6 +2497,22 @@ window.addEventListener('load', function(){
       if(d.cls) $('meta-class').value = d.cls;
       if(d.chapter) $('meta-chapter').value = d.chapter;
       if(d.autoSolve) setTimeout(solveAndTeach, 400);
+    }
+  }catch(e){}
+  // Check for an activated Maths lesson from Teacher Panel (Part C)
+  try{
+    var actRaw = sessionStorage.getItem('mc_activated');
+    if(actRaw){
+      var act = JSON.parse(actRaw);
+      if(act && act.lessonText && act.lessonText.length > 20){
+        MC_LESSON = act;
+        if(act.cls) $('meta-class').value = act.cls;
+        if(act.chapter) $('meta-chapter').value = act.chapter;
+        var lbT = $('lb-title');
+        if(lbT) lbT.textContent = (act.chapter || 'Maths lesson') + (act.cls ? ' \u2014 ' + act.cls : '');
+        var lbB = $('lesson-banner');
+        if(lbB) lbB.style.display = 'flex';
+      }
     }
   }catch(e){}
 });
