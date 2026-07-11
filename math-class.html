@@ -199,6 +199,30 @@ html,body{
   box-shadow:0 4px 12px rgba(201,168,76,.3);transition:all .2s;
 }
 .lesson-banner .lb-btn:hover{transform:translateY(-1px);}
+
+/* ── Line Figure Renderer (geometry) ── */
+.figure-area{margin:16px 0;display:flex;flex-wrap:wrap;gap:14px;}
+.fig-card{
+  background:rgba(255,255,255,.03);
+  border:1.5px dashed rgba(255,255,255,.18);
+  border-radius:12px;padding:8px 8px 4px;
+  flex:1;min-width:230px;max-width:340px;
+  transition:all .25s;
+}
+.fig-card.fig-active{
+  border-color:var(--gold);
+  box-shadow:0 0 18px rgba(201,168,76,.4);
+  background:rgba(201,168,76,.07);
+}
+.fig-card .fig-caption{
+  font-family:'Caveat',cursive;font-size:1.2rem;
+  color:#FFD86A;margin:0 6px 2px;
+}
+.fig-card svg{width:100%;height:auto;display:block;}
+.fig-angle path{transition:stroke .25s;}
+.fig-angle text{transition:fill .25s;}
+.fig-angle.fig-glow path{stroke:#FFD86A;stroke-width:2.6;}
+.fig-angle.fig-glow text{fill:#FFD86A;}
 .review-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
 .review-btn{
   padding:13px 18px;border-radius:12px;border:2px solid rgba(201,168,76,.3);
@@ -745,6 +769,7 @@ html,body{
     <div class="board-main" id="board-main">
       <div class="problem-title" id="problem-title">Problem</div>
       <div class="problem-text" id="problem-text"></div>
+      <div class="figure-area" id="figure-area" style="display:none;"></div>
       <div class="formula-block" id="formula-block">
         <strong>Formula:</strong> <span id="formula-text"></span>
       </div>
@@ -2186,6 +2211,241 @@ async function explainTamil(){
 }
 
 // ═══════════════════════════════════════════
+// LINE FIGURE RENDERER (geometry: transversal / intersecting / straight line)
+// Self-contained chalk-style SVG drawing. Only activates when figure data exists.
+// ═══════════════════════════════════════════
+var _figUid = 0;
+var _SVGNS = 'http://www.w3.org/2000/svg';
+
+function _figEl(tag, attrs){
+  var el = document.createElementNS(_SVGNS, tag);
+  if(attrs) Object.keys(attrs).forEach(function(k){ el.setAttribute(k, attrs[k]); });
+  return el;
+}
+function _figRad(deg){ return deg * Math.PI / 180; }
+function _figPt(cx, cy, deg, r){
+  return { x: cx + r * Math.cos(_figRad(deg)), y: cy + r * Math.sin(_figRad(deg)) };
+}
+// Intersection of line through p1 with direction d1deg and line through p2 with direction d2deg
+function _figIntersect(p1, d1deg, p2, d2deg){
+  var a1 = _figRad(d1deg), a2 = _figRad(d2deg);
+  var dx1 = Math.cos(a1), dy1 = Math.sin(a1);
+  var dx2 = Math.cos(a2), dy2 = Math.sin(a2);
+  var den = dx1 * dy2 - dy1 * dx2;
+  if(Math.abs(den) < 1e-9) return null;
+  var t = ((p2.x - p1.x) * dy2 - (p2.y - p1.y) * dx2) / den;
+  return { x: p1.x + t * dx1, y: p1.y + t * dy1 };
+}
+// Chalk line through point p with direction (deg), extended len each side, arrows both ends
+function _figLine(svg, p, deg, len, markerId){
+  var a = _figPt(p.x, p.y, deg, -len);
+  var b = _figPt(p.x, p.y, deg, len);
+  svg.appendChild(_figEl('line', {
+    x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+    stroke: 'rgba(245,245,240,.92)', 'stroke-width': 2.4,
+    'stroke-linecap': 'round',
+    'marker-start': 'url(#' + markerId + ')',
+    'marker-end': 'url(#' + markerId + ')'
+  }));
+  return { a: a, b: b };
+}
+function _figText(svg, x, y, str, size, fill, anchor){
+  var t = _figEl('text', {
+    x: x, y: y, 'font-family': 'Caveat, cursive',
+    'font-size': size || 17, fill: fill || 'rgba(245,245,240,.95)',
+    'text-anchor': anchor || 'middle', 'dominant-baseline': 'middle'
+  });
+  t.textContent = str;
+  svg.appendChild(t);
+  return t;
+}
+// The four sectors at an intersection of two lines (directions dA, dB in screen degrees).
+// Each sector gets a compass name: ur (upper-right), ul, ll, lr.
+function _figSectors(dA, dB){
+  var rays = [dA, dA + 180, dB, dB + 180].map(function(d){ return ((d % 360) + 360) % 360; });
+  rays.sort(function(a, b){ return a - b; });
+  var sectors = [];
+  for(var i = 0; i < 4; i++){
+    var s = rays[i], e = (i < 3) ? rays[i + 1] : rays[0] + 360;
+    var bis = ((s + e) / 2) % 360;
+    // Screen coords: 0=right, 90=down, 180=left, 270=up
+    var names = { 45: 'lr', 135: 'll', 225: 'ul', 315: 'ur' };
+    var best = null, bestDist = 1e9;
+    Object.keys(names).forEach(function(k){
+      var d = Math.abs(bis - k); d = Math.min(d, 360 - d);
+      if(d < bestDist){ bestDist = d; best = names[k]; }
+    });
+    sectors.push({ start: s, end: e, bis: bis, pos: best });
+  }
+  return sectors;
+}
+// Draw one marked angle: small arc in the sector + the value text on the bisector
+function _figAngle(svg, cx, cy, sector, value, key, radius){
+  var r = radius || 17;
+  var g = _figEl('g', { 'class': 'fig-angle' });
+  if(key) g.setAttribute('data-figkey', key);
+  var p1 = _figPt(cx, cy, sector.start, r);
+  var p2 = _figPt(cx, cy, sector.end, r);
+  var large = (sector.end - sector.start) > 180 ? 1 : 0;
+  g.appendChild(_figEl('path', {
+    d: 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1)
+     + ' A ' + r + ' ' + r + ' 0 ' + large + ' 1 '
+     + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1),
+    fill: 'none', stroke: 'rgba(159,211,255,.9)', 'stroke-width': 1.8
+  }));
+  var tp = _figPt(cx, cy, sector.bis, r + 17);
+  var txt = _figEl('text', {
+    x: tp.x, y: tp.y, 'font-family': 'Caveat, cursive', 'font-size': 16.5,
+    fill: 'rgba(159,211,255,.95)', 'text-anchor': 'middle', 'dominant-baseline': 'middle'
+  });
+  txt.textContent = value;
+  g.appendChild(txt);
+  svg.appendChild(g);
+}
+function _figMarkAngles(svg, cx, cy, dA, dB, angleSpecs, keyPrefix){
+  if(!angleSpecs || !angleSpecs.length) return;
+  var sectors = _figSectors(dA, dB);
+  angleSpecs.forEach(function(sp){
+    for(var i = 0; i < sectors.length; i++){
+      if(sectors[i].pos === sp.pos){
+        _figAngle(svg, cx, cy, sectors[i], sp.value, keyPrefix + '|' + sp.pos);
+        break;
+      }
+    }
+  });
+}
+function _figSvgBase(w, h){
+  _figUid++;
+  var svg = _figEl('svg', { viewBox: '0 0 ' + w + ' ' + h, xmlns: _SVGNS });
+  var defs = _figEl('defs', {});
+  var mk = _figEl('marker', {
+    id: 'figah' + _figUid, viewBox: '0 0 10 10', refX: 8, refY: 5,
+    markerWidth: 7, markerHeight: 7, orient: 'auto-start-reverse'
+  });
+  mk.appendChild(_figEl('path', { d: 'M 0 1 L 9 5 L 0 9', fill: 'none',
+    stroke: 'rgba(245,245,240,.92)', 'stroke-width': 1.8, 'stroke-linecap': 'round' }));
+  defs.appendChild(mk);
+  svg.appendChild(defs);
+  return { svg: svg, marker: 'figah' + _figUid };
+}
+
+// ── The three figure types ──
+function renderLineFigure(fig, keyPrefix){
+  keyPrefix = keyPrefix || 'f';
+  var base = _figSvgBase(320, 230);
+  var svg = base.svg, mk = base.marker;
+  var labels = fig.labels || {};
+
+  if(fig.type === 'transversal'){
+    var topP = { x: 160, y: 72 };
+    var botP = { x: 160, y: 172 };
+    var topDir = 0;
+    var botDir = (fig.parallel === false) ? -9 : 0;
+    var transDir = 118; // slants: down-left to up-right
+    _figLine(svg, topP, topDir, 145, mk);
+    _figLine(svg, botP, botDir, 145, mk);
+    var T1 = _figIntersect({ x: 150, y: 72 }, transDir, topP, topDir) || { x: 150, y: 72 };
+    var T2 = _figIntersect(T1, transDir, botP, botDir) || { x: 108, y: 172 };
+    var mid = { x: (T1.x + T2.x) / 2, y: (T1.y + T2.y) / 2 };
+    _figLine(svg, mid, transDir, 96, mk);
+    _figText(svg, 302, 64, labels.top || 'm', 18, null, 'start');
+    _figText(svg, 302, botP.y - 10 + (fig.parallel === false ? -18 : 0), labels.bottom || 'n', 18, null, 'start');
+    var tTop = _figPt(mid.x, mid.y, transDir, -100);
+    _figText(svg, tTop.x + 10, tTop.y, labels.trans || 't', 18, null, 'start');
+    var topAngles = [], botAngles = [];
+    (fig.angles || []).forEach(function(a){
+      if(a.at === 'bottom') botAngles.push(a); else topAngles.push(a);
+    });
+    _figMarkAngles(svg, T1.x, T1.y, topDir, transDir, topAngles, keyPrefix + '|top');
+    _figMarkAngles(svg, T2.x, T2.y, botDir, transDir, botAngles, keyPrefix + '|bottom');
+
+  } else if(fig.type === 'intersecting'){
+    var c = { x: 160, y: 118 };
+    var dA = (typeof fig.dirA === 'number') ? fig.dirA : 0;
+    var dB = (typeof fig.dirB === 'number') ? fig.dirB : -38;
+    _figLine(svg, c, dA, 140, mk);
+    _figLine(svg, c, dB, 132, mk);
+    var la = _figPt(c.x, c.y, dA, 150);
+    var lb = _figPt(c.x, c.y, dB, 142);
+    if(labels.a) _figText(svg, la.x, la.y - 10, labels.a, 17, null, 'middle');
+    if(labels.b) _figText(svg, lb.x + 8, lb.y, labels.b, 17, null, 'start');
+    _figMarkAngles(svg, c.x, c.y, dA, dB, fig.angles || [], keyPrefix + '|c');
+
+  } else if(fig.type === 'straight_line'){
+    var v = { x: 160, y: 168 };
+    _figLine(svg, v, 0, 140, mk);
+    var vals = fig.angles || [];
+    var approxes = [];
+    vals.forEach(function(a){
+      var ap = (typeof a.approx === 'number') ? a.approx : parseFloat(String(a.value)) || (180 / vals.length);
+      approxes.push(ap);
+    });
+    // Rays between consecutive angles, measured from the LEFT arm (screen 180 deg, going up)
+    var cum = 0, rayDirs = [180];
+    for(var i = 0; i < approxes.length - 1; i++){
+      cum += approxes[i];
+      var d = 180 + cum;           // screen: rotating from left arm towards up (270) and right (360)
+      rayDirs.push(d % 360);
+      var rp = _figPt(v.x, v.y, d % 360, 95);
+      svg.appendChild(_figEl('line', {
+        x1: v.x, y1: v.y, x2: rp.x, y2: rp.y,
+        stroke: 'rgba(245,245,240,.92)', 'stroke-width': 2.4,
+        'stroke-linecap': 'round', 'marker-end': 'url(#' + mk + ')'
+      }));
+    }
+    rayDirs.push(360); // right arm
+    // Draw each angle between consecutive rays
+    var acc = 0;
+    for(var j = 0; j < vals.length; j++){
+      var s = rayDirs[j], e = rayDirs[j + 1];
+      if(e < s) e += 360;
+      var sec = { start: s, end: e, bis: (s + e) / 2 };
+      _figAngle(svg, v.x, v.y, sec, vals[j].value, keyPrefix + '|s' + j, 20 + j * 7);
+      acc += approxes[j];
+    }
+  }
+  return svg;
+}
+
+// Render a SET of figures (e.g. MCQ options a-d) into the blackboard figure area
+function renderFigureSet(figs){
+  var area = $('figure-area');
+  if(!area) return;
+  area.innerHTML = '';
+  if(!figs || !figs.length){ area.style.display = 'none'; return; }
+  figs.forEach(function(item, idx){
+    var card = document.createElement('div');
+    card.className = 'fig-card';
+    var label = item.label || '';
+    card.setAttribute('data-figlabel', label || ('#' + idx));
+    if(label){
+      var cap = document.createElement('div');
+      cap.className = 'fig-caption';
+      cap.textContent = label;
+      card.appendChild(cap);
+    }
+    card.appendChild(renderLineFigure(item.fig || item, label || ('#' + idx)));
+    area.appendChild(card);
+  });
+  area.style.display = 'flex';
+}
+function clearFigures(){
+  var area = $('figure-area');
+  if(area){ area.innerHTML = ''; area.style.display = 'none'; }
+}
+// Highlight helpers (used by step playback in the next build step)
+function highlightFigureCard(label){
+  document.querySelectorAll('#figure-area .fig-card').forEach(function(c){
+    c.classList.toggle('fig-active', c.getAttribute('data-figlabel') === label);
+  });
+}
+function highlightFigureAngle(key){
+  document.querySelectorAll('#figure-area .fig-angle').forEach(function(g){
+    g.classList.toggle('fig-glow', g.getAttribute('data-figkey') === key);
+  });
+}
+
+// ═══════════════════════════════════════════
 // PHOTO UPLOAD -> VISION EXTRACTION -> REVIEW -> QUEUE
 // ═══════════════════════════════════════════
 var QUESTION_QUEUE = [];   // Selected questions from the review screen
@@ -2531,6 +2791,31 @@ window.addEventListener('load', function(){
       }
     }
   }catch(e){}
+});
+
+// ── Figure renderer visual test: open math-class.html#figtest ──
+window.addEventListener('load', function(){
+  if(window.location.hash !== '#figtest') return;
+  $('setup').classList.add('hidden');
+  $('classroom').classList.add('show');
+  $('problem-title').textContent = 'Figure Renderer Test';
+  $('problem-text').textContent = 'Page 122 style: in which figure is m parallel to n?';
+  renderFigureSet([
+    { label:'(a)', fig:{ type:'transversal', parallel:false, labels:{top:'m',bottom:'n',trans:'t'},
+        angles:[ {at:'top', pos:'ur', value:'43°'}, {at:'bottom', pos:'ll', value:'134°'} ] } },
+    { label:'(b)', fig:{ type:'transversal', parallel:true, labels:{top:'m',bottom:'n',trans:'t'},
+        angles:[ {at:'top', pos:'ul', value:'126°'}, {at:'bottom', pos:'ll', value:'44°'} ] } },
+    { label:'(c)', fig:{ type:'transversal', parallel:true, labels:{top:'m',bottom:'n',trans:'t'},
+        angles:[ {at:'top', pos:'ur', value:'112°'}, {at:'bottom', pos:'ul', value:'68°'} ] } },
+    { label:'(d)', fig:{ type:'transversal', parallel:true, labels:{top:'m',bottom:'n',trans:'t'},
+        angles:[ {at:'top', pos:'lr', value:'123°'}, {at:'bottom', pos:'ur', value:'77°'} ] } },
+    { label:'Intersecting lines', fig:{ type:'intersecting', labels:{a:'AB', b:'CD'},
+        angles:[ {pos:'ur', value:'110°'}, {pos:'ll', value:'110°'}, {pos:'ul', value:'70°'} ] } },
+    { label:'Angles on a line', fig:{ type:'straight_line',
+        angles:[ {value:'60°', approx:60}, {value:'x', approx:55}, {value:'65°', approx:65} ] } }
+  ]);
+  // Demo the highlight: option (c) glows after 2 seconds
+  setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
 });
 </script>
 </body>
