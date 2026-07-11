@@ -1020,6 +1020,11 @@ async function solveAndTeach(){
       + '  - "triangle_parallel" (Thales/BPT, DE parallel to base BC): {"type":"triangle_parallel","labels":["A","B","C"],"pointLabels":["D","E"],"ratio":0.5,"segs":[{"seg":"AD","value":"2"},{"seg":"DB","value":"3"},{"seg":"AE","value":"x"},{"seg":"EC","value":"6"}]}. ratio = drawing position of DE (0.3-0.7).\n'
       + '  - "height_distance" (angle of elevation): {"type":"height_distance","angle":{"value":"60\u00b0","approx":60},"height":{"value":"h"},"distance":{"value":"40 m"},"observerLabel":"A","baseLabel":"B","topLabel":"C"}\n'
       + 'TRIANGLE step linking: vertex angle "figRef":{"figure":"","vertex":"C"}; side "figRef":{"figure":"","side":"BC"}; Thales segment "figRef":{"figure":"","seg":"AD"}; elevation angle "figRef":{"figure":"","elev":true}\n'
+      + 'CIRCLE figure types (circles and tangents):\n'
+      + '  - "circle_tangent" (tangent from an external point, right angle at touch point): {"type":"circle_tangent","centerLabel":"O","touchLabel":"T","externalLabel":"P","radius":{"value":"5 cm"},"tangent":{"value":"12 cm"},"line":{"value":"13 cm"}} (line = OP; any of the three values may be a variable like "x").\n'
+      + '  - "circle_two_tangents" (two tangents from one external point): {"type":"circle_two_tangents","centerLabel":"O","externalLabel":"P","touchLabels":["A","B"],"tangents":[{"seg":"PA","value":"x"},{"seg":"PB","value":"x"}],"radius":{"value":"5"},"angleAtP":{"value":"60\u00b0","approx":60}} (angleAtP optional).\n'
+      + '  - "circle_chord" (perpendicular from centre to a chord): {"type":"circle_chord","centerLabel":"O","chordLabels":["A","B"],"footLabel":"M","chord":{"value":"16 cm"},"perp":{"value":"6 cm"},"radius":{"value":"r"}}\n'
+      + 'CIRCLE step linking uses the SAME letters as the labels: radius "figRef":{"figure":"","side":"OT"}; tangent "figRef":{"figure":"","side":"PT"}; line OP "figRef":{"figure":"","side":"OP"}; chord "figRef":{"figure":"","side":"AB"}; right angle at touch point "figRef":{"figure":"","vertex":"T"}; two-tangent segments "figRef":{"figure":"","seg":"PA"}\n'
       + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
@@ -2492,6 +2497,44 @@ function _figParallelTick(svg, a, b){
   }));
 }
 
+// ── Circle helpers (Phase 3) ──
+function _figCircle(svg, c, r){
+  svg.appendChild(_figEl('circle', {
+    cx: c.x, cy: c.y, r: r, fill: 'none',
+    stroke: 'rgba(245,245,240,.92)', 'stroke-width': 2.3
+  }));
+  svg.appendChild(_figEl('circle', { cx: c.x, cy: c.y, r: 2.6, fill: 'rgba(245,245,240,.95)' }));
+}
+function _figDashedLine(svg, a, b){
+  svg.appendChild(_figEl('line', {
+    x1: a.x, y1: a.y, x2: b.x, y2: b.y,
+    stroke: 'rgba(245,245,240,.65)', 'stroke-width': 1.8,
+    'stroke-linecap': 'round', 'stroke-dasharray': '6,5'
+  }));
+}
+// Right-angle square inside a keyed glow group (so steps can point at it)
+function _figKeyedRightAngle(svg, v, d1, d2, key){
+  var g = _figEl('g', { 'class': 'fig-angle' });
+  if(key) g.setAttribute('data-figkey', key);
+  var s = 12;
+  var u1 = _figUnit(d1), u2 = _figUnit(d2);
+  var p1 = { x: v.x + u1.x * s, y: v.y + u1.y * s };
+  var p2 = { x: v.x + u1.x * s + u2.x * s, y: v.y + u1.y * s + u2.y * s };
+  var p3 = { x: v.x + u2.x * s, y: v.y + u2.y * s };
+  g.appendChild(_figEl('path', {
+    d: 'M ' + p1.x.toFixed(1) + ' ' + p1.y.toFixed(1) + ' L ' + p2.x.toFixed(1) + ' ' + p2.y.toFixed(1) + ' L ' + p3.x.toFixed(1) + ' ' + p3.y.toFixed(1),
+    fill: 'none', stroke: 'rgba(159,211,255,.9)', 'stroke-width': 1.7
+  }));
+  svg.appendChild(g);
+}
+// Midpoint value label offset perpendicular to segment a→b
+function _figSegLabel(svg, a, b, value, key, sideSign){
+  var M = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  var d = _figDeg(a, b);
+  var off = _figPt(M.x, M.y, d + (sideSign || 1) * 90, 14);
+  _figKeyedText(svg, off.x, off.y, value, key);
+}
+
 // ── The three figure types ──
 function renderLineFigure(fig, keyPrefix){
   if(keyPrefix == null) keyPrefix = '';
@@ -2594,6 +2637,90 @@ function renderLineFigure(fig, keyPrefix){
       var dx = M.x - tri.G.x, dy = M.y - tri.G.y, m2 = Math.sqrt(dx * dx + dy * dy) || 1;
       _figKeyedText(svg, M.x + dx / m2 * 17, M.y + dy / m2 * 17, s.value, keyPrefix + '|sg' + nm);
     });
+
+  } else if(fig.type === 'circle_tangent'){
+    // Tangent PT from external point P, radius OT, right angle at T
+    var O1 = { x: 208, y: 112 }, r1 = 56;
+    var P1 = { x: 44, y: 176 };
+    var oL = fig.centerLabel || 'O', tL = fig.touchLabel || 'T', pL = fig.externalLabel || 'P';
+    var d1 = Math.sqrt(Math.pow(P1.x - O1.x, 2) + Math.pow(P1.y - O1.y, 2));
+    var phi = Math.acos(Math.min(0.95, r1 / d1)) * 180 / Math.PI;
+    var thOP = _figDeg(O1, P1);
+    var t1a = _figPt(O1.x, O1.y, thOP - phi, r1);
+    var t1b = _figPt(O1.x, O1.y, thOP + phi, r1);
+    var T1 = (t1a.y < t1b.y) ? t1a : t1b;
+    _figCircle(svg, O1, r1);
+    _figPlainLine(svg, P1, T1, 2.3);
+    _figPlainLine(svg, O1, T1, 2.0);
+    _figDashedLine(svg, O1, P1);
+    _figKeyedRightAngle(svg, T1, _figDeg(T1, O1), _figDeg(T1, P1), keyPrefix + '|v' + tL);
+    _figText(svg, O1.x + 13, O1.y + 12, oL, 17);
+    var tOut = _figPt(O1.x, O1.y, _figDeg(O1, T1), r1 + 16);
+    _figText(svg, tOut.x, tOut.y, tL, 17);
+    _figText(svg, P1.x - 12, P1.y + 10, pL, 17);
+    if(fig.radius && fig.radius.value) _figSegLabel(svg, O1, T1, fig.radius.value, keyPrefix + '|sd' + oL + tL, 1);
+    if(fig.tangent && fig.tangent.value) _figSegLabel(svg, P1, T1, fig.tangent.value, keyPrefix + '|sd' + pL + tL, -1);
+    if(fig.line && fig.line.value) _figSegLabel(svg, O1, P1, fig.line.value, keyPrefix + '|sd' + oL + pL, 1);
+
+  } else if(fig.type === 'circle_two_tangents'){
+    // Two tangents PA and PB from external point P
+    var O2 = { x: 210, y: 118 }, r2 = 54;
+    var P2 = { x: 40, y: 118 };
+    var oL2 = fig.centerLabel || 'O', pL2 = fig.externalLabel || 'P';
+    var tls = (fig.touchLabels && fig.touchLabels.length === 2) ? fig.touchLabels : ['A', 'B'];
+    var d2 = Math.sqrt(Math.pow(P2.x - O2.x, 2) + Math.pow(P2.y - O2.y, 2));
+    var phi2 = Math.acos(Math.min(0.95, r2 / d2)) * 180 / Math.PI;
+    var thOP2 = _figDeg(O2, P2); // 180
+    var A2 = _figPt(O2.x, O2.y, thOP2 + phi2, r2); // upper
+    var B2 = _figPt(O2.x, O2.y, thOP2 - phi2, r2); // lower
+    _figCircle(svg, O2, r2);
+    _figPlainLine(svg, P2, A2, 2.3);
+    _figPlainLine(svg, P2, B2, 2.3);
+    _figPlainLine(svg, O2, A2, 1.9);
+    _figPlainLine(svg, O2, B2, 1.9);
+    _figDashedLine(svg, O2, P2);
+    _figKeyedRightAngle(svg, A2, _figDeg(A2, O2), _figDeg(A2, P2), keyPrefix + '|v' + tls[0]);
+    _figKeyedRightAngle(svg, B2, _figDeg(B2, O2), _figDeg(B2, P2), keyPrefix + '|v' + tls[1]);
+    _figText(svg, O2.x + 13, O2.y + 12, oL2, 17);
+    _figText(svg, P2.x - 12, P2.y, pL2, 17);
+    var aOut = _figPt(O2.x, O2.y, _figDeg(O2, A2), r2 + 15);
+    var bOut = _figPt(O2.x, O2.y, _figDeg(O2, B2), r2 + 15);
+    _figText(svg, aOut.x, aOut.y, tls[0], 17);
+    _figText(svg, bOut.x, bOut.y, tls[1], 17);
+    (fig.tangents || []).forEach(function(s){
+      var nm = String(s.seg || '');
+      if(nm.indexOf(tls[0]) >= 0) _figSegLabel(svg, P2, A2, s.value, keyPrefix + '|sg' + nm, -1);
+      else if(nm.indexOf(tls[1]) >= 0) _figSegLabel(svg, P2, B2, s.value, keyPrefix + '|sg' + nm, 1);
+    });
+    if(fig.radius && fig.radius.value) _figSegLabel(svg, O2, A2, fig.radius.value, keyPrefix + '|sd' + oL2 + tls[0], 1);
+    if(fig.angleAtP && fig.angleAtP.value){
+      var secP = _figInteriorSector(_figDeg(P2, A2), _figDeg(P2, B2));
+      _figAngle(svg, P2.x, P2.y, secP, fig.angleAtP.value, keyPrefix + '|v' + pL2);
+    }
+
+  } else if(fig.type === 'circle_chord'){
+    // Perpendicular from the centre to a chord
+    var O3 = { x: 160, y: 106 }, r3 = 74;
+    var oL3 = fig.centerLabel || 'O';
+    var cls3 = (fig.chordLabels && fig.chordLabels.length === 2) ? fig.chordLabels : ['A', 'B'];
+    var mL3 = fig.footLabel || 'M';
+    var dPerp = 42;
+    var half = Math.sqrt(r3 * r3 - dPerp * dPerp);
+    var M3 = { x: O3.x, y: O3.y + dPerp };
+    var A3 = { x: O3.x - half, y: M3.y };
+    var B3 = { x: O3.x + half, y: M3.y };
+    _figCircle(svg, O3, r3);
+    _figPlainLine(svg, A3, B3, 2.3);
+    _figPlainLine(svg, O3, M3, 2.0);
+    _figPlainLine(svg, O3, A3, 1.9);
+    _figKeyedRightAngle(svg, M3, 270, 0, keyPrefix + '|v' + mL3);
+    _figText(svg, O3.x + 13, O3.y - 8, oL3, 17);
+    _figText(svg, A3.x - 13, A3.y + 8, cls3[0], 17);
+    _figText(svg, B3.x + 13, B3.y + 8, cls3[1], 17);
+    _figText(svg, M3.x + 4, M3.y + 16, mL3, 16);
+    if(fig.chord && fig.chord.value) _figKeyedText(svg, (A3.x + M3.x) / 2, M3.y + 17, fig.chord.value, keyPrefix + '|sd' + cls3[0] + cls3[1]);
+    if(fig.perp && fig.perp.value) _figSegLabel(svg, O3, M3, fig.perp.value, keyPrefix + '|sd' + oL3 + mL3, 1);
+    if(fig.radius && fig.radius.value) _figSegLabel(svg, O3, A3, fig.radius.value, keyPrefix + '|sd' + oL3 + cls3[0], -1);
 
   } else if(fig.type === 'height_distance'){
     // Heights & distances: observer, ground, tower, line of sight, angle of elevation
@@ -3074,7 +3201,17 @@ window.addEventListener('load', function(){
         sides:[ {between:'QR', value:'4.5 cm'} ] } },
     { label:'Height & Distance', fig:{ type:'height_distance',
         angle:{value:'60°', approx:60}, height:{value:'h'}, distance:{value:'40 m'},
-        observerLabel:'A', baseLabel:'B', topLabel:'C' } }
+        observerLabel:'A', baseLabel:'B', topLabel:'C' } },
+    { label:'Tangent from a point', fig:{ type:'circle_tangent',
+        centerLabel:'O', touchLabel:'T', externalLabel:'P',
+        radius:{value:'5 cm'}, tangent:{value:'x'}, line:{value:'13 cm'} } },
+    { label:'Two tangents', fig:{ type:'circle_two_tangents',
+        centerLabel:'O', externalLabel:'P', touchLabels:['A','B'],
+        tangents:[ {seg:'PA', value:'12'}, {seg:'PB', value:'x'} ],
+        radius:{value:'5'}, angleAtP:{value:'θ', approx:40} } },
+    { label:'Chord & perpendicular', fig:{ type:'circle_chord',
+        centerLabel:'O', chordLabels:['A','B'], footLabel:'M',
+        chord:{value:'8'}, perp:{value:'6 cm'}, radius:{value:'r'} } }
   ]);
   // Demo the highlight: option (c) glows after 2 seconds
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
