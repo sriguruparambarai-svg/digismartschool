@@ -169,6 +169,13 @@ html,body{
   color:var(--sandal);outline:none;resize:vertical;
 }
 .rq-text:focus{border-color:var(--gold);}
+.rq-body{flex:1;display:flex;flex-direction:column;gap:6px;}
+.rq-body .rq-text{flex:none;width:100%;}
+.rq-note{
+  font-size:.72rem;font-weight:800;color:#FFD86A;
+  background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.35);
+  border-radius:8px;padding:6px 10px;
+}
 .review-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
 .review-btn{
   padding:13px 18px;border-radius:12px;border:2px solid rgba(201,168,76,.3);
@@ -818,10 +825,10 @@ async function solveAndTeach(){
   var ls = document.querySelector('.loading-sub');
   if(TEACH_LANG === 'mix'){
     if(lt) lt.textContent = 'Preparing Tamil + English teacher...';
-    if(ls) ls.textContent = 'Mrs. Priya is preparing the class in Tamil-English mix style with rough work.';
+    if(ls) ls.textContent = 'AI Teacher is preparing the class in Tamil-English mix style with rough work.';
   } else {
     if(lt) lt.textContent = 'Preparing English teacher...';
-    if(ls) ls.textContent = 'Mrs. Priya is preparing the step-by-step class with rough work.';
+    if(ls) ls.textContent = 'AI Teacher is preparing the step-by-step class with rough work.';
   }
 
   try {
@@ -947,7 +954,9 @@ async function solveAndTeach(){
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
       + '9. 4 to 8 steps total.\n'
       + '10. Final answer must be SHORT.\n'
-      + '11. Every script sounds like an intellectual professor — precise, focused, no emotional words.';
+      + '11. Every script sounds like an intellectual professor — precise, focused, no emotional words.\n'
+      + '12. ANGLES: write the ° symbol in main text, but in every SPOKEN script say the English word "degrees" after the number (e.g. "134 degrees"), never the bare number.\n'
+      + '13. Every step script must state WHY — name the rule or property being used, not only the arithmetic. Geometry example: "co-interior angles sum to 180 degrees, so the lines are parallel".';
 
     var resp = await fetch('/api/ai', {
       method: 'POST',
@@ -1414,6 +1423,9 @@ function mathToSpeech(text){
   t = t.replace(/±/g, ' plus or minus ');
   t = t.replace(/∞/g, ' infinity ');
   t = t.replace(/°/g, ' degrees ');
+  t = t.replace(/º/g, ' degrees ');   // masculine ordinal look-alike
+  t = t.replace(/⁰/g, ' degrees ');   // superscript zero look-alike
+  t = t.replace(/˚/g, ' degrees ');   // ring-above look-alike
   t = t.replace(/₀/g, ' zero ');
   t = t.replace(/₁/g, ' one ');
   t = t.replace(/₂/g, ' two ');
@@ -2199,7 +2211,10 @@ async function extractQuestionsFromPhoto(base64, mediaType){
       + '- Each question must be complete with ALL its given numbers and values.\n'
       + '- Write maths clearly using symbols: \u00D7 \u00F7 \u00B2 \u00B3 \u03C0 \u221A and fractions as 3/4.\n'
       + '- Remove question numbers like "3." or "Q5)" from the start of each question.\n'
-      + '- IGNORE page numbers, headers, footers, decorative icons, pictures, answers and worked solutions.\n'
+      + '- If a question refers to a figure or diagram, DESCRIBE the figure in words INSIDE the question text, including every marked angle, length and line label. Example: "In which figure is m parallel to n? Figure (a): lines m and n cut by transversal t, marked angles 43° and 134°. Figure (b): ..."\n'
+      + '- Start every figure-based question with the tag [FIGURE] so the teacher can verify it.\n'
+      + '- Read every number VERY carefully digit by digit — never swap digits (134 is NOT 143, 43 is NOT 34).\n'
+      + '- IGNORE page numbers, headers, footers, decorative icons, answers and worked solutions.\n'
       + '- If a question has sub-parts (a), (b), keep them together as ONE question.\n'
       + '- If no maths questions are visible, return {"questions":[]}';
 
@@ -2250,13 +2265,18 @@ function showReviewScreen(questions){
   var list = $('review-list');
   list.innerHTML = '';
   questions.forEach(function(q){
+    var isFigure = /^\s*\[FIGURE\]\s*/i.test(q);
+    var cleanQ = q.replace(/^\s*\[FIGURE\]\s*/i, '');
     var row = document.createElement('div');
     row.className = 'rq-row';
     row.innerHTML =
       '<label class="rq-check"><input type="checkbox" checked/><span class="rq-box">\u2713</span></label>' +
-      '<textarea class="rq-text" rows="2"></textarea>';
+      '<div class="rq-body">' +
+        (isFigure ? '<div class="rq-note">\uD83D\uDCD0 This question uses a diagram \u2014 please verify the angle values against the book.</div>' : '') +
+        '<textarea class="rq-text" rows="2"></textarea>' +
+      '</div>';
     list.appendChild(row);
-    row.querySelector('.rq-text').value = q;
+    row.querySelector('.rq-text').value = cleanQ;
     row.querySelector('input[type=checkbox]').addEventListener('change', updateReviewCount);
   });
   updateReviewCount();
