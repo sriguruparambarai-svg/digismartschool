@@ -129,6 +129,62 @@ html,body{
   transition:all .2s;
 }
 .ec:hover{background:rgba(201,168,76,.12);border-color:var(--gold);}
+/* ── Photo Upload + Review Screen ── */
+.or-divider{display:flex;align-items:center;gap:12px;margin:20px 0 4px;}
+.or-divider::before,.or-divider::after{content:'';flex:1;height:1px;background:rgba(201,168,76,.25);}
+.or-divider span{font-size:.7rem;font-weight:800;color:rgba(232,201,154,.55);letter-spacing:2px;}
+.photo-card{
+  margin-top:10px;padding:18px;
+  background:rgba(255,255,255,.05);
+  border:2px dashed rgba(201,168,76,.4);border-radius:14px;
+  display:flex;align-items:center;gap:14px;cursor:pointer;
+  transition:all .2s;
+}
+.photo-card:hover{background:rgba(201,168,76,.1);border-color:var(--gold);}
+.photo-card .pc-icon{font-size:2rem;}
+.photo-card .pc-title{font-weight:900;color:var(--sandal);font-size:.95rem;}
+.photo-card .pc-sub{font-size:.75rem;color:rgba(232,201,154,.6);margin-top:2px;line-height:1.5;}
+.review{display:none;padding:30px 20px;max-width:760px;margin:0 auto;min-height:calc(100vh - 50px);}
+.review.show{display:block;}
+.rq-row{display:flex;gap:12px;align-items:flex-start;margin-bottom:12px;}
+.rq-check{position:relative;cursor:pointer;margin-top:8px;flex-shrink:0;}
+.rq-check input{position:absolute;opacity:0;width:0;height:0;}
+.rq-box{
+  display:flex;align-items:center;justify-content:center;
+  width:26px;height:26px;border-radius:8px;
+  border:2px solid rgba(201,168,76,.4);
+  background:rgba(255,255,255,.05);
+  color:transparent;font-weight:900;font-size:.9rem;
+  transition:all .15s;
+}
+.rq-check input:checked + .rq-box{
+  background:linear-gradient(135deg,var(--gold),#FFD86A);
+  color:#3a1b0a;border-color:var(--gold);
+}
+.rq-text{
+  flex:1;padding:10px 14px;
+  background:rgba(255,255,255,.06);
+  border:2px solid rgba(201,168,76,.25);border-radius:10px;
+  font-family:'Crimson Pro',serif;font-size:1rem;line-height:1.55;
+  color:var(--sandal);outline:none;resize:vertical;
+}
+.rq-text:focus{border-color:var(--gold);}
+.review-actions{display:flex;gap:10px;margin-top:20px;flex-wrap:wrap;}
+.review-btn{
+  padding:13px 18px;border-radius:12px;border:2px solid rgba(201,168,76,.3);
+  background:rgba(255,255,255,.05);color:var(--sandal);
+  font-family:Nunito,sans-serif;font-weight:800;font-size:.88rem;cursor:pointer;
+  transition:all .2s;
+}
+.review-btn:hover{background:rgba(201,168,76,.12);}
+.review-btn.primary{
+  flex:1;min-width:220px;
+  background:linear-gradient(135deg,var(--gold),#FFD86A);
+  color:#3a1b0a;border-color:var(--gold);font-weight:900;font-size:1rem;
+  box-shadow:0 5px 18px rgba(201,168,76,.35);
+}
+.review-btn.primary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none;}
+
 .solve-btn{
   width:100%;padding:16px;margin-top:24px;
   background:linear-gradient(135deg,var(--gold),#FFD86A);
@@ -567,6 +623,17 @@ html,body{
     <div class="ec" onclick="loadExample('word')">Word problem</div>
   </div>
 
+  <div class="or-divider"><span>OR</span></div>
+
+  <div class="photo-card" onclick="openPhotoUpload()">
+    <div class="pc-icon">📷</div>
+    <div>
+      <div class="pc-title">Upload Photo of Questions</div>
+      <div class="pc-sub">Take a photo of the textbook page or question paper — AI will read the questions, and you choose which ones to teach.</div>
+    </div>
+  </div>
+  <input type="file" id="photo-file-input" accept="image/*" style="display:none;" onchange="handlePhotoSelected(event)"/>
+
   <div class="meta-row">
     <div class="field">
       <div class="field-label" style="margin-top:0;">🎓 Class</div>
@@ -599,6 +666,26 @@ html,body{
   <button class="solve-btn" id="solve-btn" onclick="solveAndTeach()">
     ✏️ Solve & Teach Step-by-Step
   </button>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     PHOTO REVIEW — tick the questions to teach
+═══════════════════════════════════════════ -->
+<div class="review" id="review">
+  <div class="setup-card">
+    <div class="setup-label">DigiSmartSchool</div>
+    <div class="setup-title">✅ Check the Questions</div>
+    <div class="setup-desc">
+      These questions were read from your photo. Untick the ones you don't want,
+      and tap any question to correct the text if the AI misread something.
+    </div>
+  </div>
+  <div id="review-list"></div>
+  <div class="review-actions">
+    <button class="review-btn" onclick="retakePhoto()">📷 Retake Photo</button>
+    <button class="review-btn" onclick="cancelReview()">← Back</button>
+    <button class="review-btn primary" id="review-start-btn" onclick="startSelectedQuestions()">✏️ Start Class</button>
+  </div>
 </div>
 
 <!-- ═══════════════════════════════════════════
@@ -658,6 +745,7 @@ html,body{
     </div>
     <button class="ctrl-btn tamil" onclick="explainTamil()">🇮🇳 Tamil</button>
     <button class="ctrl-btn" onclick="restartSetup()">📝 New</button>
+    <button class="ctrl-btn" id="btn-nextq" onclick="nextQueuedQuestion()" style="display:none;">➡ Next Q</button>
   </div>
 </div>
 
@@ -2038,6 +2126,211 @@ async function explainTamil(){
 }
 
 // ═══════════════════════════════════════════
+// PHOTO UPLOAD -> VISION EXTRACTION -> REVIEW -> QUEUE
+// ═══════════════════════════════════════════
+var QUESTION_QUEUE = [];   // Selected questions from the review screen
+var QUEUE_IDX = 0;         // Which question is currently being taught
+
+function openPhotoUpload(){
+  var inp = $('photo-file-input');
+  inp.value = '';
+  inp.click();
+}
+
+function handlePhotoSelected(ev){
+  var file = ev.target.files && ev.target.files[0];
+  if(!file) return;
+  if(!/^image\//.test(file.type)){
+    showError('Please choose a photo (JPG or PNG).');
+    return;
+  }
+  hideError();
+  compressPhoto(file).then(function(res){
+    extractQuestionsFromPhoto(res.base64, res.mediaType);
+  }).catch(function(){
+    showError('Could not read this photo file. Please try another one.');
+  });
+}
+
+// Shrink the photo in the browser so upload stays small and fast
+function compressPhoto(file){
+  return new Promise(function(resolve, reject){
+    var reader = new FileReader();
+    reader.onload = function(){
+      var img = new Image();
+      img.onload = function(){
+        var MAX = 1568;
+        var w = img.width, h = img.height;
+        if(w > MAX || h > MAX){
+          var scale = MAX / Math.max(w, h);
+          w = Math.round(w * scale);
+          h = Math.round(h * scale);
+        }
+        var canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        resolve({ base64: dataUrl.split(',')[1], mediaType: 'image/jpeg' });
+      };
+      img.onerror = reject;
+      img.src = reader.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+async function extractQuestionsFromPhoto(base64, mediaType){
+  $('loading').classList.add('show');
+  var lt = document.querySelector('.loading-text');
+  var ls = document.querySelector('.loading-sub');
+  if(lt) lt.textContent = 'Reading questions from photo...';
+  if(ls) ls.textContent = 'AI is reading the maths questions in your photo. This takes a few seconds.';
+
+  try{
+    var sys = 'You read photos of maths textbook pages and question papers. '
+      + 'You extract ONLY the maths questions and return ONLY valid JSON - no markdown, no explanation.';
+    var prompt = 'Extract every maths question visible in this photo.\n'
+      + 'Rules:\n'
+      + '- Return ONLY valid JSON in this exact shape: {"questions":["question 1","question 2"]}\n'
+      + '- Each question must be complete with ALL its given numbers and values.\n'
+      + '- Write maths clearly using symbols: \u00D7 \u00F7 \u00B2 \u00B3 \u03C0 \u221A and fractions as 3/4.\n'
+      + '- Remove question numbers like "3." or "Q5)" from the start of each question.\n'
+      + '- IGNORE page numbers, headers, footers, decorative icons, pictures, answers and worked solutions.\n'
+      + '- If a question has sub-parts (a), (b), keep them together as ONE question.\n'
+      + '- If no maths questions are visible, return {"questions":[]}';
+
+    var resp = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        system: sys,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+            { type: 'text', text: prompt }
+          ]
+        }],
+        max_tokens: 2500
+      })
+    });
+    if(!resp.ok) throw new Error('API error ' + resp.status);
+    var data = await resp.json();
+    var text = '';
+    if(data && Array.isArray(data.content)){
+      text = data.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('').trim();
+    } else if(data && data.text){
+      text = data.text.trim();
+    }
+    text = text.replace(/^```json\s*|^```\s*|\s*```$/gm, '').trim();
+    var fb = text.indexOf('{'), lb = text.lastIndexOf('}');
+    if(fb >= 0 && lb > fb) text = text.substring(fb, lb + 1);
+    var parsed = JSON.parse(text);
+    var qs = (parsed && Array.isArray(parsed.questions)) ? parsed.questions : [];
+    qs = qs.map(function(q){ return String(q).trim(); }).filter(function(q){ return q.length > 4; });
+
+    $('loading').classList.remove('show');
+    if(qs.length === 0){
+      showError('Could not read any questions from the photo. Please retake it with better lighting, holding the camera straight above the page.');
+      return;
+    }
+    showReviewScreen(qs);
+  }catch(e){
+    $('loading').classList.remove('show');
+    showError('Could not read the photo. Please retake it with better lighting and try again.');
+  }
+}
+
+// -- REVIEW SCREEN --
+function showReviewScreen(questions){
+  var list = $('review-list');
+  list.innerHTML = '';
+  questions.forEach(function(q){
+    var row = document.createElement('div');
+    row.className = 'rq-row';
+    row.innerHTML =
+      '<label class="rq-check"><input type="checkbox" checked/><span class="rq-box">\u2713</span></label>' +
+      '<textarea class="rq-text" rows="2"></textarea>';
+    list.appendChild(row);
+    row.querySelector('.rq-text').value = q;
+    row.querySelector('input[type=checkbox]').addEventListener('change', updateReviewCount);
+  });
+  updateReviewCount();
+  $('setup').classList.add('hidden');
+  $('review').classList.add('show');
+  window.scrollTo(0, 0);
+}
+
+function updateReviewCount(){
+  var n = document.querySelectorAll('#review-list input[type=checkbox]:checked').length;
+  var btn = $('review-start-btn');
+  if(!btn) return;
+  if(n === 0){
+    btn.textContent = 'Select at least one question';
+    btn.disabled = true;
+  } else {
+    btn.textContent = '\u270F\uFE0F Start Class - ' + n + ' question' + (n > 1 ? 's' : '');
+    btn.disabled = false;
+  }
+}
+
+function retakePhoto(){
+  $('review').classList.remove('show');
+  $('setup').classList.remove('hidden');
+  openPhotoUpload();
+}
+
+function cancelReview(){
+  $('review').classList.remove('show');
+  $('setup').classList.remove('hidden');
+}
+
+function startSelectedQuestions(){
+  var rows = document.querySelectorAll('#review-list .rq-row');
+  var chosen = [];
+  rows.forEach(function(row){
+    var cb = row.querySelector('input[type=checkbox]');
+    var txt = row.querySelector('.rq-text').value.trim();
+    if(cb.checked && txt.length > 4) chosen.push(txt);
+  });
+  if(chosen.length === 0) return;
+  QUESTION_QUEUE = chosen;
+  QUEUE_IDX = 0;
+  $('review').classList.remove('show');
+  $('setup').classList.remove('hidden');
+  $('problem-input').value = QUESTION_QUEUE[0];
+  updateNextQButton();
+  solveAndTeach();
+}
+
+function nextQueuedQuestion(){
+  if(QUEUE_IDX >= QUESTION_QUEUE.length - 1) return;
+  QUEUE_IDX++;
+  if(IS_PLAYING) pausePlayback();
+  SOLUTION = null;
+  STEP_IDX = -1;
+  $('classroom').classList.remove('show');
+  $('toolbar').style.display = 'none';
+  $('setup').classList.remove('hidden');
+  $('solve-btn').disabled = false;
+  $('problem-input').value = QUESTION_QUEUE[QUEUE_IDX];
+  updateNextQButton();
+  solveAndTeach();
+}
+
+function updateNextQButton(){
+  var btn = $('btn-nextq');
+  if(!btn) return;
+  var more = QUESTION_QUEUE.length > 1 && QUEUE_IDX < QUESTION_QUEUE.length - 1;
+  btn.style.display = more ? '' : 'none';
+  if(more) btn.textContent = '\u27A1 Next Q (' + (QUEUE_IDX + 2) + '/' + QUESTION_QUEUE.length + ')';
+}
+
+// ═══════════════════════════════════════════
 // NAVIGATION HELPERS
 // ═══════════════════════════════════════════
 function restartSetup(){
@@ -2048,6 +2341,12 @@ function restartSetup(){
   $('toolbar').style.display = 'none';
   $('setup').classList.remove('hidden');
   $('solve-btn').disabled = false;
+  QUESTION_QUEUE = [];
+  QUEUE_IDX = 0;
+  var nqBtn = $('btn-nextq');
+  if(nqBtn) nqBtn.style.display = 'none';
+  var rv = $('review');
+  if(rv) rv.classList.remove('show');
 }
 
 function goBack(){
