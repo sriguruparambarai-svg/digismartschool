@@ -983,9 +983,11 @@ async function solveAndTeach(){
       + '      "roughA": "first number e.g. 40",\n'
       + '      "roughB": "second number e.g. 41",\n'
       + '      "roughResult": "the result e.g. 1640",\n'
-      + '      "roughCustom": "only used if roughType is custom"\n'
+      + '      "roughCustom": "only used if roughType is custom",\n'
+      + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
       + '    }\n'
       + '  ],\n'
+      + '  "figures": [ OPTIONAL - only for line-geometry questions, see FIGURES section below ],\n'
       + '  "finalAnswer": "short final answer e.g. Sum = 820",\n'
       + '  "finalScript": "1 sentence stating the final result (no celebration, just conclusion)",\n'
       + '  "verificationScript": "OPTIONAL verification, empty string if none"\n'
@@ -997,6 +999,22 @@ async function solveAndTeach(){
       + '  - "mul":  multiplication — auto-renders vertical column format\n'
       + '  - "div":  division — auto-renders Indian bracket format\n'
       + '  - "custom": complex — put full explanation in roughCustom field\n\n'
+      + '════════ FIGURES (line-geometry questions ONLY) ════════\n'
+      + 'If (and ONLY if) the question is about parallel lines, a transversal, intersecting lines, or angles on a straight line, add a top-level "figures" array so the figures are DRAWN on the blackboard:\n'
+      + '  "figures": [\n'
+      + '    {"label":"(a)","type":"transversal","parallel":true,"labels":{"top":"m","bottom":"n","trans":"t"},"angles":[{"at":"top","pos":"ur","value":"43°"},{"at":"bottom","pos":"ll","value":"134°"}]}\n'
+      + '  ]\n'
+      + 'Figure types:\n'
+      + '  - "transversal": two lines (top/bottom) cut by a transversal. "parallel":true/false controls drawing. Each angle: "at" = "top" or "bottom" intersection; "pos" = corner at that intersection: "ur" upper-right, "ul" upper-left, "ll" lower-left, "lr" lower-right; "value" = the marked angle text.\n'
+      + '  - "intersecting": two lines crossing at one point. Angles use "pos" only (no "at"). Optional "labels":{"a":"AB","b":"CD"}.\n'
+      + '  - "straight_line": rays standing on a line. "angles" listed LEFT to RIGHT: [{"value":"60°","approx":60},{"value":"x","approx":55},...]. "approx" = numeric degrees used for drawing (required when value is a variable). Values must sum to about 180.\n'
+      + 'Use the EXACT angle positions from the question. For MCQ questions with options (a)-(d), give one figure per option with matching "label".\n'
+      + 'STEP LINKING: any step that discusses one particular figure or angle should include "figRef":\n'
+      + '  - highlight a whole option: "figRef":{"figure":"(c)"}\n'
+      + '  - highlight one angle (transversal): "figRef":{"figure":"(c)","at":"top","pos":"ur"}\n'
+      + '  - intersecting: "figRef":{"figure":"","at":"c","pos":"ur"}  (single figure: label may be "")\n'
+      + '  - straight_line: "figRef":{"figure":"","angleIndex":1}  (0-based, left to right)\n'
+      + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
       + '2. main field = ONLY the math expression. NO English sentences on the board.\n'
@@ -1139,6 +1157,16 @@ function showClassroom(){
 
   // Render problem title and text
   $('problem-text').textContent = SOLUTION.problem || $('problem-input').value;
+
+  // Draw line-geometry figures if the solution includes them
+  clearFigures();
+  if(SOLUTION.figures && SOLUTION.figures.length){
+    try{
+      renderFigureSet(SOLUTION.figures.map(function(f){
+        return { label: f.label || '', fig: f };
+      }));
+    }catch(e){ clearFigures(); }
+  }
 
   // Reset everything
   $('formula-block').classList.remove('show');
@@ -1757,6 +1785,9 @@ async function showStep(idx){
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
+  // Glow the figure / angle this step talks about
+  applyStepFigRef(step);
+
   // Wait for parent fade-in to finish so chalk animation isn't masked
   await sleep(200);
   if(!IS_PLAYING) return;
@@ -2028,6 +2059,7 @@ function showStepInstant(idx){
   if(stepEl){
     stepEl.classList.add('current');
     stepEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if(SOLUTION && SOLUTION.steps && SOLUTION.steps[idx]) applyStepFigRef(SOLUTION.steps[idx]);
   }
 }
 
@@ -2331,7 +2363,7 @@ function _figSvgBase(w, h){
 
 // ── The three figure types ──
 function renderLineFigure(fig, keyPrefix){
-  keyPrefix = keyPrefix || 'f';
+  if(keyPrefix == null) keyPrefix = '';
   var base = _figSvgBase(320, 230);
   var svg = base.svg, mk = base.marker;
   var labels = fig.labels || {};
@@ -2417,14 +2449,14 @@ function renderFigureSet(figs){
     var card = document.createElement('div');
     card.className = 'fig-card';
     var label = item.label || '';
-    card.setAttribute('data-figlabel', label || ('#' + idx));
+    card.setAttribute('data-figlabel', label);
     if(label){
       var cap = document.createElement('div');
       cap.className = 'fig-caption';
       cap.textContent = label;
       card.appendChild(cap);
     }
-    card.appendChild(renderLineFigure(item.fig || item, label || ('#' + idx)));
+    card.appendChild(renderLineFigure(item.fig || item, label));
     area.appendChild(card);
   });
   area.style.display = 'flex';
@@ -2443,6 +2475,22 @@ function highlightFigureAngle(key){
   document.querySelectorAll('#figure-area .fig-angle').forEach(function(g){
     g.classList.toggle('fig-glow', g.getAttribute('data-figkey') === key);
   });
+}
+
+// Apply a step's figRef: glow the option card and/or the specific angle
+function applyStepFigRef(step){
+  if(!step || !step.figRef) return;   // keep the previous highlight (teacher keeps pointing)
+  var fr = step.figRef;
+  var fig = (fr.figure != null) ? String(fr.figure) : '';
+  if(fig !== '') highlightFigureCard(fig);
+  var key = null;
+  if(typeof fr.angleIndex === 'number'){
+    key = fig + '|s' + fr.angleIndex;
+  } else if(fr.pos){
+    var at = fr.at || 'c';
+    key = fig + '|' + at + '|' + fr.pos;
+  }
+  if(key) highlightFigureAngle(key);
 }
 
 // ═══════════════════════════════════════════
@@ -2711,6 +2759,7 @@ function nextQueuedQuestion(){
   $('toolbar').style.display = 'none';
   $('setup').classList.remove('hidden');
   $('solve-btn').disabled = false;
+  clearFigures();
   $('problem-input').value = QUESTION_QUEUE[QUEUE_IDX];
   updateNextQButton();
   solveAndTeach();
@@ -2741,6 +2790,7 @@ function restartSetup(){
   if(nqBtn) nqBtn.style.display = 'none';
   var rv = $('review');
   if(rv) rv.classList.remove('show');
+  clearFigures();
 }
 
 function goBack(){
