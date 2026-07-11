@@ -1030,6 +1030,10 @@ async function solveAndTeach(){
       + '    {"type":"triangle_points","labels":["B","A","P"],"points":[{"label":"D","on":"BA","at":0.62},{"label":"E","on":"BP","at":0.385},{"label":"C","on":"BP","at":0.62}],"segments":[{"from":"D","to":"E"},{"from":"D","to":"C"},{"from":"A","to":"C"}],"parallels":[["DE","AC"],["DC","AP"]],"values":[]}\n'
       + '    Rules: labels order = [top vertex, bottom-left, bottom-right]; every label ONE letter. "on" = two vertex letters; "at" = ratio 0.1-0.9 from the first letter (drawing only — pick ratios that make declared parallels LOOK parallel). parallels = pairs of 2-letter segment names; the 1st pair is drawn with single > marks, the 2nd with double >>. values optional: [{"seg":"BE","value":"3"}].\n'
       + '    Step linking: "figRef":{"figure":"","seg":"BE"} for any labeled value; "figRef":{"figure":"","vertex":"B"} for vertex angles.\n'
+      + 'GRAPH figure type (coordinate geometry, straight lines, quadratic/function graphs):\n'
+      + '  - "graph": {"type":"graph","xRange":[-6,6],"yRange":[-6,6],"points":[{"label":"A","x":1,"y":2},{"label":"B","x":4,"y":6},{"label":"C","x":6,"y":1}],"closeShape":["A","B","C"],"segments":[],"lines":[{"m":2,"c":-1,"label":"y = 2x \u2212 1"}],"parabolas":[{"a":1,"b":0,"c":-4,"label":"y = x\u00b2 \u2212 4"}]}\n'
+      + '    Rules: xRange/yRange = integer axis ranges that comfortably contain everything. points = plotted dots with labels. closeShape = polygon through named points (area-of-triangle/quadrilateral questions). segments = extra joins. lines = y = mx + c (or vertical: {"x":3,"label":"x = 3"}). parabolas = y = ax\u00b2 + bx + c. Include ONLY the parts the question needs. For quadratic-graph questions also add the ROOTS and VERTEX as points.\n'
+      + '    Step linking: point "figRef":{"figure":"","point":"A"}; line "figRef":{"figure":"","line":0}; parabola "figRef":{"figure":"","parabola":0} (0-based index).\n'
       + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
@@ -2712,6 +2716,153 @@ function renderLineFigure(fig, keyPrefix){
       _figKeyedText(svg, Mv.x + dxv / mv * 15, Mv.y + dyv / mv * 15, vl.value, keyPrefix + '|sg' + nm2);
     });
 
+  } else if(fig.type === 'graph'){
+    // Coordinate plane: grid, axes, points, segments, shapes, lines y=mx+c, parabolas
+    var xr = (fig.xRange && fig.xRange.length === 2) ? fig.xRange.slice() : [-6, 6];
+    var yr = (fig.yRange && fig.yRange.length === 2) ? fig.yRange.slice() : [-6, 6];
+    if(xr[0] >= xr[1]) xr = [-6, 6];
+    if(yr[0] >= yr[1]) yr = [-6, 6];
+    var PL = 38, PR = 306, PT = 14, PB = 218;   // plot area in screen px
+    function GX(x){ return PL + (x - xr[0]) / (xr[1] - xr[0]) * (PR - PL); }
+    function GY(y){ return PB - (y - yr[0]) / (yr[1] - yr[0]) * (PB - PT); }
+    var stepX = Math.max(1, Math.ceil((xr[1] - xr[0]) / 10));
+    var stepY = Math.max(1, Math.ceil((yr[1] - yr[0]) / 10));
+    var gx, gy;
+    // grid
+    for(gx = Math.ceil(xr[0]); gx <= xr[1]; gx += stepX){
+      svg.appendChild(_figEl('line', { x1: GX(gx), y1: PT, x2: GX(gx), y2: PB,
+        stroke: 'rgba(255,255,255,.08)', 'stroke-width': 1 }));
+    }
+    for(gy = Math.ceil(yr[0]); gy <= yr[1]; gy += stepY){
+      svg.appendChild(_figEl('line', { x1: PL, y1: GY(gy), x2: PR, y2: GY(gy),
+        stroke: 'rgba(255,255,255,.08)', 'stroke-width': 1 }));
+    }
+    // axes (through 0 when visible, else at the edges)
+    var axY = (yr[0] <= 0 && yr[1] >= 0) ? GY(0) : PB;   // x-axis screen y
+    var axX = (xr[0] <= 0 && xr[1] >= 0) ? GX(0) : PL;   // y-axis screen x
+    svg.appendChild(_figEl('line', { x1: PL - 6, y1: axY, x2: PR + 6, y2: axY,
+      stroke: 'rgba(245,245,240,.9)', 'stroke-width': 1.8,
+      'marker-start': 'url(#' + mk + ')', 'marker-end': 'url(#' + mk + ')' }));
+    svg.appendChild(_figEl('line', { x1: axX, y1: PB + 6, x2: axX, y2: PT - 6,
+      stroke: 'rgba(245,245,240,.9)', 'stroke-width': 1.8,
+      'marker-start': 'url(#' + mk + ')', 'marker-end': 'url(#' + mk + ')' }));
+    _figText(svg, PR + 8, axY - 10, 'x', 14, 'rgba(232,201,154,.85)', 'start');
+    _figText(svg, axX + 10, PT - 4, 'y', 14, 'rgba(232,201,154,.85)', 'start');
+    // tick numbers
+    for(gx = Math.ceil(xr[0]); gx <= xr[1]; gx += stepX){
+      if(gx === 0 && axX !== PL) continue;
+      var tt = _figEl('text', { x: GX(gx), y: axY + 12, 'font-family': 'Nunito, sans-serif',
+        'font-size': 8.5, fill: 'rgba(232,201,154,.65)', 'text-anchor': 'middle' });
+      tt.textContent = gx; svg.appendChild(tt);
+    }
+    for(gy = Math.ceil(yr[0]); gy <= yr[1]; gy += stepY){
+      if(gy === 0) continue;
+      var tt2 = _figEl('text', { x: axX - 6, y: GY(gy) + 3, 'font-family': 'Nunito, sans-serif',
+        'font-size': 8.5, fill: 'rgba(232,201,154,.65)', 'text-anchor': 'end' });
+      tt2.textContent = gy; svg.appendChild(tt2);
+    }
+    // named points lookup
+    var GP = {};
+    (fig.points || []).forEach(function(p){
+      if(typeof p.x !== 'number' || typeof p.y !== 'number') return;
+      GP[p.label || ''] = { x: GX(p.x), y: GY(p.y), wx: p.x, wy: p.y };
+    });
+    // closed shape (polygon through named points) drawn under everything else
+    if(fig.closeShape && fig.closeShape.length >= 3){
+      var dPath = '';
+      fig.closeShape.forEach(function(L, i){
+        var pp = GP[L]; if(!pp) return;
+        dPath += (i === 0 ? 'M ' : 'L ') + pp.x.toFixed(1) + ' ' + pp.y.toFixed(1) + ' ';
+      });
+      if(dPath){
+        svg.appendChild(_figEl('path', { d: dPath + 'Z', fill: 'rgba(201,168,76,.10)',
+          stroke: 'rgba(245,245,240,.9)', 'stroke-width': 2.1, 'stroke-linejoin': 'round' }));
+      }
+    }
+    // segments between named points
+    (fig.segments || []).forEach(function(sg){
+      var a5 = GP[sg.from], b5 = GP[sg.to];
+      if(a5 && b5) _figPlainLine(svg, a5, b5, 2.1);
+    });
+    // straight lines: y = m x + c, or vertical x = k
+    (fig.lines || []).forEach(function(ln, li){
+      var g5 = _figEl('g', { 'class': 'fig-angle' });
+      g5.setAttribute('data-figkey', keyPrefix + '|ln' + li);
+      var pts5 = [];
+      if(typeof ln.x === 'number' && typeof ln.m !== 'number'){
+        pts5 = [{ x: GX(ln.x), y: PT }, { x: GX(ln.x), y: PB }];
+      } else {
+        var m5 = (typeof ln.m === 'number') ? ln.m : 1;
+        var c5 = (typeof ln.c === 'number') ? ln.c : 0;
+        // clip to plot: sample at the two x edges, clamp by y range
+        var cand = [];
+        [[xr[0], m5 * xr[0] + c5], [xr[1], m5 * xr[1] + c5]].forEach(function(q){ cand.push(q); });
+        if(m5 !== 0){
+          cand.push([(yr[0] - c5) / m5, yr[0]]);
+          cand.push([(yr[1] - c5) / m5, yr[1]]);
+        }
+        cand.forEach(function(q){
+          if(q[0] >= xr[0] - 1e-9 && q[0] <= xr[1] + 1e-9 && q[1] >= yr[0] - 1e-9 && q[1] <= yr[1] + 1e-9){
+            pts5.push({ x: GX(q[0]), y: GY(q[1]) });
+          }
+        });
+        pts5.sort(function(a6, b6){ return a6.x - b6.x; });
+        if(pts5.length > 2) pts5 = [pts5[0], pts5[pts5.length - 1]];
+      }
+      if(pts5.length === 2){
+        g5.appendChild(_figEl('line', { x1: pts5[0].x, y1: pts5[0].y, x2: pts5[1].x, y2: pts5[1].y,
+          stroke: 'rgba(159,211,255,.95)', 'stroke-width': 2.2, 'stroke-linecap': 'round' }));
+        if(ln.label){
+          var lt5 = _figEl('text', { x: pts5[1].x - 6, y: pts5[1].y - 8, 'font-family': 'Caveat, cursive',
+            'font-size': 15, fill: 'rgba(159,211,255,.95)', 'text-anchor': 'end' });
+          lt5.textContent = ln.label; g5.appendChild(lt5);
+        }
+      }
+      svg.appendChild(g5);
+    });
+    // parabolas: y = a x^2 + b x + c
+    (fig.parabolas || []).forEach(function(pb, pi2){
+      var a7 = (typeof pb.a === 'number') ? pb.a : 1;
+      var b7 = (typeof pb.b === 'number') ? pb.b : 0;
+      var c7 = (typeof pb.c === 'number') ? pb.c : 0;
+      var g7 = _figEl('g', { 'class': 'fig-angle' });
+      g7.setAttribute('data-figkey', keyPrefix + '|pb' + pi2);
+      var d7 = '', pen = false, N = 60;
+      var labelPt = null, bestY = 1e9;
+      for(var i7 = 0; i7 <= N; i7++){
+        var wx = xr[0] + (xr[1] - xr[0]) * i7 / N;
+        var wy = a7 * wx * wx + b7 * wx + c7;
+        if(wy < yr[0] - 0.001 || wy > yr[1] + 0.001){ pen = false; continue; }
+        var sxp = GX(wx), syp = GY(wy);
+        d7 += (pen ? 'L ' : 'M ') + sxp.toFixed(1) + ' ' + syp.toFixed(1) + ' ';
+        pen = true;
+        if(syp < bestY){ bestY = syp; labelPt = { x: sxp, y: syp }; }
+      }
+      if(d7){
+        g7.appendChild(_figEl('path', { d: d7, fill: 'none',
+          stroke: 'rgba(159,211,255,.95)', 'stroke-width': 2.2, 'stroke-linecap': 'round' }));
+        if(pb.label && labelPt){
+          var lt7 = _figEl('text', { x: labelPt.x + 8, y: Math.max(PT + 10, labelPt.y - 6),
+            'font-family': 'Caveat, cursive', 'font-size': 15,
+            fill: 'rgba(159,211,255,.95)', 'text-anchor': 'start' });
+          lt7.textContent = pb.label; g7.appendChild(lt7);
+        }
+      }
+      svg.appendChild(g7);
+    });
+    // plotted points on top (gold dots, glow-able)
+    Object.keys(GP).forEach(function(L){
+      var pp2 = GP[L];
+      var g8 = _figEl('g', { 'class': 'fig-angle' });
+      g8.setAttribute('data-figkey', keyPrefix + '|pt' + L);
+      g8.appendChild(_figEl('circle', { cx: pp2.x, cy: pp2.y, r: 3.6, fill: '#FFD86A' }));
+      var lt8 = _figEl('text', { x: pp2.x + 7, y: pp2.y - 7, 'font-family': 'Caveat, cursive',
+        'font-size': 15.5, fill: 'rgba(245,245,240,.95)', 'text-anchor': 'start' });
+      lt8.textContent = L + '(' + pp2.wx + ',' + pp2.wy + ')';
+      g8.appendChild(lt8);
+      svg.appendChild(g8);
+    });
+
   } else if(fig.type === 'circle_tangent'){
     // Tangent PT from external point P, radius OT, right angle at T
     var O1 = { x: 208, y: 112 }, r1 = 56;
@@ -2885,6 +3036,12 @@ function applyStepFigRef(step){
     key = fig + '|sd' + fr.side;
   } else if(fr.elev){
     key = fig + '|elev';
+  } else if(fr.point){
+    key = fig + '|pt' + fr.point;
+  } else if(typeof fr.line === 'number'){
+    key = fig + '|ln' + fr.line;
+  } else if(typeof fr.parabola === 'number'){
+    key = fig + '|pb' + fr.parabola;
   } else if(fr.pos){
     var at = fr.at || 'c';
     key = fig + '|' + at + '|' + fr.pos;
@@ -3291,7 +3448,16 @@ window.addEventListener('load', function(){
         points:[ {label:'D', on:'BA', at:0.62}, {label:'E', on:'BP', at:0.385}, {label:'C', on:'BP', at:0.62} ],
         segments:[ {from:'D', to:'E'}, {from:'D', to:'C'}, {from:'A', to:'C'} ],
         parallels:[ ['DE','AC'], ['DC','AP'] ],
-        values:[] } }
+        values:[] } },
+    { label:'Area of triangle', fig:{ type:'graph', xRange:[-1,7], yRange:[-1,7],
+        points:[ {label:'A', x:1, y:2}, {label:'B', x:4, y:6}, {label:'C', x:6, y:1} ],
+        closeShape:['A','B','C'] } },
+    { label:'Straight line', fig:{ type:'graph', xRange:[-4,4], yRange:[-6,6],
+        points:[ {label:'P', x:0, y:-1}, {label:'Q', x:2, y:3} ],
+        lines:[ {m:2, c:-1, label:'y = 2x − 1'} ] } },
+    { label:'Quadratic graph', fig:{ type:'graph', xRange:[-4,4], yRange:[-5,6],
+        points:[ {label:'', x:-2, y:0}, {label:'', x:2, y:0}, {label:'V', x:0, y:-4} ],
+        parabolas:[ {a:1, b:0, c:-4, label:'y = x² − 4'} ] } }
   ]);
   // Demo the highlight: option (c) glows after 2 seconds
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
