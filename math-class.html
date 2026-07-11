@@ -1418,11 +1418,20 @@ function numberToWords(num){
 // Replace all numbers >= 100 in text with their word form
 // Small numbers (0-99) left as digits — ElevenLabs reads them correctly
 function spellOutLargeNumbers(text){
-  return text.replace(/\b(\d+)\b/g, function(match, num){
+  var t = String(text);
+  // Remove commas INSIDE numbers so 8,34,529 becomes 834529 before conversion
+  t = t.replace(/(\d),(?=\d)/g, '$1');
+  // Decimals: read as "integer part point digit digit digit" (8.34529 -> eight point 3 4 5 2 9)
+  t = t.replace(/\b(\d+)\.(\d+)\b/g, function(m, intPart, decPart){
+    var n = parseInt(intPart, 10);
+    var intWords = (n >= 100 && n < 10000000000) ? numberToWords(n) : intPart;
+    return intWords + ' point ' + decPart.split('').join(' ');
+  });
+  // Whole numbers: spell out 100 and above in Indian lakh/crore words
+  // Keep small numbers as digits so they read naturally
+  return t.replace(/\b(\d+)\b/g, function(match, num){
     var n = parseInt(num, 10);
-    // Only spell out numbers that are commonly misread (100 and above)
-    // Keep small numbers as digits so they read naturally
-    if(n >= 100 && n < 100000000){
+    if(n >= 100 && n < 10000000000){
       return numberToWords(n);
     }
     return match;
@@ -1436,6 +1445,13 @@ function mathToSpeech(text){
   t = t.replace(/²/g, ' squared ');
   t = t.replace(/³/g, ' cubed ');
   t = t.replace(/⁴/g, ' to the power 4 ');
+  t = t.replace(/¹⁰/g, ' to the power 10 ');
+  t = t.replace(/⁵/g, ' to the power 5 ');
+  t = t.replace(/⁶/g, ' to the power 6 ');
+  t = t.replace(/⁷/g, ' to the power 7 ');
+  t = t.replace(/⁸/g, ' to the power 8 ');
+  t = t.replace(/⁹/g, ' to the power 9 ');
+  t = t.replace(/¹/g, ' to the power 1 ');
   t = t.replace(/([a-zA-Z0-9])\^([0-9]+)/g, function(m, base, pow){
     if(pow === '2') return base + ' squared ';
     if(pow === '3') return base + ' cubed ';
