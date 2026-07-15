@@ -1768,6 +1768,27 @@ async function drawDiagramLive(container, step, abort) {
     return await drawScienceDiagram(container, step, abort);
   }
 
+  // ── AI ROUGH SKETCH — draw ANY topic like a quick teacher chalk sketch ──
+  try {
+    const skTitle = Array.isArray(step.write) ? step.write[0] : (step.write || step.diagram || step.science || step.map || '');
+    if (skTitle) {
+      showCallout('✏️ Sketching ' + skTitle + '…', 2600);
+      const sk = await generateRoughSketch(skTitle, step.labels || [], abort);
+      if (sk && !(abort && abort.aborted)) {
+        sk.setAttribute('width','100%');
+        sk.setAttribute('preserveAspectRatio','xMidYMid meet');
+        sk.removeAttribute('height');
+        sk.style.maxHeight = '440px';
+        sk.style.display = 'block';
+        sk.style.margin = '0 auto';
+        sk.style.overflow = 'visible';
+        container.appendChild(sk);
+        await animateProDiagram(sk, abort);
+        return;
+      }
+    }
+  } catch(e){ console.log('Sketch engine failed, using text fallback:', e); }
+
   // ── Legacy inline types: render as readable text list ──
   const labels = step.labels || [];
   const title  = Array.isArray(step.write) ? step.write[0] : (step.write || step.diagram || '');
@@ -1899,6 +1920,77 @@ const visualLibrary = {
   tamilnadu        : '/assets/maps/tamilnadu.svg',
   world_simple     : '/assets/maps/world.svg',
 };
+
+// ═══════════════════════════════════════════════════════════
+// AI ROUGH SKETCH ENGINE
+// When a topic has NO diagram in visualLibrary, the AI draws a simple
+// chalk-style sketch (basic shapes only) using the same #outline / #flow /
+// #labels structure — so animateProDiagram animates it exactly like the
+// premium diagrams. If generation fails, the old text fallback still runs.
+// ═══════════════════════════════════════════════════════════
+const SKETCH_CACHE = {};  // sketch key → raw svg text (per session)
+
+function sketchCacheKey(title, labels){
+  return (String(title||'')+'|'+(labels||[]).join(','))
+    .toLowerCase().replace(/[^a-z0-9|,]+/g,'_').substring(0,120);
+}
+
+// Strong sanitizer for AI-generated SVG — strips anything executable
+function sanitizeSketchSVG(svgText){
+  const div = document.createElement('div');
+  div.innerHTML = svgText;
+  const svg = div.querySelector('svg');
+  if(!svg) return null;
+  svg.querySelectorAll('script,foreignObject,image,use,iframe,object,embed,style,animate,animateTransform,animateMotion,set').forEach(el => el.remove());
+  svg.querySelectorAll('*').forEach(el => {
+    Array.from(el.attributes).forEach(a => {
+      const n = a.name.toLowerCase();
+      if(n.indexOf('on') === 0 || n === 'href' || n === 'xlink:href') el.removeAttribute(a.name);
+    });
+  });
+  if(!svg.querySelector('path,circle,ellipse,rect,line,polyline,polygon,text')) return null;
+  if(!svg.getAttribute('viewBox')) svg.setAttribute('viewBox','0 0 520 340');
+  return svg;
+}
+
+async function generateRoughSketch(title, labels, abort){
+  const key = sketchCacheKey(title, labels);
+  let svgText = SKETCH_CACHE[key];
+  if(!svgText){
+    const prompt = 'Draw a SIMPLE teacher-style chalk sketch of: "' + title + '"\n'
+      + (labels && labels.length ? 'Must label these parts: ' + labels.join(', ') + '\n' : '')
+      + '\nReturn ONLY an SVG. STRICT RULES:\n'
+      + '- Root: <svg viewBox="0 0 520 340" xmlns="http://www.w3.org/2000/svg">\n'
+      + '- EXACTLY three groups in this order: <g id="outline">, <g id="flow">, <g id="labels">\n'
+      + '- outline group: main shapes of the object. ONLY path, circle, ellipse, rect, line, polyline, polygon. stroke="#f2efe9" fill="none" stroke-width="2.5" stroke-linecap="round"\n'
+      + '- flow group: arrows or internal detail lines. stroke="#f5e87a" fill="none" stroke-width="2"\n'
+      + '- labels group: short ENGLISH <text> labels, font-size="15" fill="#f2efe9" font-family="sans-serif", plus thin pointer lines stroke="#c8c4be" stroke-width="1" where needed\n'
+      + '- Maximum 18 elements total. Rough simple shapes like a teacher draws quickly with chalk — NOT detailed art\n'
+      + '- Everything inside the viewBox. NO <style>, NO <script>, NO <image>, NO gradients, NO animation\n'
+      + '- Spatially correct: parts positioned like the real thing';
+    const res = await fetch('/api/ai',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        system:'You are a skilled teacher drawing rough chalk sketches on a blackboard. Return ONLY raw SVG markup starting with <svg and ending with </svg>. No markdown, no explanation.',
+        messages:[{role:'user',content:prompt}],
+        max_tokens:2500
+      })
+    });
+    if(!res.ok) return null;
+    const d = await res.json();
+    let raw = '';
+    if(d && Array.isArray(d.content)) raw = d.content.map(b => b.type === 'text' ? b.text : '').join('').trim();
+    else if(d && d.text) raw = String(d.text).trim();
+    raw = raw.replace(/^```(svg|xml|html)?/i,'').replace(/```$/,'').trim();
+    const a = raw.indexOf('<svg'), b = raw.lastIndexOf('</svg>');
+    if(a < 0 || b < 0) return null;
+    svgText = raw.substring(a, b + 6);
+    SKETCH_CACHE[key] = svgText;
+  }
+  if(abort && abort.aborted) return null;
+  return sanitizeSketchSVG(svgText);
+}
 
 // ═══════════════════════════════════════════════════════════
 // PRO DIAGRAM ENGINE
