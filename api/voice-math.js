@@ -3,12 +3,24 @@
 // English mode: Monika Sogam (Indian female teacher voice)
 // Tamil-mix mode: Sarah (multilingual voice good with Tamil script)
 // This is SEPARATE from voice-class.js so it doesn't affect Teaching Mode voices.
+//
+// AUDIO CACHING (added):
+// Generated audio is saved to Supabase Storage (bucket: lesson-audio, folder: math-voice/).
+// On every request we first check storage — if the same text+voice was generated
+// before, we return the saved file (zero ElevenLabs cost). If storage is ever
+// unavailable, we fall back to normal generation, so voice never breaks.
 
 const https = require('https');
+const crypto = require('crypto');
 
 // Voice IDs
 const MATH_VOICE_ENGLISH = '5lf6Bj1bjbGRTV68afJj';  // Monika Sogam - clear Indian English
 const MATH_VOICE_TAMIL   = 'EXAVITQu4vr4xnSDxMaL';  // Sarah - multilingual, good with Tamil
+
+// Supabase Storage (same project + env key as api/auth.js)
+const SUPA_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
+const AUDIO_BUCKET = 'lesson-audio';
+const AUDIO_FOLDER = 'math-voice';
 
 function cleanText(text) {
   if (!text) return '';
@@ -20,6 +32,69 @@ function cleanText(text) {
     .replace(/\.{3,}/g, '. ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+// Fingerprint: same text + same voice = same file name
+function audioKey(voiceId, cleanedText) {
+  const hash = crypto.createHash('sha256')
+    .update(voiceId + '|' + cleanedText)
+    .digest('hex')
+    .slice(0, 40);
+  return AUDIO_FOLDER + '/' + hash + '.mp3';
+}
+
+// Try to fetch previously saved audio from Supabase Storage.
+// Returns a Buffer on hit, or null on miss / any error (never throws).
+function fetchCachedAudio(objectPath, supaKey) {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: SUPA_HOST,
+      path: '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      method: 'GET',
+      headers: {
+        'apikey': supaKey,
+        'Authorization': 'Bearer ' + supaKey
+      }
+    };
+    const r = https.request(opts, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume(); // drain
+        return resolve(null);
+      }
+      const chunks = [];
+      response.on('data', (c) => chunks.push(c));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', () => resolve(null));
+    });
+    r.on('error', () => resolve(null));
+    r.end();
+  });
+}
+
+// Save generated audio to Supabase Storage for future replays.
+// Resolves true/false — never throws, so a failed save can't break playback.
+function saveCachedAudio(objectPath, supaKey, audioBuffer) {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: SUPA_HOST,
+      path: '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      method: 'POST',
+      headers: {
+        'apikey': supaKey,
+        'Authorization': 'Bearer ' + supaKey,
+        'Content-Type': 'audio/mpeg',
+        'x-upsert': 'true',
+        'Content-Length': audioBuffer.length
+      }
+    };
+    const r = https.request(opts, (response) => {
+      response.resume(); // drain
+      response.on('end', () => resolve(response.statusCode === 200));
+    });
+    r.on('error', () => resolve(false));
+    r.write(audioBuffer);
+    r.end();
+  });
 }
 
 module.exports = async (req, res) => {
@@ -47,6 +122,23 @@ module.exports = async (req, res) => {
     // Pick voice based on language mode
     const isTamilMix = (lang === 'mix' || lang === 'ta');
     const voiceId = isTamilMix ? MATH_VOICE_TAMIL : MATH_VOICE_ENGLISH;
+
+    // ---- CACHE CHECK: play saved audio if we've generated this line before ----
+    const supaKey = process.env.SUPABASE_SECRET_KEY;
+    const objectPath = audioKey(voiceId, cleanedText);
+
+    if (supaKey) {
+      const cached = await fetchCachedAudio(objectPath, supaKey);
+      if (cached && cached.length > 0) {
+        return res.status(200).json({
+          audio_b64: cached.toString('base64'),
+          voiceId: voiceId,
+          lang: lang || 'en',
+          cached: true
+        });
+      }
+    }
+    // ---- CACHE MISS: generate as normal below ----
 
     // Voice settings differ by language for optimal delivery
     const voiceSettings = isTamilMix
@@ -104,11 +196,17 @@ module.exports = async (req, res) => {
       req2.end();
     });
 
+    // ---- SAVE TO CACHE so the next play of this line is free ----
+    if (supaKey) {
+      await saveCachedAudio(objectPath, supaKey, audioBuffer);
+    }
+
     const audioBase64 = audioBuffer.toString('base64');
     return res.status(200).json({
       audio_b64: audioBase64,
       voiceId: voiceId,
-      lang: lang || 'en'
+      lang: lang || 'en',
+      cached: false
     });
 
   } catch (err) {
@@ -116,4 +214,3 @@ module.exports = async (req, res) => {
     return res.status(500).json({ error: err.message || 'Voice generation failed' });
   }
 };
-
