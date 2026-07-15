@@ -1398,6 +1398,7 @@ function renderStep(idx) {
 function stopCurrentAnimation() {
   if (chalkAbort) { chalkAbort.aborted = true; chalkAbort = null; }
   if (currentSpeech) { window.speechSynthesis.cancel(); currentSpeech = null; }
+  if (typeof stopBBAudio === 'function') { bbSpeakSeq++; stopBBAudio(); }
   if (animTimeout) { clearTimeout(animTimeout); animTimeout = null; }
   hideChalkPiece();
   isAnimating = false;
@@ -2799,7 +2800,16 @@ async function drawScienceDiagram(container, step, abort) {
 // (drawDiagramLive already checks step.drawType via drawVisual)
 
 
-function speak(text) {
+// ── ElevenLabs class-voice audio for the blackboard (cached in Supabase) ──
+let bbAudio = null;          // current ElevenLabs audio element
+let bbSpeakSeq = 0;          // guards against late audio from a previous step
+
+function stopBBAudio(){
+  if (bbAudio) { try { bbAudio.pause(); } catch(e){} bbAudio = null; }
+}
+
+// Original browser voice — kept verbatim as the automatic fallback
+function speakBrowserBB(text) {
   if (!voiceOn || !('speechSynthesis' in window)) return;
   if (currentSpeech) window.speechSynthesis.cancel();
   const utt   = new SpeechSynthesisUtterance(text);
@@ -2810,12 +2820,38 @@ function speak(text) {
   window.speechSynthesis.speak(utt);
 }
 
+function speak(text) {
+  if (!voiceOn) return;
+  if (!text || !String(text).trim()) return;
+  // Stop anything previous (both voice systems)
+  if (currentSpeech) { try { window.speechSynthesis.cancel(); } catch(e){} currentSpeech = null; }
+  stopBBAudio();
+  const seq = ++bbSpeakSeq;
+  const cls = (document.getElementById('sel-class') || {}).value || '';
+  fetch('/api/voice-class', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: String(text), cls: cls })
+  }).then(r => r.json()).then(d => {
+    if (seq !== bbSpeakSeq || !voiceOn) return;          // a newer step started, or muted
+    if (d && d.audio_b64) {
+      stopBBAudio();
+      bbAudio = new Audio('data:audio/mpeg;base64,' + d.audio_b64);
+      bbAudio.playbackRate = parseFloat(document.getElementById('speed-sel').value) || 0.9;
+      bbAudio.onended = function(){ bbAudio = null; };
+      bbAudio.play().catch(function(){ speakBrowserBB(text); });
+    } else {
+      speakBrowserBB(text);
+    }
+  }).catch(function(){ if (seq === bbSpeakSeq && voiceOn) speakBrowserBB(text); });
+}
+
 function toggleVoice() {
   voiceOn = !voiceOn;
   const btn = document.getElementById('voice-toggle');
   btn.classList.toggle('active', voiceOn);
   btn.textContent = voiceOn ? '🔊 Voice' : '🔇 Muted';
-  if (!voiceOn) window.speechSynthesis.cancel();
+  if (!voiceOn) { window.speechSynthesis.cancel(); stopBBAudio(); }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2832,8 +2868,8 @@ function togglePause() {
   isPaused = !isPaused;
   const btn = document.getElementById('play-pause-btn');
   btn.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
-  if (isPaused) window.speechSynthesis.pause();
-  else window.speechSynthesis.resume();
+  if (isPaused) { window.speechSynthesis.pause(); if (bbAudio) { try { bbAudio.pause(); } catch(e){} } }
+  else { window.speechSynthesis.resume(); if (bbAudio) { try { bbAudio.play(); } catch(e){} } }
 }
 
 function changeSpeed(v) {
@@ -2914,6 +2950,7 @@ window.addEventListener('online',  () => showCallout('✅ Back online!', 2500));
 function goBack() {
   stopCurrentAnimation();
   if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (typeof stopBBAudio === 'function') { bbSpeakSeq++; stopBBAudio(); }
   // Always return to Student TeachBot tab — append #student so the tab auto-activates
   const returnUrl = sessionStorage.getItem('bb_returnUrl');
   sessionStorage.removeItem('bb_returnUrl');
