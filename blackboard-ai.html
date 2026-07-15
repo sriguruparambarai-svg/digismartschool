@@ -744,6 +744,17 @@ body {
   color: rgba(200,196,190,0.3); padding: 4px 0;
 }
 
+/* ─── INDIA STATES MAP (india_states.svg) — wall-map poster styling ─── */
+.diagram-container .state{fill:#f3e2c3;stroke:#6B1A1A;stroke-width:1;transition:fill .5s;}
+.diagram-container .state.hl{fill:#C9A84C;stroke-width:1.8;filter:drop-shadow(0 0 6px rgba(201,168,76,.9));}
+.diagram-container .river{fill:none;stroke:#4a90c2;stroke-width:2;stroke-linecap:round;opacity:.75;transition:all .5s;}
+.diagram-container .river.hl{stroke:#0b62a8;stroke-width:4.5;opacity:1;filter:drop-shadow(0 0 5px rgba(11,98,168,.8));}
+.diagram-container .rlabel{font-family:sans-serif;font-size:11px;fill:#0b62a8;font-style:italic;opacity:0;transition:opacity .5s;}
+.diagram-container .rlabel.hl{opacity:1;font-weight:bold;}
+.diagram-container .slabel{font-family:sans-serif;font-size:13px;font-weight:bold;fill:#6B1A1A;opacity:0;transition:opacity .5s;}
+.diagram-container .slabel.hl{opacity:1;}
+.diagram-container .sea{font-family:sans-serif;font-size:13px;fill:#4a90c2;font-style:italic;opacity:.55;}
+
 /* ─── AI TEACHER FIGURE + POINTING STICK ─── */
 #bb-teacher{position:fixed;right:14px;bottom:120px;width:96px;z-index:60;cursor:pointer;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45));animation:bbTeacherBob 4.5s ease-in-out infinite;transition:opacity .4s;}
 #bb-teacher.hidden{opacity:0;pointer-events:none;}
@@ -1252,7 +1263,8 @@ RULES:
   if (/science|biology|physics|chem/.test(subjLower)) {
     diagramHint = '\nMANDATORY: Include AT LEAST 2 diagram steps — use science diagrams (heart/plant_cell/photosynthesis/solar_system/dna_structure/digestive/respiratory/circulatory/nervous/skeletal/eye/atom_structure/magnet_field/electric_circuit/states_of_matter/layers_earth/cell_division) when relevant, OR generic shapes (circle_labels/boxes/tree/food_chain/water_cycle).';
   } else if (/social|geography|history|civics/.test(subjLower)) {
-    diagramHint = '\nMANDATORY: Include AT LEAST 1 map step (india/tamilnadu/world_simple). For history topics use timeline-style boxes.';
+    diagramHint = '\nMANDATORY: Include AT LEAST 1 map step (india/tamilnadu/world_simple). For history topics use timeline-style boxes.'
+      + '\nFor the india map you can add "highlight": an array of EXACT names to light up one by one. Allowed state names: Andaman and Nicobar Islands, Andhra Pradesh, Arunachal Pradesh, Assam, Bihar, Chandigarh, Chhattisgarh, Delhi, Goa, Gujarat, Haryana, Himachal Pradesh, Jammu and Kashmir, Jharkhand, Karnataka, Kerala, Lakshadweep, Madhya Pradesh, Maharashtra, Manipur, Meghalaya, Mizoram, Nagaland, Odisha, Puducherry, Punjab, Rajasthan, Sikkim, Tamil Nadu, Telangana, Tripura, Uttar Pradesh, Uttarakhand, West Bengal. Allowed river names: Ganga, Yamuna, Brahmaputra, Narmada, Tapi, Godavari, Krishna, Cauvery. Highlight ONLY the states/rivers this lesson actually teaches.';
   } else if (/math/.test(subjLower)) {
     diagramHint = '\nMANDATORY: Include formula steps AND visual diagrams (fraction_visual/pythagoras for relevant topics). Show step-by-step working.';
   } else {
@@ -1322,7 +1334,7 @@ SCIENCE DIAGRAMS (use only when topic matches):
 Other science values: dna_structure, human_digestive, human_respiratory, human_circulatory, human_nervous, human_skeletal, human_eye, atom_structure, magnet_field, electric_circuit, states_of_matter, layers_earth, cell_division, plant_anatomy, fraction_visual, pythagoras.
 
 MAPS:
-{"type":"diagram", "speech":"...", "write":"India Map", "drawType":"map", "map":"india", "highlight":"tamilnadu", "color":"green"}
+{"type":"diagram", "speech":"...", "write":"India Map", "drawType":"map", "map":"india", "highlight":["Tamil Nadu","Cauvery"], "color":"green"}
 {"type":"diagram", "speech":"...", "write":"Tamil Nadu","drawType":"map","map":"tamilnadu","color":"yellow"}
 {"type":"diagram", "speech":"...", "write":"World",    "drawType":"map","map":"world_simple","color":"blue"}
 
@@ -2007,6 +2019,7 @@ const visualLibrary = {
   pythagoras       : '/assets/diagrams/pythagoras.svg',
   // ── Maps ──
   india            : '/assets/maps/india.svg',
+  india_states     : '/assets/maps/india_states.svg',
   tamilnadu        : '/assets/maps/tamilnadu.svg',
   world_simple     : '/assets/maps/world.svg',
 };
@@ -2533,11 +2546,61 @@ async function addMapLabels(svgNode, labels, highlight, abort) {
   }
 }
 
+// ── INDIA STATES MAP ENGINE: 36 named states + 8 named rivers ──
+// Highlights each requested state/river by NAME, teacher stick points at it.
+async function drawIndiaStatesMap(container, step, abort){
+  const svgNode = await loadSVG(visualLibrary.india_states || '/assets/maps/india_states.svg');
+  if (!svgNode) return false;   // file not uploaded yet → caller uses old engine
+  cleanSVG(svgNode);
+  // "wall map poster" backing so the paper map reads well on the dark board
+  const poster = document.createElement('div');
+  poster.style.cssText = 'background:#FBF3E4;border-radius:12px;padding:10px 14px;max-width:560px;margin:0 auto;box-shadow:0 6px 22px rgba(0,0,0,.45);';
+  svgNode.setAttribute('width','100%');
+  svgNode.removeAttribute('height');
+  svgNode.style.maxHeight = '460px';
+  svgNode.style.display = 'block';
+  poster.appendChild(svgNode);
+  container.appendChild(poster);
+  if (voiceOn) speak(step.speech || 'Now let us look at the map of India.');
+  await delay(900);
+  if (abort && abort.aborted) return true;
+
+  // Names to highlight — accepts array or comma-separated string
+  let names = step.highlight || [];
+  if (typeof names === 'string') names = names.split(/[,;|]/);
+  names = names.map(s => String(s).trim()).filter(Boolean);
+
+  for (const raw of names){
+    if (abort && abort.aborted) return true;
+    const want = raw.toLowerCase().replace(/[^a-z]/g,'');   // "tamilnadu" matches "Tamil Nadu"
+    let el = null;
+    svgNode.querySelectorAll('[data-name]').forEach(p => {
+      if (el) return;
+      const nm = (p.getAttribute('data-name') || '').toLowerCase().replace(/[^a-z]/g,'');
+      if (nm === want || nm.indexOf(want) === 0 || want.indexOf(nm) === 0) el = p;
+    });
+    if (!el) continue;
+    el.classList.add('hl');
+    const lbl = svgNode.querySelector('#' + el.id + '-label');
+    if (lbl) lbl.classList.add('hl');
+    if (typeof pointStickAt === 'function') pointStickAt(el);   // teacher points her stick
+    if (voiceOn) speak('Here — ' + el.getAttribute('data-name') + '.');
+    await delay(1600);
+  }
+  return true;
+}
+
 // ── MAIN drawMap: tries real SVG files → falls back to embedded paths ──
 async function drawMap(container, step, abort) {
   const mapKey    = (step.map || 'india').toLowerCase();
   const highlight = step.highlight || '';
   const isIndia   = mapKey === 'india';
+
+  // ── NEW: named states+rivers map with per-name highlighting ──
+  if (mapKey.indexOf('india') === 0) {
+    const done = await drawIndiaStatesMap(container, step, abort);
+    if (done) return;
+  }
 
   // ── Voice ──
   if (voiceOn) {
