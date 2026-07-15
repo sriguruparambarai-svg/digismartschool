@@ -49,6 +49,14 @@
   .tamil-overlay.on{display:block;}
   .tamil-overlay .lbl{font-family:'Nunito',sans-serif;font-size:0.7rem;color:#1a5c2a;font-weight:800;letter-spacing:1.5px;margin-bottom:6px;}
 
+  .ask-overlay{position:fixed;left:50%;transform:translateX(-50%);bottom:110px;max-width:760px;width:92%;background:linear-gradient(135deg,#FFF8E7,#FFEFD0);border:3px solid var(--gold);border-radius:16px;padding:18px 24px;color:var(--maroon-dark);font-family:'Nunito',sans-serif;display:none;z-index:60;box-shadow:0 10px 36px rgba(0,0,0,0.3);text-align:center;}
+  .ask-overlay.on{display:block;}
+  .ask-overlay .lbl{font-family:'Nunito',sans-serif;font-size:0.72rem;color:var(--maroon);font-weight:800;letter-spacing:1.5px;margin-bottom:8px;}
+  .ask-overlay .ask-q{font-size:1.35rem;font-weight:800;line-height:1.5;margin-bottom:14px;color:var(--maroon-dark);}
+  .ask-continue{padding:10px 26px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:2px solid var(--gold-dark);border-radius:10px;cursor:pointer;font-family:'Nunito',sans-serif;font-weight:900;font-size:0.95rem;}
+  .ask-continue:hover{filter:brightness(1.1);}
+  .tb-btn.ask{background:linear-gradient(135deg,#FFE9C2,#FFD98F);color:var(--maroon-dark);border-color:var(--gold-dark);}
+
   .toolbar{position:fixed;bottom:0;left:0;right:0;height:95px;background:linear-gradient(0deg,var(--maroon),var(--maroon-mid));border-top:3px solid var(--gold);padding:8px 14px;z-index:100;box-shadow:0 -4px 18px rgba(107,26,26,0.2);display:flex;flex-direction:column;justify-content:center;gap:6px;}
 
   .chips-row{display:flex;align-items:center;gap:6px;overflow-x:auto;padding:2px 0;min-height:28px;}
@@ -131,6 +139,12 @@
   <div id="tamil-text"></div>
 </div>
 
+<div class="ask-overlay" id="ask-overlay">
+  <div class="lbl">🤔 QUESTION TIME — ANSWER ALOUD!</div>
+  <div class="ask-q" id="ask-text"></div>
+  <button class="ask-continue" onclick="closeAskOverlay()">▶ Continue Class</button>
+</div>
+
 <div class="toolbar" id="toolbar" style="display:none;">
   <div class="chips-row" id="chips-row">
     <span class="chip-label">PARAS:</span>
@@ -150,6 +164,7 @@
       </div>
       <button class="tb-btn story-off" id="btn-story" onclick="toggleStoryMode()" title="Story Mode — reads full page continuously">📖 Story Mode</button>
       <button class="tb-btn tamil" id="btn-tamil" onclick="explainTamil()">🇮🇳 தமிழ் Explanation</button>
+      <button class="tb-btn ask" id="btn-ask" onclick="askClass()">❓ Ask Class</button>
     </div>
     <div class="ctrl-right">
       <div class="speed-group" title="Zoom">
@@ -194,6 +209,7 @@ function buildTamilSystemPrompt(){
     +'- Each English keyword + Tamil meaning (Keyword என்றால் meaning)\n'
     +'- Cover full paragraph, no skipping\n'
     +'- One mid-way student question in Tamil-English mix\n'
+    +'- Include ONE real-life example from Tamil Nadu students daily life (home, food, school, festivals) that makes the concept concrete\n'
     +'- NO labels/prefixes at start (no "Tamil:", no "விளக்கம்:")\n'
     +'- NO asterisks, NO markdown, plain sentences only\n'
     +'- 4-6 flowing sentences max — concise teacher style';
@@ -288,6 +304,112 @@ function clearTamilCache(){
   TAMIL_INFLIGHT = {};
   ENG_AUDIO_CACHE = {};
   ENG_AUDIO_INFLIGHT = {};
+}
+
+// ─── ASK CLASS — checkpoint questions (teacher-controlled) ───────
+// Auto: ONE question when a page completes (class is already stopped there).
+// Manual: teacher presses ❓ Ask Class anytime — class stops until Continue.
+// Question voice goes through /api/voice-class → correct class voice + audio cache.
+var QUESTION_CACHE = {};     // key → {text, b64}
+var QUESTION_INFLIGHT = {};  // key → Promise
+var PAGE_ASKED = {};         // page number → true (auto question once per page)
+var ASK_RESUME = false;      // Continue resumes reading only for manual asks
+
+function questionKeyPara(paraIdx){ return 'q_p'+CURRENT_PAGE+'_para'+paraIdx; }
+function questionKeyPage(){ return 'q_page'+CURRENT_PAGE; }
+
+async function fetchQuestion(scopeText, isPage){
+  var prompt='You are a Tamil Nadu school teacher taking a '+LESSON.cls+' '+LESSON.subject+' class.\n'
+    +'Ask the class ONE simple oral question about this '+(isPage?'page':'paragraph')+' that students answer ALOUD together.\n'
+    +'Very easy wording for small classes, more thinking for higher classes.\n'
+    +'No multiple choice. One sentence only. Return ONLY the question text.\n\n'
+    +scopeText.substring(0,2500);
+  var aiRes=await fetch('/api/ai',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ system:'Return ONLY the question text. No labels, no markdown.', messages:[{role:'user',content:prompt}], max_tokens:150 })
+  });
+  var aiData=await aiRes.json();
+  var qText='';
+  if(aiData && Array.isArray(aiData.content)){ qText=aiData.content.map(function(b){ return b.type==='text'?b.text:''; }).join('').trim(); }
+  else if(aiData && aiData.text){ qText=String(aiData.text).trim(); }
+  if(!qText) throw new Error('No question generated');
+  qText=qText.replace(/\*+/g,'').replace(/^Question\s*[:：]\s*/i,'').trim();
+  var b64=null;
+  try{
+    var vRes=await fetch('/api/voice-class',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:'Now tell me, students. '+qText, cls:LESSON.cls})});
+    var vData=await vRes.json();
+    if(vData && vData.audio_b64) b64=vData.audio_b64;
+  }catch(e){}
+  return { text:qText, b64:b64 };
+}
+
+// Silently prepare the page question while the last paragraph is being read
+function prefetchPageQuestion(){
+  var key=questionKeyPage();
+  if(QUESTION_CACHE[key]||QUESTION_INFLIGHT[key]||PAGE_ASKED[CURRENT_PAGE])return;
+  var paras=PARAS_BY_PAGE[CURRENT_PAGE]||[];
+  if(!paras.length)return;
+  QUESTION_INFLIGHT[key]=fetchQuestion(paras.join('\n\n'),true)
+    .then(function(r){ QUESTION_CACHE[key]=r; delete QUESTION_INFLIGHT[key]; return r; })
+    .catch(function(){ delete QUESTION_INFLIGHT[key]; });
+}
+
+async function showQuestion(q, resumeAfter){
+  ASK_RESUME=!!resumeAfter;
+  $('ask-text').textContent=q.text;
+  $('ask-overlay').classList.add('on');
+  $('reading-label').textContent='Question time — answer aloud!';
+  try{
+    if(q.b64){ await playAudio('data:audio/mpeg;base64,'+q.b64); }
+    else { await speakBrowser('Now tell me, students. '+q.text,'en'); }
+  }catch(e){}
+}
+
+async function askPageQuestion(){
+  if(PAGE_ASKED[CURRENT_PAGE])return;
+  PAGE_ASKED[CURRENT_PAGE]=true;
+  var key=questionKeyPage();
+  try{
+    var q=QUESTION_CACHE[key];
+    if(!q && QUESTION_INFLIGHT[key]) q=await QUESTION_INFLIGHT[key];
+    if(!q){
+      var paras=PARAS_BY_PAGE[CURRENT_PAGE]||[];
+      if(!paras.length)return;
+      q=await fetchQuestion(paras.join('\n\n'),true);
+      QUESTION_CACHE[key]=q;
+    }
+    await showQuestion(q,false);
+  }catch(e){ console.log('Page question failed:',e); }
+}
+
+async function askClass(){
+  var paras=PARAS_BY_PAGE[CURRENT_PAGE]||[];
+  var paraIdx=Math.min(CURRENT_PARA_IDX,paras.length-1);
+  if(paraIdx<0||!paras[paraIdx]){ showStatus('No paragraph to ask about'); return; }
+  // Teacher takes control — stop everything, mark paused
+  if(CURRENT_AUDIO){ try{CURRENT_AUDIO.pause();CURRENT_AUDIO=null;}catch(e){} }
+  try{ speechSynthesis.cancel(); }catch(e){}
+  IS_PAUSED=true; $('btn-pause').innerHTML='▶ Resume';
+  $('btn-ask').disabled=true; $('btn-ask').textContent='⏳ Thinking…';
+  var key=questionKeyPara(paraIdx);
+  try{
+    var q=QUESTION_CACHE[key];
+    if(!q){ q=await fetchQuestion(paras[paraIdx],false); QUESTION_CACHE[key]=q; }
+    await showQuestion(q,true);
+  }catch(e){ showStatus('Question failed: '+(e.message||'unknown')); }
+  finally{ $('btn-ask').disabled=false; $('btn-ask').innerHTML='❓ Ask Class'; }
+}
+
+function closeAskOverlay(){
+  $('ask-overlay').classList.remove('on');
+  if(CURRENT_AUDIO){ try{CURRENT_AUDIO.pause();CURRENT_AUDIO=null;}catch(e){} }
+  try{ speechSynthesis.cancel(); }catch(e){}
+  if(ASK_RESUME){
+    ASK_RESUME=false;
+    IS_PAUSED=false; $('btn-pause').innerHTML='⏸ Pause';
+    readCurrentPara();
+  }
 }
 
 // ── ENGLISH AUDIO PREFETCH (mirrors Tamil prefetch pattern) ──
@@ -640,6 +762,8 @@ async function readCurrentPara(){
   if(CURRENT_PARA_IDX+1 < paras.length){
     setTimeout(function(){ prefetchTamil(CURRENT_PARA_IDX+1); }, 2000);
   }
+  // Prefetch this page's checkpoint question while the last paragraph reads
+  if(CURRENT_PARA_IDX===paras.length-1){ prefetchPageQuestion(); }
 
   await speakEnglish(text, CURRENT_PARA_IDX);
   if(IS_PAUSED || IS_PLAYING_TAMIL) return;
@@ -649,6 +773,7 @@ async function readCurrentPara(){
     $('reading-dot').classList.remove('on');
     $('btn-next').classList.add('glow');
     showStatus('✅ Page '+CURRENT_PAGE+' complete. Click Next to continue.', 4000);
+    askPageQuestion();
     return;
   }
   // In story mode — continue immediately with short breath pause
