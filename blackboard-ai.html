@@ -743,6 +743,14 @@ body {
   text-align: center; font-size: 0.7rem; font-family: 'Nunito',sans-serif;
   color: rgba(200,196,190,0.3); padding: 4px 0;
 }
+
+/* ─── AI TEACHER FIGURE + POINTING STICK ─── */
+#bb-teacher{position:fixed;right:14px;bottom:120px;width:96px;z-index:60;cursor:pointer;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45));animation:bbTeacherBob 4.5s ease-in-out infinite;transition:opacity .4s;}
+#bb-teacher.hidden{opacity:0;pointer-events:none;}
+@keyframes bbTeacherBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
+#bb-stick{position:fixed;height:4px;background:linear-gradient(90deg,#8a5a2b,#c99a4c);border-radius:3px;transform-origin:right center;z-index:59;pointer-events:none;opacity:0;transition:transform .55s ease,width .55s ease,opacity .3s ease;box-shadow:0 1px 4px rgba(0,0,0,.4);}
+#bb-stick::before{content:'';position:absolute;left:-5px;top:-3px;width:10px;height:10px;border-radius:50%;background:#f5e87a;box-shadow:0 0 8px rgba(245,232,122,.8);}
+#bb-stick.show{opacity:1;}
 </style>
 </head>
 <body>
@@ -872,6 +880,36 @@ body {
 
         <!-- Board writing area -->
         <div id="board-content" class="board-scroll"></div>
+        <!-- AI Teacher figure with pointing stick (click to hide/show) -->
+        <div id="bb-stick"></div>
+        <svg id="bb-teacher" viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg" onclick="toggleTeacherFigure()" aria-label="AI Teacher">
+          <title>AI Teacher (click to hide)</title>
+          <!-- hair bun -->
+          <circle cx="63" cy="16" r="7" fill="#2a1a10"/>
+          <!-- head -->
+          <circle cx="50" cy="24" r="13" fill="#c98d5f" stroke="#2a1a10" stroke-width="1.5"/>
+          <!-- hair front -->
+          <path d="M 38 20 Q 50 6 62 20 L 62 14 Q 50 4 38 14 Z" fill="#2a1a10"/>
+          <!-- bindi -->
+          <circle cx="50" cy="21" r="1.6" fill="#8b1a1a"/>
+          <!-- eyes + smile -->
+          <circle cx="45.5" cy="23" r="1.4" fill="#2a1a10"/>
+          <circle cx="54.5" cy="23" r="1.4" fill="#2a1a10"/>
+          <path d="M 46 29 Q 50 32 54 29" stroke="#2a1a10" stroke-width="1.3" fill="none" stroke-linecap="round"/>
+          <!-- sari body -->
+          <path d="M 36 40 Q 50 34 64 40 L 70 105 Q 50 112 30 105 Z" fill="#6B1A1A" stroke="#C9A84C" stroke-width="1.5"/>
+          <!-- sari drape -->
+          <path d="M 44 40 Q 56 60 50 104" stroke="#C9A84C" stroke-width="2" fill="none" opacity="0.85"/>
+          <!-- pointing arm (toward the board, left) -->
+          <path d="M 40 50 Q 24 46 12 50" stroke="#c98d5f" stroke-width="6" fill="none" stroke-linecap="round"/>
+          <!-- hand -->
+          <circle id="bb-hand" cx="11" cy="50" r="4.5" fill="#c98d5f"/>
+          <!-- resting arm -->
+          <path d="M 60 48 Q 66 62 62 74" stroke="#6B1A1A" stroke-width="7" fill="none" stroke-linecap="round"/>
+          <!-- feet -->
+          <ellipse cx="42" cy="108" rx="6" ry="3" fill="#2a1a10"/>
+          <ellipse cx="58" cy="108" rx="6" ry="3" fill="#2a1a10"/>
+        </svg>
 
         <!-- Floating chalk piece -->
         <div id="chalk-piece"></div>
@@ -1548,6 +1586,7 @@ async function teachStep(step) {
         const canvas = document.createElement('div');
         canvas.className = 'diagram-container board-element';
         board.appendChild(canvas);
+        pointStickAt(canvas);
         await drawDiagramLive(canvas, step, abort);
       }
       break;
@@ -1566,6 +1605,7 @@ async function teachStep(step) {
 // ERASE BOARD — left-to-right wipe
 // ═══════════════════════════════════════════════════════════
 function eraseBoard() {
+  if (typeof retractStick === 'function') retractStick();
   return new Promise(resolve => {
     const board = document.getElementById('board-content');
     if (!board.innerHTML.trim()) { resolve(); return; }
@@ -1667,7 +1707,56 @@ function hideChalkPiece() {
 // CHALK WRITING ENGINE
 // Letter by letter with chalk piece + hand jitter
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// TEACHER POINTING STICK — follows the line being written/read
+// One hook inside writeChalk covers every step type automatically.
+// ═══════════════════════════════════════════════════════════
+let teacherVisible = true;
+
+function toggleTeacherFigure(){
+  teacherVisible = !teacherVisible;
+  const t = document.getElementById('bb-teacher');
+  const s = document.getElementById('bb-stick');
+  if (t) t.classList.toggle('hidden', !teacherVisible);
+  if (s && !teacherVisible) s.classList.remove('show');
+}
+
+function teacherHandPoint(){
+  const t = document.getElementById('bb-teacher');
+  if (!t) return null;
+  const r = t.getBoundingClientRect();
+  if (!r.width) return null;
+  // matches the #bb-hand circle position (11,50) in the 100x150 viewBox
+  return { x: r.left + r.width * 0.11, y: r.top + r.height * (50/150) };
+}
+
+function pointStickAt(el){
+  if (!teacherVisible || !el) return;
+  const stick = document.getElementById('bb-stick');
+  const hand  = teacherHandPoint();
+  if (!stick || !hand) return;
+  const r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return;
+  // Stick tip touches just left-of-centre of the line, like a long class pointer
+  const tx = r.left + Math.min(r.width * 0.35, 320);
+  const ty = r.top + r.height / 2;
+  const dx = tx - hand.x, dy = ty - hand.y;
+  const len = Math.max(30, Math.sqrt(dx*dx + dy*dy));
+  const ang = Math.atan2(dy, dx) * 180 / Math.PI;
+  stick.style.width = len + 'px';
+  stick.style.left  = (hand.x - len) + 'px';
+  stick.style.top   = (hand.y - 2) + 'px';
+  stick.style.transform = 'rotate(' + (ang + 180) + 'deg)';
+  stick.classList.add('show');
+}
+
+function retractStick(){
+  const stick = document.getElementById('bb-stick');
+  if (stick) stick.classList.remove('show');
+}
+
 function writeChalk(container, text, abort, minMs, maxMs) {
+  pointStickAt(container);
   return new Promise(resolve => {
     if (!container || !text) { resolve(); return; }
     if (abort && abort.aborted) { resolve(); return; }
