@@ -943,7 +943,7 @@ async function solveAndTeach(){
         + '- Range expressions in ENGLISH: "1 to 40", "1 plus 2 plus 3 up to 40"\n'
         + '- Tamil script ONLY for connecting/reasoning words: இது, அப்போ, செய்யுவோம், க்குள்ள, பார்க்கலாம், பண்றோம், முடிக்கலாம்\n'
         + '- Use Tamil script (இப்போ) — NOT romanized (ippo)\n'
-        + '- SHORT: 1 sentence per script field (bare minimum)\n'
+        + '- 1-2 sentences per script field: state the operation AND one short Tamil reasoning of WHY (students chose Tamil mode because they need the why)\n'
         + '- NO "children", NO "correct-a?", NO "very good"\n'
         + '- Direct intellectual explanation\n\n'
         + 'CRITICAL WORD ORDER for multiplication/division (English, not Tamil):\n'
@@ -2309,7 +2309,7 @@ async function explainTamil(){
       + '2. ALL math terms in English: formula, multiply, divide, substitute, add, subtract, equals, factor\n'
       + '3. Tamil only for REASONING and CONNECTING words: இது, அப்போ, ஏன்னா, எடுத்துக்கோ, செய்யுவோம், பார்க்கலாம், தெரியும்\n'
       + '4. Use Tamil script (இப்போ) — NOT romanized (ippo)\n'
-      + '5. Concise: 2-3 sentences maximum\n'
+      + '5. Explain FULLY in 3-5 sentences: WHY we do this step, WHAT we are doing, and WHAT comes next. The student pressing this button did not understand the English — so teach the reasoning, do not just read the step.\n'
       + '6. NO labels like "Tamil:", NO asterisks, NO markdown\n'
       + '7. Direct intellectual tone — no "children", no "correct-a?"';
 
@@ -2325,7 +2325,7 @@ async function explainTamil(){
       body:JSON.stringify({
         system: sysPrompt,
         messages: [{role:'user', content: userPrompt}],
-        max_tokens: 500
+        max_tokens: 700
       })
     });
     if(!resp.ok){
@@ -2341,11 +2341,15 @@ async function explainTamil(){
       throw new Error('AI returned empty response');
     }
 
+    // Convert math symbols to spoken words BEFORE voice — same converter as main flow.
+    // Also runs the Tamil math-word safety net, so the voice never hits raw symbols.
+    var tamilSpeech = mathToSpeech(tamilText);
+
     // Speak via explain-tamil API (multilingual Tamil voice)
     var audRes = await fetch('/api/explain-tamil',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ text: tamilText, cache_key: 'math_'+Date.now() })
+      body:JSON.stringify({ text: tamilSpeech, cache_key: 'math_'+Date.now() })
     });
     if(audRes.ok){
       var ad = await audRes.json();
@@ -2354,13 +2358,13 @@ async function explainTamil(){
       } else if(ad && ad.audio_b64){
         await new Promise(function(r){ playAudio('data:audio/mpeg;base64,'+ad.audio_b64, r); });
       } else {
-        speakBrowser(tamilText, function(){});
+        speakBrowser(tamilSpeech, function(){});
       }
     } else {
       // Fallback to browser Tamil voice
       var origLang = TEACH_LANG;
       TEACH_LANG = 'mix';
-      speakBrowser(tamilText, function(){ TEACH_LANG = origLang; });
+      speakBrowser(tamilSpeech, function(){ TEACH_LANG = origLang; });
     }
   }catch(e){
     console.error('Tamil error:', e);
