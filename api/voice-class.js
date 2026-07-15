@@ -3,6 +3,69 @@
 // Teacher-quality voices selected for educational delivery (not audiobook narration)
 
 const https = require('https');
+const crypto = require('crypto');
+
+// ─── AUDIO CACHE (Supabase Storage) ────────────────────────
+// Generated audio is saved to bucket 'lesson-audio', folder 'class-voice/'.
+// Same text + same voice = same file, so replays cost zero ElevenLabs credits.
+// If storage is ever unavailable we silently fall back to normal generation.
+const SUPA_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
+const AUDIO_BUCKET = 'lesson-audio';
+const AUDIO_FOLDER = 'class-voice';
+
+function audioKey(voiceId, speechText) {
+  const hash = crypto.createHash('sha256')
+    .update(voiceId + '|' + speechText)
+    .digest('hex')
+    .slice(0, 40);
+  return AUDIO_FOLDER + '/' + hash + '.mp3';
+}
+
+// Fetch previously saved audio. Returns Buffer on hit, null on miss/error (never throws).
+function fetchCachedAudio(objectPath, supaKey) {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: SUPA_HOST,
+      path: '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      method: 'GET',
+      headers: { 'apikey': supaKey, 'Authorization': 'Bearer ' + supaKey }
+    };
+    const r = https.request(opts, (response) => {
+      if (response.statusCode !== 200) { response.resume(); return resolve(null); }
+      const chunks = [];
+      response.on('data', (c) => chunks.push(c));
+      response.on('end', () => resolve(Buffer.concat(chunks)));
+      response.on('error', () => resolve(null));
+    });
+    r.on('error', () => resolve(null));
+    r.end();
+  });
+}
+
+// Save generated audio for future replays. Never throws — a failed save can't break playback.
+function saveCachedAudio(objectPath, supaKey, audioBuffer) {
+  return new Promise((resolve) => {
+    const opts = {
+      hostname: SUPA_HOST,
+      path: '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      method: 'POST',
+      headers: {
+        'apikey': supaKey,
+        'Authorization': 'Bearer ' + supaKey,
+        'Content-Type': 'audio/mpeg',
+        'x-upsert': 'true',
+        'Content-Length': audioBuffer.length
+      }
+    };
+    const r = https.request(opts, (response) => {
+      response.resume();
+      response.on('end', () => resolve(response.statusCode === 200));
+    });
+    r.on('error', () => resolve(false));
+    r.write(audioBuffer);
+    r.end();
+  });
+}
 
 // ─── VOICE MAPPING BY CLASS GROUP ──────────────────────────
 // All these are ElevenLabs official library voices (free to use with API)
@@ -100,6 +163,21 @@ module.exports = async (req, res) => {
       return res.status(500).json({ error: 'ElevenLabs API key not configured' });
     }
 
+    // ── CACHE CHECK: if this exact line was generated before, play the saved file ──
+    const supaKey = process.env.SUPABASE_SECRET_KEY;
+    if (supaKey) {
+      const cached = await fetchCachedAudio(audioKey(voiceId, speechText), supaKey);
+      if (cached && cached.length > 0) {
+        return res.status(200).json({
+          audio_b64: cached.toString('base64'),
+          voiceId: voiceId,
+          cls: cls || 'default',
+          cached: true
+        });
+      }
+    }
+    // ── CACHE MISS: generate as normal below ──
+
     // Build request body for ElevenLabs
     const payload = JSON.stringify({
       text: speechText,
@@ -163,12 +241,20 @@ module.exports = async (req, res) => {
       }
     }
 
+    // ── SAVE TO CACHE so the next play of this line is free ──
+    // Keyed by the voice that ACTUALLY spoke (usedVoice), so a safety-net
+    // recording is never mistaken for the proper class voice.
+    if (supaKey) {
+      await saveCachedAudio(audioKey(usedVoice, speechText), supaKey, audioBuffer);
+    }
+
     // Return base64 audio (field name matches existing client code)
     const audioBase64 = audioBuffer.toString('base64');
     return res.status(200).json({
       audio_b64: audioBase64,
       voiceId: usedVoice,
-      cls: cls || 'default'
+      cls: cls || 'default',
+      cached: false
     });
 
   } catch (err) {
