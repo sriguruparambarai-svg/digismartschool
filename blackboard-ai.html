@@ -755,13 +755,28 @@ body {
 .diagram-container .slabel.hl{opacity:1;}
 .diagram-container .sea{font-family:sans-serif;font-size:13px;fill:#4a90c2;font-style:italic;opacity:.55;}
 
-/* ─── AI TEACHER FIGURE + POINTING STICK ─── */
-#bb-teacher{position:fixed;right:14px;bottom:120px;width:96px;z-index:60;cursor:pointer;filter:drop-shadow(0 4px 10px rgba(0,0,0,.45));animation:bbTeacherBob 4.5s ease-in-out infinite;transition:opacity .4s;}
+/* ─── AI TEACHER FIGURE + TAP-POINTER ─── */
+#bb-teacher{position:fixed;right:16px;bottom:118px;width:180px;height:auto;z-index:60;cursor:pointer;filter:drop-shadow(0 5px 12px rgba(0,0,0,.5));animation:bbTeacherBob 4.5s ease-in-out infinite;transition:opacity .4s;}
 #bb-teacher.hidden{opacity:0;pointer-events:none;}
 @keyframes bbTeacherBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-5px);}}
-#bb-stick{position:fixed;height:4px;background:linear-gradient(90deg,#8a5a2b,#c99a4c);border-radius:3px;transform-origin:right center;z-index:59;pointer-events:none;opacity:0;transition:transform .55s ease,width .55s ease,opacity .3s ease;box-shadow:0 1px 4px rgba(0,0,0,.4);}
-#bb-stick::before{content:'';position:absolute;left:-5px;top:-3px;width:10px;height:10px;border-radius:50%;background:#f5e87a;box-shadow:0 0 8px rgba(245,232,122,.8);}
-#bb-stick.show{opacity:1;}
+/* Short stick — appears ONLY to tap a key point, then fades away */
+#bb-stick{position:fixed;width:170px;height:5px;background:linear-gradient(90deg,#c99a4c,#8a5a2b);border-radius:3px;transform-origin:left center;transform:rotate(35deg);z-index:59;pointer-events:none;opacity:0;transition:left .45s ease,top .45s ease;}
+#bb-stick::before{content:'';position:absolute;left:-6px;top:-3.5px;width:12px;height:12px;border-radius:50%;background:#f5e87a;box-shadow:0 0 10px rgba(245,232,122,.9);}
+#bb-stick.show{opacity:1;animation:bbTap .9s ease;}
+@keyframes bbTap{0%{transform:rotate(35deg) translateX(14px);}40%{transform:rotate(35deg) translateX(0);}60%{transform:rotate(35deg) translateX(6px);}100%{transform:rotate(35deg) translateX(0);}}
+/* Tamil explanation callout */
+#bb-tamil-box{position:fixed;left:50%;transform:translateX(-50%);bottom:100px;max-width:820px;width:92%;background:linear-gradient(135deg,#FFF8E7,#FFEFD0);border:3px solid var(--gold, #C9A84C);border-radius:14px;padding:16px 22px;color:#3a1010;font-size:1.12rem;line-height:1.8;display:none;z-index:70;box-shadow:0 10px 36px rgba(0,0,0,.45);font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+#bb-tamil-box.on{display:block;}
+#bb-tamil-box .close-x{position:absolute;top:6px;right:12px;cursor:pointer;font-size:1.1rem;font-weight:900;color:#6B1A1A;}
+/* Interactive wall map modal */
+#bb-map-modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:none;z-index:80;align-items:center;justify-content:center;}
+#bb-map-modal.on{display:flex;}
+#bb-map-card{background:#FBF3E4;border-radius:14px;padding:14px 18px;max-width:640px;width:94%;max-height:92vh;overflow:auto;box-shadow:0 14px 50px rgba(0,0,0,.6);position:relative;}
+#bb-map-card .map-hint{font-family:'Nunito',sans-serif;font-size:.8rem;color:#6B1A1A;font-weight:800;text-align:center;margin-bottom:6px;}
+#bb-map-card .close-x{position:absolute;top:8px;right:14px;cursor:pointer;font-size:1.3rem;font-weight:900;color:#6B1A1A;z-index:2;}
+#bb-map-card .state{cursor:pointer;}
+#bb-map-card .river{cursor:pointer;stroke-width:6;stroke:transparent;}
+#bb-map-card .river-visible{fill:none;stroke:#4a90c2;stroke-width:2;stroke-linecap:round;opacity:.75;pointer-events:none;}
 </style>
 </head>
 <body>
@@ -851,6 +866,8 @@ body {
       <button class="ctrl-btn" onclick="prevStep()">⏮ Back</button>
       <button class="ctrl-btn" onclick="nextStep()">⏭ Next</button>
       <button class="ctrl-btn" id="voice-toggle" onclick="toggleVoice()">🔊 Voice</button>
+      <button class="ctrl-btn" id="bb-tamil-btn" onclick="bbExplainTamil()">🇮🇳 தமிழ்</button>
+      <button class="ctrl-btn" id="bb-map-btn" onclick="openBBMap()">🗺 Map</button>
       <button class="ctrl-btn" onclick="toggleSidebar()" id="sidebar-toggle-btn" title="Toggle Steps">☰</button>
       <select class="speed-select" id="speed-sel" onchange="changeSpeed(this.value)">
         <option value="0.5">🐢 Slow</option>
@@ -893,34 +910,19 @@ body {
         <div id="board-content" class="board-scroll"></div>
         <!-- AI Teacher figure with pointing stick (click to hide/show) -->
         <div id="bb-stick"></div>
-        <svg id="bb-teacher" viewBox="0 0 100 150" xmlns="http://www.w3.org/2000/svg" onclick="toggleTeacherFigure()" aria-label="AI Teacher">
-          <title>AI Teacher (click to hide)</title>
-          <!-- hair bun -->
-          <circle cx="63" cy="16" r="7" fill="#2a1a10"/>
-          <!-- head -->
-          <circle cx="50" cy="24" r="13" fill="#c98d5f" stroke="#2a1a10" stroke-width="1.5"/>
-          <!-- hair front -->
-          <path d="M 38 20 Q 50 6 62 20 L 62 14 Q 50 4 38 14 Z" fill="#2a1a10"/>
-          <!-- bindi -->
-          <circle cx="50" cy="21" r="1.6" fill="#8b1a1a"/>
-          <!-- eyes + smile -->
-          <circle cx="45.5" cy="23" r="1.4" fill="#2a1a10"/>
-          <circle cx="54.5" cy="23" r="1.4" fill="#2a1a10"/>
-          <path d="M 46 29 Q 50 32 54 29" stroke="#2a1a10" stroke-width="1.3" fill="none" stroke-linecap="round"/>
-          <!-- sari body -->
-          <path d="M 36 40 Q 50 34 64 40 L 70 105 Q 50 112 30 105 Z" fill="#6B1A1A" stroke="#C9A84C" stroke-width="1.5"/>
-          <!-- sari drape -->
-          <path d="M 44 40 Q 56 60 50 104" stroke="#C9A84C" stroke-width="2" fill="none" opacity="0.85"/>
-          <!-- pointing arm (toward the board, left) -->
-          <path d="M 40 50 Q 24 46 12 50" stroke="#c98d5f" stroke-width="6" fill="none" stroke-linecap="round"/>
-          <!-- hand -->
-          <circle id="bb-hand" cx="11" cy="50" r="4.5" fill="#c98d5f"/>
-          <!-- resting arm -->
-          <path d="M 60 48 Q 66 62 62 74" stroke="#6B1A1A" stroke-width="7" fill="none" stroke-linecap="round"/>
-          <!-- feet -->
-          <ellipse cx="42" cy="108" rx="6" ry="3" fill="#2a1a10"/>
-          <ellipse cx="58" cy="108" rx="6" ry="3" fill="#2a1a10"/>
-        </svg>
+        <img id="bb-teacher" src="/assets/teacher.png" alt="AI Teacher" title="AI Teacher (click to hide)" onclick="toggleTeacherFigure()" onerror="this.style.display='none'"/>
+
+        <!-- Tamil explanation callout -->
+        <div id="bb-tamil-box"><span class="close-x" onclick="document.getElementById('bb-tamil-box').classList.remove('on')">✕</span><div id="bb-tamil-text"></div></div>
+
+        <!-- Interactive wall map: teacher clicks any state or river to highlight + hear it -->
+        <div id="bb-map-modal" onclick="if(event.target===this)closeBBMap()">
+          <div id="bb-map-card">
+            <span class="close-x" onclick="closeBBMap()">✕</span>
+            <div class="map-hint">🗺 INDIA — click any state or river to highlight it. Click again to remove.</div>
+            <div id="bb-map-holder"></div>
+          </div>
+        </div>
 
         <!-- Floating chalk piece -->
         <div id="chalk-piece"></div>
@@ -1541,6 +1543,7 @@ async function teachStep(step) {
         li.style.color = color;
         board.appendChild(li);
         await writeChalk(li, '→  ' + items[i], abort, 28, 56);
+        if (!abort.aborted) pointStickAt(li);   // teacher taps the key point
       }
       break;
     }
@@ -1598,7 +1601,6 @@ async function teachStep(step) {
         const canvas = document.createElement('div');
         canvas.className = 'diagram-container board-element';
         board.appendChild(canvas);
-        pointStickAt(canvas);
         await drawDiagramLive(canvas, step, abort);
       }
       break;
@@ -1742,24 +1744,93 @@ function teacherHandPoint(){
   return { x: r.left + r.width * 0.11, y: r.top + r.height * (50/150) };
 }
 
+// ─── TAMIL BUTTON: explain the current step in Tamil-mix ───
+const BB_TAMIL_CACHE = {};
+async function bbExplainTamil(){
+  const step = lessonSteps && lessonSteps[currentStep];
+  if (!step) return;
+  const btn = document.getElementById('bb-tamil-btn');
+  const box = document.getElementById('bb-tamil-box');
+  const txtEl = document.getElementById('bb-tamil-text');
+  try{
+    btn.disabled = true; btn.textContent = '⏳ தமிழ்…';
+    let tamil = BB_TAMIL_CACHE[currentStep];
+    if (!tamil){
+      const material = (Array.isArray(step.write) ? step.write.join('. ') : (step.write || '')) + '. ' + (step.speech || '');
+      const res = await fetch('/api/ai', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system:'You are a Tamil Nadu school teacher. Return ONLY the Tamil-mix explanation text — no labels, no markdown.',
+          messages:[{role:'user',content:
+            'Explain this lesson point in Tamil-English mix, like a real Tamil Nadu teacher (English keywords kept in English, Tamil meaning right after, 3-5 sentences, explain the WHY):\n\n' + material.substring(0, 1500)}],
+          max_tokens: 500
+        })
+      });
+      const d = await res.json();
+      if (d && Array.isArray(d.content)) tamil = d.content.map(b => b.type==='text' ? b.text : '').join('').trim();
+      else if (d && d.text) tamil = String(d.text).trim();
+      if (tamil) BB_TAMIL_CACHE[currentStep] = tamil;
+    }
+    if (!tamil) throw new Error('empty');
+    txtEl.textContent = tamil;
+    box.classList.add('on');
+    if (voiceOn) speak(tamil);
+  }catch(e){
+    txtEl.textContent = 'Tamil explanation failed — please try again.';
+    box.classList.add('on');
+  }finally{
+    btn.disabled = false; btn.innerHTML = '🇮🇳 தமிழ்';
+  }
+}
+
+// ─── MAP BUTTON: interactive wall map — click a state/river to teach it ───
+let bbMapLoaded = false;
+async function openBBMap(){
+  const modal = document.getElementById('bb-map-modal');
+  const holder = document.getElementById('bb-map-holder');
+  modal.classList.add('on');
+  if (!bbMapLoaded){
+    const svgNode = await loadSVG(visualLibrary.india_states || '/assets/maps/india_states.svg');
+    if (!svgNode){ holder.innerHTML = '<div style="font-family:Nunito,sans-serif;color:#6B1A1A;padding:30px;text-align:center;">Map file not found. Please upload assets/maps/india_states.svg</div>'; return; }
+    cleanSVG(svgNode);
+    svgNode.setAttribute('width','100%'); svgNode.removeAttribute('height');
+    holder.appendChild(svgNode);
+    // Rivers: add a wide invisible click zone over each thin line
+    svgNode.querySelectorAll('.river').forEach(r => {
+      const vis = r.cloneNode(true);
+      vis.removeAttribute('id');
+      vis.setAttribute('class','river-visible');
+      r.parentNode.insertBefore(vis, r);
+    });
+    svgNode.addEventListener('click', function(ev){
+      const t = ev.target.closest('[data-name]');
+      if (!t) return;
+      const on = t.classList.toggle('hl');
+      const lbl = svgNode.querySelector('#' + t.id + '-label');
+      if (lbl) lbl.classList.toggle('hl', on);
+      if (on && voiceOn) speak(t.getAttribute('data-name'));
+    });
+    bbMapLoaded = true;
+  }
+}
+function closeBBMap(){ document.getElementById('bb-map-modal').classList.remove('on'); }
+
+let bbStickTimer = null;
 function pointStickAt(el){
   if (!teacherVisible || !el) return;
   const stick = document.getElementById('bb-stick');
-  const hand  = teacherHandPoint();
-  if (!stick || !hand) return;
+  if (!stick) return;
   const r = el.getBoundingClientRect();
   if (!r.width && !r.height) return;
-  // Stick tip touches just left-of-centre of the line, like a long class pointer
-  const tx = r.left + Math.min(r.width * 0.35, 320);
-  const ty = r.top + r.height / 2;
-  const dx = tx - hand.x, dy = ty - hand.y;
-  const len = Math.max(30, Math.sqrt(dx*dx + dy*dy));
-  const ang = Math.atan2(dy, dx) * 180 / Math.PI;
-  stick.style.width = len + 'px';
-  stick.style.left  = (hand.x - len) + 'px';
-  stick.style.top   = (hand.y - 2) + 'px';
-  stick.style.transform = 'rotate(' + (ang + 180) + 'deg)';
+  // Short stick taps the point: tip lands just left of the line, rod angles down-right
+  stick.style.left = (r.left + 2) + 'px';
+  stick.style.top  = (r.top + r.height / 2 - 2) + 'px';
+  stick.classList.remove('show');
+  void stick.offsetWidth;               // restart tap animation
   stick.classList.add('show');
+  if (bbStickTimer) clearTimeout(bbStickTimer);
+  bbStickTimer = setTimeout(retractStick, 2600);   // fades away — never lingers
 }
 
 function retractStick(){
@@ -1768,7 +1839,6 @@ function retractStick(){
 }
 
 function writeChalk(container, text, abort, minMs, maxMs) {
-  pointStickAt(container);
   return new Promise(resolve => {
     if (!container || !text) { resolve(); return; }
     if (abort && abort.aborted) { resolve(); return; }
