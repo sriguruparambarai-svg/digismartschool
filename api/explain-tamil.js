@@ -54,6 +54,30 @@ function elTTS(text) {
   });
 }
 
+// Check storage BEFORE generating — this is the actual caching step that was missing.
+// Same lesson+page+paragraph = same fileName = instant reuse, zero ElevenLabs cost.
+function fetchFromSB(fileName) {
+  return new Promise((resolve) => {
+    const key = process.env.SUPABASE_SECRET_KEY;
+    if (!key) return resolve(null);
+    const opts = {
+      hostname: SB_HOST,
+      path: `/storage/v1/object/lesson-audio/${fileName}`,
+      method: 'GET',
+      headers: { apikey: key, Authorization: 'Bearer ' + key }
+    };
+    const r = https.request(opts, (resp) => {
+      if (resp.statusCode !== 200) { resp.resume(); return resolve(null); }
+      const chunks = [];
+      resp.on('data', c => chunks.push(c));
+      resp.on('end', () => resolve(Buffer.concat(chunks)));
+      resp.on('error', () => resolve(null));
+    });
+    r.on('error', () => resolve(null));
+    r.end();
+  });
+}
+
 function uploadToSB(buffer, fileName) {
   return new Promise((resolve, reject) => {
     const key = process.env.SUPABASE_SECRET_KEY;
@@ -93,24 +117,39 @@ module.exports = async function(req, res) {
   const { text, cache_key } = req.body || {};
   if (!text || text.trim().length < 5) return res.json({ error: 'text required' });
 
+  const fileName = 'explain_' + (cache_key || Date.now()) + '.mp3';
+
   try {
+    // ── CACHE CHECK: reuse saved audio if this exact line was generated before ──
+    if (cache_key) {
+      const cached = await fetchFromSB(fileName);
+      if (cached && cached.length > 0) {
+        return res.json({
+          success: true,
+          audio_b64: cached.toString('base64'),
+          source: 'cache',
+          cached: true
+        });
+      }
+    }
+    // ── CACHE MISS: generate as normal below ──
+
     // Generate audio via ElevenLabs multilingual_v2
     const result = await elTTS(text.trim());
     if (!result.ok) {
       return res.json({ error: 'ElevenLabs error: ' + (result.error || 'Unknown'), status: result.status });
     }
 
-    // Upload to Supabase storage
-    const fileName = 'explain_' + (cache_key || Date.now()) + '.mp3';
+    // Upload to Supabase storage — saved under the SAME fileName so next call hits the cache
     const upload = await uploadToSB(result.audio, fileName);
 
     if (!upload.ok) {
       // Return base64 as fallback if storage fails
       const b64 = result.audio.toString('base64');
-      return res.json({ success: true, audio_b64: b64, source: 'base64' });
+      return res.json({ success: true, audio_b64: b64, source: 'base64', cached: false });
     }
 
-    return res.json({ success: true, audio_url: upload.url, source: 'storage' });
+    return res.json({ success: true, audio_url: upload.url, source: 'storage', cached: false });
 
   } catch(e) {
     return res.status(500).json({ error: e.message });
