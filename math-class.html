@@ -847,6 +847,7 @@ var IS_PAUSED = false;
 var IS_SPEAKING_INTRO = false;  // True while intro voice plays (row narrations wait)
 var SPEED = 1.0;
 var CURRENT_AUDIO = null;
+var AUDIO_CACHE = {};     // spokenLine -> base64 audio (pre-generated before class starts)
 var SCHOOL_CLASS = 'Class 7';
 var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 
@@ -910,6 +911,29 @@ async function solveAndTeach(){
   }
 
   try {
+    // ── SAVED CLASS CHECK ──
+    // If this exact question (same class + language) was taught before,
+    // load the saved class from Supabase instantly — no AI cost, and every
+    // voice line matches the already-saved audio, so replays are free.
+    try{
+      var savedRes = await fetch('/api/math-solutions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'get', question: problem, cls: SCHOOL_CLASS, lang: TEACH_LANG })
+      });
+      if(savedRes.ok){
+        var savedData = await savedRes.json();
+        if(savedData && savedData.found && savedData.solution &&
+           Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0){
+          SOLUTION = savedData.solution;
+          await warmVoices(SOLUTION);
+          $('loading').classList.remove('show');
+          showClassroom();
+          return;
+        }
+      }
+    }catch(savedErr){ /* saved-class lookup failed — generate normally below */ }
+
     // Different system prompts based on language mode
     var systemPrompt, styleGuide;
 
@@ -1175,6 +1199,23 @@ async function solveAndTeach(){
     }
 
     SOLUTION = solution;
+
+    // ── SAVE CLASS for instant replay ──
+    // Fire-and-forget: teaching the same question again loads it from Supabase
+    // with zero AI cost and zero new voice generation.
+    try{
+      fetch('/api/math-solutions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', question: problem, cls: SCHOOL_CLASS, lang: TEACH_LANG, solution: solution })
+      });
+    }catch(saveErr){}
+
+    // ── PREPARE ALL VOICES BEFORE CLASS STARTS ──
+    // Fixes Tamil skipping the beginning: every line's audio is generated
+    // (or loaded from Supabase) up-front, so the class speaks from step 1.
+    await warmVoices(solution);
+
     $('loading').classList.remove('show');
     showClassroom();
   } catch(e){
@@ -2202,6 +2243,84 @@ function showStepInstant(idx){
 // ═══════════════════════════════════════════
 // SPEECH (ElevenLabs voice-class API)
 // ═══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// VOICE WARM-UP — generate every spoken line BEFORE the class begins
+// Defaults below mirror runPlayback / showStep / showFinalAnswer exactly,
+// so every warmed line matches what speakStep will ask for later.
+// ═══════════════════════════════════════════
+function collectSpeakLines(sol){
+  var lines = [];
+  function add(t){ if(t && String(t).trim()) lines.push(String(t)); }
+  add(sol.intro || ("Let us solve this problem together. The problem is: " + sol.problem));
+  if(sol.formula && sol.formula.trim()){
+    add(sol.formulaScript || ("First, let us remember the formula we need. " + sol.formula));
+  }
+  (sol.steps || []).forEach(function(step){
+    add(step.teacherScript || step.explanation || step.main);
+    var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
+    if(!hasRough) return;
+    if(step.roughType === 'mul' || step.roughType === 'div'){
+      add(step.roughScript && step.roughScript.trim()
+        ? step.roughScript
+        : (step.roughType === 'mul'
+            ? 'Now multiply ' + step.roughA + ' into ' + step.roughB
+            : 'Now divide ' + step.roughA + ' by ' + step.roughB));
+      try{
+        var rows = step.roughType === 'mul'
+          ? computeMultiplicationRows(step.roughA, step.roughB, step.roughResult)
+          : computeDivisionRows(step.roughA, step.roughB, step.roughResult);
+        (rows || []).forEach(function(r){ if(r && r.narrate && r.narrate.trim()) add(r.narrate); });
+      }catch(rowErr){}
+    } else {
+      add(step.roughScript || step.roughExplain);
+    }
+  });
+  if(sol.finalAnswer && sol.finalAnswer.trim()){
+    add(sol.finalScript || ('And so, the final answer is: ' + sol.finalAnswer + '. Very good children!'));
+  }
+  if(sol.verificationScript || sol.verification){
+    add(sol.verificationScript || ('Let us verify our answer. ' + (sol.verification || '')));
+  }
+  return lines;
+}
+
+async function warmVoices(sol){
+  var texts = [];
+  collectSpeakLines(sol).forEach(function(t){
+    var c = mathToSpeech(t).replace(/\*+/g, '');
+    if(c.trim() && texts.indexOf(c) === -1 && !AUDIO_CACHE[TEACH_LANG + '|' + c]) texts.push(c);
+  });
+  if(texts.length === 0) return;
+
+  var total = texts.length, done = 0;
+  var lt = document.querySelector('.loading-text');
+  var ls = document.querySelector('.loading-sub');
+  if(lt) lt.textContent = "Preparing teacher's voice...";
+  function prog(){ if(ls) ls.textContent = 'Voice lines ready: ' + done + ' / ' + total; }
+  prog();
+
+  var idx = 0;
+  async function worker(){
+    while(idx < texts.length){
+      var t = texts[idx++];
+      try{
+        var r = await fetch('/api/voice-math', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: t, lang: TEACH_LANG })
+        });
+        if(r.ok){
+          var d = await r.json();
+          if(d && d.audio_b64) AUDIO_CACHE[TEACH_LANG + '|' + t] = d.audio_b64;
+        }
+      }catch(warmErr){ /* line will be fetched live during class as before */ }
+      done++; prog();
+    }
+  }
+  // Two parallel workers — fast, but stays within ElevenLabs concurrency limits
+  await Promise.all([worker(), worker()]);
+}
+
 function speakStep(text){
   return new Promise(function(resolve){
     if(!IS_PLAYING && !text){ resolve(); return; }
@@ -2210,19 +2329,42 @@ function speakStep(text){
     cleanText = cleanText.replace(/\*+/g, '');
     if(!cleanText.trim()){ resolve(); return; }
 
+    // ── INSTANT PLAY: use pre-generated audio if we already have this line ──
+    var cacheKey = TEACH_LANG + '|' + cleanText;
+    if(AUDIO_CACHE[cacheKey]){
+      playAudio('data:audio/mpeg;base64,' + AUDIO_CACHE[cacheKey], resolve);
+      return;
+    }
+
     // Math class uses DEDICATED voice API — separate from teaching mode voices
     // /api/voice-math uses Monika Sogam with intellectual professor settings
-    fetch('/api/voice-math', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: cleanText, lang: TEACH_LANG })
-    }).then(function(r){ return r.json(); }).then(function(d){
-      if(d && d.audio_b64){
-        playAudio('data:audio/mpeg;base64,' + d.audio_b64, resolve);
-      } else {
-        speakBrowser(cleanText, resolve);
-      }
-    }).catch(function(){ speakBrowser(cleanText, resolve); });
+    // One retry on failure. If voice still fails, show a notice — never switch
+    // silently to a browser voice that skips the Tamil words.
+    function attemptVoice(retriesLeft){
+      fetch('/api/voice-math', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: cleanText, lang: TEACH_LANG })
+      }).then(function(r){
+        if(!r.ok) throw new Error('voice api ' + r.status);
+        return r.json();
+      }).then(function(d){
+        if(d && d.audio_b64){
+          AUDIO_CACHE[cacheKey] = d.audio_b64;   // remember for replays
+          playAudio('data:audio/mpeg;base64,' + d.audio_b64, resolve);
+        } else {
+          throw new Error('no audio in response');
+        }
+      }).catch(function(){
+        if(retriesLeft > 0){
+          setTimeout(function(){ attemptVoice(retriesLeft - 1); }, 800);
+        } else {
+          showStatusToast('⚠️ Teacher voice could not load for this line');
+          speakBrowser(cleanText, resolve);
+        }
+      });
+    }
+    attemptVoice(1);
   });
 }
 
@@ -2233,7 +2375,10 @@ function playAudio(url, onEnd){
     CURRENT_AUDIO.playbackRate = SPEED;
     CURRENT_AUDIO.onended = function(){ CURRENT_AUDIO = null; if(onEnd) onEnd(); };
     CURRENT_AUDIO.onerror = function(){ CURRENT_AUDIO = null; if(onEnd) onEnd(); };
-    CURRENT_AUDIO.play().catch(function(){ if(onEnd) onEnd(); });
+    CURRENT_AUDIO.play().catch(function(){
+      showStatusToast('🔇 Voice blocked by browser — press ⏸ Pause, then ▶ Resume');
+      if(onEnd) onEnd();
+    });
   }catch(e){ if(onEnd) onEnd(); }
 }
 
@@ -2274,6 +2419,34 @@ function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
 // ═══════════════════════════════════════════
 // TAMIL EXPLANATION (for current step)
 // ═══════════════════════════════════════════
+// Voice for the Tamil button — routed through the SAME cached voice-math API
+// (Sarah multilingual voice, saved in Supabase), so repeated presses replay
+// the saved audio instead of generating again.
+async function playTamilVoice(tamilSpeech){
+  var cacheKey = 'mix|' + tamilSpeech;
+  if(AUDIO_CACHE[cacheKey]){
+    await new Promise(function(r){ playAudio('data:audio/mpeg;base64,' + AUDIO_CACHE[cacheKey], r); });
+    return;
+  }
+  var audRes = await fetch('/api/voice-math',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({ text: tamilSpeech, lang: 'mix' })
+  });
+  if(audRes.ok){
+    var ad = await audRes.json();
+    if(ad && ad.audio_b64){
+      AUDIO_CACHE[cacheKey] = ad.audio_b64;
+      await new Promise(function(r){ playAudio('data:audio/mpeg;base64,' + ad.audio_b64, r); });
+      return;
+    }
+  }
+  // Fallback to browser Tamil voice
+  var origLang = TEACH_LANG;
+  TEACH_LANG = 'mix';
+  speakBrowser(tamilSpeech, function(){ TEACH_LANG = origLang; });
+}
+
 async function explainTamil(){
   if(!SOLUTION) return;
   var currentStep = STEP_IDX >= 0 && STEP_IDX < SOLUTION.steps.length ? SOLUTION.steps[STEP_IDX] : null;
@@ -2295,6 +2468,13 @@ async function explainTamil(){
   }catch(e){}
 
   try{
+    // Reuse: this step was already explained in Tamil — replay instantly,
+    // no new AI call and no new voice cost.
+    if(currentStep._tamilSpeech){
+      await playTamilVoice(currentStep._tamilSpeech);
+      return;
+    }
+
     // Build the step context for Tamil explanation
     var stepText = currentStep.main;
     var teacherContext = currentStep.teacherScript || currentStep.explanation || '';
@@ -2345,27 +2525,11 @@ async function explainTamil(){
     // Also runs the Tamil math-word safety net, so the voice never hits raw symbols.
     var tamilSpeech = mathToSpeech(tamilText);
 
-    // Speak via explain-tamil API (multilingual Tamil voice)
-    var audRes = await fetch('/api/explain-tamil',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ text: tamilSpeech, cache_key: 'math_'+Date.now() })
-    });
-    if(audRes.ok){
-      var ad = await audRes.json();
-      if(ad && ad.audio_url){
-        await new Promise(function(r){ playAudio(ad.audio_url, r); });
-      } else if(ad && ad.audio_b64){
-        await new Promise(function(r){ playAudio('data:audio/mpeg;base64,'+ad.audio_b64, r); });
-      } else {
-        speakBrowser(tamilSpeech, function(){});
-      }
-    } else {
-      // Fallback to browser Tamil voice
-      var origLang = TEACH_LANG;
-      TEACH_LANG = 'mix';
-      speakBrowser(tamilSpeech, function(){ TEACH_LANG = origLang; });
-    }
+    // Remember this step's Tamil speech so a second press replays instantly
+    currentStep._tamilSpeech = tamilSpeech;
+
+    // Speak via the cached voice-math API (audio saved in Supabase for reuse)
+    await playTamilVoice(tamilSpeech);
   }catch(e){
     console.error('Tamil error:', e);
     alert('Tamil explanation failed: ' + (e.message || 'unknown') + '. Please check API keys.');
