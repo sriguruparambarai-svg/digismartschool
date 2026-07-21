@@ -313,6 +313,8 @@ function scPlanPrompt(){
     'skeleton, skull, ear, eye, heart, brain, lungs, digestive_system, kidney, teeth, ' +
     'cell_animal, cell_plant, neuron, dna, bacteria, virus, flower, leaf, human_muscles, atom, ' +
     'solar_system, volcano, microscope. ' +
+    'For the SOLAR SYSTEM always use model3d with organ "solar_system" \u2014 a working model with planets ' +
+    'revolving around the Sun is shown. NEVER use a photo step for the solar system. ' +
     'IMPORTANT: follow the lesson closely \u2014 when the topic moves from the skeletal system to the skull, ' +
     'give a NEW model3d step with organ "skull". One model per step.\n' +
     '- Use "photo" for real-world things best shown as photographs: microscope views, animals, plants, ' +
@@ -666,6 +668,151 @@ function renderMap(inner, step){
   });
 }
 
+/* ══ WORKING SOLAR SYSTEM (hand-built — planets revolve around the Sun) ══
+   Built with the same Three.js engine as the globe. All eight planets in
+   order, correct colours, Saturn's ring, the Moon around Earth, orbit
+   rings, floating name labels, drag to look around. */
+var SCI_PLANETS = [
+  { name:'Mercury', color:0x9c8f85, size:0.14, orbit:2.6,  speed:0.021 },
+  { name:'Venus',   color:0xe0b96a, size:0.20, orbit:3.4,  speed:0.016 },
+  { name:'Earth',   color:0x3f7fd6, size:0.22, orbit:4.3,  speed:0.012, moon:true },
+  { name:'Mars',    color:0xc4553b, size:0.17, orbit:5.2,  speed:0.010 },
+  { name:'Jupiter', color:0xd8a06a, size:0.55, orbit:6.8,  speed:0.0062, bands:true },
+  { name:'Saturn',  color:0xe6cf9a, size:0.47, orbit:8.4,  speed:0.0050, ring:true },
+  { name:'Uranus',  color:0x8fd0dd, size:0.32, orbit:9.8,  speed:0.0038 },
+  { name:'Neptune', color:0x4a6fdc, size:0.31, orbit:11.0, speed:0.0030 }
+];
+
+function renderSolarSystem(inner, step){
+  if (typeof THREE === 'undefined'){ renderConcept(inner, step); return; }
+  scDestroyGlobe();
+  inner.innerHTML =
+    '<div class="sc-globe-frame">' +
+      '<div id="sc-globe-canvas"></div>' +
+      '<div class="sc-globe-title"><div class="t"></div></div>' +
+      '<div class="sc-globe-hint">\u270B drag to look around</div>' +
+      '<div class="sc-globe-legend">\u2600 The Sun at the centre \u00B7 eight planets revolving in their own orbits \u00B7 the Moon circling Earth</div>' +
+    '</div>';
+  inner.querySelector('.sc-globe-title .t').textContent = step.title;
+
+  var wrap = document.getElementById('sc-globe-canvas');
+  var W = wrap.clientWidth || 900, H = wrap.clientHeight || 520;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(46, W / H, 0.1, 200);
+  var renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  wrap.appendChild(renderer.domElement);
+
+  /* starfield */
+  var starPos = [];
+  for (var i = 0; i < 500; i++){
+    var a1 = Math.random() * Math.PI * 2, a2 = Math.acos(2 * Math.random() - 1), rr = 60;
+    starPos.push(rr * Math.sin(a2) * Math.cos(a1), rr * Math.cos(a2), rr * Math.sin(a2) * Math.sin(a1));
+  }
+  var starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color:0xffffff, size:0.1, transparent:true, opacity:0.75 })));
+
+  /* the Sun — glowing centre + its light */
+  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+  var sunLight = new THREE.PointLight(0xfff0c0, 1.6, 0);
+  scene.add(sunLight);
+  var sun = new THREE.Mesh(new THREE.SphereGeometry(1.15, 40, 40),
+    new THREE.MeshBasicMaterial({ color:0xFFD24A }));
+  scene.add(sun);
+  var glow = new THREE.Mesh(new THREE.SphereGeometry(1.45, 32, 32),
+    new THREE.MeshBasicMaterial({ color:0xFFB020, transparent:true, opacity:0.22 }));
+  scene.add(glow);
+  var sunLbl = scMakeSprite('Sun', '#FFE484');
+  sunLbl.position.set(0, 1.9, 0);
+  scene.add(sunLbl);
+
+  /* orbit rings */
+  SCI_PLANETS.forEach(function(p){
+    var pts = [];
+    for (var k = 0; k <= 128; k++){
+      var a = k / 128 * Math.PI * 2;
+      pts.push(new THREE.Vector3(p.orbit * Math.cos(a), 0, p.orbit * Math.sin(a)));
+    }
+    var ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color:0x8a7a4a, transparent:true, opacity:0.4 }));
+    scene.add(ring);
+  });
+
+  /* planets */
+  var bodies = [];
+  SCI_PLANETS.forEach(function(p, i){
+    var mesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 28, 28),
+      new THREE.MeshPhongMaterial({ color: p.color, shininess: 8 }));
+    if (p.bands){
+      var band = new THREE.Mesh(new THREE.SphereGeometry(p.size * 1.01, 28, 28),
+        new THREE.MeshPhongMaterial({ color: 0xb5764a, transparent:true, opacity:0.35 }));
+      mesh.add(band);
+    }
+    if (p.ring){
+      var sat = new THREE.Mesh(new THREE.RingGeometry(p.size * 1.35, p.size * 2.05, 48),
+        new THREE.MeshBasicMaterial({ color:0xd9c08a, side:THREE.DoubleSide, transparent:true, opacity:0.75 }));
+      sat.rotation.x = Math.PI / 2.35;
+      mesh.add(sat);
+    }
+    var lbl = scMakeSprite(p.name, '#FFD86A');
+    lbl.scale.set(1.35, 0.34, 1);
+    lbl.position.set(0, p.size + 0.42, 0);
+    mesh.add(lbl);
+    var moon = null;
+    if (p.moon){
+      moon = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 14),
+        new THREE.MeshPhongMaterial({ color:0xcfcfcf }));
+      scene.add(moon);
+    }
+    scene.add(mesh);
+    bodies.push({ p:p, mesh:mesh, moon:moon, ang: Math.random() * Math.PI * 2, moonAng: Math.random() * Math.PI * 2 });
+  });
+
+  /* camera + drag-to-look */
+  var camDist = 16, camPitch = 0.55, camYaw = 0.6;
+  var dragging = false, px = 0, py = 0;
+  wrap.addEventListener('pointerdown', function(e){ dragging = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  window.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    camYaw += (e.clientX - px) * 0.005;
+    camPitch += (e.clientY - py) * 0.003;
+    camPitch = Math.max(0.12, Math.min(1.25, camPitch));
+    px = e.clientX; py = e.clientY;
+  });
+
+  var myIdx = CUR;
+  function frame(){
+    if (CUR !== myIdx || !scGlobe) return;
+    bodies.forEach(function(b){
+      b.ang += b.p.speed;
+      b.mesh.position.set(b.p.orbit * Math.cos(b.ang), 0, b.p.orbit * Math.sin(b.ang));
+      b.mesh.rotation.y += 0.01;
+      if (b.moon){
+        b.moonAng += 0.05;
+        b.moon.position.set(
+          b.mesh.position.x + 0.45 * Math.cos(b.moonAng),
+          0,
+          b.mesh.position.z + 0.45 * Math.sin(b.moonAng)
+        );
+      }
+    });
+    glow.scale.setScalar(1 + 0.04 * Math.sin(Date.now() * 0.002));
+    camera.position.set(
+      camDist * Math.cos(camPitch) * Math.cos(camYaw),
+      camDist * Math.sin(camPitch),
+      camDist * Math.cos(camPitch) * Math.sin(camYaw)
+    );
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    scGlobe.raf = requestAnimationFrame(frame);
+  }
+  scGlobe = { renderer: renderer, raf: 0, canvasWrap: wrap };
+  scGlobe.raf = requestAnimationFrame(frame);
+}
+
 /* ══ 3D MODEL ENGINE (Science) ══
    Real, rotatable models embedded from Sketchfab (free, legal embeds).
    The AI may only pick from this fixed list — the exact model for each
@@ -720,6 +867,7 @@ function sciFetchModel(organ){
 }
 
 function renderModel3d(inner, step){
+  if (step.organ === 'solar_system'){ renderSolarSystem(inner, step); return; }
   var lib = SCI_MODELS[step.organ];
   inner.innerHTML =
     '<div class="sc-mdl-frame"><div class="sc-photo-loading" style="position:absolute;inset:0;justify-content:center;">' +
