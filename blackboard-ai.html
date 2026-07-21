@@ -3640,7 +3640,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <style>
 /* ══════════ TEACHER UPGRADE (additive overrides) ══════════ */
 /* Bigger teacher standing at floor level, closer to the class */
-#bb-teacher{width:270px;bottom:36px;right:10px;}
+#bb-teacher{width:350px;bottom:6px;right:6px;}
 /* Dynamic stick: rotation/length now set by JS, glow tip at the FAR end */
 #bb-stick{transition:left .45s ease,top .45s ease,width .45s ease,transform .45s ease,opacity .35s ease;background:linear-gradient(90deg,#8a5a2b,#c99a4c);}
 #bb-stick.show{animation:none;}
@@ -3680,6 +3680,7 @@ function pointStickAt(el){
   var len = Math.sqrt(dx*dx + dy*dy);
   if (len < 30) return;                      // too close — skip
   var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (ang > 0) ang -= 360;   // keep angles continuous so the stick swings, never spins
   stick.style.left = hand.x + 'px';
   stick.style.top = hand.y + 'px';
   stick.style.width = Math.round(len) + 'px';
@@ -3706,7 +3707,7 @@ async function bbExplainTamil(){
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          system:'You are a Tamil Nadu school teacher. Reply ONLY in proper Tamil script (\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1). NEVER write Tamil words in English letters (no Tanglish, no transliteration). Only technical/subject keywords may stay in English. No labels, no markdown.',
+          system:'You are a modern Tamil Nadu school teacher. Reply ONLY in proper Tamil script (\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1). NEVER write Tamil words in English letters (no Tanglish, no transliteration). Only technical/subject keywords may stay in English. Do NOT address students with words like \u0BAE\u0B95\u0BA9\u0BC7, \u0BAE\u0B95\u0BB3\u0BC7, \u0B95\u0BA3\u0BCD\u0BA3\u0BBE, \u0B9A\u0BC6\u0BB2\u0BCD\u0BB2\u0BAE\u0BCD or any pet names \u2014 start directly with the explanation itself. No labels, no markdown.',
           messages:[{role:'user',content:
             'Explain this lesson point aloud like a real Tamil Nadu teacher speaking Tamil in class. Write ONLY in Tamil script — keep just the technical keywords in English (e.g. photosynthesis, iodine). 3-5 sentences, explain the WHY simply:\n\n' + material.substring(0, 1500)}],
           max_tokens: 500
@@ -3725,6 +3726,51 @@ async function bbExplainTamil(){
     if (btn){ btn.disabled = false; btn.innerHTML = '\uD83C\uDDEE\uD83C\uDDF3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD'; }
   }
 }
+</script>
+<script>
+/* ══════════════════════════════════════════════════════
+   STICK ALWAYS IN HAND (additive module)
+   The stick now rests in the teacher's hand pointing at the
+   board, swings out to tap key points, then returns to hand.
+   ══════════════════════════════════════════════════════ */
+function bbStickIdle(){
+  var stick = document.getElementById('bb-stick');
+  if (!stick) return;
+  if (!teacherVisible){ stick.classList.remove('show'); return; }
+  var hand = bbHandPoint();
+  if (!hand) return;
+  stick.style.left = hand.x + 'px';
+  stick.style.top = hand.y + 'px';
+  stick.style.width = '190px';
+  stick.style.transform = 'rotate(-155deg)';   // resting angle, toward the board
+  stick.classList.add('show');
+}
+
+/* Override: after tapping a key point, return to hand (never disappear) */
+function retractStick(){
+  bbStickIdle();
+}
+
+/* Override: hiding the teacher also puts the stick away; showing brings it back */
+function toggleTeacherFigure(){
+  teacherVisible = !teacherVisible;
+  var t = document.getElementById('bb-teacher');
+  var s = document.getElementById('bb-stick');
+  if (t) t.classList.toggle('hidden', !teacherVisible);
+  if (!teacherVisible){ if (s) s.classList.remove('show'); }
+  else setTimeout(bbStickIdle, 50);
+}
+
+/* Keep the stick glued to the hand on load, image load and window resize */
+window.addEventListener('resize', function(){ if (teacherVisible) bbStickIdle(); });
+document.addEventListener('DOMContentLoaded', function(){
+  var t = document.getElementById('bb-teacher');
+  if (t){
+    if (t.complete) setTimeout(bbStickIdle, 300);
+    t.addEventListener('load', function(){ setTimeout(bbStickIdle, 200); });
+  }
+  setTimeout(bbStickIdle, 900);   // safety retry once layout settles
+});
 </script>
 </body>
 </html>
