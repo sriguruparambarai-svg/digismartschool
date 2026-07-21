@@ -3642,7 +3642,7 @@ document.addEventListener('DOMContentLoaded', function() {
 /* Bigger teacher standing at floor level, closer to the class */
 #bb-teacher{width:240px;bottom:6px;right:6px;}
 /* Dynamic stick: rotation/length now set by JS, glow tip at the FAR end */
-#bb-stick{transition:left .45s ease,top .45s ease,width .45s ease,transform .45s ease,opacity .35s ease;background:linear-gradient(90deg,#8a5a2b,#c99a4c);}
+#bb-stick{transition:width .45s ease,transform .45s ease,opacity .35s ease;background:linear-gradient(90deg,#8a5a2b,#c99a4c);}
 #bb-stick.show{animation:none;}
 #bb-stick::before{left:auto;right:-6px;}
 #bb-stick.show::before{animation:bbGlowPulse .9s ease;}
@@ -3661,7 +3661,7 @@ function bbHandPoint(){
   if (!t || t.classList.contains('hidden')) return null;
   var r = t.getBoundingClientRect();
   if (!r.width) return null;
-  return { x: r.left + r.width * 0.05, y: r.top + r.height * 0.23 };
+  return { x: r.left + r.width * 0.03, y: r.top + r.height * 0.245 };
 }
 
 /* Override: stick is HELD by the teacher — from her hand to the key point */
@@ -3681,6 +3681,7 @@ function pointStickAt(el){
   if (len < 30) return;                      // too close — skip
   var ang = Math.atan2(dy, dx) * 180 / Math.PI;
   if (ang > 0) ang -= 360;   // keep angles continuous so the stick swings, never spins
+  bbStickTarget = el;
   stick.style.left = hand.x + 'px';
   stick.style.top = hand.y + 'px';
   stick.style.width = Math.round(len) + 'px';
@@ -3748,6 +3749,7 @@ function bbStickIdle(){
 
 /* Override: after tapping a key point, return to hand (never disappear) */
 function retractStick(){
+  bbStickTarget = null;
   bbStickIdle();
 }
 
@@ -3771,6 +3773,41 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   setTimeout(bbStickIdle, 900);   // safety retry once layout settles
 });
+</script>
+<script>
+/* ══════════════════════════════════════════════════════
+   STICK HAND-TRACKING (additive module)
+   The teacher gently bobs up and down — this keeps the stick
+   glued to her fingertip every frame, idle or pointing.
+   ══════════════════════════════════════════════════════ */
+var bbStickTarget = null;
+
+function bbStickFrame(){
+  try {
+    var stick = document.getElementById('bb-stick');
+    if (stick && stick.classList.contains('show') && teacherVisible){
+      var hand = bbHandPoint();
+      if (hand){
+        stick.style.left = hand.x + 'px';
+        stick.style.top = hand.y + 'px';
+        if (bbStickTarget){
+          var r = bbStickTarget.getBoundingClientRect();
+          if (r.width || r.height){
+            var tx = r.left + 2, ty = r.top + r.height / 2;
+            var dx = tx - hand.x, dy = ty - hand.y;
+            var len = Math.sqrt(dx*dx + dy*dy);
+            var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+            if (ang > 0) ang -= 360;
+            stick.style.width = Math.round(len) + 'px';
+            stick.style.transform = 'rotate(' + ang.toFixed(1) + 'deg)';
+          }
+        }
+      }
+    }
+  } catch(e) { /* never break the render loop */ }
+  requestAnimationFrame(bbStickFrame);
+}
+requestAnimationFrame(bbStickFrame);
 </script>
 </body>
 </html>
