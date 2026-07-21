@@ -6,6 +6,7 @@
 <title>Social Science Class — DigiSmartSchool</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Caveat:wght@600&family=Noto+Sans+Tamil:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -116,6 +117,17 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 .leaflet-container{background:#0a0c10!important;font-family:'Nunito',sans-serif;}
 .leaflet-control-attribution{background:rgba(0,0,0,0.55)!important;color:rgba(232,201,154,0.55)!important;font-size:0.58rem!important;}
 .leaflet-control-attribution a{color:rgba(232,201,154,0.75)!important;}
+
+/* ── GLOBE STEP (Phase 3) ── */
+.sc-globe-frame{position:relative;width:100%;height:100%;max-width:1080px;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:radial-gradient(ellipse at 50% 40%,#0c1230,#05070f 70%);animation:scFadeUp 0.8s ease both;}
+#sc-globe-canvas{position:absolute;inset:0;cursor:grab;}
+#sc-globe-canvas:active{cursor:grabbing;}
+.sc-globe-title{position:absolute;top:0;left:0;right:0;z-index:5;padding:12px 18px 26px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);pointer-events:none;}
+.sc-globe-title .t{font-family:'Cinzel',serif;font-size:clamp(1rem,1.9vw,1.5rem);color:var(--gold-light);text-shadow:0 2px 8px rgba(0,0,0,0.8);}
+.sc-globe-legend{position:absolute;left:14px;bottom:14px;z-index:5;background:rgba(10,10,16,0.78);border:1.5px solid rgba(201,168,76,0.45);border-radius:12px;padding:10px 14px;font-size:0.74rem;color:var(--sandal);line-height:1.7;pointer-events:none;max-width:280px;}
+.sc-globe-legend .sw{display:inline-block;width:20px;height:3px;border-radius:2px;vertical-align:middle;margin-right:7px;}
+.sc-globe-season{position:absolute;right:14px;bottom:14px;z-index:5;background:rgba(107,26,26,0.85);border:1.5px solid var(--gold);border-radius:12px;padding:10px 16px;font-size:0.85rem;font-weight:700;color:#FFD86A;pointer-events:none;text-align:center;line-height:1.6;}
+.sc-globe-hint{position:absolute;right:14px;top:56px;z-index:5;font-size:0.66rem;color:rgba(232,201,154,0.55);pointer-events:none;}
 
 /* ── LESSON COMPLETE (Phase 2 bridge) ── */
 .sc-done-wrap{text-align:center;max-width:760px;animation:scFadeUp 0.8s ease both;}
@@ -240,7 +252,7 @@ function scPlanPrompt(){
     ' {"type":"title","title":"...","speech":"..."},\n' +
     ' {"type":"photo","title":"...","speech":"...","search":"2-5 word Wikimedia Commons search using a concrete proper noun from the lesson (monument, place, person, artefact)","caption":"one short factual line about what the photo shows"},\n' +
     ' {"type":"timeline","title":"...","speech":"...","items":[{"year":"1206","label":"very short event"}]},\n' +
-    ' {"type":"concept","title":"...","speech":"...","points":["short point","short point"]},\n {"type":"map","title":"...","speech":"...","regions":["vijayanagara"],"markers":[{"name":"Hampi","lat":15.34,"lng":76.47}]}\n' +
+    ' {"type":"concept","title":"...","speech":"...","points":["short point","short point"]},\n {"type":"map","title":"...","speech":"...","regions":["vijayanagara"],"markers":[{"name":"Hampi","lat":15.34,"lng":76.47}]},\n {"type":"globe","title":"...","speech":"...","mode":"latlong","markers":[{"name":"Chennai","lat":13.08,"lng":80.27}]}\n' +
     ']}\n\n' +
     'Rules:\n' +
     '- 10 to 15 steps total, covering the WHOLE lesson in order.\n' +
@@ -256,6 +268,12 @@ function scPlanPrompt(){
     'maratha_empire, british_india, pandya_kingdom, pallava_kingdom, tamil_nadu. ' +
     '"markers" are 1 to 4 real cities/sites with true latitude and longitude (e.g. Delhi 28.61,77.21; Hampi 15.34,76.47; ' +
     'Madurai 9.93,78.12; Thanjavur 10.79,79.14). Prefer a map step for at least one empire-extent moment in history lessons.\n' +
+    '- Use "globe" ONLY for Geography concepts about the Earth itself. "mode" must be one of: ' +
+    '"latlong" (latitudes, longitudes, equator, tropics, prime meridian, time zones), ' +
+    '"daynight" (rotation of the Earth, day and night), ' +
+    '"seasons" (revolution around the Sun, tilt of the axis, seasons), ' +
+    '"rotation" (plain spinning Earth to locate places). ' +
+    '"markers" optional, 0 to 3 real places with true worldwide latitude and longitude.\n' +
     '- "speech" is what the teacher SAYS aloud: 2 to 4 warm, clear sentences in simple Indian classroom English, ' +
     'documentary-narrator style, occasionally connecting to Tamil Nadu students\u2019 daily life. No emojis.\n' +
     '- Every string must be plain text. Keep JSON strictly valid.';
@@ -299,7 +317,7 @@ function scParseJSON(raw){
 function scNormaliseStep(s){
   if (!s || !s.type) return null;
   var type = String(s.type).toLowerCase();
-  if (['title','photo','timeline','concept','map'].indexOf(type) === -1) type = 'concept';
+  if (['title','photo','timeline','concept','map','globe'].indexOf(type) === -1) type = 'concept';
   var out = {
     type: type,
     title: String(s.title || '').substring(0, 140),
@@ -317,6 +335,13 @@ function scNormaliseStep(s){
       return { name: String((m && m.name) || '').substring(0, 40), lat: parseFloat(m && m.lat), lng: parseFloat(m && m.lng) };
     }).filter(function(m){ return m.name && isFinite(m.lat) && isFinite(m.lng) && m.lat > 4 && m.lat < 38 && m.lng > 60 && m.lng < 100; });
     if (out.regions.length === 0 && out.markers.length === 0) out.type = 'concept';
+  }
+  if (type === 'globe'){
+    var gm = String(s.mode || 'rotation').toLowerCase();
+    out.mode = ['latlong','daynight','seasons','rotation'].indexOf(gm) !== -1 ? gm : 'rotation';
+    out.markers = (Array.isArray(s.markers) ? s.markers : []).slice(0, 3).map(function(m){
+      return { name: String((m && m.name) || '').substring(0, 40), lat: parseFloat(m && m.lat), lng: parseFloat(m && m.lng) };
+    }).filter(function(m){ return m.name && isFinite(m.lat) && isFinite(m.lng) && m.lat >= -90 && m.lat <= 90 && m.lng >= -180 && m.lng <= 180; });
   }
   if (type === 'timeline'){
     out.items = (Array.isArray(s.items) ? s.items : []).slice(0, 6).map(function(it){
@@ -368,6 +393,7 @@ function scPrefetchNextPhoto(fromIdx){
 function scRender(idx){
   if (idx < 0 || idx >= STEPS.length) return;
   clearTimeout(scAdvanceTimer);
+  scDestroyGlobe();
   CUR = idx;
   var step = STEPS[idx];
   var inner = document.getElementById('stage-inner');
@@ -384,6 +410,7 @@ function scRender(idx){
   else if (step.type === 'photo') renderPhoto(inner, step);
   else if (step.type === 'timeline') renderTimeline(inner, step);
   else if (step.type === 'map') renderMap(inner, step);
+  else if (step.type === 'globe') renderGlobe(inner, step);
   else renderConcept(inner, step);
 
   scSpeak(step.speech || step.title);
@@ -541,6 +568,232 @@ function renderMap(inner, step){
   });
 }
 
+/* ══ 3D GLOBE ENGINE (Phase 3) ══
+   Modes: rotation (spin + place markers), latlong (graticule with equator,
+   tropics, prime meridian), daynight (sunlit side vs dark side),
+   seasons (tilted Earth orbiting the Sun, live season caption).
+   Drag to rotate. Texture from CDN with a clean gradient fallback. */
+var scGlobe = null;   // { renderer, raf, canvasWrap }
+
+function scDestroyGlobe(){
+  if (!scGlobe) return;
+  try{ cancelAnimationFrame(scGlobe.raf); }catch(e){}
+  try{ scGlobe.renderer.dispose(); }catch(e){}
+  scGlobe = null;
+}
+
+function scLatLngToVec(lat, lng, r){
+  var phi = (90 - lat) * Math.PI / 180;
+  var theta = (lng + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),
+     r * Math.cos(phi),
+     r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function scMakeSprite(text, color){
+  var cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 128;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold 52px Nunito, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10;
+  ctx.fillStyle = color || '#FFD86A';
+  ctx.fillText(text, 256, 64);
+  var tex = new THREE.CanvasTexture(cv);
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(1.7, 0.42, 1);
+  return sp;
+}
+
+function scLatCircle(lat, r, color, dashed){
+  var pts = [];
+  var y = r * Math.sin(lat * Math.PI / 180);
+  var cr = r * Math.cos(lat * Math.PI / 180);
+  for (var i = 0; i <= 96; i++){
+    var a = i / 96 * Math.PI * 2;
+    pts.push(new THREE.Vector3(cr * Math.cos(a), y, cr * Math.sin(a)));
+  }
+  var geo = new THREE.BufferGeometry().setFromPoints(pts);
+  var mat = dashed
+    ? new THREE.LineDashedMaterial({ color: color, dashSize: 0.07, gapSize: 0.05 })
+    : new THREE.LineBasicMaterial({ color: color });
+  var line = new THREE.Line(geo, mat);
+  if (dashed) line.computeLineDistances();
+  return line;
+}
+
+function scLngCircle(lng, r, color){
+  var pts = [];
+  for (var i = 0; i <= 96; i++){
+    var lat = -90 + i / 96 * 180;
+    pts.push(scLatLngToVec(lat, lng, r));
+  }
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: color })
+  );
+}
+
+function renderGlobe(inner, step){
+  if (typeof THREE === 'undefined'){ renderConcept(inner, step); return; }
+  scDestroyGlobe();
+  var mode = step.mode || 'rotation';
+
+  inner.innerHTML =
+    '<div class="sc-globe-frame">' +
+      '<div id="sc-globe-canvas"></div>' +
+      '<div class="sc-globe-title"><div class="t"></div></div>' +
+      '<div class="sc-globe-hint">\u270B drag to turn the Earth</div>' +
+      '<div class="sc-globe-legend" id="sc-globe-legend" style="display:none;"></div>' +
+      '<div class="sc-globe-season" id="sc-globe-season" style="display:none;"></div>' +
+    '</div>';
+  inner.querySelector('.sc-globe-title .t').textContent = step.title;
+
+  var wrap = document.getElementById('sc-globe-canvas');
+  var W = wrap.clientWidth || 800, H = wrap.clientHeight || 500;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  wrap.appendChild(renderer.domElement);
+
+  /* starfield */
+  var starGeo = new THREE.BufferGeometry();
+  var starPos = [];
+  for (var i = 0; i < 350; i++){
+    var a1 = Math.random() * Math.PI * 2, a2 = Math.acos(2 * Math.random() - 1);
+    var rr = 30;
+    starPos.push(rr * Math.sin(a2) * Math.cos(a1), rr * Math.cos(a2), rr * Math.sin(a2) * Math.sin(a1));
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.07, transparent: true, opacity: 0.7 })));
+
+  /* Earth (inside a tilt group so the axis can lean 23.5\u00B0) */
+  var R = 2;
+  var earthGroup = new THREE.Group();
+  var earthMat = new THREE.MeshPhongMaterial({ color: 0x2a6fd6, shininess: 12 });
+  var earth = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 48), earthMat);
+  earthGroup.add(earth);
+
+  /* real Earth texture — graceful fallback keeps the blue globe */
+  new THREE.TextureLoader().load(
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    function(tex){ earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; },
+    undefined,
+    function(){ /* keep fallback colour */ }
+  );
+
+  /* markers ride on the earth so they rotate with it */
+  (step.markers || []).forEach(function(m){
+    var p = scLatLngToVec(m.lat, m.lng, R + 0.02);
+    var dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), new THREE.MeshBasicMaterial({ color: 0xFFD86A }));
+    dot.position.copy(p);
+    earth.add(dot);
+    var lbl = scMakeSprite(m.name, '#FFD86A');
+    lbl.position.copy(scLatLngToVec(m.lat, m.lng, R + 0.45));
+    earth.add(lbl);
+  });
+
+  var legend = document.getElementById('sc-globe-legend');
+  var seasonBox = document.getElementById('sc-globe-season');
+
+  if (mode === 'latlong'){
+    earth.add(scLatCircle(0, R + 0.01, 0xFFD86A));                 /* Equator */
+    earth.add(scLatCircle(23.5, R + 0.01, 0xfb923c, true));        /* Tropic of Cancer */
+    earth.add(scLatCircle(-23.5, R + 0.01, 0xfb923c, true));       /* Tropic of Capricorn */
+    [30,60,-30,-60].forEach(function(lt){ earth.add(scLatCircle(lt, R + 0.005, 0x6a86b8)); });
+    earth.add(scLngCircle(0, R + 0.01, 0x4ade80));                 /* Prime Meridian */
+    for (var lg = -150; lg <= 180; lg += 30){ if (lg !== 0) earth.add(scLngCircle(lg, R + 0.005, 0x3a527a)); }
+    legend.style.display = 'block';
+    legend.innerHTML =
+      '<div><span class="sw" style="background:#FFD86A;"></span>Equator (0\u00B0)</div>' +
+      '<div><span class="sw" style="background:#fb923c;"></span>Tropics (23.5\u00B0 N &amp; S)</div>' +
+      '<div><span class="sw" style="background:#4ade80;"></span>Prime Meridian (0\u00B0)</div>' +
+      '<div><span class="sw" style="background:#6a86b8;"></span>Other latitudes &amp; longitudes</div>';
+  }
+
+  var sunMesh = null, orbitAngle = 0;
+  if (mode === 'daynight'){
+    scene.add(new THREE.AmbientLight(0xffffff, 0.12));
+    var sun = new THREE.DirectionalLight(0xfff3d0, 1.35);
+    sun.position.set(8, 1.2, 2);
+    scene.add(sun);
+    sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), new THREE.MeshBasicMaterial({ color: 0xFFE484 }));
+    sunMesh.position.set(8, 1.2, 2);
+    scene.add(sunMesh);
+    var sunLbl = scMakeSprite('\u2600 Sun', '#FFE484');
+    sunLbl.position.set(8, 2.2, 2);
+    scene.add(sunLbl);
+    legend.style.display = 'block';
+    legend.innerHTML = 'The lit half faces the Sun \u2014 <b>day</b>.<br/>The dark half faces away \u2014 <b>night</b>.<br/>One full spin = 24 hours.';
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;
+  } else if (mode === 'seasons'){
+    scene.add(new THREE.AmbientLight(0xffffff, 0.14));
+    var pl = new THREE.PointLight(0xfff3d0, 1.5, 0);
+    pl.position.set(0, 0, 0);
+    scene.add(pl);
+    sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.85, 28, 28), new THREE.MeshBasicMaterial({ color: 0xFFE484 }));
+    scene.add(sunMesh);
+    var sl = scMakeSprite('\u2600 Sun', '#FFE484');
+    sl.position.set(0, 1.6, 0);
+    scene.add(sl);
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;   /* axis stays leaning the SAME way all year */
+    /* axis rod through the poles */
+    var axis = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, R * 2.8, 8), new THREE.MeshBasicMaterial({ color: 0xFFD86A }));
+    earthGroup.add(axis);
+    seasonBox.style.display = 'block';
+  } else {
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    var dl = new THREE.DirectionalLight(0xffffff, 0.9);
+    dl.position.set(5, 3, 4);
+    scene.add(dl);
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;
+  }
+
+  scene.add(earthGroup);
+  camera.position.set(0, 0.6, mode === 'seasons' ? 11 : 6);
+  camera.lookAt(0, 0, 0);
+
+  /* drag to rotate */
+  var dragging = false, px = 0, py = 0, userY = 0, userX = 0;
+  wrap.addEventListener('pointerdown', function(e){ dragging = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  window.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    userY += (e.clientX - px) * 0.005;
+    userX += (e.clientY - py) * 0.003;
+    userX = Math.max(-0.9, Math.min(0.9, userX));
+    px = e.clientX; py = e.clientY;
+  });
+
+  var myIdx = CUR;
+  var seasonNames = ['June \u2014 \u2600 Summer in the North \u00B7 Winter in the South',
+                     'September \u2014 \uD83C\uDF42 Autumn in the North \u00B7 Spring in the South',
+                     'December \u2014 \u2744 Winter in the North \u00B7 Summer in the South',
+                     'March \u2014 \uD83C\uDF38 Spring in the North \u00B7 Autumn in the South'];
+
+  function frame(){
+    if (CUR !== myIdx || !scGlobe){ return; }
+    earth.rotation.y += 0.004;
+    if (mode === 'seasons'){
+      orbitAngle += 0.0035;
+      earthGroup.position.set(6.5 * Math.cos(orbitAngle), 0, 6.5 * Math.sin(orbitAngle));
+      var q = Math.floor(((orbitAngle % (Math.PI * 2)) / (Math.PI * 2)) * 4) % 4;
+      seasonBox.textContent = seasonNames[q];
+    }
+    earthGroup.rotation.y = userY;
+    earthGroup.rotation.x = userX;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    scGlobe.raf = requestAnimationFrame(frame);
+  }
+  scGlobe = { renderer: renderer, raf: 0, canvasWrap: wrap };
+  scGlobe.raf = requestAnimationFrame(frame);
+}
+
 /* ── VOICE (Monika via voice-class, browser fallback) ── */
 function scStopAudio(){
   if (scAudio){ try{ scAudio.pause(); }catch(e){} scAudio = null; }
@@ -603,6 +856,7 @@ function scNext(){
 /* ── LESSON COMPLETE → bridge to Revision & Quiz hub ── */
 function scShowComplete(){
   scStopAudio(); clearTimeout(scAdvanceTimer);
+  scDestroyGlobe();
   if (scMap){ try{ scMap.remove(); }catch(e){} scMap = null; }
   document.getElementById('narr-text').textContent = '\uD83C\uDF89 Lesson complete! Well done, class.';
   var inner = document.getElementById('stage-inner');
@@ -739,7 +993,7 @@ async function scExplainTamil(){
 }
 
 /* ── SIDEBAR ── */
-var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F' };
+var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D' };
 function scBuildSidebar(){
   var list = document.getElementById('step-list');
   list.innerHTML = '';
