@@ -3809,5 +3809,115 @@ function bbStickFrame(){
 }
 requestAnimationFrame(bbStickFrame);
 </script>
+<style>
+/* ══ STICK REMOVED — Kayal's request 22-07-2026 (additive override) ══ */
+#bb-stick{display:none !important;}
+</style>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   ADDITIVE OVERRIDES — 22-07-2026 (no original lines touched)
+   1) Pointer stick removed completely.
+   2) Tamil button now uses the SAME engine as Fullscreen Class:
+      text from /api/ai  →  voice from /api/explain-tamil
+      (Sarah, eleven_multilingual_v2 — reads Tamil script perfectly,
+       audio cached in Supabase so repeats cost zero credits).
+   ══════════════════════════════════════════════════════════════ */
+
+/* ── 1) STICK: all stick functions become harmless no-ops ── */
+function bbStickIdle(){}
+function pointStickAt(el){}
+function retractStick(){ try{ bbStickTarget = null; }catch(e){} }
+function bbStickFrame(){}   /* old animation loop stops itself on the next frame */
+
+/* Teacher show/hide still works — just without any stick logic */
+function toggleTeacherFigure(){
+  teacherVisible = !teacherVisible;
+  var t = document.getElementById('bb-teacher');
+  if (t) t.classList.toggle('hidden', !teacherVisible);
+}
+
+/* ── 2) TAMIL: Fullscreen-Class method ── */
+var BB_TAMIL_AUDIO = null;
+
+function bbTamilKey(material){
+  var h = 0;
+  for (var i = 0; i < material.length; i++){ h = ((h << 5) - h + material.charCodeAt(i)) | 0; }
+  return 'bb_' + Math.abs(h).toString(36);
+}
+
+async function bbExplainTamil(){
+  var step = lessonSteps && lessonSteps[currentStep];
+  if (!step) return;
+  var btn  = document.getElementById('bb-tamil-btn');
+  var box  = document.getElementById('bb-tamil-box');
+  var txtEl = document.getElementById('bb-tamil-text');
+  try{
+    if (btn){ btn.disabled = true; btn.textContent = '\u23F3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD\u2026'; }
+
+    /* stop any English narration so voices never overlap */
+    try{ window.speechSynthesis.cancel(); }catch(e){}
+    if (typeof stopBBAudio === 'function') try{ stopBBAudio(); }catch(e){}
+    if (BB_TAMIL_AUDIO){ try{ BB_TAMIL_AUDIO.pause(); }catch(e){} BB_TAMIL_AUDIO = null; }
+
+    var material = (Array.isArray(step.write) ? step.write.join('. ') : (step.write || '')) + '. ' + (step.speech || '');
+    material = material.substring(0, 1500);
+    var key = bbTamilKey(material);
+    var entry = BB_TAMIL_CACHE[key];
+
+    if (!entry){
+      /* Step 1 — Tamil TEXT from AI (real error reasons now shown) */
+      var aiRes = await fetch('/api/ai', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          system: 'You are a modern Tamil Nadu school teacher. Reply ONLY in proper Tamil script (\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1). NEVER write Tamil words in English letters (no Tanglish, no transliteration). Only technical/subject keywords may stay in English. Do NOT address students with words like \u0BAE\u0B95\u0BA9\u0BC7, \u0BAE\u0B95\u0BB3\u0BC7, \u0B95\u0BA3\u0BCD\u0BA3\u0BBE, \u0B9A\u0BC6\u0BB2\u0BCD\u0BB2\u0BAE\u0BCD or any pet names \u2014 start directly with the explanation itself. No labels, no markdown.',
+          messages: [{ role: 'user', content:
+            'Explain this lesson point aloud like a real Tamil Nadu teacher speaking Tamil in class. Write ONLY in Tamil script \u2014 keep just the technical keywords in English (e.g. photosynthesis, iodine). 3-5 sentences, explain the WHY simply:\n\n' + material }],
+          max_tokens: 500
+        })
+      });
+      var d = await aiRes.json();
+      var tamil = '';
+      if (d && Array.isArray(d.content)) tamil = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('').trim();
+      else if (d && d.text) tamil = String(d.text).trim();
+      if (!tamil){
+        var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || 'no text returned';
+        if (typeof why !== 'string') why = JSON.stringify(why);
+        throw new Error('text step \u2014 ' + why.substring(0, 180));
+      }
+
+      /* Step 2 — Tamil VOICE from /api/explain-tamil (same as Fullscreen Class) */
+      var audRes = await fetch('/api/explain-tamil', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: tamil, cache_key: key })
+      });
+      var a = await audRes.json();
+      var audioUrl = null;
+      if (a && a.audio_url) audioUrl = a.audio_url;
+      else if (a && a.audio_b64) audioUrl = 'data:audio/mpeg;base64,' + a.audio_b64;
+      if (!audioUrl){
+        var vErr = (a && a.error) ? String(a.error) : 'no audio returned';
+        throw new Error('voice step \u2014 ' + vErr.substring(0, 180));
+      }
+      entry = { text: tamil, audioUrl: audioUrl };
+      BB_TAMIL_CACHE[key] = entry;
+    }
+
+    /* show the Tamil text box + play the Tamil voice */
+    if (txtEl) txtEl.textContent = entry.text;
+    if (box) box.classList.add('on');
+    BB_TAMIL_AUDIO = new Audio(entry.audioUrl);
+    BB_TAMIL_AUDIO.playbackRate = parseFloat((document.getElementById('speed-sel') || {}).value) || 0.9;
+    BB_TAMIL_AUDIO.onended = function(){ BB_TAMIL_AUDIO = null; };
+    BB_TAMIL_AUDIO.play().catch(function(e){ alert('Tamil audio could not play \u2014 ' + e.message); });
+
+  }catch(e){
+    alert('Tamil explanation failed \u2014 ' + e.message);
+  }finally{
+    if (btn){ btn.disabled = false; btn.innerHTML = '\uD83C\uDDEE\uD83C\uDDF3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD'; }
+  }
+}
+</script>
 </body>
 </html>
