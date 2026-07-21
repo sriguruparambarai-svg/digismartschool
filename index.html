@@ -1454,6 +1454,10 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
           <option value="50" selected>50 Marks</option>
           <option value="100">100 Marks</option>
         </select>
+        <div id="qp-manual-marks-wrap" style="display:none;margin-top:8px;">
+          <input type="number" id="qp-manual-marks" min="1" max="100" placeholder="Enter marks e.g. 10" style="width:100%;padding:10px;border:2px solid #C9A84C;border-radius:8px;font-size:1rem;"/>
+          <div style="font-size:0.75rem;color:#8a6d1a;margin-top:4px;">Daily Test — enter total marks manually</div>
+        </div>
       </div>
       <div class="form-group">
         <label>Duration</label>
@@ -1472,6 +1476,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
           <option>Mid Term</option>
           <option>Final Exam</option>
           <option>Weekly Test</option>
+          <option>Daily Test</option>
         </select>
       </div>
     </div>
@@ -1513,6 +1518,8 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
   <div class="btn-row" id="actions-qpaper" style="display:none">
     <button class="btn btn-gold btn-sm" onclick="copyOutput('out-qpaper')">📋 Copy</button>
     <button class="btn btn-outline btn-sm" onclick="printOutput('out-qpaper')">🖨️ Print</button>
+    <button class="btn btn-gold btn-sm" id="qp-edit-btn" onclick="qpToggleEdit()">✏️ Edit Paper</button>
+    <button class="btn btn-outline btn-sm" id="qp-addq-btn" onclick="qpAddQuestion()" style="display:none">➕ Add Question</button>
   </div>
 </div>
 
@@ -2608,6 +2615,8 @@ Format Requirements:
 
 ${anskey === 'yes' ? 'After the question paper, add a complete ANSWER KEY section.' : ''}
 
+${type === 'Daily Test' ? 'IMPORTANT: This is a short DAILY TEST of only ' + marks + ' marks. Keep it brief and simple. Do NOT force three sections — use one or two small sections suitable for a quick daily class test.' : ''}
+
 Make it professional like a real Indian school exam paper.`;
   }
 
@@ -3276,6 +3285,162 @@ document.addEventListener('DOMContentLoaded', function(){
   if(document.getElementById('ap-subjects-wrap')) updateAPSubjects();
 });
 
+</script>
+<script>
+/* ══════════════════════════════════════════════════════
+   DAILY TEST + QUESTION PAPER EDIT MODE (additive module)
+   ══════════════════════════════════════════════════════ */
+var qpEditMode = false;
+
+function qpSyncManualMarks(){
+  var mmEl = document.getElementById('qp-manual-marks');
+  var sel = document.getElementById('qp-marks');
+  if(!mmEl || !sel) return;
+  var mv = (mmEl.value || '').trim();
+  if(!mv || isNaN(mv) || Number(mv) <= 0) return;
+  var opt = document.getElementById('qp-manual-opt');
+  if(!opt){
+    opt = document.createElement('option');
+    opt.id = 'qp-manual-opt';
+    sel.appendChild(opt);
+  }
+  opt.value = String(Number(mv));
+  opt.textContent = mv + ' Marks (Daily Test)';
+  sel.value = opt.value;
+}
+
+function qpTypeChanged(){
+  var typeSel = document.getElementById('qp-type');
+  var wrap = document.getElementById('qp-manual-marks-wrap');
+  var sel = document.getElementById('qp-marks');
+  if(!typeSel || !wrap || !sel) return;
+  if(typeSel.value === 'Daily Test'){
+    wrap.style.display = 'block';
+    sel.disabled = true;
+    qpSyncManualMarks();
+  } else {
+    wrap.style.display = 'none';
+    sel.disabled = false;
+    var opt = document.getElementById('qp-manual-opt');
+    if(opt && sel.value === opt.value) sel.value = '50';
+  }
+}
+
+function qpQuestionDivs(paper){
+  return Array.prototype.filter.call(paper.querySelectorAll('div'), function(d){
+    var st = d.getAttribute('style') || '';
+    return st.indexOf('1px dotted') !== -1;
+  });
+}
+
+function qpAddDeleteButtons(paper){
+  qpQuestionDivs(paper).forEach(function(q){
+    if(q.querySelector('.qp-del')) return;
+    var b = document.createElement('button');
+    b.className = 'qp-del';
+    b.textContent = '\uD83D\uDDD1';
+    b.setAttribute('contenteditable','false');
+    b.style.cssText = 'float:right;background:#fff0f0;border:1px solid #e57373;border-radius:6px;cursor:pointer;font-size:0.8rem;padding:2px 8px;margin-left:8px;';
+    b.onclick = function(ev){
+      ev.preventDefault();
+      if(confirm('Remove this question?')){ q.remove(); qpRenumber(paper); }
+    };
+    q.insertBefore(b, q.firstChild);
+  });
+}
+
+function qpRemoveDeleteButtons(paper){
+  Array.prototype.forEach.call(paper.querySelectorAll('.qp-del'), function(b){ b.remove(); });
+}
+
+function qpRenumber(paper){
+  var n = 0;
+  qpQuestionDivs(paper).forEach(function(q){
+    n++;
+    var walker = document.createTreeWalker(q, NodeFilter.SHOW_TEXT, null);
+    var t;
+    while((t = walker.nextNode())){
+      if(t.textContent.trim()){
+        t.textContent = t.textContent.replace(/^\s*\d+([\.\)])/, n + '$1');
+        break;
+      }
+    }
+  });
+}
+
+function qpToggleEdit(){
+  var out = document.getElementById('out-qpaper');
+  var btn = document.getElementById('qp-edit-btn');
+  var addBtn = document.getElementById('qp-addq-btn');
+  if(!out || !out.firstElementChild){ alert('Please generate a question paper first.'); return; }
+  var paper = out.firstElementChild;
+  qpEditMode = !qpEditMode;
+  if(qpEditMode){
+    paper.setAttribute('contenteditable','true');
+    paper.style.outline = '3px dashed #C9A84C';
+    paper.style.outlineOffset = '4px';
+    if(btn) btn.textContent = '\u2714 Done Editing';
+    if(addBtn) addBtn.style.display = 'inline-block';
+    qpAddDeleteButtons(paper);
+  } else {
+    paper.removeAttribute('contenteditable');
+    paper.style.outline = '';
+    paper.style.outlineOffset = '';
+    if(btn) btn.textContent = '\u270F\uFE0F Edit Paper';
+    if(addBtn) addBtn.style.display = 'none';
+    qpRemoveDeleteButtons(paper);
+    qpRenumber(paper);
+  }
+}
+
+function qpAddQuestion(){
+  var out = document.getElementById('out-qpaper');
+  if(!out || !out.firstElementChild){ alert('Please generate a question paper first.'); return; }
+  if(!qpEditMode) qpToggleEdit();
+  var paper = out.firstElementChild;
+  var count = qpQuestionDivs(paper).length;
+  var d = document.createElement('div');
+  d.setAttribute('style','padding:5px 0 5px 4px;font-size:0.92rem;line-height:1.7;border-bottom:1px dotted #eee;');
+  d.textContent = (count + 1) + '. Type your question here...  ( ___ marks)';
+  paper.appendChild(d);
+  qpAddDeleteButtons(paper);
+  d.scrollIntoView({behavior:'smooth', block:'center'});
+}
+
+/* Validate manual marks before generating a Daily Test paper (capture phase) */
+document.addEventListener('click', function(ev){
+  var t = ev.target && ev.target.closest ? ev.target.closest('button') : null;
+  if(!t) return;
+  var oc = t.getAttribute('onclick') || '';
+  if(oc.indexOf("generateTool('qpaper')") === -1) return;
+  var typeSel = document.getElementById('qp-type');
+  if(typeSel && typeSel.value === 'Daily Test'){
+    var mmEl = document.getElementById('qp-manual-marks');
+    var mv = mmEl ? (mmEl.value || '').trim() : '';
+    if(!mv || isNaN(mv) || Number(mv) <= 0){
+      alert('Please enter the total marks for the Daily Test.');
+      ev.stopPropagation();
+      ev.preventDefault();
+      return;
+    }
+    qpSyncManualMarks();
+  }
+}, true);
+
+/* Auto-finish edit mode before Print / Copy so the clean paper is used */
+document.addEventListener('click', function(ev){
+  var t = ev.target && ev.target.closest ? ev.target.closest('#actions-qpaper button') : null;
+  if(!t) return;
+  if(t.id === 'qp-edit-btn' || t.id === 'qp-addq-btn') return;
+  if(qpEditMode) qpToggleEdit();
+}, true);
+
+document.addEventListener('DOMContentLoaded', function(){
+  var typeSel = document.getElementById('qp-type');
+  if(typeSel) typeSel.addEventListener('change', qpTypeChanged);
+  var mm = document.getElementById('qp-manual-marks');
+  if(mm) mm.addEventListener('input', qpSyncManualMarks);
+});
 </script>
 </body>
 </html>
