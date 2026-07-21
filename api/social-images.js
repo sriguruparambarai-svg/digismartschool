@@ -107,7 +107,7 @@ async function searchWikimedia(query) {
   const path = '/w/api.php?action=query&format=json&generator=search'
     + '&gsrsearch=' + q
     + '&gsrnamespace=6&gsrlimit=10'
-    + '&prop=imageinfo&iiprop=url%7Cextmetadata&iiurlwidth=1400&origin=*';
+    + '&prop=imageinfo&iiprop=url%7Cextmetadata&iiurlwidth=1000&origin=*';
   const data = await getJSON('commons.wikimedia.org', path);
   if (!data || !data.query || !data.query.pages) return [];
   const out = [];
