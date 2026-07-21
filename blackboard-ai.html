@@ -3637,5 +3637,94 @@ document.addEventListener('DOMContentLoaded', function() {
   }, 100);  // minimal delay — just enough for DOM to settle
 });
 </script>
+<style>
+/* ══════════ TEACHER UPGRADE (additive overrides) ══════════ */
+/* Bigger teacher standing at floor level, closer to the class */
+#bb-teacher{width:270px;bottom:36px;right:10px;}
+/* Dynamic stick: rotation/length now set by JS, glow tip at the FAR end */
+#bb-stick{transition:left .45s ease,top .45s ease,width .45s ease,transform .45s ease,opacity .35s ease;background:linear-gradient(90deg,#8a5a2b,#c99a4c);}
+#bb-stick.show{animation:none;}
+#bb-stick::before{left:auto;right:-6px;}
+#bb-stick.show::before{animation:bbGlowPulse .9s ease;}
+@keyframes bbGlowPulse{0%{box-shadow:0 0 4px rgba(245,232,122,.5);}45%{box-shadow:0 0 22px rgba(245,232,122,1);}100%{box-shadow:0 0 10px rgba(245,232,122,.9);}}
+</style>
+<script>
+/* ══════════════════════════════════════════════════════
+   BLACKBOARD AI FIXES (additive module)
+   1. Stick now starts in the teacher's hand and points at the item
+   2. Tamil button = voice only (no Tanglish text popup)
+   ══════════════════════════════════════════════════════ */
+
+/* Teacher's hand position (tuned for the current teacher image) */
+function bbHandPoint(){
+  var t = document.getElementById('bb-teacher');
+  if (!t || t.classList.contains('hidden')) return null;
+  var r = t.getBoundingClientRect();
+  if (!r.width) return null;
+  return { x: r.left + r.width * 0.16, y: r.top + r.height * 0.40 };
+}
+
+/* Override: stick is HELD by the teacher — from her hand to the key point */
+function pointStickAt(el){
+  if (!teacherVisible || !el) return;
+  var stick = document.getElementById('bb-stick');
+  if (!stick) return;
+  var r = el.getBoundingClientRect();
+  if (!r.width && !r.height) return;
+  var hand = bbHandPoint();
+  if (!hand) return;
+  var tx = r.left + 2;                       // tip touches just left of the item
+  var ty = r.top + r.height / 2;
+  var dx = tx - hand.x;
+  var dy = ty - hand.y;
+  var len = Math.sqrt(dx*dx + dy*dy);
+  if (len < 30) return;                      // too close — skip
+  var ang = Math.atan2(dy, dx) * 180 / Math.PI;
+  stick.style.left = hand.x + 'px';
+  stick.style.top = hand.y + 'px';
+  stick.style.width = Math.round(len) + 'px';
+  stick.style.transform = 'rotate(' + ang.toFixed(1) + 'deg)';
+  stick.classList.remove('show');
+  void stick.offsetWidth;
+  stick.classList.add('show');
+  if (bbStickTimer) clearTimeout(bbStickTimer);
+  bbStickTimer = setTimeout(retractStick, 2600);
+}
+
+/* Override: Tamil button speaks only — no text box shown */
+async function bbExplainTamil(){
+  var step = lessonSteps && lessonSteps[currentStep];
+  if (!step) return;
+  var btn = document.getElementById('bb-tamil-btn');
+  if (!voiceOn){ alert('Please turn on Voice first — Tamil explanation is spoken aloud.'); return; }
+  try{
+    if (btn){ btn.disabled = true; btn.textContent = '\u23F3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD\u2026'; }
+    var tamil = BB_TAMIL_CACHE[currentStep];
+    if (!tamil){
+      var material = (Array.isArray(step.write) ? step.write.join('. ') : (step.write || '')) + '. ' + (step.speech || '');
+      var res = await fetch('/api/ai', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system:'You are a Tamil Nadu school teacher. Return ONLY the Tamil-mix explanation text — no labels, no markdown.',
+          messages:[{role:'user',content:
+            'Explain this lesson point in Tamil-English mix, like a real Tamil Nadu teacher (English keywords kept in English, Tamil meaning right after, 3-5 sentences, explain the WHY):\n\n' + material.substring(0, 1500)}],
+          max_tokens: 500
+        })
+      });
+      var d = await res.json();
+      if (d && Array.isArray(d.content)) tamil = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('').trim();
+      else if (d && d.text) tamil = String(d.text).trim();
+      if (tamil) BB_TAMIL_CACHE[currentStep] = tamil;
+    }
+    if (!tamil) throw new Error('empty');
+    speak(tamil);
+  }catch(e){
+    alert('Tamil explanation failed — please try again.');
+  }finally{
+    if (btn){ btn.disabled = false; btn.innerHTML = '\uD83C\uDDEE\uD83C\uDDF3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD'; }
+  }
+}
+</script>
 </body>
 </html>
