@@ -90,10 +90,11 @@ const VOICE_MAP = {
   // Change this ONE line to try a different Tamil voice later
   'Tamil': 'EXAVITQu4vr4xnSDxMaL',
 
-  // Class 8–10 → Brian (calm confident American male, clear teacher tone)
-  'Class 8':  'nPczCjzI2devNBz1zQrb',
-  'Class 9':  'nPczCjzI2devNBz1zQrb',
-  'Class 10': 'nPczCjzI2devNBz1zQrb',
+  // Class 8–10 → Monika Sogam - Deep and Clear (female — matches the teacher figure)
+  // Changed from Brian (male) on Kayal's request, 22-07-2026
+  'Class 8':  'Ms9OTvWb99V6DwRHZn6q',
+  'Class 9':  'Ms9OTvWb99V6DwRHZn6q',
+  'Class 10': 'Ms9OTvWb99V6DwRHZn6q',
 
   // Class 11–12 → Daniel (British male, authoritative but kind — senior teacher)
   'Class 11': 'onwK4e9ZLuTAKqWW03F9',
