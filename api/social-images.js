@@ -23,7 +23,7 @@ const UA = 'DigiSmartSchool/1.0 (https://digismartschool.com; sriguruparambarai@
 
 function cacheKey(query) {
   return crypto.createHash('sha256')
-    .update('v1|' + String(query).toLowerCase().trim())
+    .update('v2|' + String(query).toLowerCase().trim())   // v2: stricter judge, old verdicts retired
     .digest('hex').substring(0, 40);
 }
 
@@ -147,6 +147,7 @@ function askGatekeeper(query, context, candidates) {
       system: 'You are a strict image reviewer for a school classroom projector. '
         + 'You will see a lesson topic and numbered image candidates (title + description). '
         + 'Approve ONLY images that clearly and directly show the topic itself. '
+        + 'The image must show the SUBJECT ITSELF \u2014 reject sundials, ornaments, statues, logos, artwork, or objects that merely reference the topic. '
         + 'REJECT anything doubtful, unrelated, modern-event photos, memes, maps of wrong regions, '
         + 'people unrelated to the topic, or anything not suitable for children. '
         + 'When in doubt, reject. Reply ONLY with JSON like {"approved":[2,5]} — nothing else. '
