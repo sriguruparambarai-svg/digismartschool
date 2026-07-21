@@ -86,6 +86,10 @@ const VOICE_MAP = {
   'Class 6': 'Ms9OTvWb99V6DwRHZn6q',
   'Class 7': 'Ms9OTvWb99V6DwRHZn6q',
 
+  // Tamil (any class) → Sarah — multilingual, pronounces Tamil script correctly
+  // Change this ONE line to try a different Tamil voice later
+  'Tamil': 'EXAVITQu4vr4xnSDxMaL',
+
   // Class 8–10 → Brian (calm confident American male, clear teacher tone)
   'Class 8':  'nPczCjzI2devNBz1zQrb',
   'Class 9':  'nPczCjzI2devNBz1zQrb',
@@ -261,4 +265,19 @@ module.exports = async (req, res) => {
     console.error('[voice-class] Error:', err);
     return res.status(500).json({ error: err.message || 'Voice generation failed' });
   }
+};
+
+
+// ─── TAMIL AUTO-DETECT (additive wrapper) ──────────────────
+// If the text contains Tamil script, route it to the 'Tamil' voice (Sarah)
+// instead of the class voice. English lessons are completely unaffected.
+// Caching still works: Tamil clips are keyed by Sarah's voice ID separately.
+const _classHandler = module.exports;
+module.exports = async (req, res) => {
+  try {
+    if (req.body && req.body.text && /[\u0B80-\u0BFF]/.test(String(req.body.text))) {
+      req.body.cls = 'Tamil';
+    }
+  } catch (e) { /* never block normal flow */ }
+  return _classHandler(req, res);
 };
