@@ -1520,6 +1520,7 @@ function scShowComplete(){
       '<div class="big">\uD83C\uDF89 Lesson Complete!</div>' +
       '<p>Wonderful work, class! Keep speaking these new words today. The Practice Studio has reading, writing and the speaking microphone waiting for you.</p>' +
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
+      '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
       '<button class="sc-done-btn ghost" onclick="scGoBack()">\u2190 Back to TeachBot</button>' +
     '</div>';
@@ -1777,6 +1778,8 @@ async function scPrepareAll(){
         });
       }catch(e){}
     }
+    scPrepMsg('Preparing the class quiz\u2026');
+    try{ await scGetQuiz(); }catch(e){}
     /* done */
     document.querySelector('#sc-loading .sc-spin').style.display = 'none';
     document.querySelector('#sc-loading h2').textContent = '\u2705 Class prepared!';
@@ -1795,6 +1798,179 @@ async function scPrepareAll(){
     ov.appendChild(btns);
   }catch(e){
     scPrepMsg('Preparation hit a problem \u2014 ' + e.message + '. What finished is saved; run Prepare again to complete the rest.');
+  }
+}
+
+/* ══ CLASS QUIZ — whole-class chorus, teacher rates in one tap (22-07-2026) ══
+   5 questions from today's lesson. Teacher reads aloud → class answers
+   together → Show Answer → tap Most/Half/Few → next. No names, no marks,
+   under 3 minutes. Results feed Class Insights. */
+var QUIZ_QS = null;
+var QUIZ_IDX = 0;
+var QUIZ_RESULTS = [];
+var QUIZ_STYLED = false;
+
+function scQuizStyles(){
+  if (QUIZ_STYLED) return;
+  QUIZ_STYLED = true;
+  var st = document.createElement('style');
+  st.textContent =
+    '.qz-wrap{width:100%;max-width:880px;text-align:center;animation:scFadeUp 0.6s ease both;}' +
+    '.qz-prog{font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:14px;}' +
+    '.qz-q{background:linear-gradient(160deg,rgba(107,26,26,0.45),rgba(30,12,8,0.7));border:1.5px solid var(--gold);border-radius:16px;padding:22px 22px;font-size:clamp(1.05rem,2.2vw,1.5rem);color:var(--text-light);line-height:1.6;margin-bottom:18px;box-shadow:0 10px 30px rgba(0,0,0,0.4);}' +
+    '.qz-chorus{font-family:Caveat,cursive;font-size:1.3rem;color:var(--sandal);margin-bottom:16px;}' +
+    '.qz-ans{display:none;background:linear-gradient(135deg,rgba(60,150,80,0.2),rgba(30,12,8,0.5));border:1.5px solid rgba(90,200,120,0.6);border-radius:13px;padding:14px 18px;font-size:clamp(1rem,1.9vw,1.35rem);font-weight:800;color:#a5eab8;margin-bottom:18px;}' +
+    '.qz-ans.on{display:block;animation:scFadeUp 0.4s ease both;}' +
+    '.qz-rate{display:none;gap:12px;justify-content:center;flex-wrap:wrap;}' +
+    '.qz-rate.on{display:flex;}' +
+    '.qz-rate button{border:none;border-radius:13px;padding:13px 20px;font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,0.3);}' +
+    '.qz-r3{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}' +
+    '.qz-r2{background:linear-gradient(135deg,#d9a530,#b3841f);color:#2a1c05;}' +
+    '.qz-r1{background:linear-gradient(135deg,#b33a3a,#8a2525);color:#ffe4de;}' +
+    '.qz-show{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;border-radius:13px;padding:13px 26px;font-family:Cinzel,serif;font-weight:700;font-size:0.95rem;cursor:pointer;}' +
+    '.qz-sum{max-width:760px;margin:0 auto;text-align:left;}' +
+    '.qz-row{display:flex;gap:10px;align-items:flex-start;background:rgba(201,168,76,0.07);border-left:4px solid;border-radius:0 10px 10px 0;padding:10px 14px;margin-bottom:9px;font-size:0.86rem;color:var(--sandal);line-height:1.5;}' +
+    '.qz-row.g{border-color:#2f9e57;}.qz-row.a{border-color:#d9a530;}.qz-row.m{border-color:#b33a3a;}';
+  document.head.appendChild(st);
+}
+
+async function scQuizKey(){
+  var data = 'quiz1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+async function scGetQuiz(){
+  if (QUIZ_QS && QUIZ_QS.length) return QUIZ_QS;
+  var key = null;
+  try{
+    key = await scQuizKey();
+    var r = await fetch('/api/lesson-plan?key=' + key);
+    if (r.ok){
+      var d = await r.json();
+      if (d && Array.isArray(d.steps) && d.steps.length){
+        QUIZ_QS = d.steps;
+        return QUIZ_QS;
+      }
+    }
+  }catch(e){}
+  /* generate from today's actual steps */
+  var material = STEPS.map(function(s){ return (s.title || '') + '. ' + (s.speech || ''); }).join('\n').substring(0, 7000);
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: 'You write a 5-question oral CLASS QUIZ for ' + LESSON.cls + ' from the lesson just taught. ' +
+        'Questions must be answerable ALOUD IN CHORUS by the whole class: very short factual answers ' +
+        '(a name, a year, a word, a short phrase \u2014 never long sentences). Cover different parts of the lesson. ' +
+        'Reply ONLY with JSON: [{"q":"question","a":"short answer"}] \u2014 exactly 5 items, nothing else.',
+      messages:[{ role:'user', content:'LESSON CONTENT:\n' + material }],
+      max_tokens: 800
+    })
+  });
+  var d2 = await res.json();
+  var raw = '';
+  if (d2 && Array.isArray(d2.content)) raw = d2.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  raw = raw.replace(/```json|```/g, '').trim();
+  var s = raw.indexOf('['), e = raw.lastIndexOf(']');
+  if (s === -1 || e <= s) throw new Error('quiz could not be generated \u2014 try again');
+  var arr = JSON.parse(raw.substring(s, e + 1));
+  QUIZ_QS = arr.slice(0, 5).map(function(x){
+    return { q: String((x && x.q) || '').substring(0, 220), a: String((x && x.a) || '').substring(0, 220) };
+  }).filter(function(x){ return x.q && x.a; });
+  if (QUIZ_QS.length === 0) throw new Error('quiz empty \u2014 try again');
+  if (key){
+    try{
+      fetch('/api/lesson-plan', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ key: key, steps: QUIZ_QS, meta:{ kind:'class-quiz', topic: LESSON.topic } }) });
+    }catch(e2){}
+  }
+  return QUIZ_QS;
+}
+
+async function scStartQuiz(){
+  scQuizStyles();
+  scStopAudio(); clearTimeout(scAdvanceTimer);
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML = '<div class="qz-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+                    '<div style="color:var(--sandal);">Preparing today\u2019s class quiz\u2026</div></div>';
+  try{
+    await scGetQuiz();
+  }catch(e){
+    inner.innerHTML = '<div class="qz-wrap"><div style="color:#ffb0a5;">' + e.message + '</div>' +
+      '<button class="sc-done-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+    return;
+  }
+  QUIZ_IDX = 0; QUIZ_RESULTS = [];
+  scShowQuizQ();
+}
+
+function scShowQuizQ(){
+  var inner = document.getElementById('stage-inner');
+  var item = QUIZ_QS[QUIZ_IDX];
+  document.getElementById('narr-text').textContent = '\uD83C\uDFAF Class quiz \u2014 read the question aloud, class answers together.';
+  inner.innerHTML =
+    '<div class="qz-wrap">' +
+      '<div class="qz-prog">CLASS QUIZ \u00B7 QUESTION ' + (QUIZ_IDX + 1) + ' OF ' + QUIZ_QS.length + '</div>' +
+      '<div class="qz-q"></div>' +
+      '<div class="qz-chorus">\uD83D\uDDE3 Everyone answer together!</div>' +
+      '<button class="qz-show" onclick="scQuizReveal()">\uD83D\uDC41 Show Answer</button>' +
+      '<div class="qz-ans" id="qz-ans"></div>' +
+      '<div class="qz-rate" id="qz-rate">' +
+        '<button class="qz-r3" onclick="scQuizRate(3)">\uD83D\uDE03 Most got it</button>' +
+        '<button class="qz-r2" onclick="scQuizRate(2)">\uD83D\uDE10 About half</button>' +
+        '<button class="qz-r1" onclick="scQuizRate(1)">\uD83D\uDE1F Only a few</button>' +
+      '</div>' +
+    '</div>';
+  inner.querySelector('.qz-q').textContent = item.q;
+  document.getElementById('qz-ans').textContent = '\u2705 ' + item.a;
+  scSpeak(item.q);
+}
+
+function scQuizReveal(){
+  clearTimeout(scAdvanceTimer);
+  document.getElementById('qz-ans').classList.add('on');
+  document.getElementById('qz-rate').classList.add('on');
+}
+
+function scQuizRate(r){
+  var item = QUIZ_QS[QUIZ_IDX];
+  QUIZ_RESULTS.push({ q: item.q, a: item.a, rating: r });
+  QUIZ_IDX++;
+  if (QUIZ_IDX < QUIZ_QS.length) scShowQuizQ();
+  else scQuizFinish();
+}
+
+async function scQuizFinish(){
+  scStopAudio(); clearTimeout(scAdvanceTimer);
+  var inner = document.getElementById('stage-inner');
+  var rows = QUIZ_RESULTS.map(function(r){
+    var cls = r.rating === 3 ? 'g' : r.rating === 2 ? 'a' : 'm';
+    var ico = r.rating === 3 ? '\uD83D\uDE03' : r.rating === 2 ? '\uD83D\uDE10' : '\uD83D\uDE1F';
+    return '<div class="qz-row ' + cls + '"><span>' + ico + '</span><span></span></div>';
+  }).join('');
+  inner.innerHTML =
+    '<div class="qz-wrap"><div class="qz-prog">CLASS QUIZ \u00B7 RESULT</div>' +
+    '<div class="qz-sum">' + rows + '</div>' +
+    '<div id="qz-save" style="margin:14px 0;color:var(--sandal);font-size:0.82rem;">\u23F3 Saving to Class Insights\u2026</div>' +
+    '<button class="sc-done-btn ghost" onclick="scShowComplete()">\u2190 Done</button></div>';
+  var spans = inner.querySelectorAll('.qz-row span:last-child');
+  for (var i = 0; i < spans.length; i++) spans[i].textContent = QUIZ_RESULTS[i].q;
+  document.getElementById('narr-text').textContent = '\uD83C\uDFAF Quiz complete \u2014 well done, class!';
+  try{
+    var key = await scQuizKey();
+    var r = await fetch('/api/class-quiz', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cls: LESSON.cls, subject: LESSON.subject, topic: LESSON.topic,
+                             planKey: key, results: QUIZ_RESULTS })
+    });
+    var d = await r.json();
+    document.getElementById('qz-save').textContent = (d && d.saved)
+      ? '\u2705 Saved to Class Insights.'
+      : '\u26A0 Could not save (' + ((d && d.error) || 'server') + ') \u2014 the class still benefited!';
+  }catch(e){
+    var el = document.getElementById('qz-save');
+    if (el) el.textContent = '\u26A0 Could not save \u2014 ' + e.message;
   }
 }
 
