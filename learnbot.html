@@ -3673,10 +3673,16 @@ var TM_SUBJECTS = {
 };
 
 function launchMathClass(){
-  // Math Class doesn't need an activated lesson — teacher pastes problem inside
-  // But if a Math lesson is activated, pass it as context
+  // Math Class works without an activated lesson (teacher pastes / photographs).
+  // If a Maths lesson IS activated, hand it over too (mc_activated) so the
+  // "Load Questions from the book" banner appears — same Part C envelope that
+  // Teaching Mode routing already uses. (Updated 22-07-2026.)
   var activated=null;
   try{ activated=JSON.parse(sessionStorage.getItem('tm_activated')||'null'); }catch(e){}
+  var lessonText=(activated && activated.lessonText)||'';
+  if(!lessonText){
+    try{ lessonText=sessionStorage.getItem('tm_lesson')||''; }catch(e){}
+  }
   try{
     var autoData={
       cls: (activated && activated.cls) || '',
@@ -3685,6 +3691,13 @@ function launchMathClass(){
       autoSolve: false // don't auto-solve, let teacher choose problem
     };
     sessionStorage.setItem('mc_autostart', JSON.stringify(autoData));
+    if(activated && lessonText && lessonText.trim().length > 20){
+      sessionStorage.setItem('mc_activated', JSON.stringify({
+        cls: activated.cls||'',
+        chapter: activated.topic||'',
+        lessonText: lessonText.substring(0,6000)
+      }));
+    }
     sessionStorage.setItem('mc_returnUrl', 'learnbot.html');
   }catch(e){}
   window.location.href='math-class.html';
