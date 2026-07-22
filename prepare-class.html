@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prepare Class — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--maroon:#6B1A1A;--gold:#C9A84C;--gold-light:#FFD86A;--sandal:#E8C99A;}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:linear-gradient(135deg,#120a08,#241008 60%,#120a08);color:#f5efe2;font-family:'Nunito',sans-serif;min-height:100vh;padding:34px 18px 60px;}
+.wrap{max-width:760px;margin:0 auto;}
+h1{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.6rem;letter-spacing:1px;margin-bottom:6px;}
+.sub{color:var(--sandal);font-size:0.88rem;line-height:1.65;margin-bottom:24px;}
+.banner{background:linear-gradient(135deg,rgba(20,80,40,0.5),rgba(10,40,20,0.6));border:1.5px solid rgba(90,200,120,0.5);border-radius:14px;padding:14px 18px;margin-bottom:26px;}
+.banner .lb{font-size:0.66rem;font-weight:800;letter-spacing:2px;color:#a5eab8;margin-bottom:4px;}
+.banner .tt{font-family:'Caveat',cursive;font-size:1.35rem;color:#d9f5e0;}
+.none{background:rgba(180,60,60,0.15);border:1.5px solid rgba(230,120,120,0.5);border-radius:14px;padding:16px 18px;color:#ffc4b8;font-size:0.9rem;line-height:1.7;}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;}
+.mode{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:2px solid rgba(201,168,76,0.5);border-radius:16px;padding:20px 16px;cursor:pointer;text-align:center;transition:transform 0.15s,border-color 0.15s;}
+.mode:hover{transform:translateY(-3px);border-color:var(--gold);}
+.mode.best{border-color:var(--gold-light);box-shadow:0 0 24px rgba(255,216,106,0.2);}
+.mode .ic{font-size:2rem;margin-bottom:6px;}
+.mode .nm{font-family:'Cinzel',serif;font-weight:700;color:var(--gold-light);font-size:1rem;margin-bottom:5px;}
+.mode .ds{font-size:0.72rem;color:rgba(232,201,154,0.8);line-height:1.4;}
+.mode .tag{display:inline-block;margin-top:9px;background:rgba(201,168,76,0.18);border:1px solid rgba(201,168,76,0.5);border-radius:999px;padding:3px 11px;font-size:0.62rem;font-weight:800;color:var(--sandal);letter-spacing:1px;}
+.note{margin-top:26px;background:rgba(201,168,76,0.07);border:1.5px dashed rgba(201,168,76,0.4);border-radius:12px;padding:13px 16px;font-size:0.8rem;color:var(--sandal);line-height:1.7;}
+.back{display:inline-block;margin-bottom:20px;background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.45);color:var(--sandal);padding:8px 16px;border-radius:10px;font-weight:700;font-size:0.8rem;cursor:pointer;text-decoration:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="learnbot.html">&larr; Back to TeachBot</a>
+  <h1>&#127769; Prepare Tomorrow's Class</h1>
+  <div class="sub">Run this <b>tonight</b> (or any time before class). The AI builds the whole lesson once — plan, photographs, 3D models and every line of Monika's narration — and saves it all. Tomorrow the class opens <b>instantly</b> and nothing is generated live in front of the students.</div>
+
+  <div id="lesson-area"></div>
+  <div id="modes-area" class="grid" style="display:none;"></div>
+
+  <div class="note">&#128161; Preparing takes a few minutes the first time (the narration lines are each spoken and saved). Once a lesson is prepared, it stays prepared forever — repeat classes and other sections load from the cache at no extra cost.<br><br>&#128218; <b>Maths lessons:</b> Math Class prepares itself differently — open the Math Class card and press <b>Load Questions</b>; solutions are cached automatically as they're taught.</div>
+</div>
+
+<script>
+var MODES = [
+  { match:['social'],           icon:'\uD83D\uDDFA\uFE0F', name:'Social Science Class', desc:'Photos, timelines, maps, documentary teaching', page:'social-class.html',  store:'sc_activated',  ret:'sc_returnUrl'  },
+  { match:['science','evs'],    icon:'\uD83E\uDDB4',        name:'Science Class',        desc:'3D models, photos, working concepts',          page:'science-class.html', store:'sci_activated', ret:'sci_returnUrl' },
+  { match:['english'],          icon:'\uD83D\uDD24',        name:'English Class',        desc:'New words, grammar whys, speaking together',   page:'english-class.html', store:'eng_activated', ret:'eng_returnUrl' },
+  { match:['hindi'],            icon:'\u0905',              name:'Hindi Class',          desc:'Read &amp; explain in Tamil, words, varnamala',page:'hindi-class.html',   store:'hin_activated', ret:'hin_returnUrl' }
+];
+
+function esc(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function init(){
+  var activated = null;
+  try{ activated = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); }catch(e){}
+  var lessonText = (activated && activated.lessonText) || '';
+  if (!lessonText){
+    try{ lessonText = sessionStorage.getItem('tm_lesson') || ''; }catch(e){}
+  }
+  var area = document.getElementById('lesson-area');
+
+  if (!activated || !lessonText || lessonText.trim().length < 40){
+    area.innerHTML = '<div class="none">No activated lesson found.<br><br>' +
+      'Go to <b>Teacher Panel</b> &rarr; pick the book &rarr; enter the page range &rarr; ' +
+      '<b>Go to Teach Tab</b> &mdash; then open Prepare Class again.</div>';
+    return;
+  }
+
+  area.innerHTML = '<div class="banner"><div class="lb">ACTIVATED LESSON</div>' +
+    '<div class="tt">' + esc(activated.topic || 'Lesson') + ' \u2014 ' +
+    esc(activated.cls || '') + ' \u00B7 ' + esc(activated.subject || '') + '</div></div>';
+
+  var sub = (activated.subject || '').toLowerCase();
+  var grid = document.getElementById('modes-area');
+  grid.style.display = 'grid';
+
+  MODES.forEach(function(m){
+    var isMatch = m.match.some(function(k){ return sub.indexOf(k) !== -1; });
+    var d = document.createElement('div');
+    d.className = 'mode' + (isMatch ? ' best' : '');
+    d.innerHTML = '<div class="ic">' + m.icon + '</div><div class="nm">' + m.name + '</div>' +
+      '<div class="ds">' + m.desc + '</div>' +
+      (isMatch ? '<span class="tag">\u2B50 MATCHES THIS LESSON</span>' : '');
+    d.onclick = function(){
+      try{
+        sessionStorage.setItem(m.store, JSON.stringify({
+          cls: activated.cls || '',
+          subject: activated.subject || '',
+          topic: activated.topic || '',
+          lessonText: lessonText.substring(0, 15000)
+        }));
+        sessionStorage.setItem(m.ret, 'prepare-class.html');
+      }catch(e){}
+      window.location.href = m.page + '?prepare=1';
+    };
+    grid.appendChild(d);
+  });
+}
+document.addEventListener('DOMContentLoaded', init);
+</script>
+</body>
+</html>

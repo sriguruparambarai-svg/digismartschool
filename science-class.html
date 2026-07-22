@@ -331,7 +331,7 @@ function scPlanPrompt(){
     '- Every string must be plain text. Keep JSON strictly valid.';
 }
 
-async function scGeneratePlan(){
+async function scGeneratePlanFresh(){
   var res = await fetch('/api/ai', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
@@ -1501,12 +1501,109 @@ async function scInit(){
         new Promise(function(r){ setTimeout(r, 6000); })   // never wait more than 6s
       ]); }catch(e){}
     }
+    if (PREPARE_MODE){ scPrepareAll(); return; }
     ov.style.display = 'none';
     scRender(0);
   }catch(e){
     err.textContent = 'Could not prepare the class \u2014 ' + e.message;
     err.classList.add('on');
     retry.style.display = 'inline-block';
+  }
+}
+
+/* ══ PREPARE CLASS MODE — added 22-07-2026 ══
+   Open this page with ?prepare=1 (via prepare-class.html) and instead of
+   teaching, it generates the plan ONCE, saves it to Supabase, and warms
+   every photo, 3D model and narration audio into the server cache.
+   Tomorrow the same lesson loads instantly and never generates live. */
+var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
+
+async function scPlanKey(){
+  var data = 'v1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+/* Cached-first plan: prepared lesson loads instantly, else generate + save */
+async function scGeneratePlan(){
+  var key = null;
+  try{
+    key = await scPlanKey();
+    var r = await fetch('/api/lesson-plan?key=' + key);
+    if (r.ok){
+      var d = await r.json();
+      if (d && Array.isArray(d.steps) && d.steps.length){
+        return d.steps;
+      }
+    }
+  }catch(e){}
+  var steps = await scGeneratePlanFresh();
+  if (key && steps && steps.length){
+    try{
+      fetch('/api/lesson-plan', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ key: key, steps: steps,
+          meta: { subject: LESSON.subject, cls: LESSON.cls, topic: LESSON.topic } })
+      });
+    }catch(e){}
+  }
+  return steps;
+}
+
+function scPrepMsg(t){
+  var m = document.getElementById('sc-loading-msg');
+  if (m) m.textContent = t;
+}
+
+async function scPrepareAll(){
+  var ov = document.getElementById('sc-loading');
+  ov.style.display = 'flex';
+  document.querySelector('#sc-loading h2').textContent = 'Preparing tomorrow\u2019s class\u2026';
+  try{
+    /* photos */
+    var photos = STEPS.filter(function(s){ return s.type === 'photo'; });
+    for (var i = 0; i < photos.length; i++){
+      scPrepMsg('Verifying photograph ' + (i + 1) + ' of ' + photos.length + '\u2026');
+      try{ await scFetchImages(photos[i].search, photos[i].title + '. ' + photos[i].speech); }catch(e){}
+    }
+    /* 3D models (science-family pages only) */
+    if (typeof sciFetchModel === 'function'){
+      var models = STEPS.filter(function(s){ return s.type === 'model3d'; });
+      for (var j = 0; j < models.length; j++){
+        scPrepMsg('Finding 3D model ' + (j + 1) + ' of ' + models.length + '\u2026');
+        try{ await sciFetchModel(models[j].organ); }catch(e){}
+      }
+    }
+    /* narration — the big one: every line cached in Monika's voice */
+    var spoken = STEPS.filter(function(s){ return (s.speech || s.title || '').trim().length > 0; });
+    for (var k = 0; k < spoken.length; k++){
+      scPrepMsg('Caching narration ' + (k + 1) + ' of ' + spoken.length + ' (this runs once, tonight)\u2026');
+      try{
+        await fetch('/api/voice-class', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ text: String(spoken[k].speech || spoken[k].title), cls: LESSON.cls })
+        });
+      }catch(e){}
+    }
+    /* done */
+    document.querySelector('#sc-loading .sc-spin').style.display = 'none';
+    document.querySelector('#sc-loading h2').textContent = '\u2705 Class prepared!';
+    scPrepMsg('Plan, photographs, models and every narration line are saved. Tomorrow this lesson opens instantly \u2014 nothing is generated live in front of the students.');
+    var btns = document.createElement('div');
+    btns.style.cssText = 'display:flex;gap:12px;flex-wrap:wrap;justify-content:center;';
+    var b1 = document.createElement('button');
+    b1.className = 'ctrl-btn active';
+    b1.textContent = '\u25B6 Run the class now';
+    b1.onclick = function(){ ov.style.display = 'none'; scRender(0); };
+    var b2 = document.createElement('button');
+    b2.className = 'ctrl-btn';
+    b2.textContent = '\u2190 Back to TeachBot';
+    b2.onclick = function(){ scGoBack(); };
+    btns.appendChild(b1); btns.appendChild(b2);
+    ov.appendChild(btns);
+  }catch(e){
+    scPrepMsg('Preparation hit a problem \u2014 ' + e.message + '. What finished is saved; run Prepare again to complete the rest.');
   }
 }
 
