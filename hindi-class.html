@@ -1,0 +1,1925 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hindi Class — DigiSmartSchool</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Caveat:wght@600&family=Noto+Sans+Tamil:wght@500;700&family=Noto+Sans+Devanagari:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --maroon-dark:#4a1010; --gold:#C9A84C; --gold-light:#FFD86A;
+  --sandal:#E8C99A; --stage-bg:#0d0f14; --text-light:#f5efe2;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--text-light);font-family:'Nunito',sans-serif;overflow:hidden;height:100vh;}
+
+/* ── TOP BAR ── */
+#topbar{position:fixed;top:0;left:0;right:0;height:58px;background:linear-gradient(180deg,rgba(20,8,6,0.97),rgba(20,8,6,0.9));border-bottom:1.5px solid rgba(201,168,76,0.35);display:flex;align-items:center;gap:10px;padding:0 14px;z-index:100;}
+#topbar .back-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);color:var(--sandal);padding:7px 14px;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.8rem;}
+#topbar .cls-pill{background:var(--maroon);color:var(--gold-light);border:1.5px solid var(--gold);padding:5px 12px;border-radius:999px;font-weight:800;font-size:0.78rem;}
+#topbar .topic{font-family:'Caveat',cursive;font-size:1.25rem;color:var(--sandal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}
+.ctrl-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);color:var(--sandal);padding:7px 13px;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.8rem;white-space:nowrap;}
+.ctrl-btn.active{background:var(--gold);color:#2a1505;}
+.ctrl-btn:disabled{opacity:0.5;cursor:wait;}
+#speed-sel{background:#241410;color:var(--sandal);border:1.5px solid rgba(201,168,76,0.4);border-radius:9px;padding:7px 8px;font-family:inherit;font-weight:700;font-size:0.8rem;}
+
+/* ── SIDEBAR ── */
+#sidebar{position:fixed;top:58px;left:0;bottom:52px;width:238px;background:rgba(15,7,5,0.92);border-right:1.5px solid rgba(201,168,76,0.25);overflow-y:auto;padding:14px 10px;z-index:90;}
+#sidebar h3{font-size:0.68rem;letter-spacing:2px;color:var(--gold);margin:0 6px 10px;font-weight:800;}
+.step-item{display:flex;gap:8px;align-items:flex-start;padding:9px 10px;border-radius:10px;cursor:pointer;margin-bottom:6px;font-size:0.78rem;line-height:1.35;color:rgba(232,201,154,0.75);border:1.5px solid transparent;}
+.step-item:hover{background:rgba(201,168,76,0.08);}
+.step-item.current{background:rgba(107,26,26,0.55);border-color:var(--gold);color:var(--gold-light);font-weight:700;}
+.step-item .ico{flex:0 0 auto;}
+#sidebar::-webkit-scrollbar{width:5px;}
+#sidebar::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.35);border-radius:3px;}
+
+/* ── STAGE ── */
+#stage{position:fixed;top:58px;left:238px;right:0;bottom:52px;background:var(--stage-bg);overflow:hidden;}
+#stage-inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 220px 26px 40px;}
+
+/* Title step */
+.sc-title-wrap{text-align:center;max-width:900px;animation:scFadeUp 1s ease both;}
+.sc-title-wrap h1{font-family:'Cinzel',serif;font-size:clamp(1.7rem,3.6vw,3rem);color:var(--gold-light);line-height:1.25;margin-bottom:18px;text-shadow:0 3px 18px rgba(0,0,0,0.6);}
+.sc-title-line{width:60%;max-width:420px;height:3px;margin:0 auto 20px;background:linear-gradient(90deg,transparent,var(--gold),transparent);border-radius:2px;animation:scLineGrow 1.2s ease both 0.3s;}
+.sc-title-wrap p{font-size:clamp(0.95rem,1.6vw,1.15rem);color:var(--sandal);line-height:1.7;opacity:0.9;}
+
+/* Photo step — documentary frame with Ken Burns */
+.sc-photo-frame{position:relative;width:100%;height:100%;max-width:1080px;max-height:100%;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:#000;animation:scFadeUp 0.8s ease both;}
+.sc-photo-frame img{position:absolute;inset:-6%;width:112%;height:112%;object-fit:cover;}
+.kb1{animation:kbA 22s ease-in-out both;} .kb2{animation:kbB 22s ease-in-out both;}
+.kb3{animation:kbC 22s ease-in-out both;} .kb4{animation:kbD 22s ease-in-out both;}
+@keyframes kbA{from{transform:scale(1) translate(0,0);}to{transform:scale(1.14) translate(-2.5%,-2%);}}
+@keyframes kbB{from{transform:scale(1.14) translate(2%,1.5%);}to{transform:scale(1) translate(0,0);}}
+@keyframes kbC{from{transform:scale(1) translate(0,0);}to{transform:scale(1.14) translate(2.5%,-2%);}}
+@keyframes kbD{from{transform:scale(1.12) translate(-2%,2%);}to{transform:scale(1.02) translate(1%,-1%);}}
+.sc-photo-cap{position:absolute;left:0;right:0;bottom:0;padding:34px 22px 14px;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.85));}
+.sc-photo-cap .cap-title{font-family:'Cinzel',serif;font-size:clamp(1rem,1.9vw,1.45rem);color:var(--gold-light);margin-bottom:4px;}
+.sc-photo-cap .cap-text{font-size:0.85rem;color:rgba(245,239,226,0.9);line-height:1.5;}
+.sc-photo-cap .cap-src{font-size:0.62rem;color:rgba(232,201,154,0.55);margin-top:5px;letter-spacing:0.5px;}
+.sc-photo-loading{display:flex;flex-direction:column;align-items:center;gap:14px;color:var(--sandal);}
+.sc-spin{width:38px;height:38px;border:3px solid rgba(201,168,76,0.25);border-top-color:var(--gold);border-radius:50%;animation:scSpin 0.9s linear infinite;}
+@keyframes scSpin{to{transform:rotate(360deg);}}
+
+/* Timeline step */
+.sc-tl-wrap{width:100%;max-width:1040px;animation:scFadeUp 0.8s ease both;}
+.sc-tl-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.2rem,2.4vw,1.9rem);color:var(--gold-light);text-align:center;margin-bottom:34px;}
+.sc-tl-track{position:relative;padding:0 10px;}
+.sc-tl-line{position:absolute;left:2%;right:2%;top:50%;height:3px;background:linear-gradient(90deg,rgba(201,168,76,0.2),var(--gold),rgba(201,168,76,0.2));border-radius:2px;transform:scaleX(0);transform-origin:left;animation:scLineX 1.4s ease forwards 0.2s;}
+.sc-tl-items{position:relative;display:flex;justify-content:space-between;gap:8px;}
+.sc-tl-item{flex:1;min-width:0;display:flex;flex-direction:column;align-items:center;text-align:center;opacity:0;animation:scFadeUp 0.6s ease forwards;}
+.sc-tl-item:nth-child(odd){flex-direction:column;} 
+.sc-tl-item .dot{width:15px;height:15px;border-radius:50%;background:var(--gold-light);box-shadow:0 0 14px rgba(255,216,106,0.8);margin:12px 0;}
+.sc-tl-item .yr{font-family:'Cinzel',serif;font-weight:700;font-size:clamp(0.85rem,1.5vw,1.15rem);color:var(--gold-light);}
+.sc-tl-item .lbl{font-size:clamp(0.68rem,1.1vw,0.85rem);color:var(--sandal);line-height:1.4;max-width:150px;}
+@keyframes scLineX{to{transform:scaleX(1);}}
+
+/* Concept step — modern flat cards */
+.sc-con-wrap{width:100%;max-width:960px;animation:scFadeUp 0.8s ease both;}
+.sc-con-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.2rem,2.4vw,1.9rem);color:var(--gold-light);text-align:center;margin-bottom:28px;}
+.sc-con-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px;}
+.sc-con-card{background:linear-gradient(160deg,rgba(107,26,26,0.35),rgba(30,12,8,0.6));border:1.5px solid rgba(201,168,76,0.4);border-radius:14px;padding:20px 18px;font-size:clamp(0.85rem,1.3vw,1rem);line-height:1.6;color:var(--text-light);opacity:0;animation:scFadeUp 0.55s ease forwards;box-shadow:0 8px 24px rgba(0,0,0,0.35);}
+.sc-con-card .n{display:inline-flex;width:26px;height:26px;border-radius:50%;background:var(--gold);color:#2a1505;font-weight:800;align-items:center;justify-content:center;font-size:0.8rem;margin-bottom:10px;}
+@keyframes scFadeUp{from{opacity:0;transform:translateY(22px);}to{opacity:1;transform:translateY(0);}}
+@keyframes scLineGrow{from{transform:scaleX(0);}to{transform:scaleX(1);}}
+
+/* ── TEACHER ── */
+#sc-teacher{position:fixed;right:14px;bottom:110px;width:172px;height:auto;z-index:95;cursor:pointer;filter:drop-shadow(0 5px 14px rgba(0,0,0,0.55));animation:scBob 4.5s ease-in-out infinite;transition:opacity 0.4s;}
+#sc-teacher.hidden{opacity:0;pointer-events:none;}
+@keyframes scBob{0%,100%{transform:translateY(0);}50%{transform:translateY(-7px);}}
+
+/* ── NARRATION BAR ── */
+#narrbar{position:fixed;left:0;right:0;bottom:0;height:52px;background:linear-gradient(0deg,rgba(15,6,4,0.98),rgba(15,6,4,0.9));border-top:1.5px solid rgba(201,168,76,0.3);display:flex;align-items:center;gap:14px;padding:0 16px;z-index:100;}
+#narr-text{flex:1;font-family:'Caveat',cursive;font-size:1.15rem;color:var(--sandal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#narr-prog{font-size:0.75rem;font-weight:800;color:var(--gold);white-space:nowrap;}
+#nav-btns{display:flex;gap:8px;}
+.nav-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;padding:8px 18px;border-radius:10px;font-family:'Caveat',cursive;font-size:1.05rem;font-weight:600;cursor:pointer;}
+.nav-btn.ghost{background:rgba(201,168,76,0.14);color:var(--sandal);border:1.5px solid rgba(201,168,76,0.4);}
+.nav-btn:disabled{opacity:0.4;cursor:default;}
+
+/* ── TAMIL BOX ── */
+#sc-tamil-box{position:fixed;left:50%;transform:translateX(-50%);bottom:64px;max-width:820px;width:92%;background:linear-gradient(135deg,#FFF8E7,#FFEFD0);border:3px solid var(--gold);border-radius:14px;padding:16px 22px;color:#3a1010;font-size:1.08rem;line-height:1.8;display:none;z-index:110;box-shadow:0 10px 36px rgba(0,0,0,0.5);font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+#sc-tamil-box.on{display:block;}
+#sc-tamil-box .close-x{position:absolute;top:6px;right:12px;cursor:pointer;font-size:1.1rem;font-weight:900;color:var(--maroon);}
+
+/* ── MAP STEP (Phase 2) ── */
+.sc-map-frame{position:relative;width:100%;height:100%;max-width:1080px;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:#0a0c10;animation:scFadeUp 0.8s ease both;}
+#sc-map{position:absolute;inset:0;}
+.sc-map-title{position:absolute;top:0;left:0;right:0;z-index:500;padding:12px 18px 26px;background:linear-gradient(180deg,rgba(0,0,0,0.8),transparent);pointer-events:none;}
+.sc-map-title .t{font-family:'Cinzel',serif;font-size:clamp(1rem,1.9vw,1.5rem);color:var(--gold-light);text-shadow:0 2px 8px rgba(0,0,0,0.8);}
+.sc-region-label{background:rgba(10,10,14,0.82)!important;border:1.5px solid rgba(201,168,76,0.7)!important;border-radius:8px!important;color:#FFD86A!important;font-family:'Cinzel',serif!important;font-weight:700!important;font-size:0.85rem!important;padding:4px 10px!important;box-shadow:0 4px 14px rgba(0,0,0,0.6)!important;white-space:nowrap;}
+.sc-region-label::before{display:none!important;}
+.sc-marker-label{background:rgba(107,26,26,0.92)!important;border:1px solid var(--gold)!important;border-radius:6px!important;color:#fff!important;font-family:'Nunito',sans-serif!important;font-weight:700!important;font-size:0.72rem!important;padding:2px 8px!important;}
+.sc-marker-label::before{display:none!important;}
+.sc-region-glow{filter:drop-shadow(0 0 8px rgba(255,216,106,0.55));}
+.leaflet-container{background:#0a0c10!important;font-family:'Nunito',sans-serif;}
+.leaflet-control-attribution{background:rgba(0,0,0,0.55)!important;color:rgba(232,201,154,0.55)!important;font-size:0.58rem!important;}
+.leaflet-control-attribution a{color:rgba(232,201,154,0.75)!important;}
+
+/* ── HINDI READ STEP + VARNAMALA ── */
+.hin-read-wrap{width:100%;max-width:920px;text-align:center;animation:scFadeUp 0.8s ease both;}
+.hin-read-line{font-family:'Noto Sans Devanagari',sans-serif;font-weight:800;font-size:clamp(1.5rem,3.6vw,2.7rem);color:var(--gold-light);line-height:1.7;margin-bottom:22px;text-shadow:0 3px 16px rgba(0,0,0,0.5);}
+.hin-read-ta{max-width:760px;margin:0 auto;background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:1.5px solid rgba(201,168,76,0.5);border-radius:14px;padding:16px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.35);opacity:0;animation:scFadeUp 0.5s ease forwards 0.4s;}
+.hin-read-ta .lang{font-size:0.66rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:7px;}
+.hin-read-ta .tx{font-family:'Noto Sans Tamil',sans-serif;font-size:clamp(0.95rem,1.7vw,1.2rem);color:var(--text-light);line-height:1.75;}
+#hin-varn{position:fixed;inset:0;background:rgba(10,4,3,0.94);z-index:300;display:none;overflow-y:auto;padding:24px 18px 40px;}
+#hin-varn.on{display:block;}
+.hv-head{display:flex;align-items:center;gap:12px;max-width:980px;margin:0 auto 18px;}
+.hv-head h2{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.2rem;flex:1;}
+.hv-close{background:rgba(201,168,76,0.14);border:1.5px solid rgba(201,168,76,0.5);color:var(--sandal);padding:8px 16px;border-radius:10px;cursor:pointer;font-family:inherit;font-weight:700;}
+.hv-sec{max-width:980px;margin:0 auto 8px;font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);padding-top:12px;}
+.hv-grid{max-width:980px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:9px;}
+.hv-tile{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:1.5px solid rgba(201,168,76,0.45);border-radius:12px;padding:10px 4px;text-align:center;cursor:pointer;transition:transform 0.12s;}
+.hv-tile:hover{transform:translateY(-3px);border-color:var(--gold);}
+.hv-tile .dv{font-family:'Noto Sans Devanagari',sans-serif;font-weight:800;font-size:1.7rem;color:var(--gold-light);}
+.hv-tile .tr{font-size:0.62rem;color:rgba(232,201,154,0.7);margin-top:2px;}
+#hv-detail{display:none;max-width:640px;margin:20px auto 0;text-align:center;}
+#hv-detail.on{display:block;}
+#hv-detail .big{font-family:'Noto Sans Devanagari',sans-serif;font-weight:800;font-size:clamp(5rem,16vw,10rem);color:var(--gold-light);line-height:1.1;text-shadow:0 6px 30px rgba(255,216,106,0.35);}
+#hv-detail .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin:10px 0 14px;}
+#hv-detail .pill{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.5);border-radius:999px;padding:7px 16px;color:var(--sandal);font-weight:800;font-size:0.95rem;}
+#hv-detail .pill.ta{font-family:'Noto Sans Tamil',sans-serif;}
+#hv-detail .ex{font-family:'Noto Sans Devanagari',sans-serif;font-size:clamp(1.1rem,2.6vw,1.7rem);color:var(--text-light);margin-bottom:16px;}
+#hv-detail .ex small{font-family:'Nunito',sans-serif;color:rgba(232,201,154,0.7);font-size:0.75em;}
+
+/* ── ENGLISH COMMUNICATION STEPS ── */
+.eng-word-wrap{width:100%;max-width:880px;text-align:center;animation:scFadeUp 0.8s ease both;}
+.eng-word-big{font-family:'Cinzel',serif;font-weight:800;font-size:clamp(2.4rem,6vw,4.6rem);color:var(--gold-light);letter-spacing:2px;text-shadow:0 4px 24px rgba(255,216,106,0.3);margin-bottom:8px;}
+.eng-word-say{font-size:0.78rem;color:rgba(232,201,154,0.6);letter-spacing:2px;margin-bottom:22px;}
+.eng-mean-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+.eng-mean-card{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:1.5px solid rgba(201,168,76,0.5);border-radius:14px;padding:16px 16px;box-shadow:0 8px 24px rgba(0,0,0,0.35);opacity:0;animation:scFadeUp 0.5s ease forwards 0.3s;}
+.eng-mean-card .lang{font-size:0.66rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:7px;}
+.eng-mean-card .mn{font-size:clamp(0.95rem,1.7vw,1.2rem);color:var(--text-light);line-height:1.6;}
+.eng-mean-card .mn.ta{font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+.eng-ta-speak{margin-top:9px;background:rgba(201,168,76,0.15);border:1.5px solid rgba(201,168,76,0.5);color:var(--sandal);padding:5px 13px;border-radius:999px;font-family:inherit;font-size:0.72rem;font-weight:700;cursor:pointer;}
+.eng-sent{background:rgba(201,168,76,0.08);border-left:3px solid var(--gold);border-radius:0 10px 10px 0;padding:10px 15px;margin:0 auto 9px;max-width:640px;text-align:left;font-size:clamp(0.88rem,1.4vw,1.05rem);color:var(--sandal);line-height:1.55;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.eng-daily{margin:14px auto 0;max-width:640px;background:linear-gradient(135deg,rgba(201,168,76,0.16),rgba(107,26,26,0.25));border:1.5px dashed rgba(201,168,76,0.55);border-radius:12px;padding:11px 16px;font-size:0.85rem;color:var(--sandal);line-height:1.55;opacity:0;animation:scFadeUp 0.5s ease forwards 1s;}
+.eng-repeat{display:none;margin:18px auto 0;max-width:560px;background:linear-gradient(135deg,var(--maroon),#8a2525);border:2px solid var(--gold);border-radius:14px;padding:14px 18px;box-shadow:0 10px 30px rgba(201,168,76,0.25);animation:engPulse 1.6s ease-in-out infinite;}
+.eng-repeat.on{display:block;}
+.eng-repeat .rt{font-family:'Caveat',cursive;font-size:1.5rem;color:var(--gold-light);margin-bottom:9px;}
+@keyframes engPulse{0%,100%{box-shadow:0 10px 30px rgba(201,168,76,0.2);}50%{box-shadow:0 10px 38px rgba(201,168,76,0.5);}}
+.eng-gram-wrap{width:100%;max-width:940px;animation:scFadeUp 0.8s ease both;}
+.eng-gram-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.2rem,2.4vw,1.9rem);color:var(--gold-light);text-align:center;margin-bottom:10px;}
+.eng-rule{max-width:680px;margin:0 auto 22px;text-align:center;font-size:clamp(0.9rem,1.5vw,1.1rem);color:var(--sandal);background:rgba(201,168,76,0.1);border:1.5px solid rgba(201,168,76,0.4);border-radius:12px;padding:10px 16px;line-height:1.55;}
+.eng-pair{display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:760px;margin:0 auto 10px;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.eng-pair .side{border-radius:12px;padding:13px 15px;font-size:clamp(0.92rem,1.5vw,1.15rem);font-weight:700;text-align:center;}
+.eng-pair .bad{background:rgba(180,40,40,0.18);border:1.5px solid rgba(230,90,90,0.55);color:#ffb0a5;text-decoration:line-through;}
+.eng-pair .good{background:rgba(60,150,80,0.16);border:1.5px solid rgba(90,200,120,0.55);color:#a5eab8;}
+.eng-why{grid-column:1 / -1;font-size:0.85rem;color:var(--sandal);text-align:center;padding:4px 8px 0;line-height:1.5;}
+.eng-ex-wrap{width:100%;max-width:880px;animation:scFadeUp 0.8s ease both;}
+.eng-ex-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.1rem,2.2vw,1.7rem);color:var(--gold-light);text-align:center;margin-bottom:16px;}
+.eng-ex-q{background:linear-gradient(160deg,rgba(107,26,26,0.45),rgba(30,12,8,0.7));border:1.5px solid var(--gold);border-radius:14px;padding:16px 18px;font-size:clamp(0.95rem,1.6vw,1.2rem);color:var(--text-light);line-height:1.6;margin-bottom:16px;box-shadow:0 8px 24px rgba(0,0,0,0.4);}
+.eng-ex-step{background:rgba(201,168,76,0.08);border-left:3px solid rgba(201,168,76,0.6);border-radius:0 10px 10px 0;padding:9px 14px;margin-bottom:8px;font-size:clamp(0.82rem,1.3vw,0.98rem);color:var(--sandal);line-height:1.5;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.eng-ex-ans{margin-top:12px;background:linear-gradient(135deg,rgba(60,150,80,0.2),rgba(30,12,8,0.5));border:1.5px solid rgba(90,200,120,0.6);border-radius:12px;padding:12px 16px;font-size:clamp(0.95rem,1.6vw,1.2rem);font-weight:800;color:#a5eab8;text-align:center;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.eng-ex-why{margin-top:8px;text-align:center;font-size:0.84rem;color:var(--sandal);line-height:1.5;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+
+/* ── 3D MODEL STEP (Science) ── */
+.sc-mdl-frame{position:relative;width:100%;height:100%;max-width:1080px;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:radial-gradient(ellipse at 50% 40%,#141824,#07090f 70%);animation:scFadeUp 0.8s ease both;}
+.sc-mdl-frame iframe{position:absolute;inset:0;width:100%;height:100%;border:0;}
+.sc-mdl-cap{position:absolute;left:0;right:0;bottom:0;z-index:5;padding:26px 20px 12px;background:linear-gradient(180deg,transparent,rgba(0,0,0,0.85));pointer-events:none;}
+.sc-mdl-cap .t{font-family:'Cinzel',serif;font-size:clamp(1rem,1.9vw,1.4rem);color:var(--gold-light);}
+.sc-mdl-cap .s{font-size:0.62rem;color:rgba(232,201,154,0.55);margin-top:4px;letter-spacing:0.5px;}
+.sc-mdl-hint{position:absolute;right:14px;top:12px;z-index:5;font-size:0.66rem;color:rgba(232,201,154,0.6);pointer-events:none;background:rgba(0,0,0,0.45);padding:4px 10px;border-radius:8px;}
+
+/* ── INFOGRAPHIC STEPS (Phase 4 — Civics & Economics) ── */
+.sc-info-wrap{width:100%;max-width:1000px;animation:scFadeUp 0.8s ease both;}
+.sc-info-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.2rem,2.4vw,1.9rem);color:var(--gold-light);text-align:center;margin-bottom:26px;}
+
+/* structure — organisation tree */
+.sc-str-root{margin:0 auto 0;max-width:420px;background:linear-gradient(135deg,var(--maroon),#8a2525);border:2px solid var(--gold);border-radius:14px;padding:14px 20px;text-align:center;font-family:'Cinzel',serif;font-weight:700;font-size:clamp(0.95rem,1.7vw,1.25rem);color:var(--gold-light);box-shadow:0 10px 28px rgba(0,0,0,0.4);opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.sc-str-stem{width:3px;height:26px;background:var(--gold);margin:0 auto;opacity:0;animation:scFadeUp 0.4s ease forwards 0.35s;}
+.sc-str-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px;margin-top:2px;}
+.sc-str-child{background:linear-gradient(160deg,rgba(107,26,26,0.35),rgba(30,12,8,0.65));border:1.5px solid rgba(201,168,76,0.5);border-radius:13px;padding:14px 14px;text-align:center;opacity:0;animation:scFadeUp 0.5s ease forwards;box-shadow:0 8px 22px rgba(0,0,0,0.35);}
+.sc-str-child .nm{font-weight:800;font-size:clamp(0.85rem,1.4vw,1.05rem);color:var(--gold-light);margin-bottom:8px;}
+.sc-str-child .chips{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;}
+.sc-str-child .chip{background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.45);border-radius:999px;padding:3px 11px;font-size:0.72rem;color:var(--sandal);font-weight:700;}
+
+/* cycle — circular process */
+.sc-cyc-stage{position:relative;width:min(64vh,480px);height:min(64vh,480px);margin:0 auto;}
+.sc-cyc-ring{position:absolute;inset:12%;border:3px dashed rgba(201,168,76,0.5);border-radius:50%;animation:scRingSpin 40s linear infinite;}
+@keyframes scRingSpin{to{transform:rotate(360deg);}}
+.sc-cyc-center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:2.2rem;color:var(--gold);animation:scRingSpin 14s linear infinite;}
+.sc-cyc-node{position:absolute;transform:translate(-50%,-50%);background:linear-gradient(160deg,rgba(107,26,26,0.55),rgba(30,12,8,0.8));border:1.5px solid var(--gold);border-radius:12px;padding:9px 13px;max-width:170px;text-align:center;font-size:clamp(0.68rem,1.1vw,0.82rem);font-weight:700;color:var(--text-light);line-height:1.35;box-shadow:0 8px 22px rgba(0,0,0,0.45);opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.sc-cyc-node .num{display:inline-flex;width:20px;height:20px;border-radius:50%;background:var(--gold);color:#2a1505;font-size:0.68rem;font-weight:800;align-items:center;justify-content:center;margin-bottom:4px;}
+
+/* compare — two-panel contrast */
+.sc-cmp-grid{display:grid;grid-template-columns:1fr 54px 1fr;gap:0;align-items:stretch;}
+.sc-cmp-panel{border-radius:14px;padding:16px 16px;border:1.5px solid rgba(201,168,76,0.5);box-shadow:0 10px 26px rgba(0,0,0,0.4);}
+.sc-cmp-panel.left{background:linear-gradient(160deg,rgba(201,168,76,0.16),rgba(30,20,8,0.6));}
+.sc-cmp-panel.right{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,10,8,0.65));}
+.sc-cmp-panel .hd{font-family:'Cinzel',serif;font-weight:700;font-size:clamp(0.9rem,1.6vw,1.15rem);color:var(--gold-light);text-align:center;margin-bottom:12px;padding-bottom:9px;border-bottom:1.5px solid rgba(201,168,76,0.4);}
+.sc-cmp-panel .rw{font-size:clamp(0.78rem,1.2vw,0.92rem);color:var(--text-light);line-height:1.5;padding:7px 4px 7px 20px;position:relative;opacity:0;animation:scFadeUp 0.45s ease forwards;}
+.sc-cmp-panel .rw::before{content:'\2726';position:absolute;left:2px;color:var(--gold);}
+.sc-cmp-vs{display:flex;align-items:center;justify-content:center;}
+.sc-cmp-vs span{background:var(--gold);color:#2a1505;font-family:'Cinzel',serif;font-weight:800;font-size:0.85rem;border-radius:50%;width:44px;height:44px;display:flex;align-items:center;justify-content:center;box-shadow:0 0 22px rgba(201,168,76,0.55);}
+
+/* stat — big figure cards */
+.sc-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;}
+.sc-stat-card{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:1.5px solid rgba(201,168,76,0.5);border-radius:16px;padding:22px 16px;text-align:center;opacity:0;animation:scFadeUp 0.55s ease forwards;box-shadow:0 10px 26px rgba(0,0,0,0.4);}
+.sc-stat-card .val{font-family:'Cinzel',serif;font-weight:800;font-size:clamp(1.5rem,3vw,2.3rem);color:var(--gold-light);text-shadow:0 0 18px rgba(255,216,106,0.35);margin-bottom:8px;white-space:nowrap;}
+.sc-stat-card .lbl{font-size:clamp(0.74rem,1.2vw,0.88rem);color:var(--sandal);line-height:1.45;}
+
+/* ── GLOBE STEP (Phase 3) ── */
+.sc-globe-frame{position:relative;width:100%;height:100%;max-width:1080px;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:radial-gradient(ellipse at 50% 40%,#0c1230,#05070f 70%);animation:scFadeUp 0.8s ease both;}
+#sc-globe-canvas{position:absolute;inset:0;cursor:grab;}
+#sc-globe-canvas:active{cursor:grabbing;}
+.sc-globe-title{position:absolute;top:0;left:0;right:0;z-index:5;padding:12px 18px 26px;background:linear-gradient(180deg,rgba(0,0,0,0.7),transparent);pointer-events:none;}
+.sc-globe-title .t{font-family:'Cinzel',serif;font-size:clamp(1rem,1.9vw,1.5rem);color:var(--gold-light);text-shadow:0 2px 8px rgba(0,0,0,0.8);}
+.sc-globe-legend{position:absolute;left:14px;bottom:14px;z-index:5;background:rgba(10,10,16,0.78);border:1.5px solid rgba(201,168,76,0.45);border-radius:12px;padding:10px 14px;font-size:0.74rem;color:var(--sandal);line-height:1.7;pointer-events:none;max-width:280px;}
+.sc-globe-legend .sw{display:inline-block;width:20px;height:3px;border-radius:2px;vertical-align:middle;margin-right:7px;}
+.sc-globe-season{position:absolute;right:14px;bottom:14px;z-index:5;background:rgba(107,26,26,0.85);border:1.5px solid var(--gold);border-radius:12px;padding:10px 16px;font-size:0.85rem;font-weight:700;color:#FFD86A;pointer-events:none;text-align:center;line-height:1.6;}
+.sc-globe-hint{position:absolute;right:14px;top:56px;z-index:5;font-size:0.66rem;color:rgba(232,201,154,0.55);pointer-events:none;}
+
+/* ── LESSON COMPLETE (Phase 2 bridge) ── */
+.sc-done-wrap{text-align:center;max-width:760px;animation:scFadeUp 0.8s ease both;}
+.sc-done-wrap .big{font-family:'Caveat',cursive;font-size:clamp(2rem,4.5vw,3.2rem);color:var(--gold-light);margin-bottom:12px;}
+.sc-done-wrap p{color:var(--sandal);font-size:clamp(0.9rem,1.5vw,1.1rem);line-height:1.7;margin-bottom:26px;}
+.sc-done-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;padding:14px 30px;border-radius:14px;font-family:'Cinzel',serif;font-size:1rem;font-weight:700;cursor:pointer;box-shadow:0 10px 28px rgba(201,168,76,0.35);margin:0 8px 10px;}
+.sc-done-btn.ghost{background:rgba(201,168,76,0.14);color:var(--sandal);border:1.5px solid rgba(201,168,76,0.4);box-shadow:none;}
+
+/* ── LOADING / SETUP OVERLAY ── */
+#sc-loading{position:fixed;inset:0;background:linear-gradient(135deg,#120a08,#241008);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;z-index:200;text-align:center;padding:20px;}
+#sc-loading h2{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.5rem;}
+#sc-loading p{color:var(--sandal);font-size:0.9rem;max-width:460px;line-height:1.7;}
+#sc-loading .err{color:#ff9d8f;font-size:0.85rem;max-width:520px;line-height:1.6;display:none;}
+#sc-loading .err.on{display:block;}
+</style>
+</head>
+<body>
+
+<!-- ═══ TOP BAR ═══ -->
+<div id="topbar">
+  <button class="back-btn" onclick="scGoBack()">&larr; Back</button>
+  <span class="cls-pill" id="tb-cls">Class</span>
+  <div class="topic" id="tb-topic">Hindi</div>
+  <button class="ctrl-btn" id="btn-pause" onclick="scTogglePause()">&#9208; Pause</button>
+  <button class="ctrl-btn active" id="btn-voice" onclick="scToggleVoice()">&#128266; Voice</button>
+  <button class="ctrl-btn" id="sc-tamil-btn" onclick="scExplainTamil()">&#127470;&#127475; &#2980;&#2990;&#3007;&#2996;&#3021;</button>
+  <button class="ctrl-btn" onclick="hinOpenVarnamala()" style="font-family:'Noto Sans Devanagari','Nunito',sans-serif;">&#2309; &#2310;</button>
+  <select id="speed-sel" onchange="scSpeedChange()">
+    <option value="0.85">Slow</option>
+    <option value="0.95" selected>Normal</option>
+    <option value="1.1">Fast</option>
+  </select>
+</div>
+
+<!-- ═══ SIDEBAR ═══ -->
+<div id="sidebar">
+  <h3>LESSON STEPS</h3>
+  <div id="step-list"></div>
+</div>
+
+<!-- ═══ STAGE ═══ -->
+<div id="stage"><div id="stage-inner"></div></div>
+
+<!-- ═══ TEACHER FIGURE ═══ -->
+<img id="sc-teacher" src="/assets/teacher.png" alt="AI Teacher" title="AI Teacher (click to hide)" onclick="scToggleTeacher()" onerror="this.style.display='none'"/>
+
+<!-- ═══ TAMIL BOX ═══ -->
+<div id="sc-tamil-box"><span class="close-x" onclick="document.getElementById('sc-tamil-box').classList.remove('on')">&#10005;</span><div id="sc-tamil-text"></div></div>
+
+<!-- ═══ NARRATION BAR ═══ -->
+<div id="narrbar">
+  <div id="narr-text"></div>
+  <div id="narr-prog">Step 0 / 0</div>
+  <div id="nav-btns">
+    <button class="nav-btn ghost" id="btn-prev" onclick="scPrev()">&larr; Previous</button>
+    <button class="nav-btn" id="btn-next" onclick="scNext()">Next &rarr;</button>
+  </div>
+</div>
+
+<!-- ═══ VARNAMALA OVERLAY ═══ -->
+<div id="hin-varn">
+  <div class="hv-head">
+    <h2>&#2309; &#2310; &#2311; — Hindi Varnamala &#183; &#2953;&#2951;&#2984;&#3021;&#2980;&#3007; &#2958;&#2996;&#3009;&#2980;&#3021;&#2980;&#3009;&#2965;&#3021;&#2965;&#2995;&#3021;</h2>
+    <button class="hv-close" onclick="hinCloseVarnamala()">&#10005; Close</button>
+  </div>
+  <div id="hv-chart">
+    <div class="hv-sec">&#2360;&#2381;&#2357;&#2352; — VOWELS (13)</div>
+    <div class="hv-grid" id="hv-vowels"></div>
+    <div class="hv-sec">&#2357;&#2381;&#2351;&#2306;&#2332;&#2344; — CONSONANTS (&#2325; &#8594; &#2332;&#2381;&#2334;)</div>
+    <div class="hv-grid" id="hv-cons"></div>
+  </div>
+  <div id="hv-detail">
+    <div class="big" id="hvd-letter"></div>
+    <div class="row">
+      <span class="pill" id="hvd-tr"></span>
+      <span class="pill ta" id="hvd-ta"></span>
+    </div>
+    <div class="ex" id="hvd-ex"></div>
+    <button class="nav-btn" onclick="hinSpeakLetter()">&#128266; Listen</button>
+    <button class="nav-btn ghost" onclick="hinBackToChart()">&#8592; All Letters</button>
+  </div>
+</div>
+
+<!-- ═══ LOADING OVERLAY ═══ -->
+<div id="sc-loading">
+  <div class="sc-spin"></div>
+  <h2>Preparing your Hindi class&hellip;</h2>
+  <p id="sc-loading-msg">The AI teacher is reading the lesson and collecting her teaching aids &mdash; reading lines, new words and the varnamala.</p>
+  <div class="err" id="sc-loading-err"></div>
+  <button class="ctrl-btn" id="sc-retry-btn" style="display:none;" onclick="scInit()">&#8635; Try Again</button>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   SOCIAL SCIENCE CLASS — Phase 1 (Documentary Teaching)
+   Aids in this phase: title, photo (Wikimedia + Ken Burns),
+   timeline, concept cards.
+   Voice: /api/voice-class (Monika for Class 8+) with browser fallback.
+   Tamil: /api/ai text + /api/explain-tamil audio (Fullscreen engine).
+   Photos: /api/social-images (Wikimedia + AI gatekeeper + cache).
+   ══════════════════════════════════════════════════════════════ */
+
+var LESSON = { cls:'', subject:'Hindi', topic:'', text:'' };
+var STEPS = [];
+var CUR = -1;
+var voiceOn = true;
+var isPaused = false;
+var teacherVisible = true;
+var scAudio = null;
+var scSpeakSeq = 0;
+var scUtter = null;
+var SC_IMG_CACHE = {};        // search phrase -> {images:[...]} 
+var SC_IMG_INFLIGHT = {};     // search phrase -> Promise
+var SC_TAMIL_CACHE = {};      // key -> {text, audioUrl}
+var SC_TAMIL_AUDIO = null;
+var scAdvanceTimer = null;
+var kbToggle = 0;
+
+/* ── READ ACTIVATED LESSON ── */
+function scReadLesson(){
+  var a = null;
+  try{ a = JSON.parse(sessionStorage.getItem('hin_activated') || 'null'); }catch(e){}
+  if (!a){
+    try{ a = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); }catch(e){}
+  }
+  if (a){
+    LESSON.cls = a.cls || '';
+    LESSON.subject = a.subject || 'Hindi';
+    LESSON.topic = a.topic || a.chapter || 'Hindi';
+    LESSON.text = a.lessonText || '';
+  }
+  if (!LESSON.text){
+    try{ LESSON.text = sessionStorage.getItem('tm_lesson') || ''; }catch(e){}
+  }
+  document.getElementById('tb-cls').textContent = LESSON.cls || 'Class';
+  document.getElementById('tb-topic').textContent = LESSON.topic;
+  return !!(LESSON.text && LESSON.text.trim().length > 40);
+}
+
+/* ── LESSON PLAN GENERATION ── */
+function scPlanPrompt(){
+  return 'You are planning a projector-based HINDI class for ' + LESSON.cls +
+    ' Tamil-medium students in a Tamil Nadu CBSE school. Hindi is their THIRD language and a new script, ' +
+    'so the class blends reading the book aloud with word-by-word learning.\n\n' +
+    'Return ONLY valid JSON \u2014 no markdown, no backticks, no commentary \u2014 in exactly this shape:\n' +
+    '{"steps":[\n' +
+    ' {"type":"title","title":"...","speech":"..."},\n' +
+    ' {"type":"read","line":"one short Hindi line from the lesson in Devanagari","tamil":"\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD explanation of this line in Tamil script","speech":"the same Hindi line, to be read aloud slowly"},\n' +
+    ' {"type":"word","word":"\u092A\u093E\u0928\u0940","say":"paani","meaning_en":"water","meaning_ta":"\u0BA4\u0BA3\u0BCD\u0BA3\u0BC0\u0BB0\u0BCD","sentences":["\u092A\u093E\u0928\u0940 \u0920\u0902\u0921\u093E \u0939\u0948\u0964"],"daily":"one line in English on hearing this word in daily life","speech":"the word said twice then its tiny sentences, in Hindi"},\n' +
+    ' {"type":"grammar","title":"...","speech":"...","rule":"the rule in one simple English line","pairs":[{"wrong":"\u0932\u0921\u093C\u0915\u0940 \u0905\u091A\u094D\u091B\u093E \u0939\u0948","right":"\u0932\u0921\u093C\u0915\u0940 \u0905\u091A\u094D\u091B\u0940 \u0939\u0948","why":"ladki is feminine so achchhi, not achchha"}]},\n' +
+    ' {"type":"exercise","title":"...","speech":"...","question":"the exercise question","steps":["thinking step 1","thinking step 2"],"answer":"the answer in Devanagari","why":"one line why"},\n' +
+    ' {"type":"concept","title":"...","speech":"...","points":["short point","short point"]}\n' +
+    ']}\n\n' +
+    'Rules:\n' +
+    '- 12 to 16 steps total. First step is always "title" (speech in warm simple English welcoming them to Hindi class).\n' +
+    '- READING: 4 to 6 "read" steps taking SHORT lines (one sentence each) from the lesson in order, exactly as ' +
+    'in the book, in Devanagari. "tamil" explains that line\u2019s meaning in proper Tamil script ' +
+    '(\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1 only, never Tanglish). "speech" is the Hindi line itself.\n' +
+    '- NEW WORDS: 5 to 8 "word" steps for the genuinely new Hindi words, in lesson order. "say" is simple ' +
+    'Latin transliteration (paani, ghar). "meaning_ta" in Tamil script, "meaning_en" in simple English. ' +
+    '1 or 2 VERY short Hindi sentences. "speech" says the word twice then reads the sentences \u2014 all in Hindi.\n' +
+    '- GRAMMAR: 1 or 2 "grammar" steps for what THIS lesson carries (gender agreement, ka/ki/ke, plurals) ' +
+    'with wrong/right pairs in Devanagari and the why in simple English.\n' +
+    '- EXERCISES: up to 3 "exercise" steps if the pages have them, thinking steps in simple English, answer in Devanagari.\n' +
+    '- End with one "concept" step summarising today\u2019s words (Hindi word \u2014 Tamil meaning as short points).\n' +
+    '- Alternate read and word steps naturally following the lesson\u2019s flow.\n' +
+    '- Every string must be plain text. Keep JSON strictly valid.';
+}
+
+async function scGeneratePlan(){
+  var res = await fetch('/api/ai', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: scPlanPrompt(),
+      messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 11000)}],
+      max_tokens: 7000
+    })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw){
+    var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || 'empty AI response';
+    if (typeof why !== 'string') why = JSON.stringify(why);
+    throw new Error(why.substring(0, 200));
+  }
+  var plan = scParseJSON(raw);
+  if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) throw new Error('the AI reply was incomplete \u2014 please press Try Again');
+  return plan.steps.map(scNormaliseStep).filter(Boolean);
+}
+
+/* JSON repair — strip fences, cut to outermost braces */
+function scParseJSON(raw){
+  var t = String(raw).trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  var s = t.indexOf('{'); var e = t.lastIndexOf('}');
+  if (s === -1 || e === -1 || e <= s) return null;
+  t = t.substring(s, e + 1);
+  try{ return JSON.parse(t); }catch(err){}
+  try{ return JSON.parse(t.replace(/,\s*([}\]])/g,'$1')); }catch(err){}
+  /* SALVAGE: if the reply was cut off mid-step, keep all COMPLETE steps.
+     Walk back through closing braces and try closing the JSON there. */
+  var cut = t.length;
+  for (var tries = 0; tries < 12; tries++){
+    cut = t.lastIndexOf('}', cut - 1);
+    if (cut <= 0) break;
+    var candidate = t.substring(0, cut + 1).replace(/,\s*$/, '') + ']}';
+    try{
+      var fixed = JSON.parse(candidate);
+      if (fixed && Array.isArray(fixed.steps) && fixed.steps.length >= 3) return fixed;
+    }catch(err){}
+  }
+  return null;
+}
+
+function scNormaliseStep(s){
+  if (!s || !s.type) return null;
+  var type = String(s.type).toLowerCase();
+  if (['title','photo','timeline','concept','map','globe','structure','cycle','compare','stat','model3d','word','grammar','homophones','exercise','read'].indexOf(type) === -1) type = 'concept';
+  var out = {
+    type: type,
+    title: String(s.title || '').substring(0, 140),
+    speech: String(s.speech || '').substring(0, 700)
+  };
+  if (type === 'photo'){
+    out.search = String(s.search || out.title).substring(0, 80);
+    out.caption = String(s.caption || '').substring(0, 200);
+  }
+  if (type === 'map'){
+    out.regions = (Array.isArray(s.regions) ? s.regions : []).slice(0, 2)
+      .map(function(r){ return String(r).toLowerCase().trim(); })
+      .filter(function(r){ return !!SC_REGIONS[r]; });
+    out.markers = (Array.isArray(s.markers) ? s.markers : []).slice(0, 4).map(function(m){
+      return { name: String((m && m.name) || '').substring(0, 40), lat: parseFloat(m && m.lat), lng: parseFloat(m && m.lng) };
+    }).filter(function(m){ return m.name && isFinite(m.lat) && isFinite(m.lng) && m.lat > 4 && m.lat < 38 && m.lng > 60 && m.lng < 100; });
+    if (out.regions.length === 0 && out.markers.length === 0) out.type = 'concept';
+  }
+  if (type === 'globe'){
+    var gm = String(s.mode || 'rotation').toLowerCase();
+    out.mode = ['latlong','daynight','seasons','rotation'].indexOf(gm) !== -1 ? gm : 'rotation';
+    out.markers = (Array.isArray(s.markers) ? s.markers : []).slice(0, 3).map(function(m){
+      return { name: String((m && m.name) || '').substring(0, 40), lat: parseFloat(m && m.lat), lng: parseFloat(m && m.lng) };
+    }).filter(function(m){ return m.name && isFinite(m.lat) && isFinite(m.lng) && m.lat >= -90 && m.lat <= 90 && m.lng >= -180 && m.lng <= 180; });
+  }
+  if (type === 'read'){
+    out.line = String(s.line || '').substring(0, 220);
+    out.tamil = String(s.tamil || '').substring(0, 300);
+    if (!out.title) out.title = out.line.substring(0, 60);
+    if (!out.speech) out.speech = out.line;
+    if (!out.line) out.type = 'concept';
+  }
+  if (type === 'word'){
+    out.word = String(s.word || '').substring(0, 40);
+    out.say = String(s.say || '').substring(0, 40);
+    out.meaning_en = String(s.meaning_en || '').substring(0, 160);
+    out.meaning_ta = String(s.meaning_ta || '').substring(0, 160);
+    out.sentences = (Array.isArray(s.sentences) ? s.sentences : []).slice(0, 2).map(function(x){ return String(x).substring(0, 120); }).filter(Boolean);
+    out.daily = String(s.daily || '').substring(0, 180);
+    out.title = out.word;
+    if (!out.word || !out.meaning_en) out.type = 'concept';
+  }
+  if (type === 'grammar'){
+    out.rule = String(s.rule || '').substring(0, 160);
+    out.pairs = (Array.isArray(s.pairs) ? s.pairs : []).slice(0, 3).map(function(p){
+      return { wrong: String((p && p.wrong) || '').substring(0, 80),
+               right: String((p && p.right) || '').substring(0, 80),
+               why:   String((p && p.why)   || '').substring(0, 140) };
+    }).filter(function(p){ return p.wrong && p.right; });
+    if (out.pairs.length === 0) out.type = 'concept';
+  }
+  if (type === 'homophones'){
+    out.pair = (Array.isArray(s.pair) ? s.pair : []).slice(0, 2).map(function(w){
+      return { word: String((w && w.word) || '').substring(0, 40),
+               meaning_en: String((w && w.meaning_en) || '').substring(0, 140),
+               meaning_ta: String((w && w.meaning_ta) || '').substring(0, 140),
+               sentence: String((w && w.sentence) || '').substring(0, 120) };
+    }).filter(function(w){ return w.word; });
+    if (out.pair.length !== 2) out.type = 'concept';
+  }
+  if (type === 'exercise'){
+    out.question = String(s.question || '').substring(0, 300);
+    out.exSteps = (Array.isArray(s.steps) ? s.steps : []).slice(0, 4).map(function(x){ return String(x).substring(0, 160); }).filter(Boolean);
+    out.answer = String(s.answer || '').substring(0, 160);
+    out.why = String(s.why || '').substring(0, 180);
+    if (!out.question || !out.answer) out.type = 'concept';
+  }
+  if (type === 'model3d'){
+    out.organ = String(s.organ || '').toLowerCase().trim();
+    if (!SCI_MODELS[out.organ]) out.type = 'concept';
+  }
+  if (type === 'structure'){
+    out.root = String(s.root || out.title).substring(0, 60);
+    out.children = (Array.isArray(s.children) ? s.children : []).slice(0, 4).map(function(ch){
+      return {
+        name: String((ch && ch.name) || '').substring(0, 40),
+        sub: (Array.isArray(ch && ch.sub) ? ch.sub : []).slice(0, 3).map(function(x){ return String(x).substring(0, 34); })
+      };
+    }).filter(function(ch){ return !!ch.name; });
+    if (out.children.length === 0) out.type = 'concept';
+  }
+  if (type === 'cycle'){
+    out.items = (Array.isArray(s.items) ? s.items : []).slice(0, 6).map(function(x){ return String(x).substring(0, 70); }).filter(Boolean);
+    if (out.items.length < 3) out.type = 'concept';
+  }
+  if (type === 'compare'){
+    function side(o){
+      return {
+        name: String((o && o.name) || '').substring(0, 40),
+        points: (Array.isArray(o && o.points) ? o.points : []).slice(0, 4).map(function(p){ return String(p).substring(0, 110); }).filter(Boolean)
+      };
+    }
+    out.left = side(s.left); out.right = side(s.right);
+    if (!out.left.name || !out.right.name || out.left.points.length === 0 || out.right.points.length === 0) out.type = 'concept';
+  }
+  if (type === 'stat'){
+    out.stats = (Array.isArray(s.stats) ? s.stats : []).slice(0, 4).map(function(st){
+      return { value: String((st && st.value) || '').substring(0, 16), label: String((st && st.label) || '').substring(0, 90) };
+    }).filter(function(st){ return st.value && st.label; });
+    if (out.stats.length === 0) out.type = 'concept';
+  }
+  if (type === 'timeline'){
+    out.items = (Array.isArray(s.items) ? s.items : []).slice(0, 6).map(function(it){
+      return { year: String((it && it.year) || '').substring(0, 14), label: String((it && it.label) || '').substring(0, 60) };
+    });
+    if (out.items.length === 0) out.type = 'concept';
+  }
+  if (out.type === 'concept'){
+    out.points = (Array.isArray(s.points) ? s.points : []).slice(0, 4).map(function(p){ return String(p).substring(0, 160); });
+    if (out.points.length === 0) out.points = [out.speech.substring(0, 150)];
+  }
+  if (!out.title && !out.speech) return null;
+  return out;
+}
+
+/* ── IMAGE FETCH (with prefetch) ── */
+function scFetchImages(query, context){
+  var key = query.toLowerCase().trim();
+  if (SC_IMG_CACHE[key]) return Promise.resolve(SC_IMG_CACHE[key]);
+  if (SC_IMG_INFLIGHT[key]) return SC_IMG_INFLIGHT[key];
+  SC_IMG_INFLIGHT[key] = fetch('/api/social-images', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ query: query, context: context || '' })
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      var out = { images: (d && Array.isArray(d.images)) ? d.images : [] };
+      SC_IMG_CACHE[key] = out;
+      delete SC_IMG_INFLIGHT[key];
+      // Preload the ACTUAL picture into browser cache so the step shows instantly
+      out.images.forEach(function(im){ if (im && im.url){ var p = new Image(); p.src = im.url; } });
+      return out;
+    })
+    .catch(function(){
+      delete SC_IMG_INFLIGHT[key];
+      return { images: [] };
+    });
+  return SC_IMG_INFLIGHT[key];
+}
+
+function scPrefetchNextPhoto(fromIdx){
+  var warmed = 0;
+  for (var i = fromIdx + 1; i < STEPS.length && warmed < 3; i++){
+    if (STEPS[i].type === 'photo'){
+      scFetchImages(STEPS[i].search, STEPS[i].title + '. ' + STEPS[i].speech);
+      warmed++;
+    }
+  }
+}
+
+/* ── RENDERERS ── */
+function scRender(idx){
+  if (idx < 0 || idx >= STEPS.length) return;
+  clearTimeout(scAdvanceTimer);
+  scDestroyGlobe();
+  CUR = idx;
+  var step = STEPS[idx];
+  var inner = document.getElementById('stage-inner');
+  document.getElementById('narr-prog').textContent = 'Step ' + (idx + 1) + ' / ' + STEPS.length;
+  document.getElementById('narr-text').textContent = step.speech || step.title;
+  document.getElementById('btn-prev').disabled = idx === 0;
+  document.getElementById('btn-next').textContent = (idx === STEPS.length - 1) ? 'Finish \u2192' : 'Next \u2192';
+  var items = document.querySelectorAll('.step-item');
+  for (var i = 0; i < items.length; i++) items[i].classList.toggle('current', i === idx);
+  var cu = document.querySelector('.step-item.current');
+  if (cu && cu.scrollIntoView) cu.scrollIntoView({ block:'nearest', behavior:'smooth' });
+
+  if (step.type === 'title') renderTitle(inner, step);
+  else if (step.type === 'word') renderWord(inner, step);
+  else if (step.type === 'read') renderRead(inner, step);
+  else if (step.type === 'grammar') renderGrammar(inner, step);
+  else if (step.type === 'homophones') renderHomophones(inner, step);
+  else if (step.type === 'exercise') renderExercise(inner, step);
+  else if (step.type === 'model3d') renderModel3d(inner, step);
+  else if (step.type === 'photo') renderPhoto(inner, step);
+  else if (step.type === 'timeline') renderTimeline(inner, step);
+  else if (step.type === 'map') renderMap(inner, step);
+  else if (step.type === 'globe') renderGlobe(inner, step);
+  else if (step.type === 'structure') renderStructure(inner, step);
+  else if (step.type === 'cycle') renderCycle(inner, step);
+  else if (step.type === 'compare') renderCompare(inner, step);
+  else if (step.type === 'stat') renderStat(inner, step);
+  else renderConcept(inner, step);
+
+  scSpeak(step.speech || step.title);
+  scPrefetchNextPhoto(idx);
+  sciPrefetchModels(idx);
+}
+
+function renderTitle(inner, step){
+  inner.innerHTML =
+    '<div class="sc-title-wrap">' +
+      '<h1></h1><div class="sc-title-line"></div><p></p>' +
+    '</div>';
+  inner.querySelector('h1').textContent = step.title;
+  inner.querySelector('p').textContent = step.speech;
+}
+
+function renderPhoto(inner, step){
+  inner.innerHTML =
+    '<div class="sc-photo-frame"><div class="sc-photo-loading" style="position:absolute;inset:0;justify-content:center;">' +
+    '<div class="sc-spin"></div><div>Bringing the photograph&hellip;</div></div></div>';
+  var frame = inner.querySelector('.sc-photo-frame');
+  var myIdx = CUR;
+  scFetchImages(step.search, step.title + '. ' + step.speech).then(function(res){
+    if (CUR !== myIdx) return;                    // moved on already
+    var img = res.images && res.images[0];
+    if (!img || !img.url){ renderConcept(inner, step); return; }   // graceful fallback
+    kbToggle = (kbToggle + 1) % 4;
+    var kbClass = 'kb' + (kbToggle + 1);
+    var el = new Image();
+    el.className = kbClass;
+    el.alt = step.title;
+    // Show ONLY when fully downloaded — the spinner stays till then, so the
+    // teacher never sees a half-painted picture. Preloaded photos appear instantly.
+    el.onload = function(){
+      if (CUR !== myIdx) return;
+      frame.innerHTML = '';
+      frame.appendChild(el);
+      var cap = document.createElement('div');
+      cap.className = 'sc-photo-cap';
+      var t = document.createElement('div'); t.className = 'cap-title'; t.textContent = step.title;
+      var c = document.createElement('div'); c.className = 'cap-text'; c.textContent = step.caption || '';
+      var s = document.createElement('div'); s.className = 'cap-src'; s.textContent = 'Photo: Wikimedia Commons';
+      cap.appendChild(t); cap.appendChild(c); cap.appendChild(s);
+      frame.appendChild(cap);
+    };
+    el.onerror = function(){ if (CUR === myIdx) renderConcept(inner, step); };
+    el.src = img.url;
+    // if it was already preloaded, onload may have fired before we attached —
+    // .complete catches that so the photo still appears
+    if (el.complete && el.naturalWidth) el.onload();
+  });
+}
+
+function renderTimeline(inner, step){
+  var html = '<div class="sc-tl-wrap"><h2></h2><div class="sc-tl-track"><div class="sc-tl-line"></div><div class="sc-tl-items">';
+  for (var i = 0; i < step.items.length; i++){
+    html += '<div class="sc-tl-item" style="animation-delay:' + (0.35 + i * 0.4).toFixed(2) + 's">' +
+              '<div class="yr"></div><div class="dot"></div><div class="lbl"></div></div>';
+  }
+  html += '</div></div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  var els = inner.querySelectorAll('.sc-tl-item');
+  for (var j = 0; j < els.length; j++){
+    els[j].querySelector('.yr').textContent = step.items[j].year;
+    els[j].querySelector('.lbl').textContent = step.items[j].label;
+  }
+}
+
+function renderConcept(inner, step){
+  var pts = step.points || [step.caption || step.speech.substring(0, 150)];
+  var html = '<div class="sc-con-wrap"><h2></h2><div class="sc-con-grid">';
+  for (var i = 0; i < pts.length; i++){
+    html += '<div class="sc-con-card" style="animation-delay:' + (0.2 + i * 0.3).toFixed(2) + 's"><span class="n">' + (i + 1) + '</span><div class="pt"></div></div>';
+  }
+  html += '</div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  var cards = inner.querySelectorAll('.sc-con-card .pt');
+  for (var j = 0; j < cards.length; j++) cards[j].textContent = pts[j];
+}
+
+/* ── HISTORICAL REGION LIBRARY (Phase 2) ──
+   Rough classroom-level boundaries: [lat,lng] rings. These teach the
+   IDEA of an empire's extent — good enough for school, honest about it. */
+var SC_REGIONS = {
+  delhi_sultanate: { name:'Delhi Sultanate', color:'#e8a820', ring:[[33.5,71.5],[32.5,76],[30,80],[27.5,84],[25.5,87],[24,86],[23,82],[22.5,77],[23,72.5],[24.5,70],[27,69.5],[30,70.5],[33.5,71.5]] },
+  vijayanagara:    { name:'Vijayanagara Empire', color:'#FFD86A', ring:[[16.5,73.5],[17,76],[16.8,79],[15.8,81],[13.5,80.4],[11,79.9],[8.4,77.6],[8.2,77],[10,76.2],[12.5,74.8],[14.5,74],[16.5,73.5]] },
+  mughal_empire:   { name:'Mughal Empire', color:'#7ab8f5', ring:[[34.5,70],[34,77],[30,81],[27,88],[24.5,91],[22,88],[20,85],[17.5,80],[16,76.5],[18,73],[21,70],[24,68.5],[28,68],[32,69],[34.5,70]] },
+  maurya_empire:   { name:'Maurya Empire', color:'#4ade80', ring:[[34.5,70],[33,77],[29,83],[26,89],[23,91],[20,86],[16.5,81.5],[13.5,78.5],[14,76],[17,74],[20,71],[24,67.5],[29,66.5],[33,68],[34.5,70]] },
+  gupta_empire:    { name:'Gupta Empire', color:'#a78bfa', ring:[[30,75],[28.5,81],[26.5,86],[24.5,89],[22.5,87.5],[21.5,83],[22,78],[23.5,74.5],[26,72.5],[28.5,72.5],[30,75]] },
+  chola_empire:    { name:'Chola Empire', color:'#fb923c', ring:[[16,80.5],[14,80.3],[11.8,79.9],[10.2,79.9],[8.6,78.1],[9.3,77.5],[10.8,77.2],[12.5,77.5],[14.2,78],[15.5,79],[16,80.5]] },
+  bahmani_sultanate:{ name:'Bahmani Sultanate', color:'#f87171', ring:[[19.5,73.5],[20,76.5],[19.5,79.5],[18,80],[16.5,78.8],[15.8,77],[16,75],[17.5,73.5],[19.5,73.5]] },
+  maratha_empire:  { name:'Maratha Empire', color:'#fbbf24', ring:[[24,72.5],[25.5,76],[25,79.5],[22,80.5],[19.5,79],[17,76.5],[15.5,74.5],[16.5,73.3],[19,72.7],[21.5,72.3],[24,72.5]] },
+  british_india:   { name:'British India', color:'#f5c842', ring:[[34.5,72],[34,78],[29,82],[28,89],[26,92.5],[23,92],[21.5,87.5],[19,85],[15.5,80.5],[11,79.9],[8.2,77.4],[9.5,76.2],[13.5,74.6],[17,73],[20.5,71],[23.5,68.3],[27,67.5],[31,68.5],[34.5,72]] },
+  pandya_kingdom:  { name:'Pandya Kingdom', color:'#22c55e', ring:[[10.5,79.5],[9.4,79.2],[8.2,77.6],[8.4,77.1],[9.3,77],[10.2,77.6],[10.7,78.6],[10.5,79.5]] },
+  pallava_kingdom: { name:'Pallava Kingdom', color:'#60a5fa', ring:[[14.5,80.2],[13.2,80.3],[11.9,79.8],[11.8,78.8],[12.6,78.3],[13.8,78.8],[14.5,79.7],[14.5,80.2]] },
+  tamil_nadu:      { name:'Tamil Nadu', color:'#FFD86A', ring:[[13.5,80.3],[12.7,80.2],[11.5,79.8],[10.3,79.9],[9.2,78.9],[8.1,77.5],[8.3,77.1],[9.5,76.9],[10.4,76.8],[11.3,76.4],[12.2,77],[12.8,77.6],[13.4,78.6],[13.5,80.3]] }
+};
+
+var scMap = null;
+
+function renderMap(inner, step){
+  if (typeof L === 'undefined'){ renderConcept(inner, step); return; }   // Leaflet failed to load
+  if (scMap){ try{ scMap.remove(); }catch(e){} scMap = null; }
+  inner.innerHTML =
+    '<div class="sc-map-frame"><div id="sc-map"></div>' +
+    '<div class="sc-map-title"><div class="t"></div></div></div>';
+  inner.querySelector('.sc-map-title .t').textContent = step.title;
+
+  var myIdx = CUR;
+  scMap = L.map('sc-map', { zoomControl:false, attributionControl:true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 10, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(scMap);
+
+  var bounds = [];
+  (step.regions || []).forEach(function(k){
+    var r = SC_REGIONS[k];
+    if (r) r.ring.forEach(function(p){ bounds.push(p); });
+  });
+  (step.markers || []).forEach(function(m){ bounds.push([m.lat, m.lng]); });
+  if (bounds.length === 0) bounds = [[8,68],[34,92]];
+  scMap.fitBounds(bounds, { padding:[46,46] });
+
+  /* Regions appear one after another — like the teacher tracing the wall map */
+  (step.regions || []).forEach(function(k, i){
+    var r = SC_REGIONS[k];
+    if (!r) return;
+    setTimeout(function(){
+      if (CUR !== myIdx || !scMap) return;
+      var poly = L.polygon(r.ring, {
+        color: r.color, weight: 3, fillColor: r.color, fillOpacity: 0.06,
+        className: 'sc-region-glow'
+      }).addTo(scMap);
+      /* boundary glow-in: fill fades up */
+      var op = 0.06;
+      var fade = setInterval(function(){
+        op += 0.03;
+        if (op >= 0.24 || CUR !== myIdx){ clearInterval(fade); return; }
+        try{ poly.setStyle({ fillOpacity: op }); }catch(e){ clearInterval(fade); }
+      }, 90);
+      try{
+        poly.bindTooltip(r.name, { permanent:true, direction:'center', className:'sc-region-label' }).openTooltip();
+      }catch(e){}
+    }, 900 + i * 2600);
+  });
+
+  /* Markers drop in after the regions */
+  var mDelay = 900 + (step.regions ? step.regions.length : 0) * 2600 + 600;
+  (step.markers || []).forEach(function(m, i){
+    setTimeout(function(){
+      if (CUR !== myIdx || !scMap) return;
+      try{
+        L.circleMarker([m.lat, m.lng], { radius:7, color:'#FFD86A', weight:2.5, fillColor:'#6B1A1A', fillOpacity:1 })
+          .addTo(scMap)
+          .bindTooltip(m.name, { permanent:true, direction:'top', offset:[0,-8], className:'sc-marker-label' })
+          .openTooltip();
+      }catch(e){}
+    }, mDelay + i * 900);
+  });
+}
+
+/* ══ HINDI READ RENDERER ══ */
+function renderRead(inner, step){
+  inner.innerHTML =
+    '<div class="hin-read-wrap">' +
+      '<div class="hin-read-line"></div>' +
+      '<div class="hin-read-ta"><div class="lang">\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0BB5\u0BBF\u0BB3\u0B95\u0BCD\u0B95\u0BAE\u0BCD</div><div class="tx"></div>' +
+      '<button class="eng-ta-speak" onclick="hinReadTamil()">\uD83D\uDD0A \u0BA4\u0BAE\u0BBF\u0BB4\u0BBF\u0BB2\u0BCD \u0B95\u0BC7\u0BB3\u0BCD</button></div>' +
+    '</div>';
+  inner.querySelector('.hin-read-line').textContent = step.line;
+  inner.querySelector('.hin-read-ta .tx').textContent = step.tamil || '';
+}
+
+function hinReadTamil(){
+  var step = STEPS[CUR];
+  if (!step || step.type !== 'read' || !step.tamil) return;
+  var key = scTamilKey('hinr_' + step.line.substring(0, 80) + '|' + step.tamil.substring(0, 80));
+  var cached = SC_TAMIL_CACHE[key];
+  function play(url){
+    scStopAudio();
+    if (SC_TAMIL_AUDIO){ try{ SC_TAMIL_AUDIO.pause(); }catch(e){} }
+    SC_TAMIL_AUDIO = new Audio(url);
+    SC_TAMIL_AUDIO.playbackRate = scRate();
+    SC_TAMIL_AUDIO.play().catch(function(){});
+  }
+  if (cached && cached.audioUrl){ play(cached.audioUrl); return; }
+  fetch('/api/explain-tamil', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text: step.tamil, cache_key: key })
+  }).then(function(r){ return r.json(); }).then(function(a){
+    var url = a && a.audio_url ? a.audio_url : (a && a.audio_b64 ? 'data:audio/mpeg;base64,' + a.audio_b64 : null);
+    if (url){ SC_TAMIL_CACHE[key] = { text: step.tamil, audioUrl: url }; play(url); }
+  }).catch(function(){});
+}
+
+/* ══ VARNAMALA — fixed, hand-built alphabet (never AI-generated).
+   Tamil hints follow the Dakshina Bharat convention:
+   base letter, \u00B2 aspirated, \u00B3 voiced, \u2074 voiced-aspirated. ══ */
+var HIN_VOWELS = [
+  {l:'\u0905',tr:'a',ta:'\u0B85',ex:'\u0905\u0928\u093E\u0930',exTr:'anaar'},
+  {l:'\u0906',tr:'aa',ta:'\u0B86',ex:'\u0906\u092E',exTr:'aam'},
+  {l:'\u0907',tr:'i',ta:'\u0B87',ex:'\u0907\u092E\u0932\u0940',exTr:'imli'},
+  {l:'\u0908',tr:'ee',ta:'\u0B88',ex:'\u0908\u0916',exTr:'eekh'},
+  {l:'\u0909',tr:'u',ta:'\u0B89',ex:'\u0909\u0932\u094D\u0932\u0942',exTr:'ulloo'},
+  {l:'\u090A',tr:'oo',ta:'\u0B8A',ex:'\u090A\u0928',exTr:'oon'},
+  {l:'\u090B',tr:'ri',ta:'\u0BB0\u0BBF',ex:'\u090B\u0937\u093F',exTr:'rishi'},
+  {l:'\u090F',tr:'e',ta:'\u0B8F',ex:'\u090F\u0921\u093C\u0940',exTr:'edi'},
+  {l:'\u0910',tr:'ai',ta:'\u0B90',ex:'\u0910\u0928\u0915',exTr:'ainak'},
+  {l:'\u0913',tr:'o',ta:'\u0B93',ex:'\u0913\u0916\u0932\u0940',exTr:'okhli'},
+  {l:'\u0914',tr:'au',ta:'\u0B94',ex:'\u0914\u0930\u0924',exTr:'aurat'},
+  {l:'\u0905\u0902',tr:'am',ta:'\u0B85\u0BAE\u0BCD',ex:'\u0905\u0902\u0917\u0942\u0930',exTr:'angoor'},
+  {l:'\u0905\u0903',tr:'ah',ta:'\u0B85\u0BB9\u0BCD',ex:'\u0928\u092E\u0903',exTr:'namah'}
+];
+var HIN_CONS = [
+  {l:'\u0915',tr:'ka',ta:'\u0B95',ex:'\u0915\u092E\u0932',exTr:'kamal'},
+  {l:'\u0916',tr:'kha',ta:'\u0B95\u00B2',ex:'\u0916\u0930\u0917\u094B\u0936',exTr:'khargosh'},
+  {l:'\u0917',tr:'ga',ta:'\u0B95\u00B3',ex:'\u0917\u093E\u092F',exTr:'gaay'},
+  {l:'\u0918',tr:'gha',ta:'\u0B95\u2074',ex:'\u0918\u0930',exTr:'ghar'},
+  {l:'\u0919',tr:'nga',ta:'\u0B99',ex:'\u0930\u0902\u0917',exTr:'(rang)'},
+  {l:'\u091A',tr:'cha',ta:'\u0B9A',ex:'\u091A\u093E\u0901\u0926',exTr:'chaand'},
+  {l:'\u091B',tr:'chha',ta:'\u0B9A\u00B2',ex:'\u091B\u093E\u0924\u093E',exTr:'chhaata'},
+  {l:'\u091C',tr:'ja',ta:'\u0B9C',ex:'\u091C\u0932',exTr:'jal'},
+  {l:'\u091D',tr:'jha',ta:'\u0B9C\u00B2',ex:'\u091D\u0902\u0921\u093E',exTr:'jhanda'},
+  {l:'\u091E',tr:'nya',ta:'\u0B9E',ex:'\u091C\u094D\u091E\u093E\u0928',exTr:'(gyaan)'},
+  {l:'\u091F',tr:'ta',ta:'\u0B9F',ex:'\u091F\u092E\u093E\u091F\u0930',exTr:'tamaatar'},
+  {l:'\u0920',tr:'tha',ta:'\u0B9F\u00B2',ex:'\u0920\u0902\u0921\u093E',exTr:'thanda'},
+  {l:'\u0921',tr:'da',ta:'\u0B9F\u00B3',ex:'\u0921\u092E\u0930\u0942',exTr:'damaru'},
+  {l:'\u0922',tr:'dha',ta:'\u0B9F\u2074',ex:'\u0922\u094B\u0932',exTr:'dhol'},
+  {l:'\u0923',tr:'na',ta:'\u0BA3',ex:'\u092C\u093E\u0923',exTr:'baan'},
+  {l:'\u0924',tr:'ta',ta:'\u0BA4',ex:'\u0924\u093E\u0930\u093E',exTr:'taara'},
+  {l:'\u0925',tr:'tha',ta:'\u0BA4\u00B2',ex:'\u0925\u093E\u0932\u0940',exTr:'thaali'},
+  {l:'\u0926',tr:'da',ta:'\u0BA4\u00B3',ex:'\u0926\u0940\u092A\u0915',exTr:'deepak'},
+  {l:'\u0927',tr:'dha',ta:'\u0BA4\u2074',ex:'\u0927\u0928\u0941\u0937',exTr:'dhanush'},
+  {l:'\u0928',tr:'na',ta:'\u0BA8',ex:'\u0928\u0932',exTr:'nal'},
+  {l:'\u092A',tr:'pa',ta:'\u0BAA',ex:'\u092A\u0924\u0902\u0917',exTr:'patang'},
+  {l:'\u092B',tr:'pha',ta:'\u0BAA\u00B2',ex:'\u092B\u0932',exTr:'phal'},
+  {l:'\u092C',tr:'ba',ta:'\u0BAA\u00B3',ex:'\u092C\u0915\u0930\u0940',exTr:'bakri'},
+  {l:'\u092D',tr:'bha',ta:'\u0BAA\u2074',ex:'\u092D\u093E\u0932\u0942',exTr:'bhaaloo'},
+  {l:'\u092E',tr:'ma',ta:'\u0BAE',ex:'\u092E\u091B\u0932\u0940',exTr:'machhli'},
+  {l:'\u092F',tr:'ya',ta:'\u0BAF',ex:'\u092F\u094B\u0917',exTr:'yog'},
+  {l:'\u0930',tr:'ra',ta:'\u0BB0',ex:'\u0930\u0925',exTr:'rath'},
+  {l:'\u0932',tr:'la',ta:'\u0BB2',ex:'\u0932\u0921\u094D\u0921\u0942',exTr:'laddoo'},
+  {l:'\u0935',tr:'va',ta:'\u0BB5',ex:'\u0935\u0928',exTr:'van'},
+  {l:'\u0936',tr:'sha',ta:'\u0BB6',ex:'\u0936\u0947\u0930',exTr:'sher'},
+  {l:'\u0937',tr:'sha',ta:'\u0BB7',ex:'\u0937\u091F\u094D\u0915\u094B\u0923',exTr:'shatkon'},
+  {l:'\u0938',tr:'sa',ta:'\u0BB8',ex:'\u0938\u0942\u0930\u091C',exTr:'sooraj'},
+  {l:'\u0939',tr:'ha',ta:'\u0BB9',ex:'\u0939\u093E\u0925\u0940',exTr:'haathi'},
+  {l:'\u0915\u094D\u0937',tr:'ksha',ta:'\u0B95\u0BCD\u0BB7',ex:'\u0915\u094D\u0937\u092E\u093E',exTr:'kshama'},
+  {l:'\u0924\u094D\u0930',tr:'tra',ta:'\u0BA4\u0BCD\u0BB0',ex:'\u0924\u094D\u0930\u093F\u0936\u0942\u0932',exTr:'trishool'},
+  {l:'\u091C\u094D\u091E',tr:'gya',ta:'\u0B95\u0BCD\u0B9E',ex:'\u091C\u094D\u091E\u093E\u0928',exTr:'gyaan'}
+];
+var HV_CURRENT = null;
+
+function hinBuildVarnamala(){
+  var vg = document.getElementById('hv-vowels');
+  var cg = document.getElementById('hv-cons');
+  if (!vg || vg.children.length) return;
+  function tile(item){
+    var d = document.createElement('div');
+    d.className = 'hv-tile';
+    d.innerHTML = '<div class="dv"></div><div class="tr"></div>';
+    d.querySelector('.dv').textContent = item.l;
+    d.querySelector('.tr').textContent = item.tr;
+    d.onclick = function(){ hinShowLetter(item); };
+    return d;
+  }
+  HIN_VOWELS.forEach(function(v){ vg.appendChild(tile(v)); });
+  HIN_CONS.forEach(function(v){ cg.appendChild(tile(v)); });
+}
+
+function hinOpenVarnamala(){
+  hinBuildVarnamala();
+  scStopAudio(); clearTimeout(scAdvanceTimer);
+  document.getElementById('hin-varn').classList.add('on');
+  hinBackToChart();
+}
+function hinCloseVarnamala(){
+  document.getElementById('hin-varn').classList.remove('on');
+}
+function hinBackToChart(){
+  document.getElementById('hv-detail').classList.remove('on');
+  document.getElementById('hv-chart').style.display = 'block';
+}
+function hinShowLetter(item){
+  HV_CURRENT = item;
+  document.getElementById('hv-chart').style.display = 'none';
+  document.getElementById('hvd-letter').textContent = item.l;
+  document.getElementById('hvd-tr').textContent = item.tr;
+  document.getElementById('hvd-ta').textContent = '\u0BA4\u0BAE\u0BBF\u0BB4\u0BBF\u0BB2\u0BCD: ' + item.ta;
+  var ex = document.getElementById('hvd-ex');
+  ex.innerHTML = '';
+  ex.appendChild(document.createTextNode(item.ex + ' '));
+  var sm = document.createElement('small');
+  sm.textContent = '(' + item.exTr + ')';
+  ex.appendChild(sm);
+  document.getElementById('hv-detail').classList.add('on');
+  hinSpeakLetter();
+}
+function hinSpeakLetter(){
+  if (!HV_CURRENT) return;
+  var text = HV_CURRENT.l + '. ' + HV_CURRENT.l + '. ' + HV_CURRENT.ex + '.';
+  fetch('/api/voice-class', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text: text, cls: LESSON.cls })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.audio_b64){
+      scStopAudio();
+      scAudio = new Audio('data:audio/mpeg;base64,' + d.audio_b64);
+      scAudio.playbackRate = 0.85;
+      scAudio.play().catch(function(){});
+    }
+  }).catch(function(){});
+}
+
+/* ══ ENGLISH COMMUNICATION RENDERERS ══ */
+
+function renderWord(inner, step){
+  var html =
+    '<div class="eng-word-wrap">' +
+      '<div class="eng-word-big"></div>' +
+      '<div class="eng-word-say">\uD83D\uDD0A LISTEN \u00B7 THEN REPEAT TOGETHER</div>' +
+      '<div class="eng-mean-grid">' +
+        '<div class="eng-mean-card"><div class="lang">ENGLISH MEANING</div><div class="mn en"></div></div>' +
+        '<div class="eng-mean-card"><div class="lang">\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B85\u0BB0\u0BCD\u0BA4\u0BCD\u0BA4\u0BAE\u0BCD</div><div class="mn ta"></div>' +
+          '<button class="eng-ta-speak" onclick="engSayTamil()">\uD83D\uDD0A \u0BA4\u0BAE\u0BBF\u0BB4\u0BBF\u0BB2\u0BCD \u0B95\u0BC7\u0BB3\u0BCD</button></div>' +
+      '</div><div class="eng-sents"></div>' +
+      '<div class="eng-daily"></div>' +
+      '<div class="eng-repeat" id="eng-repeat">' +
+        '<div class="rt">\uD83D\uDDE3 Your turn \u2014 say it aloud together!</div>' +
+        '<button class="nav-btn" onclick="engContinue()">Continue \u2192</button>' +
+      '</div>' +
+    '</div>';
+  inner.innerHTML = html;
+  var big = inner.querySelector('.eng-word-big');
+  big.textContent = step.word;
+  big.style.fontFamily = "'Noto Sans Devanagari','Cinzel',serif";
+  if (step.say){
+    var trEl = document.createElement('div');
+    trEl.style.cssText = 'font-size:clamp(1rem,2.2vw,1.5rem);color:var(--sandal);letter-spacing:3px;margin:-4px 0 6px;font-weight:700;';
+    trEl.textContent = '( ' + step.say + ' )';
+    big.insertAdjacentElement('afterend', trEl);
+  }
+  inner.querySelector('.mn.en').textContent = step.meaning_en;
+  inner.querySelector('.mn.ta').textContent = step.meaning_ta || '\u2014';
+  var sents = inner.querySelector('.eng-sents');
+  (step.sentences || []).forEach(function(s, i){
+    var d = document.createElement('div');
+    d.className = 'eng-sent';
+    d.style.animationDelay = (0.5 + i * 0.35).toFixed(2) + 's';
+    d.textContent = '\u201C' + s + '\u201D';
+    sents.appendChild(d);
+  });
+  if (step.daily) inner.querySelector('.eng-daily').textContent = '\uD83C\uDF1E ' + step.daily;
+  else inner.querySelector('.eng-daily').style.display = 'none';
+}
+
+/* speak the Tamil meaning of the current word (Sarah voice, cached) */
+function engSayTamil(){
+  var step = STEPS[CUR];
+  if (!step || step.type !== 'word' || !step.meaning_ta) return;
+  var key = scTamilKey('engw_' + step.word + '|' + step.meaning_ta);
+  var cached = SC_TAMIL_CACHE[key];
+  function play(url){
+    if (SC_TAMIL_AUDIO){ try{ SC_TAMIL_AUDIO.pause(); }catch(e){} }
+    SC_TAMIL_AUDIO = new Audio(url);
+    SC_TAMIL_AUDIO.playbackRate = scRate();
+    SC_TAMIL_AUDIO.play().catch(function(){});
+  }
+  if (cached && cached.audioUrl){ play(cached.audioUrl); return; }
+  fetch('/api/explain-tamil', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text: step.meaning_ta, cache_key: key })
+  }).then(function(r){ return r.json(); }).then(function(a){
+    var url = a && a.audio_url ? a.audio_url : (a && a.audio_b64 ? 'data:audio/mpeg;base64,' + a.audio_b64 : null);
+    if (url){ SC_TAMIL_CACHE[key] = { text: step.meaning_ta, audioUrl: url }; play(url); }
+  }).catch(function(){});
+}
+
+function renderGrammar(inner, step){
+  var html = '<div class="eng-gram-wrap"><h2></h2><div class="eng-rule"></div><div class="eng-pairs"></div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  inner.querySelector('.eng-rule').textContent = step.rule || step.speech.substring(0, 140);
+  var wrap = inner.querySelector('.eng-pairs');
+  (step.pairs || []).forEach(function(p, i){
+    var d = document.createElement('div');
+    d.className = 'eng-pair';
+    d.style.animationDelay = (0.35 + i * 0.55).toFixed(2) + 's';
+    var bad = document.createElement('div'); bad.className = 'side bad'; bad.textContent = '\u274C ' + p.wrong;
+    var good = document.createElement('div'); good.className = 'side good'; good.textContent = '\u2705 ' + p.right;
+    var why = document.createElement('div'); why.className = 'eng-why'; why.textContent = p.why ? ('\u2192 ' + p.why) : '';
+    d.appendChild(bad); d.appendChild(good); d.appendChild(why);
+    wrap.appendChild(d);
+  });
+}
+
+function renderHomophones(inner, step){
+  var html = '<div class="eng-gram-wrap"><h2></h2><div class="eng-mean-grid" style="max-width:820px;margin:0 auto;"></div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title + ' \uD83D\uDC42 (they SOUND the same!)';
+  var grid = inner.querySelector('.eng-mean-grid');
+  (step.pair || []).forEach(function(w, i){
+    var card = document.createElement('div');
+    card.className = 'eng-mean-card';
+    card.style.animationDelay = (0.3 + i * 0.4).toFixed(2) + 's';
+    var big = document.createElement('div');
+    big.style.cssText = "font-family:'Cinzel',serif;font-weight:800;font-size:clamp(1.4rem,3vw,2.1rem);color:var(--gold-light);margin-bottom:8px;";
+    big.textContent = w.word;
+    var en = document.createElement('div'); en.className = 'mn en'; en.textContent = w.meaning_en;
+    var ta = document.createElement('div'); ta.className = 'mn ta';
+    ta.style.cssText = 'margin-top:6px;color:var(--sandal);font-size:0.92rem;';
+    ta.textContent = w.meaning_ta || '';
+    var sent = document.createElement('div');
+    sent.style.cssText = 'margin-top:10px;font-size:0.85rem;color:rgba(232,201,154,0.85);font-style:italic;line-height:1.5;';
+    sent.textContent = w.sentence ? ('\u201C' + w.sentence + '\u201D') : '';
+    card.appendChild(big); card.appendChild(en); card.appendChild(ta); card.appendChild(sent);
+    grid.appendChild(card);
+  });
+}
+
+function renderExercise(inner, step){
+  var html = '<div class="eng-ex-wrap"><h2></h2><div class="eng-ex-q"></div><div class="eng-ex-steps"></div>' +
+             '<div class="eng-ex-ans"></div><div class="eng-ex-why"></div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  inner.querySelector('.eng-ex-q').textContent = '\u2753 ' + step.question;
+  var wrap = inner.querySelector('.eng-ex-steps');
+  var n = (step.exSteps || []).length;
+  (step.exSteps || []).forEach(function(s, i){
+    var d = document.createElement('div');
+    d.className = 'eng-ex-step';
+    d.style.animationDelay = (0.6 + i * 1.1).toFixed(2) + 's';
+    d.textContent = 'Think ' + (i + 1) + ': ' + s;
+    wrap.appendChild(d);
+  });
+  var ans = inner.querySelector('.eng-ex-ans');
+  ans.style.animationDelay = (0.8 + n * 1.1).toFixed(2) + 's';
+  ans.textContent = '\u2705 ' + step.answer;
+  var why = inner.querySelector('.eng-ex-why');
+  why.style.animationDelay = (1.2 + n * 1.1).toFixed(2) + 's';
+  why.textContent = step.why ? ('Because: ' + step.why) : '';
+}
+
+/* ══ WORKING SOLAR SYSTEM (hand-built — planets revolve around the Sun) ══
+   Built with the same Three.js engine as the globe. All eight planets in
+   order, correct colours, Saturn's ring, the Moon around Earth, orbit
+   rings, floating name labels, drag to look around. */
+var SCI_PLANETS = [
+  { name:'Mercury', color:0x9c8f85, size:0.14, orbit:2.6,  speed:0.021 },
+  { name:'Venus',   color:0xe0b96a, size:0.20, orbit:3.4,  speed:0.016 },
+  { name:'Earth',   color:0x3f7fd6, size:0.22, orbit:4.3,  speed:0.012, moon:true },
+  { name:'Mars',    color:0xc4553b, size:0.17, orbit:5.2,  speed:0.010 },
+  { name:'Jupiter', color:0xd8a06a, size:0.55, orbit:6.8,  speed:0.0062, bands:true },
+  { name:'Saturn',  color:0xe6cf9a, size:0.47, orbit:8.4,  speed:0.0050, ring:true },
+  { name:'Uranus',  color:0x8fd0dd, size:0.32, orbit:9.8,  speed:0.0038 },
+  { name:'Neptune', color:0x4a6fdc, size:0.31, orbit:11.0, speed:0.0030 }
+];
+
+function renderSolarSystem(inner, step){
+  if (typeof THREE === 'undefined'){ renderConcept(inner, step); return; }
+  scDestroyGlobe();
+  inner.innerHTML =
+    '<div class="sc-globe-frame">' +
+      '<div id="sc-globe-canvas"></div>' +
+      '<div class="sc-globe-title"><div class="t"></div></div>' +
+      '<div class="sc-globe-hint">\u270B drag to look around</div>' +
+      '<div class="sc-globe-legend">\u2600 The Sun at the centre \u00B7 eight planets revolving in their own orbits \u00B7 the Moon circling Earth</div>' +
+    '</div>';
+  inner.querySelector('.sc-globe-title .t').textContent = step.title;
+
+  var wrap = document.getElementById('sc-globe-canvas');
+  var W = wrap.clientWidth || 900, H = wrap.clientHeight || 520;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(46, W / H, 0.1, 200);
+  var renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  wrap.appendChild(renderer.domElement);
+
+  /* starfield */
+  var starPos = [];
+  for (var i = 0; i < 500; i++){
+    var a1 = Math.random() * Math.PI * 2, a2 = Math.acos(2 * Math.random() - 1), rr = 60;
+    starPos.push(rr * Math.sin(a2) * Math.cos(a1), rr * Math.cos(a2), rr * Math.sin(a2) * Math.sin(a1));
+  }
+  var starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color:0xffffff, size:0.1, transparent:true, opacity:0.75 })));
+
+  /* the Sun — glowing centre + its light */
+  scene.add(new THREE.AmbientLight(0xffffff, 0.22));
+  var sunLight = new THREE.PointLight(0xfff0c0, 1.6, 0);
+  scene.add(sunLight);
+  var sun = new THREE.Mesh(new THREE.SphereGeometry(1.15, 40, 40),
+    new THREE.MeshBasicMaterial({ color:0xFFD24A }));
+  scene.add(sun);
+  var glow = new THREE.Mesh(new THREE.SphereGeometry(1.45, 32, 32),
+    new THREE.MeshBasicMaterial({ color:0xFFB020, transparent:true, opacity:0.22 }));
+  scene.add(glow);
+  var sunLbl = scMakeSprite('Sun', '#FFE484');
+  sunLbl.position.set(0, 1.9, 0);
+  scene.add(sunLbl);
+
+  /* orbit rings */
+  SCI_PLANETS.forEach(function(p){
+    var pts = [];
+    for (var k = 0; k <= 128; k++){
+      var a = k / 128 * Math.PI * 2;
+      pts.push(new THREE.Vector3(p.orbit * Math.cos(a), 0, p.orbit * Math.sin(a)));
+    }
+    var ring = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color:0x8a7a4a, transparent:true, opacity:0.4 }));
+    scene.add(ring);
+  });
+
+  /* planets */
+  var bodies = [];
+  SCI_PLANETS.forEach(function(p, i){
+    var mesh = new THREE.Mesh(new THREE.SphereGeometry(p.size, 28, 28),
+      new THREE.MeshPhongMaterial({ color: p.color, shininess: 8 }));
+    if (p.bands){
+      var band = new THREE.Mesh(new THREE.SphereGeometry(p.size * 1.01, 28, 28),
+        new THREE.MeshPhongMaterial({ color: 0xb5764a, transparent:true, opacity:0.35 }));
+      mesh.add(band);
+    }
+    if (p.ring){
+      var sat = new THREE.Mesh(new THREE.RingGeometry(p.size * 1.35, p.size * 2.05, 48),
+        new THREE.MeshBasicMaterial({ color:0xd9c08a, side:THREE.DoubleSide, transparent:true, opacity:0.75 }));
+      sat.rotation.x = Math.PI / 2.35;
+      mesh.add(sat);
+    }
+    var lbl = scMakeSprite(p.name, '#FFD86A');
+    lbl.scale.set(1.35, 0.34, 1);
+    lbl.position.set(0, p.size + 0.42, 0);
+    mesh.add(lbl);
+    var moon = null;
+    if (p.moon){
+      moon = new THREE.Mesh(new THREE.SphereGeometry(0.06, 14, 14),
+        new THREE.MeshPhongMaterial({ color:0xcfcfcf }));
+      scene.add(moon);
+    }
+    scene.add(mesh);
+    bodies.push({ p:p, mesh:mesh, moon:moon, ang: Math.random() * Math.PI * 2, moonAng: Math.random() * Math.PI * 2 });
+  });
+
+  /* camera + drag-to-look */
+  var camDist = 16, camPitch = 0.55, camYaw = 0.6;
+  var dragging = false, px = 0, py = 0;
+  wrap.addEventListener('pointerdown', function(e){ dragging = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  window.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    camYaw += (e.clientX - px) * 0.005;
+    camPitch += (e.clientY - py) * 0.003;
+    camPitch = Math.max(0.12, Math.min(1.25, camPitch));
+    px = e.clientX; py = e.clientY;
+  });
+
+  var myIdx = CUR;
+  function frame(){
+    if (CUR !== myIdx || !scGlobe) return;
+    bodies.forEach(function(b){
+      b.ang += b.p.speed;
+      b.mesh.position.set(b.p.orbit * Math.cos(b.ang), 0, b.p.orbit * Math.sin(b.ang));
+      b.mesh.rotation.y += 0.01;
+      if (b.moon){
+        b.moonAng += 0.05;
+        b.moon.position.set(
+          b.mesh.position.x + 0.45 * Math.cos(b.moonAng),
+          0,
+          b.mesh.position.z + 0.45 * Math.sin(b.moonAng)
+        );
+      }
+    });
+    glow.scale.setScalar(1 + 0.04 * Math.sin(Date.now() * 0.002));
+    camera.position.set(
+      camDist * Math.cos(camPitch) * Math.cos(camYaw),
+      camDist * Math.sin(camPitch),
+      camDist * Math.cos(camPitch) * Math.sin(camYaw)
+    );
+    camera.lookAt(0, 0, 0);
+    renderer.render(scene, camera);
+    scGlobe.raf = requestAnimationFrame(frame);
+  }
+  scGlobe = { renderer: renderer, raf: 0, canvasWrap: wrap };
+  scGlobe.raf = requestAnimationFrame(frame);
+}
+
+/* ══ 3D MODEL ENGINE (Science) ══
+   Real, rotatable models embedded from Sketchfab (free, legal embeds).
+   The AI may only pick from this fixed list — the exact model for each
+   key is chosen once by /api/science-models (Sketchfab search + AI
+   review, cached in Supabase) and then reused for every class.
+   Fallback chain: 3D model → real photo → concept cards. */
+var SCI_MODELS = {
+  skeleton:        { name:'Human Skeleton',        q:'human skeleton anatomy full body' },
+  skull:           { name:'Human Skull',           q:'human skull anatomy' },
+  ear:             { name:'Human Ear',             q:'human ear anatomy middle inner' },
+  eye:             { name:'Human Eye',             q:'human eye anatomy cross section' },
+  heart:           { name:'Human Heart',           q:'human heart anatomy realistic' },
+  brain:           { name:'Human Brain',           q:'human brain anatomy' },
+  lungs:           { name:'Human Lungs',           q:'human lungs anatomy respiratory' },
+  digestive_system:{ name:'Digestive System',      q:'human digestive system anatomy' },
+  kidney:          { name:'Human Kidney',          q:'human kidney anatomy cross section' },
+  teeth:           { name:'Human Teeth',           q:'human teeth jaw anatomy' },
+  cell_animal:     { name:'Animal Cell',           q:'animal cell structure organelles' },
+  cell_plant:      { name:'Plant Cell',            q:'plant cell structure organelles' },
+  neuron:          { name:'Neuron',                q:'neuron nerve cell anatomy' },
+  dna:             { name:'DNA Double Helix',      q:'dna double helix structure' },
+  bacteria:        { name:'Bacteria',              q:'bacteria cell structure' },
+  virus:           { name:'Virus',                 q:'virus structure model' },
+  flower:          { name:'Flower Parts',          q:'flower anatomy parts pistil stamen' },
+  leaf:            { name:'Leaf Structure',        q:'leaf cross section anatomy' },
+  human_muscles:   { name:'Muscular System',       q:'human muscular system anatomy' },
+  atom:            { name:'Atom Model',            q:'atom model electrons nucleus' },
+  solar_system:    { name:'Solar System',          q:'solar system planets model' },
+  volcano:         { name:'Volcano',               q:'volcano cross section model' },
+  microscope:      { name:'Microscope',            q:'compound microscope model' }
+};
+var SCI_MODEL_CACHE = {};     // organ -> {uid,name} | {uid:null}
+var SCI_MODEL_INFLIGHT = {};
+
+function sciFetchModel(organ){
+  if (SCI_MODEL_CACHE[organ]) return Promise.resolve(SCI_MODEL_CACHE[organ]);
+  if (SCI_MODEL_INFLIGHT[organ]) return SCI_MODEL_INFLIGHT[organ];
+  var lib = SCI_MODELS[organ];
+  SCI_MODEL_INFLIGHT[organ] = fetch('/api/science-models', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ organ: organ, query: lib.q, label: lib.name })
+  }).then(function(r){ return r.json(); })
+    .then(function(d){
+      var out = (d && d.uid) ? { uid: d.uid, name: d.name || lib.name } : { uid: null };
+      SCI_MODEL_CACHE[organ] = out;
+      delete SCI_MODEL_INFLIGHT[organ];
+      return out;
+    })
+    .catch(function(){ delete SCI_MODEL_INFLIGHT[organ]; return { uid: null }; });
+  return SCI_MODEL_INFLIGHT[organ];
+}
+
+function renderModel3d(inner, step){
+  if (step.organ === 'solar_system'){ renderSolarSystem(inner, step); return; }
+  var lib = SCI_MODELS[step.organ];
+  inner.innerHTML =
+    '<div class="sc-mdl-frame"><div class="sc-photo-loading" style="position:absolute;inset:0;justify-content:center;">' +
+    '<div class="sc-spin"></div><div>Bringing the ' + (lib ? lib.name : 'model') + '&hellip;</div></div></div>';
+  var frame = inner.querySelector('.sc-mdl-frame');
+  var myIdx = CUR;
+  sciFetchModel(step.organ).then(function(m){
+    if (CUR !== myIdx) return;
+    if (!m || !m.uid){
+      /* fallback: real photograph of the same thing */
+      var fb = { type:'photo', title: step.title, speech: step.speech,
+                 search: lib ? lib.q : step.title, caption: step.speech.substring(0, 140) };
+      renderPhoto(inner, fb);
+      return;
+    }
+    frame.innerHTML =
+      '<iframe title="" allow="autoplay; fullscreen; xr-spatial-tracking" allowfullscreen></iframe>' +
+      '<div class="sc-mdl-hint">\u270B drag to turn \u00B7 scroll to zoom</div>' +
+      '<div class="sc-mdl-cap"><div class="t"></div><div class="s"></div></div>';
+    frame.querySelector('iframe').src =
+      'https://sketchfab.com/models/' + m.uid + '/embed?autostart=1&preload=1&ui_theme=dark&ui_hint=0&ui_watermark=0&dnt=1';
+    frame.querySelector('.sc-mdl-cap .t').textContent = step.title;
+    frame.querySelector('.sc-mdl-cap .s').textContent = (m.name || '') + ' \u00B7 3D model via Sketchfab';
+  });
+}
+
+/* prefetch the next 3D models so they resolve before their step arrives */
+function sciPrefetchModels(fromIdx){
+  var warmed = 0;
+  for (var i = fromIdx + 1; i < STEPS.length && warmed < 2; i++){
+    if (STEPS[i].type === 'model3d'){ sciFetchModel(STEPS[i].organ); warmed++; }
+  }
+}
+
+/* ══ INFOGRAPHIC RENDERERS (Phase 4 — Civics & Economics) ══ */
+
+function renderStructure(inner, step){
+  var html = '<div class="sc-info-wrap"><h2></h2>' +
+    '<div class="sc-str-root"></div><div class="sc-str-stem"></div><div class="sc-str-row">';
+  for (var i = 0; i < step.children.length; i++){
+    html += '<div class="sc-str-child" style="animation-delay:' + (0.55 + i * 0.35).toFixed(2) + 's">' +
+              '<div class="nm"></div><div class="chips"></div></div>';
+  }
+  html += '</div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  inner.querySelector('.sc-str-root').textContent = step.root;
+  var kids = inner.querySelectorAll('.sc-str-child');
+  for (var j = 0; j < kids.length; j++){
+    kids[j].querySelector('.nm').textContent = step.children[j].name;
+    var chips = kids[j].querySelector('.chips');
+    step.children[j].sub.forEach(function(sname){
+      var sp = document.createElement('span');
+      sp.className = 'chip';
+      sp.textContent = sname;
+      chips.appendChild(sp);
+    });
+  }
+}
+
+function renderCycle(inner, step){
+  inner.innerHTML = '<div class="sc-info-wrap"><h2></h2>' +
+    '<div class="sc-cyc-stage"><div class="sc-cyc-ring"></div>' +
+    '<div class="sc-cyc-center">\u21BB</div><div class="sc-cyc-nodes"></div></div></div>';
+  inner.querySelector('h2').textContent = step.title;
+  var stage = inner.querySelector('.sc-cyc-stage');
+  var n = step.items.length;
+  for (var i = 0; i < n; i++){
+    var ang = (-90 + i * 360 / n) * Math.PI / 180;
+    var x = 50 + 38 * Math.cos(ang);
+    var y = 50 + 38 * Math.sin(ang);
+    var node = document.createElement('div');
+    node.className = 'sc-cyc-node';
+    node.style.left = x + '%';
+    node.style.top = y + '%';
+    node.style.animationDelay = (0.3 + i * 0.45).toFixed(2) + 's';
+    var num = document.createElement('div'); num.className = 'num'; num.textContent = i + 1;
+    var txt = document.createElement('div'); txt.textContent = step.items[i];
+    node.appendChild(num); node.appendChild(txt);
+    stage.appendChild(node);
+  }
+}
+
+function renderCompare(inner, step){
+  function panel(cls, data, baseDelay){
+    var p = '<div class="sc-cmp-panel ' + cls + '"><div class="hd"></div>';
+    for (var i = 0; i < data.points.length; i++){
+      p += '<div class="rw" style="animation-delay:' + (baseDelay + i * 0.35).toFixed(2) + 's"></div>';
+    }
+    return p + '</div>';
+  }
+  inner.innerHTML = '<div class="sc-info-wrap"><h2></h2><div class="sc-cmp-grid">' +
+    panel('left', step.left, 0.35) +
+    '<div class="sc-cmp-vs"><span>VS</span></div>' +
+    panel('right', step.right, 0.5) +
+    '</div></div>';
+  inner.querySelector('h2').textContent = step.title;
+  var panels = inner.querySelectorAll('.sc-cmp-panel');
+  [step.left, step.right].forEach(function(side, pi){
+    panels[pi].querySelector('.hd').textContent = side.name;
+    var rows = panels[pi].querySelectorAll('.rw');
+    for (var i = 0; i < rows.length; i++) rows[i].textContent = side.points[i];
+  });
+}
+
+function renderStat(inner, step){
+  var html = '<div class="sc-info-wrap"><h2></h2><div class="sc-stat-grid">';
+  for (var i = 0; i < step.stats.length; i++){
+    html += '<div class="sc-stat-card" style="animation-delay:' + (0.25 + i * 0.3).toFixed(2) + 's">' +
+              '<div class="val"></div><div class="lbl"></div></div>';
+  }
+  html += '</div></div>';
+  inner.innerHTML = html;
+  inner.querySelector('h2').textContent = step.title;
+  var cards = inner.querySelectorAll('.sc-stat-card');
+  var myIdx = CUR;
+  for (var j = 0; j < cards.length; j++){
+    (function(card, st, delay){
+      var valEl = card.querySelector('.val');
+      card.querySelector('.lbl').textContent = st.label;
+      /* count-up when the value starts with a plain number, else show as-is */
+      var m = st.value.match(/^([\d,\.]+)(.*)$/);
+      var target = m ? parseFloat(m[1].replace(/,/g, '')) : NaN;
+      if (!m || !isFinite(target) || target <= 0 || target > 10000000){
+        valEl.textContent = st.value;
+        return;
+      }
+      var suffix = m[2] || '';
+      var isInt = m[1].indexOf('.') === -1;
+      valEl.textContent = (isInt ? '0' : '0.0') + suffix;
+      setTimeout(function(){
+        var t0 = null;
+        function tick(ts){
+          if (CUR !== myIdx) return;
+          if (t0 === null) t0 = ts;
+          var p = Math.min(1, (ts - t0) / 1300);
+          var eased = 1 - Math.pow(1 - p, 3);
+          var cur = target * eased;
+          valEl.textContent = (isInt ? Math.round(cur).toLocaleString('en-IN') : cur.toFixed(1)) + suffix;
+          if (p < 1) requestAnimationFrame(tick);
+          else valEl.textContent = st.value;
+        }
+        requestAnimationFrame(tick);
+      }, delay * 1000);
+    })(cards[j], step.stats[j], 0.25 + j * 0.3);
+  }
+}
+
+/* ══ 3D GLOBE ENGINE (Phase 3) ══
+   Modes: rotation (spin + place markers), latlong (graticule with equator,
+   tropics, prime meridian), daynight (sunlit side vs dark side),
+   seasons (tilted Earth orbiting the Sun, live season caption).
+   Drag to rotate. Texture from CDN with a clean gradient fallback. */
+var scGlobe = null;   // { renderer, raf, canvasWrap }
+
+function scDestroyGlobe(){
+  if (!scGlobe) return;
+  try{ cancelAnimationFrame(scGlobe.raf); }catch(e){}
+  try{ scGlobe.renderer.dispose(); }catch(e){}
+  scGlobe = null;
+}
+
+function scLatLngToVec(lat, lng, r){
+  var phi = (90 - lat) * Math.PI / 180;
+  var theta = (lng + 180) * Math.PI / 180;
+  return new THREE.Vector3(
+    -r * Math.sin(phi) * Math.cos(theta),
+     r * Math.cos(phi),
+     r * Math.sin(phi) * Math.sin(theta)
+  );
+}
+
+function scMakeSprite(text, color){
+  var cv = document.createElement('canvas');
+  cv.width = 512; cv.height = 128;
+  var ctx = cv.getContext('2d');
+  ctx.font = 'bold 52px Nunito, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 10;
+  ctx.fillStyle = color || '#FFD86A';
+  ctx.fillText(text, 256, 64);
+  var tex = new THREE.CanvasTexture(cv);
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sp.scale.set(1.7, 0.42, 1);
+  return sp;
+}
+
+function scLatCircle(lat, r, color, dashed){
+  var pts = [];
+  var y = r * Math.sin(lat * Math.PI / 180);
+  var cr = r * Math.cos(lat * Math.PI / 180);
+  for (var i = 0; i <= 96; i++){
+    var a = i / 96 * Math.PI * 2;
+    pts.push(new THREE.Vector3(cr * Math.cos(a), y, cr * Math.sin(a)));
+  }
+  var geo = new THREE.BufferGeometry().setFromPoints(pts);
+  var mat = dashed
+    ? new THREE.LineDashedMaterial({ color: color, dashSize: 0.07, gapSize: 0.05 })
+    : new THREE.LineBasicMaterial({ color: color });
+  var line = new THREE.Line(geo, mat);
+  if (dashed) line.computeLineDistances();
+  return line;
+}
+
+function scLngCircle(lng, r, color){
+  var pts = [];
+  for (var i = 0; i <= 96; i++){
+    var lat = -90 + i / 96 * 180;
+    pts.push(scLatLngToVec(lat, lng, r));
+  }
+  return new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints(pts),
+    new THREE.LineBasicMaterial({ color: color })
+  );
+}
+
+function renderGlobe(inner, step){
+  if (typeof THREE === 'undefined'){ renderConcept(inner, step); return; }
+  scDestroyGlobe();
+  var mode = step.mode || 'rotation';
+
+  inner.innerHTML =
+    '<div class="sc-globe-frame">' +
+      '<div id="sc-globe-canvas"></div>' +
+      '<div class="sc-globe-title"><div class="t"></div></div>' +
+      '<div class="sc-globe-hint">\u270B drag to turn the Earth</div>' +
+      '<div class="sc-globe-legend" id="sc-globe-legend" style="display:none;"></div>' +
+      '<div class="sc-globe-season" id="sc-globe-season" style="display:none;"></div>' +
+    '</div>';
+  inner.querySelector('.sc-globe-title .t').textContent = step.title;
+
+  var wrap = document.getElementById('sc-globe-canvas');
+  var W = wrap.clientWidth || 800, H = wrap.clientHeight || 500;
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(42, W / H, 0.1, 100);
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(W, H);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  wrap.appendChild(renderer.domElement);
+
+  /* starfield */
+  var starGeo = new THREE.BufferGeometry();
+  var starPos = [];
+  for (var i = 0; i < 350; i++){
+    var a1 = Math.random() * Math.PI * 2, a2 = Math.acos(2 * Math.random() - 1);
+    var rr = 30;
+    starPos.push(rr * Math.sin(a2) * Math.cos(a1), rr * Math.cos(a2), rr * Math.sin(a2) * Math.sin(a1));
+  }
+  starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPos, 3));
+  scene.add(new THREE.Points(starGeo, new THREE.PointsMaterial({ color: 0xffffff, size: 0.07, transparent: true, opacity: 0.7 })));
+
+  /* Earth (inside a tilt group so the axis can lean 23.5\u00B0) */
+  var R = 2;
+  var earthGroup = new THREE.Group();
+  var earthMat = new THREE.MeshPhongMaterial({ color: 0x2a6fd6, shininess: 12 });
+  var earth = new THREE.Mesh(new THREE.SphereGeometry(R, 48, 48), earthMat);
+  earthGroup.add(earth);
+
+  /* real Earth texture — graceful fallback keeps the blue globe */
+  new THREE.TextureLoader().load(
+    'https://unpkg.com/three-globe/example/img/earth-blue-marble.jpg',
+    function(tex){ earthMat.map = tex; earthMat.color.set(0xffffff); earthMat.needsUpdate = true; },
+    undefined,
+    function(){ /* keep fallback colour */ }
+  );
+
+  /* markers ride on the earth so they rotate with it */
+  (step.markers || []).forEach(function(m){
+    var p = scLatLngToVec(m.lat, m.lng, R + 0.02);
+    var dot = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 12), new THREE.MeshBasicMaterial({ color: 0xFFD86A }));
+    dot.position.copy(p);
+    earth.add(dot);
+    var lbl = scMakeSprite(m.name, '#FFD86A');
+    lbl.position.copy(scLatLngToVec(m.lat, m.lng, R + 0.45));
+    earth.add(lbl);
+  });
+
+  var legend = document.getElementById('sc-globe-legend');
+  var seasonBox = document.getElementById('sc-globe-season');
+
+  if (mode === 'latlong'){
+    earth.add(scLatCircle(0, R + 0.01, 0xFFD86A));                 /* Equator */
+    earth.add(scLatCircle(23.5, R + 0.01, 0xfb923c, true));        /* Tropic of Cancer */
+    earth.add(scLatCircle(-23.5, R + 0.01, 0xfb923c, true));       /* Tropic of Capricorn */
+    [30,60,-30,-60].forEach(function(lt){ earth.add(scLatCircle(lt, R + 0.005, 0x6a86b8)); });
+    earth.add(scLngCircle(0, R + 0.01, 0x4ade80));                 /* Prime Meridian */
+    for (var lg = -150; lg <= 180; lg += 30){ if (lg !== 0) earth.add(scLngCircle(lg, R + 0.005, 0x3a527a)); }
+    legend.style.display = 'block';
+    legend.innerHTML =
+      '<div><span class="sw" style="background:#FFD86A;"></span>Equator (0\u00B0)</div>' +
+      '<div><span class="sw" style="background:#fb923c;"></span>Tropics (23.5\u00B0 N &amp; S)</div>' +
+      '<div><span class="sw" style="background:#4ade80;"></span>Prime Meridian (0\u00B0)</div>' +
+      '<div><span class="sw" style="background:#6a86b8;"></span>Other latitudes &amp; longitudes</div>';
+  }
+
+  var sunMesh = null, orbitAngle = 0;
+  if (mode === 'daynight'){
+    scene.add(new THREE.AmbientLight(0xffffff, 0.12));
+    var sun = new THREE.DirectionalLight(0xfff3d0, 1.35);
+    sun.position.set(8, 1.2, 2);
+    scene.add(sun);
+    sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 24, 24), new THREE.MeshBasicMaterial({ color: 0xFFE484 }));
+    sunMesh.position.set(8, 1.2, 2);
+    scene.add(sunMesh);
+    var sunLbl = scMakeSprite('\u2600 Sun', '#FFE484');
+    sunLbl.position.set(8, 2.2, 2);
+    scene.add(sunLbl);
+    legend.style.display = 'block';
+    legend.innerHTML = 'The lit half faces the Sun \u2014 <b>day</b>.<br/>The dark half faces away \u2014 <b>night</b>.<br/>One full spin = 24 hours.';
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;
+  } else if (mode === 'seasons'){
+    scene.add(new THREE.AmbientLight(0xffffff, 0.14));
+    var pl = new THREE.PointLight(0xfff3d0, 1.5, 0);
+    pl.position.set(0, 0, 0);
+    scene.add(pl);
+    sunMesh = new THREE.Mesh(new THREE.SphereGeometry(0.85, 28, 28), new THREE.MeshBasicMaterial({ color: 0xFFE484 }));
+    scene.add(sunMesh);
+    var sl = scMakeSprite('\u2600 Sun', '#FFE484');
+    sl.position.set(0, 1.6, 0);
+    scene.add(sl);
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;   /* axis stays leaning the SAME way all year */
+    /* axis rod through the poles */
+    var axis = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, R * 2.8, 8), new THREE.MeshBasicMaterial({ color: 0xFFD86A }));
+    earthGroup.add(axis);
+    seasonBox.style.display = 'block';
+  } else {
+    scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+    var dl = new THREE.DirectionalLight(0xffffff, 0.9);
+    dl.position.set(5, 3, 4);
+    scene.add(dl);
+    earthGroup.rotation.z = 23.5 * Math.PI / 180;
+  }
+
+  scene.add(earthGroup);
+  camera.position.set(0, 0.6, mode === 'seasons' ? 11 : 6);
+  camera.lookAt(0, 0, 0);
+
+  /* drag to rotate */
+  var dragging = false, px = 0, py = 0, userY = 0, userX = 0;
+  wrap.addEventListener('pointerdown', function(e){ dragging = true; px = e.clientX; py = e.clientY; });
+  window.addEventListener('pointerup', function(){ dragging = false; });
+  window.addEventListener('pointermove', function(e){
+    if (!dragging) return;
+    userY += (e.clientX - px) * 0.005;
+    userX += (e.clientY - py) * 0.003;
+    userX = Math.max(-0.9, Math.min(0.9, userX));
+    px = e.clientX; py = e.clientY;
+  });
+
+  var myIdx = CUR;
+  var seasonNames = ['June \u2014 \u2600 Summer in the North \u00B7 Winter in the South',
+                     'September \u2014 \uD83C\uDF42 Autumn in the North \u00B7 Spring in the South',
+                     'December \u2014 \u2744 Winter in the North \u00B7 Summer in the South',
+                     'March \u2014 \uD83C\uDF38 Spring in the North \u00B7 Autumn in the South'];
+
+  function frame(){
+    if (CUR !== myIdx || !scGlobe){ return; }
+    earth.rotation.y += 0.004;
+    if (mode === 'seasons'){
+      orbitAngle += 0.0035;
+      earthGroup.position.set(6.5 * Math.cos(orbitAngle), 0, 6.5 * Math.sin(orbitAngle));
+      var q = Math.floor(((orbitAngle % (Math.PI * 2)) / (Math.PI * 2)) * 4) % 4;
+      seasonBox.textContent = seasonNames[q];
+    }
+    earthGroup.rotation.y = userY;
+    earthGroup.rotation.x = userX;
+    camera.updateProjectionMatrix();
+    renderer.render(scene, camera);
+    scGlobe.raf = requestAnimationFrame(frame);
+  }
+  scGlobe = { renderer: renderer, raf: 0, canvasWrap: wrap };
+  scGlobe.raf = requestAnimationFrame(frame);
+}
+
+/* ── VOICE (Monika via voice-class, browser fallback) ── */
+function scStopAudio(){
+  if (scAudio){ try{ scAudio.pause(); }catch(e){} scAudio = null; }
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+  scUtter = null;
+}
+
+function scSpeak(text){
+  scStopAudio();
+  clearTimeout(scAdvanceTimer);
+  if (!text || !String(text).trim()){ scScheduleAdvance(3); return; }
+  var seq = ++scSpeakSeq;
+  if (!voiceOn){
+    scScheduleAdvance(Math.max(4, String(text).split(/\s+/).length * 0.42));
+    return;
+  }
+  fetch('/api/voice-class', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text: String(text), cls: LESSON.cls })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (seq !== scSpeakSeq || !voiceOn) return;
+    if (d && d.audio_b64){
+      scAudio = new Audio('data:audio/mpeg;base64,' + d.audio_b64);
+      scAudio.playbackRate = scRate();
+      scAudio.onended = function(){ scAudio = null; if (seq === scSpeakSeq) scScheduleAdvance(1.2); };
+      scAudio.play().catch(function(){ scSpeakBrowser(text, seq); });
+    } else {
+      scSpeakBrowser(text, seq);
+    }
+  }).catch(function(){ if (seq === scSpeakSeq && voiceOn) scSpeakBrowser(text, seq); });
+}
+
+function scSpeakBrowser(text, seq){
+  if (!('speechSynthesis' in window)){ scScheduleAdvance(Math.max(4, text.split(/\s+/).length * 0.42)); return; }
+  var u = new SpeechSynthesisUtterance(text);
+  u.lang = 'en-IN'; u.rate = scRate(); u.pitch = 1.05;
+  u.onend = function(){ if (seq === scSpeakSeq) scScheduleAdvance(1.2); };
+  scUtter = u;
+  window.speechSynthesis.speak(u);
+}
+
+function scRate(){ return parseFloat(document.getElementById('speed-sel').value) || 0.95; }
+
+function scScheduleAdvance(sec){
+  clearTimeout(scAdvanceTimer);
+  /* Word steps NEVER auto-advance: the class repeats the word aloud
+     and the TEACHER presses Continue when ready (Kayal's choice). */
+  var st = STEPS[CUR];
+  if (st && st.type === 'word'){ engShowRepeat(); return; }
+  scAdvanceTimer = setTimeout(function(){
+    if (isPaused) return;
+    if (CUR < STEPS.length - 1) scRender(CUR + 1);
+    else scShowComplete();
+  }, sec * 1000);
+}
+
+function engShowRepeat(){
+  var box = document.getElementById('eng-repeat');
+  if (box){ box.classList.add('on'); }
+  document.getElementById('narr-text').textContent = '\uD83D\uDDE3 Class, repeat the word aloud \u2014 teacher presses Continue when ready.';
+}
+
+function engContinue(){
+  if (CUR < STEPS.length - 1) scRender(CUR + 1);
+  else scShowComplete();
+}
+
+/* ── CONTROLS ── */
+function scNext(){
+  if (CUR >= STEPS.length - 1){ scShowComplete(); return; }
+  scRender(CUR + 1);
+}
+
+/* ── LESSON COMPLETE → bridge to Revision & Quiz hub ── */
+function scShowComplete(){
+  scStopAudio(); clearTimeout(scAdvanceTimer);
+  scDestroyGlobe();
+  if (scMap){ try{ scMap.remove(); }catch(e){} scMap = null; }
+  document.getElementById('narr-text').textContent = '\uD83C\uDF89 Lesson complete! Well done, class.';
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML =
+    '<div class="sc-done-wrap">' +
+      '<div class="big">\uD83C\uDF89 Lesson Complete!</div>' +
+      '<p>\u0936\u093E\u092C\u093E\u0936! Wonderful work, class! Keep saying today\u2019s Hindi words aloud at home. Tap the chart to revise the letters any time.</p>' +
+      '<button class="sc-done-btn" onclick="hinOpenVarnamala()">\u0905 \u0906 Varnamala Chart</button>' +
+      '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
+      '<button class="sc-done-btn ghost" onclick="scGoBack()">\u2190 Back to TeachBot</button>' +
+    '</div>';
+}
+
+function scOpenRevision(){
+  window.location.href = 'learnbot.html';
+}
+function scPrev(){ if (CUR > 0) scRender(CUR - 1); }
+
+function scTogglePause(){
+  isPaused = !isPaused;
+  var b = document.getElementById('btn-pause');
+  b.textContent = isPaused ? '\u25B6 Resume' : '\u23F8 Pause';
+  if (isPaused){
+    clearTimeout(scAdvanceTimer);
+    if (scAudio){ try{ scAudio.pause(); }catch(e){} }
+    try{ window.speechSynthesis.pause(); }catch(e){}
+  } else {
+    if (scAudio){ try{ scAudio.play(); }catch(e){} }
+    try{ window.speechSynthesis.resume(); }catch(e){}
+    if (!scAudio && !scUtter) scScheduleAdvance(1);
+  }
+}
+
+function scToggleVoice(){
+  voiceOn = !voiceOn;
+  var b = document.getElementById('btn-voice');
+  b.classList.toggle('active', voiceOn);
+  b.innerHTML = voiceOn ? '&#128266; Voice' : '&#128263; Muted';
+  if (!voiceOn) scStopAudio();
+}
+
+function scSpeedChange(){
+  if (scAudio) scAudio.playbackRate = scRate();
+}
+
+function scToggleTeacher(){
+  teacherVisible = !teacherVisible;
+  var t = document.getElementById('sc-teacher');
+  if (t) t.classList.toggle('hidden', !teacherVisible);
+}
+
+function scGoBack(){
+  scStopAudio(); clearTimeout(scAdvanceTimer);
+  var url = 'learnbot.html';
+  try{ url = sessionStorage.getItem('hin_returnUrl') || url; }catch(e){}
+  window.location.href = url;
+}
+
+/* ── TAMIL — Fullscreen Class engine ── */
+function scTamilKey(material){
+  var h = 0;
+  for (var i = 0; i < material.length; i++){ h = ((h << 5) - h + material.charCodeAt(i)) | 0; }
+  return 'sc_' + Math.abs(h).toString(36);
+}
+
+async function scExplainTamil(){
+  var step = STEPS[CUR];
+  if (!step) return;
+  var btn = document.getElementById('sc-tamil-btn');
+  var box = document.getElementById('sc-tamil-box');
+  var txtEl = document.getElementById('sc-tamil-text');
+  try{
+    btn.disabled = true; btn.textContent = '\u23F3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD\u2026';
+    clearTimeout(scAdvanceTimer);
+    scStopAudio();
+    if (SC_TAMIL_AUDIO){ try{ SC_TAMIL_AUDIO.pause(); }catch(e){} SC_TAMIL_AUDIO = null; }
+
+    var material = (step.title + '. ' + (step.speech || '')).substring(0, 1500);
+    var key = scTamilKey(material);
+    var entry = SC_TAMIL_CACHE[key];
+
+    if (!entry){
+      var aiRes = await fetch('/api/ai', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system: 'You are a modern Tamil Nadu school teacher. Reply ONLY in proper Tamil script (\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1). NEVER write Tamil words in English letters (no Tanglish, no transliteration). Only technical/subject keywords may stay in English. Do NOT address students with pet names \u2014 start directly with the explanation. No labels, no markdown.',
+          messages:[{role:'user', content:
+            'Explain this Hindi lesson point aloud like a real Tamil Nadu teacher speaking Tamil in class. Write ONLY in Tamil script \u2014 keep just names and technical keywords in English. 3-5 sentences, explain the WHY simply:\n\n' + material}],
+          max_tokens: 500
+        })
+      });
+      var d = await aiRes.json();
+      var tamil = '';
+      if (d && Array.isArray(d.content)) tamil = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('').trim();
+      else if (d && d.text) tamil = String(d.text).trim();
+      if (!tamil){
+        var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || 'no text returned';
+        if (typeof why !== 'string') why = JSON.stringify(why);
+        throw new Error('text step \u2014 ' + why.substring(0, 180));
+      }
+      var audRes = await fetch('/api/explain-tamil', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text: tamil, cache_key: key })
+      });
+      var a = await audRes.json();
+      var audioUrl = null;
+      if (a && a.audio_url) audioUrl = a.audio_url;
+      else if (a && a.audio_b64) audioUrl = 'data:audio/mpeg;base64,' + a.audio_b64;
+      if (!audioUrl){
+        var vErr = (a && a.error) ? String(a.error) : 'no audio returned';
+        throw new Error('voice step \u2014 ' + vErr.substring(0, 180));
+      }
+      entry = { text: tamil, audioUrl: audioUrl };
+      SC_TAMIL_CACHE[key] = entry;
+    }
+
+    txtEl.textContent = entry.text;
+    box.classList.add('on');
+    SC_TAMIL_AUDIO = new Audio(entry.audioUrl);
+    SC_TAMIL_AUDIO.playbackRate = scRate();
+    SC_TAMIL_AUDIO.onended = function(){ SC_TAMIL_AUDIO = null; };
+    SC_TAMIL_AUDIO.play().catch(function(e){ alert('Tamil audio could not play \u2014 ' + e.message); });
+  }catch(e){
+    alert('Tamil explanation failed \u2014 ' + e.message);
+  }finally{
+    btn.disabled = false; btn.innerHTML = '\uD83C\uDDEE\uD83C\uDDF3 \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD';
+  }
+}
+
+/* ── SIDEBAR ── */
+var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D', read:'\uD83D\uDCD6', word:'\uD83D\uDD24', grammar:'\u270D\uFE0F', homophones:'\uD83D\uDC42', exercise:'\uD83E\uDDE9', model3d:'\uD83E\uDDB4', structure:'\uD83D\uDDC2\uFE0F', cycle:'\uD83D\uDD04', compare:'\u2696\uFE0F', stat:'\uD83D\uDCCA' };
+function scBuildSidebar(){
+  var list = document.getElementById('step-list');
+  list.innerHTML = '';
+  STEPS.forEach(function(s, i){
+    var div = document.createElement('div');
+    div.className = 'step-item';
+    var ico = document.createElement('span'); ico.className = 'ico'; ico.textContent = STEP_ICONS[s.type] || '\uD83D\uDCA1';
+    var lbl = document.createElement('span'); lbl.textContent = s.title.substring(0, 60);
+    div.appendChild(ico); div.appendChild(lbl);
+    div.onclick = function(){ scRender(i); };
+    list.appendChild(div);
+  });
+}
+
+/* ── INIT ── */
+async function scInit(){
+  var ov = document.getElementById('sc-loading');
+  var err = document.getElementById('sc-loading-err');
+  var retry = document.getElementById('sc-retry-btn');
+  err.classList.remove('on'); retry.style.display = 'none';
+  ov.style.display = 'flex';
+
+  if (!scReadLesson()){
+    err.textContent = 'No lesson found. Please go to Teacher Panel \u2192 pick your Hindi book \u2192 enter page range \u2192 Go to Teach Tab, then open Social Science Class again.';
+    err.classList.add('on');
+    document.querySelector('#sc-loading .sc-spin').style.display = 'none';
+    return;
+  }
+  try{
+    STEPS = await scGeneratePlan();
+    scBuildSidebar();
+    // Warm EVERY photo in parallel while the teacher is still on this screen.
+    // The first photo we wait for; the rest keep downloading in the background.
+    var photoSteps = STEPS.filter(function(s){ return s.type === 'photo'; });
+    if (photoSteps.length){
+      document.getElementById('sc-loading-msg').textContent =
+        'Collecting ' + photoSteps.length + ' photographs for today\u2019s class\u2026';
+    }
+    photoSteps.forEach(function(s){ scFetchImages(s.search, s.title + '. ' + s.speech); });
+    STEPS.filter(function(s){ return s.type === 'model3d'; }).forEach(function(s){ sciFetchModel(s.organ); });
+    if (photoSteps.length){
+      // give the first photo a short head start so step 1/2 photos are ready
+      try{ await Promise.race([
+        scFetchImages(photoSteps[0].search, photoSteps[0].title + '. ' + photoSteps[0].speech),
+        new Promise(function(r){ setTimeout(r, 6000); })   // never wait more than 6s
+      ]); }catch(e){}
+    }
+    ov.style.display = 'none';
+    scRender(0);
+  }catch(e){
+    err.textContent = 'Could not prepare the class \u2014 ' + e.message;
+    err.classList.add('on');
+    retry.style.display = 'inline-block';
+  }
+}
+
+document.addEventListener('DOMContentLoaded', scInit);
+</script>
+</body>
+</html>
