@@ -716,6 +716,31 @@ async function tblLoadAccess() {
       btn.setAttribute('data-on', hasAccess ? '1' : '0');
       btn.addEventListener('click', function() { tblToggleAccess(this.getAttribute('data-sid'), this); });
       row.appendChild(btn);
+
+      // Text-based PDF Books switch (default ON)
+      var txtOn = s.has_text_upload !== false;
+      var txtBtn = document.createElement('button');
+      txtBtn.className = txtOn ? 'tbl-acc-on' : 'tbl-acc-off';
+      txtBtn.style.marginLeft = '6px';
+      txtBtn.textContent = txtOn ? 'Text ON' : 'Text OFF';
+      txtBtn.setAttribute('data-sid', s.id);
+      txtBtn.setAttribute('data-src', 'text');
+      txtBtn.setAttribute('data-on', txtOn ? '1' : '0');
+      txtBtn.addEventListener('click', function() { srcToggle(this); });
+      row.appendChild(txtBtn);
+
+      // Image-based Chapter switch (default OFF)
+      var imgOn = s.has_image_upload === true;
+      var imgBtn = document.createElement('button');
+      imgBtn.className = imgOn ? 'tbl-acc-on' : 'tbl-acc-off';
+      imgBtn.style.marginLeft = '6px';
+      imgBtn.textContent = imgOn ? 'Image ON' : 'Image OFF';
+      imgBtn.setAttribute('data-sid', s.id);
+      imgBtn.setAttribute('data-src', 'image');
+      imgBtn.setAttribute('data-on', imgOn ? '1' : '0');
+      imgBtn.addEventListener('click', function() { srcToggle(this); });
+      row.appendChild(imgBtn);
+
       list.appendChild(row);
     });
   } catch(e) { list.innerHTML = 'Error: ' + e.message; }
@@ -733,6 +758,21 @@ async function tblToggleAccess(sid, btn) {
       btn.className = 'tbl-acc-on'; btn.textContent = 'Library ON'; btn.setAttribute('data-on','1');
     }
   } catch(e) { alert('Error: ' + e.message); btn.textContent = isOn ? 'Library ON' : 'Library OFF'; }
+  btn.disabled = false;
+}
+
+async function srcToggle(btn) {
+  var sid = btn.getAttribute('data-sid');
+  var src = btn.getAttribute('data-src');
+  var isOn = btn.getAttribute('data-on') === '1';
+  var label = src === 'text' ? 'Text' : 'Image';
+  btn.disabled = true; btn.textContent = 'Saving...';
+  try {
+    var d = await callAuth({ action: 'set_school_source', school_id: sid, source: src, enabled: !isOn });
+    if (d && d.error) throw new Error(d.error);
+    if (isOn) { btn.className = 'tbl-acc-off'; btn.textContent = label + ' OFF'; btn.setAttribute('data-on','0'); }
+    else { btn.className = 'tbl-acc-on'; btn.textContent = label + ' ON'; btn.setAttribute('data-on','1'); }
+  } catch(e) { alert('Error: ' + e.message); btn.textContent = isOn ? (label + ' ON') : (label + ' OFF'); }
   btn.disabled = false;
 }
 </script>
