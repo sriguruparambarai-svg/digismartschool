@@ -551,10 +551,30 @@ module.exports = async function(req2, res) {
     if (action === 'get_school_sources') {
       const { school_id } = body;
       if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false });
-      const sr = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=has_text_upload,has_image_upload');
-      const row = (sr.data && sr.data[0]) || {};
-      const lr = await req('GET', '/rest/v1/school_library_access?school_id=eq.' + encodeURIComponent(school_id) + '&select=school_id&limit=1');
-      const hasSam = Array.isArray(lr.data) && lr.data.length > 0;
+      // A school can be identified two ways: its short code (school_id text column)
+      // or its system UUID (id column). Admin saves against the UUID, TeachBot may send
+      // the short code. Resolve either form to the same school so both always match.
+      let row = {};
+      let canonicalId = school_id;
+      const byCode = await req('GET', '/rest/v1/schools?school_id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload&limit=1');
+      if (byCode.data && byCode.data[0]) {
+        row = byCode.data[0];
+        canonicalId = row.id;
+      } else if (/^[0-9a-fA-F-]{36}$/.test(school_id)) {
+        // Looks like a UUID — safe to query the id column
+        const byId = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload&limit=1');
+        if (byId.data && byId.data[0]) {
+          row = byId.data[0];
+          canonicalId = row.id;
+        }
+      }
+      // Library access may be stored under either id form — check both to be safe.
+      let hasSam = false;
+      const idsToCheck = [canonicalId, school_id].filter((v, i, a) => v && a.indexOf(v) === i);
+      for (const one of idsToCheck) {
+        const lr = await req('GET', '/rest/v1/school_library_access?school_id=eq.' + encodeURIComponent(one) + '&select=school_id&limit=1');
+        if (Array.isArray(lr.data) && lr.data.length > 0) { hasSam = true; break; }
+      }
       return res.json({
         success: true,
         has_text_upload: row.has_text_upload !== false,
