@@ -46,6 +46,50 @@ module.exports = async function(req2, res) {
 
   try {
 
+    // ── REQUEST PASSWORD RESET (send reset email) ──
+    if (action === 'request_reset') {
+      const { email } = body;
+      if (!email) return res.json({ error: 'Please enter your school email.' });
+      const redirect = 'https://digismartschool.com/reset-password.html';
+      await req('POST', '/auth/v1/recover?redirect_to=' + encodeURIComponent(redirect), { email });
+      // Always report success so we never reveal which emails are registered
+      return res.json({ success: true });
+    }
+
+    // ── CONFIRM PASSWORD RESET (set the new password) ──
+    if (action === 'confirm_reset') {
+      const { access_token, new_password } = body;
+      if (!access_token) return res.json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+      if (!new_password || new_password.length < 6) return res.json({ error: 'Password must be at least 6 characters.' });
+      const key = process.env.SUPABASE_SECRET_KEY;
+      const result = await new Promise((resolve) => {
+        const payload = JSON.stringify({ password: new_password });
+        const rq = https.request({
+          hostname: HOST,
+          path: '/auth/v1/user',
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'apikey': key,
+            'Authorization': 'Bearer ' + access_token,
+            'Content-Length': Buffer.byteLength(payload)
+          }
+        }, resp => {
+          let d = '';
+          resp.on('data', ch => d += ch);
+          resp.on('end', () => {
+            try { resolve({ status: resp.statusCode, data: d ? JSON.parse(d) : {} }); }
+            catch(e) { resolve({ status: resp.statusCode, data: d }); }
+          });
+        });
+        rq.on('error', () => resolve({ status: 0, data: {} }));
+        rq.write(payload);
+        rq.end();
+      });
+      if (result.status === 200) return res.json({ success: true });
+      return res.json({ error: 'This reset link is invalid or has expired. Please request a new one.' });
+    }
+
     // ── LOGIN ──
     if (action === 'login') {
       const { email, password } = body;
