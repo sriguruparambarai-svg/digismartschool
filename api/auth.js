@@ -502,6 +502,71 @@ module.exports = async function(req2, res) {
       return res.json({ success: true });
     }
 
+    // ── SCHOOL CONTENT SOURCES (Text-based / Samacheer / Image-based) ──
+    // Returns which of the three upload sources this school is allowed to use.
+    if (action === 'get_school_sources') {
+      const { school_id } = body;
+      if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false });
+      const sr = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=has_text_upload,has_image_upload');
+      const row = (sr.data && sr.data[0]) || {};
+      const lr = await req('GET', '/rest/v1/school_library_access?school_id=eq.' + encodeURIComponent(school_id) + '&select=school_id&limit=1');
+      const hasSam = Array.isArray(lr.data) && lr.data.length > 0;
+      return res.json({
+        success: true,
+        has_text_upload: row.has_text_upload !== false,
+        has_samacheer: hasSam,
+        has_image_upload: row.has_image_upload === true
+      });
+    }
+
+    // Admin flips a text-based or image-based source on/off for one school.
+    if (action === 'set_school_source') {
+      const { school_id, source, enabled } = body;
+      if (!school_id || !source) return res.json({ error: 'school_id and source required' });
+      const col = source === 'text' ? 'has_text_upload' : (source === 'image' ? 'has_image_upload' : null);
+      if (!col) return res.json({ error: 'invalid source' });
+      const patch = {}; patch[col] = !!enabled;
+      const r = await req('PATCH', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id), patch);
+      if (r.status === 200 || r.status === 204) return res.json({ success: true });
+      const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+      return res.json({ error: 'Update failed: ' + msg });
+    }
+
+    // ── IMAGE-BASED CHAPTERS (scanned PDF read once by AI Vision, reused by all teachers) ──
+    if (action === 'save_image_chapter') {
+      const { school_id, class_name, subject, chapter_number, chapter_title, extracted_text, page_count } = body;
+      if (!school_id || !class_name || !subject || !extracted_text) {
+        return res.json({ error: 'Missing required fields (school_id, class_name, subject, extracted_text).' });
+      }
+      const payload = {
+        id: 'imgch_' + Date.now(),
+        school_id, class_name, subject,
+        chapter_number: chapter_number || '',
+        chapter_title: chapter_title || '',
+        extracted_text,
+        page_count: page_count || 0,
+        created_at: new Date().toISOString()
+      };
+      const r = await req('POST', '/rest/v1/school_image_chapters', payload);
+      if (r.status === 201 || r.status === 200) return res.json({ success: true, chapter: (r.data && r.data[0]) || payload });
+      const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+      return res.json({ error: 'Save failed: ' + msg });
+    }
+
+    if (action === 'get_image_chapters') {
+      const { school_id } = body;
+      if (!school_id) return res.json({ success: true, chapters: [] });
+      const r = await req('GET', '/rest/v1/school_image_chapters?school_id=eq.' + encodeURIComponent(school_id) + '&select=*&order=created_at.desc');
+      return res.json({ success: true, chapters: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    if (action === 'delete_image_chapter') {
+      const { chapter_id } = body;
+      if (!chapter_id) return res.json({ error: 'chapter_id required' });
+      await req('DELETE', '/rest/v1/school_image_chapters?id=eq.' + encodeURIComponent(chapter_id), null);
+      return res.json({ success: true });
+    }
+
     // ── SAVE BOOK RECORD (after browser uploads PDF directly to storage) ──
     if (action === 'save_book_record') {
       const { school_id, book_name, class_name, term, pdf_url, file_path, uploaded_by } = body;
