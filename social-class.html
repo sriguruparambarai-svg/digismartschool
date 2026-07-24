@@ -463,11 +463,22 @@ function scNormaliseStep(s){
 }
 
 /* ── IMAGE FETCH (with prefetch) ── */
+var SC_ILLUSTRATE_MAX = 5;   // classes at/below this get bright AI illustrations; older classes keep real photos
+function scClassNum(){
+  var s = String(LESSON.cls || '').toLowerCase();
+  if (/pre.?kg|lkg|ukg|nursery|\bkg\b/.test(s)) return 0;
+  var m = s.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 99;   // unknown class -> treat as senior (real photos)
+}
+function scImageEndpoint(){
+  return (scClassNum() <= SC_ILLUSTRATE_MAX) ? '/api/gen-image' : '/api/social-images';
+}
+
 function scFetchImages(query, context){
   var key = query.toLowerCase().trim();
   if (SC_IMG_CACHE[key]) return Promise.resolve(SC_IMG_CACHE[key]);
   if (SC_IMG_INFLIGHT[key]) return SC_IMG_INFLIGHT[key];
-  SC_IMG_INFLIGHT[key] = fetch('/api/social-images', {
+  SC_IMG_INFLIGHT[key] = fetch(scImageEndpoint(), {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ query: query, context: context || '' })
@@ -564,7 +575,7 @@ function renderPhoto(inner, step){
       cap.className = 'sc-photo-cap';
       var t = document.createElement('div'); t.className = 'cap-title'; t.textContent = step.title;
       var c = document.createElement('div'); c.className = 'cap-text'; c.textContent = step.caption || '';
-      var s = document.createElement('div'); s.className = 'cap-src'; s.textContent = 'Photo: Wikimedia Commons';
+      var s = document.createElement('div'); s.className = 'cap-src'; s.textContent = (img.source || 'Photo: Wikimedia Commons');
       cap.appendChild(t); cap.appendChild(c); cap.appendChild(s);
       frame.appendChild(cap);
     };
