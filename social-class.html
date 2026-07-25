@@ -630,8 +630,21 @@ function renderDiagram(inner, step){
   var cap = inner.querySelector('.sc-dia-cap');
   if (step.caption){ cap.textContent = step.caption; } else { cap.style.display = 'none'; }
   var img = inner.querySelector('.sc-dia-img');
-  img.onerror = function(){ renderConcept(inner, step); };
-  img.src = '/assets/diagrams/' + step.diagram + '.svg';
+  var scDiaBand = (scClassNum() <= SC_ILLUSTRATE_MAX) ? 'junior' : 'senior';
+  function scDiaGenerate(){                                   // no hand-made override -> generate (or reuse cache)
+    img.onerror = function(){ renderConcept(inner, step); };  // generated image fails -> clean text slide
+    fetch('/api/gen-diagram', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ topic: step.diagram, band: scDiaBand })
+    }).then(function(r){ return r.json(); })
+      .then(function(d){
+        var u = d && d.images && d.images[0] && d.images[0].url;
+        if (u){ img.src = u; } else { renderConcept(inner, step); }
+      })
+      .catch(function(){ renderConcept(inner, step); });
+  }
+  img.onerror = scDiaGenerate;                                // 1) try your hand-made image; if none, generate
+  img.src = '/assets/diagram/' + step.diagram + '.webp';      //    hand-made override lives in assets/diagram/
 }
 
 /* ── HISTORICAL REGION LIBRARY (Phase 2) ──
