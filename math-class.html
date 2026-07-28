@@ -509,6 +509,49 @@ html,body{
 }
 .verification.show{opacity:1;}
 
+/* YOUR TURN practice panel */
+.your-turn{
+  margin-top:20px;
+  padding:16px 20px;
+  background:rgba(201,168,76,.08);
+  border:2px solid var(--chalk-yellow,#f5e87a);
+  border-radius:12px;
+  display:none;
+  opacity:0;
+  transition:opacity .6s;
+}
+.your-turn.show{display:block;opacity:1;}
+.your-turn-title{
+  font-family:'Caveat',cursive;
+  font-size:1.5rem;font-weight:700;
+  color:var(--chalk-yellow,#f5e87a);
+  margin-bottom:8px;
+}
+.your-turn-q{
+  font-family:'Caveat',cursive;
+  font-size:1.45rem;
+  color:#fff;
+  margin-bottom:14px;
+  min-height:1.4em;
+}
+.your-turn-reveal{
+  padding:10px 22px;
+  background:linear-gradient(135deg,#C9A84C,#a8893a);
+  color:#3d1010;
+  border:none;border-radius:10px;
+  font-weight:700;font-size:1rem;
+  cursor:pointer;
+  box-shadow:0 4px 12px rgba(201,168,76,.3);
+}
+.your-turn-ans{
+  margin-top:12px;
+  font-family:'Caveat',cursive;
+  font-size:1.5rem;font-weight:700;
+  color:var(--chalk-yellow,#f5e87a);
+  display:none;
+}
+.your-turn-ans.show{display:block;}
+
 /* Rough work entries */
 .rough-entry{
   font-family:'Caveat',cursive;
@@ -797,6 +840,12 @@ html,body{
       <div class="steps-list" id="steps-list"></div>
       <div class="final-answer" id="final-answer"></div>
       <div class="verification" id="verification"></div>
+      <div class="your-turn" id="your-turn">
+        <div class="your-turn-title">✏️ Your Turn</div>
+        <div class="your-turn-q" id="your-turn-q"></div>
+        <button class="your-turn-reveal" id="your-turn-reveal" onclick="revealPracticeAnswer()">Show Answer</button>
+        <div class="your-turn-ans" id="your-turn-ans"></div>
+      </div>
     </div>
 
     <!-- ROUGH WORK PAD -->
@@ -1074,7 +1123,9 @@ async function solveAndTeach(){
       + '  "figures": [ OPTIONAL - only for line-geometry questions, see FIGURES section below ],\n'
       + '  "finalAnswer": "short final answer e.g. Sum = 820",\n'
       + '  "finalScript": "1 sentence stating the final result (no celebration, just conclusion)",\n'
-      + '  "verificationScript": "OPTIONAL verification, empty string if none"\n'
+      + '  "verificationScript": "OPTIONAL verification, empty string if none",\n'
+      + '  "practiceQuestion": "ONE practice question of the SAME pattern with DIFFERENT numbers, for students to solve on their own (e.g. after sum 1 to 20, give sum 1 to 30). Similar difficulty, never harder. Empty string if no natural variant exists (e.g. proofs).",\n'
+      + '  "practiceAnswer": "final answer ONLY of the practice question, no steps (e.g. Sum = 465). Empty if practiceQuestion is empty."\n'
       + '}\n\n'
       + '════════ ROUGH WORK TYPES ════════\n'
       + '  - "none": no rough work needed\n'
@@ -1300,6 +1351,7 @@ function showClassroom(){
   $('steps-list').innerHTML = '';
   $('final-answer').classList.remove('show');
   $('verification').classList.remove('show');
+  resetYourTurn();
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
 
   // Pre-build step DOM (hidden initially)
@@ -1900,6 +1952,7 @@ function stopClass(){
   $('formula-text').textContent = '';
   $('final-answer').classList.remove('show');
   $('verification').classList.remove('show');
+  resetYourTurn();
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
   updateStepIndicator();
   updateNavButtons();
@@ -1965,6 +2018,7 @@ async function runPlayback(){
     STEP_IDX = SOLUTION.steps.length - 1; // stay on last step
     updateStepIndicator();
     await showFinalAnswer();
+    if(IS_PLAYING) await showYourTurn();
   }
   IS_PLAYING = false;
   $('btn-play').innerHTML = '▶ Play';
@@ -2096,6 +2150,48 @@ async function showFinalAnswer(){
       await speakStep(vScript);
     }
   }
+}
+
+// ═══ YOUR TURN — one practice question, teacher-controlled reveal ═══
+// Spoken lines are built by these two helpers so warmVoices pre-generates
+// EXACTLY the same text speakStep will ask for later (audio cache hit).
+function practiceIntroLine(){
+  return TEACH_LANG === 'mix'
+    ? 'இப்போ your turn. இந்த problem-ஐ notebook-la solve பண்ணுங்க.'
+    : 'Now it is your turn. Solve this problem in your notebook.';
+}
+function practiceAnswerLine(){
+  var a = (SOLUTION && SOLUTION.practiceAnswer) ? SOLUTION.practiceAnswer : '';
+  return 'The answer is: ' + a;
+}
+function resetYourTurn(){
+  var p = $('your-turn');
+  if(!p) return;
+  p.classList.remove('show');
+  $('your-turn-q').textContent = '';
+  $('your-turn-ans').textContent = '';
+  $('your-turn-ans').classList.remove('show');
+  $('your-turn-reveal').style.display = '';
+}
+async function showYourTurn(){
+  // Older saved classes (before this feature) have no practice fields — skip quietly.
+  if(!SOLUTION || !SOLUTION.practiceQuestion || !String(SOLUTION.practiceQuestion).trim()) return;
+  var p = $('your-turn');
+  if(!p) return;
+  p.classList.add('show');
+  p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await chalkWrite($('your-turn-q'), SOLUTION.practiceQuestion, 90);
+  await speakStep(practiceIntroLine());
+  // Then silence — students work. Teacher taps Show Answer when ready.
+}
+async function revealPracticeAnswer(){
+  var a = (SOLUTION && SOLUTION.practiceAnswer) ? String(SOLUTION.practiceAnswer).trim() : '';
+  if(!a) return;
+  $('your-turn-reveal').style.display = 'none';
+  var ansEl = $('your-turn-ans');
+  ansEl.classList.add('show');
+  await chalkWrite(ansEl, '✓ ' + a, 90);
+  await speakStep(practiceAnswerLine());
 }
 
 function addRoughWork(label, roughData){
@@ -2319,6 +2415,12 @@ function collectSpeakLines(sol){
   }
   if(sol.verificationScript || sol.verification){
     add(sol.verificationScript || ('Let us verify our answer. ' + (sol.verification || '')));
+  }
+  if(sol.practiceQuestion && String(sol.practiceQuestion).trim()){
+    add(practiceIntroLine());
+    if(sol.practiceAnswer && String(sol.practiceAnswer).trim()){
+      add('The answer is: ' + sol.practiceAnswer);
+    }
   }
   return lines;
 }
