@@ -904,7 +904,7 @@ var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v2';
+var SOLUTION_VER = 'v3';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1100,6 +1100,29 @@ async function solveAndTeach(){
       + '  step 3  : 3x = 15\n'
       + '  step 4  : x = 15/3\n'
       + '  step 5  : x = 5\n\n'
+      + '════════ VOICE RULES — APPLIES TO BOTH LANGUAGES ════════\n\n'
+      + 'Every step has TWO spoken fields:\n\n'
+      + 'readScript — ALWAYS present. ONE short sentence that reads the written line\n'
+      + 'aloud in words. It says WHAT was just written, never why.\n'
+      + '  step: n = 20            → readScript: "n equals 20."\n'
+      + '  step: S20 = 20(20+1)/2  → readScript: "Substitute 20 in place of n."\n'
+      + '  step: S20 = 20 × 21/2   → readScript: "20 plus 1 equals 21."\n'
+      + '  step: S20 = 420/2       → readScript: "20 into 21 equals 420."\n'
+      + '  step: S20 = 210         → readScript: "420 divided by 2 equals 210."\n\n'
+      + 'whyScript — EMPTY STRING for most steps. Fill it ONLY when the step brings\n'
+      + 'a genuinely NEW idea the student has not seen yet in this problem:\n'
+      + '  - the FIRST substitution into a formula\n'
+      + '  - a rule used for the FIRST time (taking LCM, cancelling, sign change\n'
+      + '    when moving across the equals sign, cross multiplication)\n'
+      + '  - a change of method mid-solution\n'
+      + 'One short sentence stating the reason. Example for step 2 above:\n'
+      + '  whyScript: "We replace n with 20 because the series has 20 terms."\n'
+      + 'Repeating the same kind of move later = whyScript stays EMPTY.\n'
+      + 'A typical 5-step solution has AT MOST 1-2 non-empty whyScript fields.\n\n'
+      + 'In Tamil-mix mode BOTH fields follow the language guide above: numbers,\n'
+      + 'formulas and math terms in English, Tamil only for joining words.\n'
+      + '  readScript: "n place-la 20 substitute பண்றோம்."\n'
+      + '  whyScript:  "Series-la 20 terms இருக்கு, அதனால n equals 20."\n\n'
       + '════════ RETURN THIS EXACT JSON ════════\n\n'
       + '{\n'
       + '  "problem": "clean short problem statement",\n'
@@ -1109,7 +1132,8 @@ async function solveAndTeach(){
       + '  "steps": [\n'
       + '    {\n'
       + '      "main": "ONE atomic math line for blackboard — ONE move only, obeying the STEP RULES above (short, NO English sentences)",\n'
-      + '      "teacherScript": "1-2 sentence intellectual explanation while writing this step. Focus on reasoning.",\n'
+      + '      "readScript": "ONE short sentence reading aloud the line just written, in words. e.g. for S20 = 20(20+1)/2: Substitute 20 in place of n. NOTHING more.",\n'
+      + '      "whyScript": "USUALLY AN EMPTY STRING. Fill ONLY when this step introduces a NEW idea \u2014 see VOICE RULES. One short sentence.",\n'
       + '      "roughLabel": "short label for rough work e.g. Multiplying 40 × 41 (empty if no rough)",\n'
       + '      "roughScript": "1-3 sentence intellectual explanation of the rough calculation.",\n'
       + '      "roughType": "one of: none, add, sub, mul, div, custom",\n'
@@ -1179,12 +1203,10 @@ async function solveAndTeach(){
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
       + '2. main field = ONLY the math expression. NO English sentences on the board.\n'
-      + '3. teacherScript = DIRECT INTELLECTUAL explanation. No filler.\n'
-      + '4. Any 2-digit or larger multiplication → roughType="mul" with numbers.\n'
-      + '5. Any 2-digit or larger division → roughType="div" with numbers.\n'
-      + '   ⚠️ CRITICAL: If a step contains number/number (like 6480/2 or 1640/2), the NEXT step MUST have roughType="div" with roughA=numerator, roughB=denominator, roughResult=answer\n'
-      + '   Example: Step "S80 = 6480/2" → next step "S80 = 3240" MUST have roughType="div", roughA="6480", roughB="2", roughResult="3240", roughLabel="Dividing 6480 by 2"\n'
-      + '   NEVER skip the division rough work — students need to see the long division worked out!\n'
+      + '3. readScript = read the written line aloud, ONE short sentence. whyScript = empty unless a NEW idea appears (see VOICE RULES).\n'
+      + '4. Rough work ONLY for genuinely hard arithmetic. Multiplication: roughType="mul" ONLY when BOTH numbers have 2+ digits (40 × 41 yes; 21 × 2 no).\n'
+      + '5. Division: roughType="div" ONLY when the DIVISOR has 2+ digits (true long division, e.g. 1640 ÷ 25). Dividing by a single digit (420/2, 6480/2) is a plain step with roughType="none" — the readScript alone states the result.\n'
+      + '   Easy arithmetic gets NO rough work and NO extra commentary. Rough work is for calculations students genuinely cannot do mentally.\n'
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
       + '7. Brackets naturally: n(n+1), 40(41), 2(x+3)\n'
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
@@ -2084,9 +2106,13 @@ async function showStep(idx){
   if(!IS_PLAYING) return;
 
   // ── PHASE 2: Teacher speaks about this step (warm, natural script) ──
-  var spoken = step.teacherScript || step.explanation || step.main;
+  var spoken = step.readScript || step.teacherScript || step.explanation || step.main;
   await speakStep(spoken);
   if(!IS_PLAYING) return;
+  if(step.whyScript && String(step.whyScript).trim()){
+    await speakStep(step.whyScript);
+    if(!IS_PLAYING) return;
+  }
 
   // ── PHASE 3: If this step has rough work, do it with teacher explanation ──
   var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
@@ -2413,7 +2439,8 @@ function collectSpeakLines(sol){
     add(sol.formulaScript || ("First, let us remember the formula we need. " + sol.formula));
   }
   (sol.steps || []).forEach(function(step){
-    add(step.teacherScript || step.explanation || step.main);
+    add(step.readScript || step.teacherScript || step.explanation || step.main);
+    if(step.whyScript && String(step.whyScript).trim()) add(step.whyScript);
     var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
     if(!hasRough) return;
     if(step.roughType === 'mul' || step.roughType === 'div'){
@@ -2640,7 +2667,7 @@ async function explainTamil(){
 
     // Build the step context for Tamil explanation
     var stepText = currentStep.main;
-    var teacherContext = currentStep.teacherScript || currentStep.explanation || '';
+    var teacherContext = currentStep.readScript || currentStep.teacherScript || currentStep.explanation || '';
     var problemContext = (SOLUTION && SOLUTION.problem) || '';
 
     // Tamil-only explanation for English medium students
