@@ -922,7 +922,7 @@ var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v6';
+var SOLUTION_VER = 'v7';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1233,7 +1233,7 @@ async function solveAndTeach(){
       + '4. Rough work ONLY for genuinely hard arithmetic. Multiplication: roughType="mul" ONLY when BOTH numbers have 2+ digits (40 × 41 yes; 21 × 2 no).\n'
       + '5. Division: roughType="div" ONLY when the DIVISOR has 2+ digits (true long division, e.g. 1640 ÷ 25). Dividing by a single digit (420/2, 6480/2) is a plain step with roughType="none" — the readScript alone states the result.\n'
       + '   Easy arithmetic gets NO rough work and NO extra commentary. Rough work is for calculations students genuinely cannot do mentally.\n'
-      + '5c. Place-value questions (X hundreds, Y tens, Z ones → numeral and number name): step 1 = the expansion (3 hundreds + 0 tens + 5 ones = 300 + 0 + 5), step 2 = the total (300 + 0 + 5 = 305) with roughAddends="300,0,5" so the stacked working teaches it, step 3 = Numeral: 305; Number name: Three hundred and five.\n'
+      + '5c. Place-value questions (X hundreds, Y tens, Z ones → numeral and number name): step 1 = the expansion (3 hundreds + 0 tens + 5 ones = 300 + 0 + 5), step 2 = the total (300 + 0 + 5 = 305) with roughAddends="300,0,5" AND roughType="add" so the stacked working teaches it, step 3 = Numeral: 305; Number name: Three hundred and five.\n'
       + '5d. Number names ALWAYS in Indian English with "and" after the hundreds: "Four hundred and sixty-eight", "Three hundred and five", "One thousand and forty". NEVER American style without "and".\n'
       + '5b. Addition or subtraction where BOTH numbers have 2+ digits (e.g. 12915 + 69311) → the RESULT step MUST have roughType="add" (or "sub") with roughA, roughB, roughResult. The column working with carries/borrowing is then DRAWN and NARRATED automatically — you do NOT write the digit-by-digit explanation yourself. For multi-part questions (a, b, c...), EVERY part gets this: one step showing the expression, one step showing the result with the roughType set.\n'
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
@@ -2123,7 +2123,7 @@ async function showStep(idx){
 
   // ── PHASE 1: Rough working FIRST — the teacher works it out at the side,
   // THEN writes the step line on the board as its conclusion.
-  var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
+  var hasRough = (step.roughType && step.roughType !== 'none' && step.roughType !== '') || (step.roughAddends && parseAddends(step.roughAddends));
   if(hasRough){
     // Small pause before starting rough work
     await sleep(500);
@@ -2738,7 +2738,7 @@ function collectSpeakLines(sol){
   (sol.steps || []).forEach(function(step){
     add(step.readScript || step.teacherScript || step.explanation || step.main);
     if(step.whyScript && String(step.whyScript).trim()) add(step.whyScript);
-    var hasRough = step.roughType && step.roughType !== 'none' && step.roughType !== '';
+    var hasRough = (step.roughType && step.roughType !== 'none' && step.roughType !== '') || (step.roughAddends && parseAddends(step.roughAddends));
     if(!hasRough) return;
     if(step.roughType === 'mul' || step.roughType === 'div'){
       add(step.roughScript && step.roughScript.trim()
