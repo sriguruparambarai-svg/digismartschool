@@ -1241,6 +1241,13 @@ document.addEventListener('DOMContentLoaded', function() {
           <span style="color:#666;">to</span>
           <input type="number" id="ap-end-page" min="1" placeholder="End page" style="width:100px;padding:8px;"/>
         </div>
+        <div id="ap-subject-ranges" style="margin:6px 0;"></div>
+        <button type="button" class="btn btn-outline btn-sm" onclick="addAPSubjectRange()" style="margin-bottom:4px;">
+          ➕ Add page range for a specific subject
+        </button>
+        <div style="font-size:0.78rem;color:#999;font-style:italic;margin-bottom:10px;">
+          Use this if different subjects' contents pages are in different places in the same uploaded book (e.g. English pages 2–4, Maths pages 90–92).
+        </div>
         <label style="margin-top:10px;display:block;">Or paste chapter list / table of contents here:</label>
         <textarea id="ap-book-content" rows="5" placeholder="Example:
 Tamil — Ch 1: வணக்கம், Ch 2: என் பள்ளி, Ch 3: விலங்குகள்...
@@ -3150,6 +3157,49 @@ function jumpToWeeklyFromMonthly(weekNum) {
   document.getElementById('lp-weekly-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
+// ── ANNUAL PLANNER: per-subject page ranges ──
+// Lets a teacher cut MULTIPLE page ranges out of the SAME uploaded book — one range per
+// subject — for cases where each subject's contents page sits in a different part of the
+// same combined PDF. Existing single Start/End page box above still works as before when
+// no subject-specific rows are added (nothing about that flow changes).
+var apSubjectRangeCount = 0;
+function addAPSubjectRange() {
+  var subjects = [];
+  document.querySelectorAll('#ap-subjects-wrap input[type=checkbox]:checked').forEach(function(cb) {
+    subjects.push(cb.value);
+  });
+  if (!subjects.length) { alert('Please tick at least one subject above first.'); return; }
+
+  apSubjectRangeCount++;
+  var rowId = 'ap-subj-range-' + apSubjectRangeCount;
+  var row = document.createElement('div');
+  row.id = rowId;
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap;background:var(--bg-light);padding:8px 10px;border-radius:8px;';
+  row.innerHTML =
+    '<select class="ap-range-subject" style="padding:8px;border-radius:6px;border:1.5px solid #ddd;">' +
+      subjects.map(function(s) { return '<option value="' + s + '">' + s + '</option>'; }).join('') +
+    '</select>' +
+    '<input type="number" class="ap-range-start" min="1" placeholder="Start page" style="width:100px;padding:8px;"/>' +
+    '<span style="color:#666;">to</span>' +
+    '<input type="number" class="ap-range-end" min="1" placeholder="End page" style="width:100px;padding:8px;"/>' +
+    '<button type="button" onclick="document.getElementById(\'' + rowId + '\').remove()" ' +
+      'style="background:none;border:none;color:#b00;font-size:1.1rem;cursor:pointer;padding:0 6px;" title="Remove">✕</button>';
+  document.getElementById('ap-subject-ranges').appendChild(row);
+}
+
+// Reads the filled-in subject rows (skips any row left blank)
+function collectAPSubjectRanges() {
+  var rows = document.querySelectorAll('#ap-subject-ranges > div');
+  var ranges = [];
+  rows.forEach(function(row) {
+    var subject = row.querySelector('.ap-range-subject').value;
+    var start = row.querySelector('.ap-range-start').value;
+    var end = row.querySelector('.ap-range-end').value;
+    if (subject && start && end) ranges.push({ subject: subject, start: start, end: end });
+  });
+  return ranges;
+}
+
 // ══ ANNUAL PLAN GENERATOR ══
 async function generateAnnualPlan() {
   var cls    = document.getElementById('ap-class').value;
@@ -3161,8 +3211,20 @@ async function generateAnnualPlan() {
   var notes  = document.getElementById('ap-notes').value;
   var bookContent = document.getElementById('ap-book-content').value.trim();
   var apFileInput = document.getElementById('ap-file');
-  var pdfFile = apFileInput && apFileInput.files && apFileInput.files[0] ? apFileInput.files[0] : null;
-  pdfFile = await extractPdfPageRange(pdfFile, document.getElementById('ap-start-page').value, document.getElementById('ap-end-page').value);
+  var originalPdfFile = apFileInput && apFileInput.files && apFileInput.files[0] ? apFileInput.files[0] : null;
+  var apSubjectRanges = collectAPSubjectRanges();
+  var pdfFile = null;          // used when there's just ONE range for the whole file (old behaviour)
+  var subjectPdfDocs = [];     // used when the teacher added per-subject ranges — [{subject, file}]
+
+  if (originalPdfFile && apSubjectRanges.length) {
+    for (var ri = 0; ri < apSubjectRanges.length; ri++) {
+      var rg = apSubjectRanges[ri];
+      var trimmedFile = await extractPdfPageRange(originalPdfFile, rg.start, rg.end);
+      subjectPdfDocs.push({ subject: rg.subject, file: trimmedFile });
+    }
+  } else if (originalPdfFile) {
+    pdfFile = await extractPdfPageRange(originalPdfFile, document.getElementById('ap-start-page').value, document.getElementById('ap-end-page').value);
+  }
 
   if (!cls) { alert('Please select a Class.'); return; }
 
@@ -3192,6 +3254,8 @@ async function generateAnnualPlan() {
 
   var bookSection = bookContent
     ? '\n\nSYLLABUS / TABLE OF CONTENTS PROVIDED BY TEACHER:\n' + bookContent.substring(0, 6000) + '\n\nUse the above syllabus as the primary reference for chapter names and order. Do not use generic chapter names if actual chapter names are provided above.'
+    : subjectPdfDocs.length
+    ? '\n\nSee the attached PDF documents below — each one is labeled with the subject it belongs to (cut from different pages of the same uploaded book). Read each one carefully and use the EXACT chapter names and order from it for that subject. Do not use generic chapter names for any subject that has an attached document.'
     : pdfFile
     ? '\n\nSee the attached PDF document for the syllabus / table of contents — read it carefully and use the EXACT chapter names and order from it. Do not use generic chapter names.'
     : '\n\nUse standard ' + board + ' syllabus chapter names for ' + cls + '.';
@@ -3224,7 +3288,16 @@ async function generateAnnualPlan() {
     loadTxt.textContent = 'AI is building your full-year plan... this takes about 30 seconds.';
 
     var messages;
-    if (pdfFile) {
+    if (subjectPdfDocs.length) {
+      var multiContent = [];
+      for (var di = 0; di < subjectPdfDocs.length; di++) {
+        var docB64 = await fileToBase64(subjectPdfDocs[di].file);
+        multiContent.push({ type: 'text', text: 'The following document is the ' + subjectPdfDocs[di].subject.toUpperCase() + ' table of contents:' });
+        multiContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: docB64 } });
+      }
+      multiContent.push({ type: 'text', text: prompt });
+      messages = [{ role: 'user', content: multiContent }];
+    } else if (pdfFile) {
       var base64 = await fileToBase64(pdfFile);
       messages = [{
         role: 'user',
