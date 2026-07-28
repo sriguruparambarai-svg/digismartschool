@@ -163,7 +163,9 @@ module.exports = async (req, res) => {
       voice_settings: voiceSettings
     });
 
-    const audioBuffer = await new Promise((resolve, reject) => {
+    // One internal retry: a momentary ElevenLabs refusal (rate limit / hiccup)
+    // waits 600ms and tries once more before failing the whole request.
+    const requestElevenLabs = () => new Promise((resolve, reject) => {
       const options = {
         hostname: 'api.elevenlabs.io',
         path: `/v1/text-to-speech/${voiceId}`,
@@ -195,6 +197,14 @@ module.exports = async (req, res) => {
       req2.write(payload);
       req2.end();
     });
+
+    let audioBuffer;
+    try {
+      audioBuffer = await requestElevenLabs();
+    } catch (firstErr) {
+      await new Promise((r) => setTimeout(r, 600));
+      audioBuffer = await requestElevenLabs();
+    }
 
     // ---- SAVE TO CACHE so the next play of this line is free ----
     if (supaKey) {
