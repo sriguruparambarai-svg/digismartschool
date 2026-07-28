@@ -922,7 +922,7 @@ var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v5';
+var SOLUTION_VER = 'v6';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1165,6 +1165,7 @@ async function solveAndTeach(){
       + '      "roughA": "first number e.g. 40",\n'
       + '      "roughB": "second number e.g. 41",\n'
       + '      "roughResult": "the result e.g. 1640",\n'
+      + '      "roughAddends": "ONLY for place-value sums of 2-6 numbers: comma list of the expanded values, e.g. 400,60,8 or 300,0,5. Empty otherwise. When set, the stacked column working is drawn and narrated by place names automatically.",\n'
       + '      "roughCustom": "only used if roughType is custom",\n'
       + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
       + '    }\n'
@@ -1232,6 +1233,8 @@ async function solveAndTeach(){
       + '4. Rough work ONLY for genuinely hard arithmetic. Multiplication: roughType="mul" ONLY when BOTH numbers have 2+ digits (40 × 41 yes; 21 × 2 no).\n'
       + '5. Division: roughType="div" ONLY when the DIVISOR has 2+ digits (true long division, e.g. 1640 ÷ 25). Dividing by a single digit (420/2, 6480/2) is a plain step with roughType="none" — the readScript alone states the result.\n'
       + '   Easy arithmetic gets NO rough work and NO extra commentary. Rough work is for calculations students genuinely cannot do mentally.\n'
+      + '5c. Place-value questions (X hundreds, Y tens, Z ones → numeral and number name): step 1 = the expansion (3 hundreds + 0 tens + 5 ones = 300 + 0 + 5), step 2 = the total (300 + 0 + 5 = 305) with roughAddends="300,0,5" so the stacked working teaches it, step 3 = Numeral: 305; Number name: Three hundred and five.\n'
+      + '5d. Number names ALWAYS in Indian English with "and" after the hundreds: "Four hundred and sixty-eight", "Three hundred and five", "One thousand and forty". NEVER American style without "and".\n'
       + '5b. Addition or subtraction where BOTH numbers have 2+ digits (e.g. 12915 + 69311) → the RESULT step MUST have roughType="add" (or "sub") with roughA, roughB, roughResult. The column working with carries/borrowing is then DRAWN and NARRATED automatically — you do NOT write the digit-by-digit explanation yourself. For multi-part questions (a, b, c...), EVERY part gets this: one step showing the expression, one step showing the result with the roughType set.\n'
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
       + '7. Brackets naturally: n(n+1), 40(41), 2(x+3)\n'
@@ -2138,6 +2141,11 @@ async function showStep(idx){
       };
     }
 
+    // Place-value stack (multi-number addition) — checked first
+    if(step.roughAddends && parseAddends(step.roughAddends)){
+      await animateColumnStack(step);
+      if(!IS_PLAYING) return;
+    } else
     // For mul/div — use animated row-by-row reveal WITH voice narration per line
     if(step.roughType === 'mul' || step.roughType === 'div'){
       // Show label + start writing FIRST row immediately (no silent blank screen)
@@ -2373,6 +2381,119 @@ function computeSubColumns(a, b){
     }
   }
   return { A: A, B: B, R: R, width: w, cols: cols };
+}
+// ═══ PLACE-VALUE STACK (multi-number column addition) ═══
+// For expansions like 300 + 0 + 5 — draws the numbers stacked by place and
+// teaches column by column using place NAMES (Ones, Tens, Hundreds...).
+var PLACE_NAMES = ['Ones', 'Tens', 'Hundreds', 'Thousands', 'Ten thousands', 'Lakhs', 'Ten lakhs', 'Crores'];
+function parseAddends(raw){
+  if(!raw) return null;
+  var parts = String(raw).split(/[,+]/).map(function(p){ return p.trim(); }).filter(Boolean);
+  if(parts.length < 2 || parts.length > 6) return null;
+  var nums = [];
+  for(var i = 0; i < parts.length; i++){
+    var n = parseInt(parts[i], 10);
+    if(isNaN(n) || n < 0 || String(n) !== parts[i]) return null;
+    nums.push(n);
+  }
+  return nums;
+}
+function placePrefix(i){
+  var name = PLACE_NAMES[i] || ('Place ' + (i + 1));
+  return colJoin(name + ' place: ', name + ' place-la ');
+}
+function writePhrase(d, carryOut){
+  return carryOut
+    ? colJoin(' Write ' + d + ', carry 1.', ' ' + d + ' எழுதறோம், carry 1.')
+    : colJoin(' Write ' + d + '.', ' ' + d + ' எழுதறோம்.');
+}
+function computeStackColumns(addends){
+  var strs = addends.map(String);
+  var total = addends.reduce(function(s, n){ return s + n; }, 0);
+  var R = String(total);
+  var nCols = Math.max.apply(null, strs.map(function(s){ return s.length; }));
+  var cols = [], carry = 0;
+  for(var i = 0; i < nCols; i++){
+    // digits of each addend in this column, keeping only the non-zero ones for speech
+    var digs = [];
+    strs.forEach(function(s){
+      var d = i < s.length ? +s[s.length - 1 - i] : 0;
+      if(d !== 0) digs.push(d);
+    });
+    var sum = digs.reduce(function(a, b){ return a + b; }, 0) + carry;
+    var isLast = (i === nCols - 1);
+    var write = isLast ? String(sum) : String(sum % 10);
+    var carryOut = (!isLast && sum >= 10) ? 1 : 0;
+    var spokenParts = [];
+    if(carry) spokenParts.push('carry 1');
+    digs.forEach(function(d){ spokenParts.push(String(d)); });
+    var narr;
+    if(spokenParts.length === 0){
+      narr = placePrefix(i) + '0.' + writePhrase('0', 0);
+    } else if(spokenParts.length === 1){
+      narr = placePrefix(i) + spokenParts[0] + '.' + writePhrase(write, carryOut);
+    } else {
+      narr = placePrefix(i) + spokenParts.join(' plus ') + ' equals ' + sum + '.' + writePhrase(carryOut ? String(sum % 10) : write, carryOut);
+    }
+    cols.push({ write: write, carryOut: carryOut, narrate: narr });
+    carry = carryOut;
+  }
+  return { strs: strs, R: R, nCols: nCols, cols: cols };
+}
+async function animateColumnStack(step){
+  var addends = parseAddends(step.roughAddends);
+  if(!addends) return;
+  var data = computeStackColumns(addends);
+  var w = Math.max(data.nCols, data.R.length) + 1; // +1 col for the plus sign
+  var rc = $('rough-content');
+  var empty = rc.querySelector('.rough-empty');
+  if(empty) empty.remove();
+
+  var entry = document.createElement('div');
+  entry.className = 'rough-entry';
+  entry.innerHTML = '<span class="rough-label-inline">'
+    + escapeHtml(step.roughLabel || 'Adding by place value') + '</span>';
+  var wrap = document.createElement('div');
+  wrap.className = 'colcalc';
+  var carryRow = colCellsRow('colcalc-carry', null, w);
+  wrap.appendChild(carryRow);
+  data.strs.forEach(function(s, rowIdx){
+    var chars = padCols(s, w);
+    if(rowIdx === data.strs.length - 1) chars[0] = '+';
+    wrap.appendChild(colCellsRow(rowIdx === data.strs.length - 1 ? 'colcalc-op' : 'colcalc-top', chars, w));
+  });
+  var line = document.createElement('div'); line.className = 'colcalc-line';
+  var resRow = colCellsRow('colcalc-result', null, w);
+  wrap.appendChild(line); wrap.appendChild(resRow);
+  entry.appendChild(wrap);
+  rc.appendChild(entry);
+  setTimeout(function(){ entry.classList.add('show'); }, 50);
+  rc.parentElement.scrollTop = rc.parentElement.scrollHeight;
+
+  await speakStep(stackIntroLine(step.roughScript));
+  if(!IS_PLAYING) return;
+
+  var resCells = resRow.children, carryCells = carryRow.children;
+  for(var i = 0; i < data.cols.length; i++){
+    if(!IS_PLAYING) return;
+    var col = data.cols[i];
+    // Voice FIRST — then the digit and carry appear
+    await speakStep(col.narrate);
+    if(!IS_PLAYING) return;
+    var write = col.write;
+    for(var k = 0; k < write.length; k++){
+      resCells[w - 1 - i - (write.length - 1 - k)].textContent = write[k];
+    }
+    if(col.carryOut){
+      carryCells[w - 2 - i].textContent = '1';
+    }
+    await sleep(250);
+  }
+  await speakStep(colAnswerLine(data.R));
+}
+function stackIntroLine(roughScript){
+  if(roughScript && String(roughScript).trim()) return String(roughScript);
+  return colJoin('Now let us add by place value.', 'இப்போ place value-படி add பண்றோம்.');
 }
 function colIntroLine(type, a, b, roughScript){
   if(roughScript && String(roughScript).trim()) return String(roughScript);
@@ -2631,6 +2752,13 @@ function collectSpeakLines(sol){
           : computeDivisionRows(step.roughA, step.roughB, step.roughResult);
         (rows || []).forEach(function(r){ if(r && r.narrate && r.narrate.trim()) add(r.narrate); });
       }catch(rowErr){}
+    } else if(step.roughAddends && parseAddends(step.roughAddends)){
+      try{
+        var sdata = computeStackColumns(parseAddends(step.roughAddends));
+        add(stackIntroLine(step.roughScript));
+        sdata.cols.forEach(function(col){ add(col.narrate); });
+        add(colAnswerLine(sdata.R));
+      }catch(stackErr){ add(step.roughScript || step.roughExplain); }
     } else if((step.roughType === 'add' || step.roughType === 'sub')
               && columnEligible(step.roughA, step.roughB, step.roughType)){
       try{
