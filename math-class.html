@@ -1104,7 +1104,7 @@ async function solveAndTeach(){
       + '{\n'
       + '  "problem": "clean short problem statement",\n'
       + '  "intro": "1-2 sentence intro reading the problem clearly (direct, no chatter)",\n'
-      + '  "formula": "ONLY a standard known formula/identity that is USED as a tool to solve (e.g. sum of GP: a(r^n - 1)/(r - 1)). NEVER the final answer, NEVER a result you derive in the steps. For derivation questions (find the sum to n terms, prove that), show the STARTING formula. Empty string if no standard formula applies.",\n'
+      + '  "formula": "ONLY a standard textbook formula/identity in its GENERAL form with letter variables. ACCEPT: Sn = n(n+1)/2 | an = a + (n-1)d | A = l \u00d7 b | a(r^n - 1)/(r - 1). REJECT: any line with numbers already substituted (20(20+1)/2 is a STEP, not a formula) | any line that repeats a step | the final answer. For derivation questions show the STARTING formula. Empty string if no standard formula applies \u2014 an empty formula is CORRECT for direct arithmetic.",\n'
       + '  "formulaScript": "1-2 sentence intellectual introduction of the formula",\n'
       + '  "steps": [\n'
       + '    {\n'
@@ -1979,6 +1979,28 @@ function pausePlayback(){
   pauseClass();
 }
 
+// \u2550\u2550\u2550 FORMULA GUARD \u2550\u2550\u2550
+// The Formula box must only ever show a real general formula. If the AI puts a
+// substituted step or the answer there, the box stays hidden and the class runs on.
+function isRealFormula(f, sol){
+  if(!f || !String(f).trim()) return false;
+  var s = String(f).trim();
+  // Look at the right side of the last "=" (or the whole string if no "=").
+  // A real formula has letter variables there; a substituted line has only numbers.
+  var parts = s.split('=');
+  var rhs = parts.length > 1 ? parts[parts.length - 1] : s;
+  if(!/[a-zA-Z\u03b1-\u03c9\u03c0\u03b8]/.test(rhs)) return false;
+  // Reject if it duplicates a step line or the final answer (ignoring spaces).
+  var norm = function(t){ return String(t || '').replace(/\s+/g, ''); };
+  var nf = norm(s);
+  if(sol && sol.finalAnswer && norm(sol.finalAnswer) === nf) return false;
+  var steps = (sol && sol.steps) || [];
+  for(var i = 0; i < steps.length; i++){
+    if(norm(steps[i].main) === nf) return false;
+  }
+  return true;
+}
+
 async function runPlayback(){
   // If just started (STEP_IDX === -1), show problem + formula first
   if(STEP_IDX === -1){
@@ -1988,7 +2010,7 @@ async function runPlayback(){
     if(!IS_PLAYING) return;
 
     // Show formula if exists
-    if(SOLUTION.formula && SOLUTION.formula.trim()){
+    if(isRealFormula(SOLUTION.formula, SOLUTION)){
       $('formula-block').classList.add('show');
       await chalkWrite($('formula-text'), SOLUTION.formula, 90);
       if(!IS_PLAYING) return;
@@ -2333,7 +2355,7 @@ function replayStep(){
 
 function showStepInstant(idx){
   // Show all steps up to idx without speech but with proper chalk text
-  if(SOLUTION.formula && SOLUTION.formula.trim()){
+  if(isRealFormula(SOLUTION.formula, SOLUTION)){
     $('formula-text').textContent = SOLUTION.formula;
     $('formula-block').classList.add('show');
   }
@@ -2387,7 +2409,7 @@ function collectSpeakLines(sol){
   var lines = [];
   function add(t){ if(t && String(t).trim()) lines.push(String(t)); }
   add(sol.intro || ("Let us solve this problem together. The problem is: " + sol.problem));
-  if(sol.formula && sol.formula.trim()){
+  if(isRealFormula(sol.formula, sol)){
     add(sol.formulaScript || ("First, let us remember the formula we need. " + sol.formula));
   }
   (sol.steps || []).forEach(function(step){
