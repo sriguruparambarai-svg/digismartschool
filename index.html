@@ -2319,6 +2319,11 @@ async function extractPdfPageRange(file, startPageVal, endPageVal) {
 
 // ── CALL AI (optionally attach a PDF directly, same method as Book Back Answers) ──
 async function callAI(prompt, loadId, maxTok, pdfFile) {
+  prompt = prompt + '\n\nOUTPUT FORMAT (very important):\n'
+    + 'Write the whole answer in PLAIN TEXT only.\n'
+    + 'Do NOT use markdown. No asterisks (* or **) for bold or bullets, no # for headings, no backticks.\n'
+    + 'For a heading, just write it in CAPITAL LETTERS on its own line.\n'
+    + 'For lists use plain numbers (1. 2. 3.) or a dash (-).';
   document.getElementById(loadId).classList.add('show');
   try {
     let messages;
@@ -2356,6 +2361,7 @@ async function callAI(prompt, loadId, maxTok, pdfFile) {
 }
 
 function showOutput(outId, actionsId, text, tool) {
+  text = cleanMarkdown(text);
   const out = document.getElementById(outId);
   // Render as formatted HTML for printable tools
   if (tool === 'reportcard') {
@@ -2385,6 +2391,22 @@ function renderGeneral(text) {
 
 function escHtml(t) {
   return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Removes markdown symbols (**bold**, *italic*, # headings, `code`) from AI output.
+// Underscores are NOT touched, so fill-in-the-blank lines stay safe.
+function cleanMarkdown(t) {
+  if (t === null || t === undefined) return '';
+  return String(t)
+    .replace(/\*\*\*(.+?)\*\*\*/g, '$1')       // ***text***
+    .replace(/\*\*(.+?)\*\*/g, '$1')            // **text**
+    .replace(/^\s*\*\s+/gm, '\u2022 ')           // "* item" bullet -> "• item"
+    .replace(/\*(\S(?:.*?\S)?)\*/g, '$1')        // *text*  (leaves 2*3 alone)
+    .replace(/\*\*/g, '')                        // any leftover ** pair
+    .replace(/(^|\s)\*(?=\s|$)/gm, '$1')         // stray lone *
+    .replace(/^#{1,6}\s*/gm, '')                 // # ## ### headings
+    .replace(/```+/g, '')                        // code fences
+    .replace(/`([^`]+)`/g, '$1');                // `inline code`
 }
 
 function renderReportCard(text) {
@@ -2500,7 +2522,7 @@ function renderObjective(text) {
       qNum++;
       html += '<div style="background:white;border:1px solid #E8C96A;border-radius:10px;padding:12px 14px;margin-bottom:8px;"><div style="font-weight:700;font-size:0.95rem;margin-bottom:6px;color:#4A0A12;">'+escHtml(l)+'</div>';
     } else if (l.match(/^[a-d][\.\)]\s/i)) {
-      var isCorrect = l.includes('✓') || l.includes('*');
+      var isCorrect = l.includes('✓');
       html += '<div style="padding:4px 8px;font-size:0.88rem;'+(isCorrect?'color:#2e7d32;font-weight:700;':'color:#333;')+'">'+escHtml(l)+'</div>';
       if (l.match(/^d[\.\)]/i)) html += '</div>'; // close question card after option d
     } else if (l.match(/^(True|False|TRUE|FALSE)/)) {
