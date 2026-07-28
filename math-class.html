@@ -575,6 +575,24 @@ html,body{
 .rough-entry.show{opacity:1;transform:translateX(0);}
 
 /* Vertical multiplication / division column format */
+/* Column addition / subtraction (digit cells) */
+.colcalc{margin-top:6px;}
+.colcalc-row{display:flex;justify-content:flex-end;}
+.colcalc-cell{
+  width:1.35em;text-align:center;
+  font-family:'Caveat',cursive;font-size:1.45rem;font-weight:600;
+  color:#fff;
+}
+.colcalc-carry .colcalc-cell{
+  font-size:1rem;color:var(--chalk-yellow,#f5e87a);height:1.1em;
+}
+.colcalc-adjust .colcalc-cell{
+  font-size:1rem;color:var(--chalk-yellow,#f5e87a);height:1.1em;
+}
+.colcalc-cell.struck{text-decoration:line-through;opacity:.55;}
+.colcalc-op .colcalc-cell:first-child{color:var(--chalk-yellow,#f5e87a);}
+.colcalc-line{border-top:2px solid rgba(255,255,255,.7);margin:3px 0;}
+.colcalc-result .colcalc-cell{color:var(--chalk-yellow,#f5e87a);}
 .calc-vertical{
   font-family:'Courier New','Consolas',monospace;
   font-size:1.35rem;
@@ -904,7 +922,7 @@ var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v4';
+var SOLUTION_VER = 'v5';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1214,6 +1232,7 @@ async function solveAndTeach(){
       + '4. Rough work ONLY for genuinely hard arithmetic. Multiplication: roughType="mul" ONLY when BOTH numbers have 2+ digits (40 × 41 yes; 21 × 2 no).\n'
       + '5. Division: roughType="div" ONLY when the DIVISOR has 2+ digits (true long division, e.g. 1640 ÷ 25). Dividing by a single digit (420/2, 6480/2) is a plain step with roughType="none" — the readScript alone states the result.\n'
       + '   Easy arithmetic gets NO rough work and NO extra commentary. Rough work is for calculations students genuinely cannot do mentally.\n'
+      + '5b. Addition or subtraction where BOTH numbers have 2+ digits (e.g. 12915 + 69311) → the RESULT step MUST have roughType="add" (or "sub") with roughA, roughB, roughResult. The column working with carries/borrowing is then DRAWN and NARRATED automatically — you do NOT write the digit-by-digit explanation yourself. For multi-part questions (a, b, c...), EVERY part gets this: one step showing the expression, one step showing the result with the roughType set.\n'
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
       + '7. Brackets naturally: n(n+1), 40(41), 2(x+3)\n'
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
@@ -2167,8 +2186,13 @@ async function showStep(idx){
       // Ensure intro voice also finishes
       await introPromise;
       if(!IS_PLAYING) return;
+    } else if((step.roughType === 'add' || step.roughType === 'sub')
+              && columnEligible(step.roughA, step.roughB, step.roughType)){
+      // Column addition / subtraction — digit by digit with carries or borrowing
+      await animateColumnAddSub(step);
+      if(!IS_PLAYING) return;
     } else {
-      // For add/sub/custom — instant render with single narration
+      // For simple add/sub/custom — instant render with single narration
       addRoughWork(step.roughLabel || 'Rough working', roughData);
       var roughText = step.roughScript || step.roughExplain;
       if(roughText && roughText.trim()){
@@ -2287,6 +2311,148 @@ function addRoughWork(label, roughData){
 // ANIMATED ROUGH WORK — reveals row by row with chalk writing + narration
 // Used for mul/div where step-by-step reveal helps student concentration
 // ═══════════════════════════════════════════
+// ═══ COLUMN ADDITION / SUBTRACTION ENGINE ═══
+// Digit-by-digit column working with carries (add) and borrowing (sub).
+// Narration is COMPUTED by code, never by the AI — it can never skip a column.
+function columnEligible(a, b, type){
+  var A = parseInt(a, 10), B = parseInt(b, 10);
+  if(isNaN(A) || isNaN(B) || A < 0 || B < 0) return false;
+  if(String(A) !== String(a).trim() || String(B) !== String(b).trim()) return false;
+  if(type === 'sub' && A < B) return false;
+  return String(A).length >= 2 && String(B).length >= 2;
+}
+function colJoin(en, mix){ return TEACH_LANG === 'mix' ? mix : en; }
+function computeAddColumns(a, b){
+  var A = String(parseInt(a, 10)), B = String(parseInt(b, 10));
+  var R = String(parseInt(a, 10) + parseInt(b, 10));
+  var w = Math.max(A.length, B.length, R.length);
+  var cols = [], carry = 0;
+  for(var i = 0; i < Math.max(A.length, B.length); i++){
+    var d1 = i < A.length ? +A[A.length - 1 - i] : 0;
+    var d2 = i < B.length ? +B[B.length - 1 - i] : 0;
+    var s = d1 + d2 + carry;
+    var isLast = (i === Math.max(A.length, B.length) - 1);
+    var write = isLast ? String(s) : String(s % 10);
+    var carryOut = (!isLast && s >= 10) ? 1 : 0;
+    var narr = (carry ? 'Carry 1, plus ' + d1 : String(d1)) + ' plus ' + d2 + ' equals ' + s + '.';
+    if(carryOut){
+      narr += colJoin(' Write ' + (s % 10) + ', carry 1.', ' ' + (s % 10) + ' எழுதறோம், carry 1.');
+    }
+    cols.push({ write: write, carryOut: carryOut, narrate: narr });
+    carry = carryOut;
+  }
+  return { A: A, B: B, R: R, width: w, cols: cols };
+}
+function computeSubColumns(a, b){
+  var A = String(parseInt(a, 10)), B = String(parseInt(b, 10));
+  var R = String(parseInt(a, 10) - parseInt(b, 10));
+  var w = Math.max(A.length, B.length);
+  var top = A.split('').map(Number);          // working copy, mutated by borrows
+  var adjusts = new Array(A.length).fill(null); // adjusted digit shown above, per index
+  var cols = [];
+  for(var i = 0; i < w; i++){
+    var ti = A.length - 1 - i;
+    var d1 = ti >= 0 ? top[ti] : 0;
+    var d2 = i < B.length ? +B[B.length - 1 - i] : 0;
+    var narr, borrowed = [];
+    if(d1 < d2){
+      // borrow — walk left across zeros
+      var j = ti - 1;
+      while(j >= 0 && top[j] === 0){ top[j] = 9; adjusts[j] = 9; borrowed.push(j); j--; }
+      if(j >= 0){ top[j] = top[j] - 1; adjusts[j] = top[j]; borrowed.push(j); }
+      top[ti] = d1 + 10;
+      narr = d1 + ' minus ' + d2 + colJoin(', cannot. Borrow 1. ', ', முடியாது. Borrow 1. ')
+        + (d1 + 10) + ' minus ' + d2 + ' equals ' + (d1 + 10 - d2) + '.';
+      cols.push({ write: String(d1 + 10 - d2), narrate: narr, borrowed: borrowed, adjusts: adjusts.slice() });
+      top[ti] = d1 + 10 - d2; // not used further, kept for clarity
+    } else {
+      narr = d1 + ' minus ' + d2 + ' equals ' + (d1 - d2) + '.';
+      cols.push({ write: String(d1 - d2), narrate: narr, borrowed: [], adjusts: adjusts.slice() });
+    }
+  }
+  return { A: A, B: B, R: R, width: w, cols: cols };
+}
+function colIntroLine(type, a, b, roughScript){
+  if(roughScript && String(roughScript).trim()) return String(roughScript);
+  return type === 'add'
+    ? colJoin('Now add ' + a + ' and ' + b + '.', 'இப்போ ' + a + ' plus ' + b + ' add பண்றோம்.')
+    : colJoin('Now subtract ' + b + ' from ' + a + '.', 'இப்போ ' + a + ' minus ' + b + ' subtract பண்றோம்.');
+}
+function colAnswerLine(R){ return 'The answer is ' + R + '.'; }
+function colCellsRow(cls, chars, width){
+  var row = document.createElement('div');
+  row.className = 'colcalc-row ' + cls;
+  for(var i = 0; i < width; i++){
+    var cell = document.createElement('span');
+    cell.className = 'colcalc-cell';
+    cell.textContent = chars && chars[i] ? chars[i] : '\u00a0';
+    row.appendChild(cell);
+  }
+  return row;
+}
+function padCols(str, width){
+  var arr = new Array(width).fill('');
+  for(var i = 0; i < str.length; i++){ arr[width - str.length + i] = str[i]; }
+  return arr;
+}
+async function animateColumnAddSub(step){
+  var type = step.roughType;
+  var data = type === 'add' ? computeAddColumns(step.roughA, step.roughB)
+                            : computeSubColumns(step.roughA, step.roughB);
+  var w = Math.max(data.width, data.R.length) + 1; // +1 col for the operator sign
+  var rc = $('rough-content');
+  var empty = rc.querySelector('.rough-empty');
+  if(empty) empty.remove();
+
+  var entry = document.createElement('div');
+  entry.className = 'rough-entry';
+  entry.innerHTML = '<span class="rough-label-inline">'
+    + escapeHtml(step.roughLabel || (type === 'add' ? 'Adding' : 'Subtracting')) + '</span>';
+  var wrap = document.createElement('div');
+  wrap.className = 'colcalc';
+  var carryRow = colCellsRow(type === 'add' ? 'colcalc-carry' : 'colcalc-adjust', null, w);
+  var topRow = colCellsRow('colcalc-top', padCols(data.A, w), w);
+  var opChars = padCols(data.B, w); opChars[0] = (type === 'add' ? '+' : '\u2212');
+  var opRow = colCellsRow('colcalc-op', opChars, w);
+  var line = document.createElement('div'); line.className = 'colcalc-line';
+  var resRow = colCellsRow('colcalc-result', null, w);
+  wrap.appendChild(carryRow); wrap.appendChild(topRow); wrap.appendChild(opRow);
+  wrap.appendChild(line); wrap.appendChild(resRow);
+  entry.appendChild(wrap);
+  rc.appendChild(entry);
+  setTimeout(function(){ entry.classList.add('show'); }, 50);
+  rc.parentElement.scrollTop = rc.parentElement.scrollHeight;
+
+  await speakStep(colIntroLine(type, data.A, data.B, step.roughScript));
+  if(!IS_PLAYING) return;
+
+  var resCells = resRow.children, carryCells = carryRow.children, topCells = topRow.children;
+  for(var i = 0; i < data.cols.length; i++){
+    if(!IS_PLAYING) return;
+    var col = data.cols[i];
+    // visuals first — then the voice explains what appeared
+    if(type === 'sub' && col.borrowed && col.borrowed.length){
+      col.borrowed.forEach(function(idx){
+        var cellPos = w - data.A.length + idx;
+        topCells[cellPos].classList.add('struck');
+        carryCells[cellPos].textContent = String(col.adjusts[idx]);
+      });
+    }
+    // write result digit(s) right-to-left — last add column may write two digits
+    var write = col.write;
+    for(var k = 0; k < write.length; k++){
+      resCells[w - 1 - i - (write.length - 1 - k)].textContent = write[k];
+    }
+    if(type === 'add' && col.carryOut){
+      carryCells[w - 2 - i].textContent = '1';
+    }
+    await speakStep(col.narrate);
+    if(!IS_PLAYING) return;
+    await sleep(250);
+  }
+  await speakStep(colAnswerLine(data.R));
+}
+
 async function addRoughWorkAnimated(label, roughData, narrateFn){
   var rc = $('rough-content');
   var empty = rc.querySelector('.rough-empty');
@@ -2462,6 +2628,16 @@ function collectSpeakLines(sol){
           : computeDivisionRows(step.roughA, step.roughB, step.roughResult);
         (rows || []).forEach(function(r){ if(r && r.narrate && r.narrate.trim()) add(r.narrate); });
       }catch(rowErr){}
+    } else if((step.roughType === 'add' || step.roughType === 'sub')
+              && columnEligible(step.roughA, step.roughB, step.roughType)){
+      try{
+        var cdata = step.roughType === 'add'
+          ? computeAddColumns(step.roughA, step.roughB)
+          : computeSubColumns(step.roughA, step.roughB);
+        add(colIntroLine(step.roughType, cdata.A, cdata.B, step.roughScript));
+        cdata.cols.forEach(function(col){ add(col.narrate); });
+        add(colAnswerLine(cdata.R));
+      }catch(colErr){ add(step.roughScript || step.roughExplain); }
     } else {
       add(step.roughScript || step.roughExplain);
     }
