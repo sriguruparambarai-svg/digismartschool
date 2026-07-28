@@ -1032,12 +1032,8 @@ document.addEventListener('DOMContentLoaded', function() {
   <div class="page-title">📅 Lesson Planner</div>
   <p class="page-subtitle">Generate weekly lesson plans or a full annual planner for all subjects</p>
 
-  <!-- PLAN TYPE TABS -->
+  <!-- PLAN TYPE TABS (ordered to match Annual → Term → Monthly → Weekly drill-down) -->
   <div style="display:flex;gap:8px;margin-bottom:22px;flex-wrap:wrap;">
-    <button id="lp-tab-weekly" onclick="switchLPTab('weekly')"
-      style="padding:10px 22px;border-radius:10px;border:2px solid var(--primary);background:var(--primary);color:var(--gold);font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
-      📆 Weekly Planner
-    </button>
     <button id="lp-tab-annual" onclick="switchLPTab('annual')"
       style="padding:10px 22px;border-radius:10px;border:2px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
       📚 Annual Planner
@@ -1045,6 +1041,10 @@ document.addEventListener('DOMContentLoaded', function() {
     <button id="lp-tab-monthly" onclick="switchLPTab('monthly')"
       style="padding:10px 22px;border-radius:10px;border:2px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
       🗓️ Monthly Planner
+    </button>
+    <button id="lp-tab-weekly" onclick="switchLPTab('weekly')"
+      style="padding:10px 22px;border-radius:10px;border:2px solid var(--primary);background:var(--primary);color:var(--gold);font-family:inherit;font-weight:800;font-size:0.9rem;cursor:pointer;">
+      📆 Weekly Planner
     </button>
   </div>
 
@@ -1270,6 +1270,27 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
   <div id="lp-monthly-section" style="display:none;">
     <div class="card">
       <div class="card-title">🗓️ Monthly Plan Details</div>
+      <div class="form-group">
+        <label>Term <span style="font-weight:400;color:#999;">(optional — narrows the Month list below)</span></label>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="mp-term-wrap">
+          <button type="button" class="mp-term-btn" data-term="1" onclick="selectMPTerm('1')"
+            style="padding:8px 16px;border-radius:8px;border:1.5px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;">
+            Term 1 (Jun–Sep)
+          </button>
+          <button type="button" class="mp-term-btn" data-term="2" onclick="selectMPTerm('2')"
+            style="padding:8px 16px;border-radius:8px;border:1.5px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;">
+            Term 2 (Oct–Dec)
+          </button>
+          <button type="button" class="mp-term-btn" data-term="3" onclick="selectMPTerm('3')"
+            style="padding:8px 16px;border-radius:8px;border:1.5px solid #ddd;background:transparent;color:#666;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;">
+            Term 3 (Jan–Mar)
+          </button>
+          <button type="button" class="mp-term-btn" data-term="" onclick="selectMPTerm('')"
+            style="padding:8px 16px;border-radius:8px;border:1.5px solid #ddd;background:transparent;color:#999;font-family:inherit;font-weight:700;font-size:0.85rem;cursor:pointer;">
+            All Months
+          </button>
+        </div>
+      </div>
       <div class="form-row">
         <div class="form-group">
           <label>Class</label>
@@ -3074,6 +3095,61 @@ function updateAPSubjects() {
   });
 }
 
+// ══ TERM ↔ MONTH MAPPING (same Tamil Nadu 3-term split already used by the Annual Planner) ══
+var TERM_MONTHS = {
+  '1': ['June', 'July', 'August', 'September'],
+  '2': ['October', 'November', 'December'],
+  '3': ['January', 'February', 'March']
+};
+var TERM_LABELS = { '1': 'Term 1 (Jun–Sep)', '2': 'Term 2 (Oct–Dec)', '3': 'Term 3 (Jan–Mar)' };
+var ALL_MONTHS = ['June', 'July', 'August', 'September', 'October', 'November', 'December', 'January', 'February', 'March'];
+
+function selectMPTerm(term) {
+  document.querySelectorAll('.mp-term-btn').forEach(function(btn) {
+    var active = btn.getAttribute('data-term') === term;
+    btn.style.background = active ? 'var(--primary)' : 'transparent';
+    btn.style.color = active ? 'var(--gold)' : (term === '' ? '#999' : '#666');
+    btn.style.borderColor = active ? 'var(--primary)' : '#ddd';
+  });
+
+  var monthSel = document.getElementById('mp-month');
+  var months = term && TERM_MONTHS[term] ? TERM_MONTHS[term] : ALL_MONTHS;
+  var prevValue = monthSel.value;
+  monthSel.innerHTML = '<option value="">Select Month</option>' +
+    months.map(function(m) { return '<option' + (m === prevValue ? ' selected' : '') + '>' + m + '</option>'; }).join('');
+  monthSel.setAttribute('data-term', term || '');
+}
+
+// Jump from a generated Annual Plan straight into the Monthly Planner, pre-filtered to a term
+function jumpToMonthlyFromAnnual(term) {
+  var apClass = document.getElementById('ap-class').value;
+  if (apClass) document.getElementById('mp-class').value = apClass;
+  switchLPTab('monthly');
+  selectMPTerm(term);
+  document.getElementById('lp-monthly-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Pull the chapter/topic mentioned for a given week out of a generated Monthly Plan's text
+function extractWeekChapter(text, weekNum) {
+  var re = new RegExp('Week\\s*' + weekNum + '[\\s\\S]{0,20}?Chapter\\/Topic:\\s*([^\\n]+)', 'i');
+  var m = text.match(re);
+  return m ? m[1].trim() : '';
+}
+
+// Jump from a generated Monthly Plan straight into the Weekly Planner, pre-filled with that week's chapter
+var lastMonthlyPlanText = '';
+function jumpToWeeklyFromMonthly(weekNum) {
+  var mpClass = document.getElementById('mp-class').value;
+  var mpSubject = document.getElementById('mp-subject').value;
+  if (mpClass) document.getElementById('lp-class').value = mpClass;
+  if (mpSubject) document.getElementById('lp-subject').value = mpSubject;
+  var chapter = extractWeekChapter(lastMonthlyPlanText, weekNum);
+  if (chapter) document.getElementById('lp-chapter').value = chapter;
+  document.getElementById('lp-days').value = '5';
+  switchLPTab('weekly');
+  document.getElementById('lp-weekly-section').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 // ══ ANNUAL PLAN GENERATOR ══
 async function generateAnnualPlan() {
   var cls    = document.getElementById('ap-class').value;
@@ -3187,6 +3263,16 @@ async function generateAnnualPlan() {
 
     outEl.style.display = 'block';
     outEl.innerHTML = '<pre style="white-space:pre-wrap;font-family:inherit;font-size:0.9rem;line-height:1.8;">' + escapeHtml(text) + '</pre>';
+
+    if (terms === '3') {
+      outEl.innerHTML += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:16px;border-top:1.5px dashed #ddd;">' +
+        '<span style="width:100%;font-size:0.82rem;color:#666;font-weight:700;">Drill down into a term:</span>' +
+        '<button class="btn btn-outline btn-sm" onclick="jumpToMonthlyFromAnnual(\'1\')">📖 Plan ' + TERM_LABELS['1'] + ' in detail</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="jumpToMonthlyFromAnnual(\'2\')">📖 Plan ' + TERM_LABELS['2'] + ' in detail</button>' +
+        '<button class="btn btn-outline btn-sm" onclick="jumpToMonthlyFromAnnual(\'3\')">📖 Plan ' + TERM_LABELS['3'] + ' in detail</button>' +
+        '</div>';
+    }
+
     actEl.style.display = 'flex';
 
   } catch(e) {
@@ -3225,6 +3311,8 @@ async function generateMonthlyPlan() {
   genBtn.disabled = true;
   genBtn.textContent = '⏳ Generating Monthly Plan...';
 
+  var mpTerm = document.getElementById('mp-month').getAttribute('data-term') || '';
+
   var contentSection = content
     ? '\n\nCHAPTERS / TOPICS PROVIDED BY TEACHER:\n' + content.substring(0, 4000) + '\n\nUse the above as the primary reference for chapter names and order.'
     : pdfFile
@@ -3236,6 +3324,7 @@ async function generateMonthlyPlan() {
     'Class: ' + cls + '\n' +
     'Subject: ' + sub + '\n' +
     'Month: ' + month + '\n' +
+    (mpTerm && TERM_LABELS[mpTerm] ? 'Term: ' + TERM_LABELS[mpTerm] + '\n' : '') +
     'Working Days This Month: ~' + wdays + '\n' +
     (notes ? 'Special Instructions: ' + notes + '\n' : '') +
     contentSection + '\n\n' +
@@ -3292,6 +3381,16 @@ async function generateMonthlyPlan() {
 
     outEl.style.display = 'block';
     outEl.innerHTML = '<pre style="white-space:pre-wrap;font-family:inherit;font-size:0.9rem;line-height:1.8;">' + escapeHtml(text) + '</pre>';
+
+    lastMonthlyPlanText = text;
+    outEl.innerHTML += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;padding-top:16px;border-top:1.5px dashed #ddd;">' +
+      '<span style="width:100%;font-size:0.82rem;color:#666;font-weight:700;">Turn a week into a full daily plan:</span>' +
+      '<button class="btn btn-outline btn-sm" onclick="jumpToWeeklyFromMonthly(1)">📆 Week 1</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="jumpToWeeklyFromMonthly(2)">📆 Week 2</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="jumpToWeeklyFromMonthly(3)">📆 Week 3</button>' +
+      '<button class="btn btn-outline btn-sm" onclick="jumpToWeeklyFromMonthly(4)">📆 Week 4</button>' +
+      '</div>';
+
     actEl.style.display = 'flex';
 
   } catch(e) {
