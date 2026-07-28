@@ -2676,9 +2676,10 @@ async function warmVoices(sol){
   prog();
 
   var idx = 0;
-  async function worker(){
-    while(idx < texts.length){
-      var t = texts[idx++];
+  async function warmOne(t){
+    // Up to 3 attempts (1 + 2 retries) with growing waits — rides out
+    // momentary ElevenLabs rate limits instead of dropping the line.
+    for(var attempt = 0; attempt < 3; attempt++){
       try{
         var r = await fetch('/api/voice-math', {
           method: 'POST',
@@ -2687,9 +2688,17 @@ async function warmVoices(sol){
         });
         if(r.ok){
           var d = await r.json();
-          if(d && d.audio_b64) AUDIO_CACHE[TEACH_LANG + '|' + t] = d.audio_b64;
+          if(d && d.audio_b64){ AUDIO_CACHE[TEACH_LANG + '|' + t] = d.audio_b64; return; }
         }
-      }catch(warmErr){ /* line will be fetched live during class as before */ }
+      }catch(warmErr){ /* fall through to retry */ }
+      if(attempt < 2) await sleep(1000 * (attempt + 1));
+    }
+    // Still failed after 3 attempts — the live player will try again in class.
+  }
+  async function worker(){
+    while(idx < texts.length){
+      var t = texts[idx++];
+      await warmOne(t);
       done++; prog();
     }
   }
@@ -2733,14 +2742,16 @@ function speakStep(text){
         }
       }).catch(function(){
         if(retriesLeft > 0){
-          setTimeout(function(){ attemptVoice(retriesLeft - 1); }, 800);
+          // growing wait: 1s then 2s — rides out momentary rate limits
+          var wait = retriesLeft === 2 ? 1000 : 2000;
+          setTimeout(function(){ attemptVoice(retriesLeft - 1); }, wait);
         } else {
           showStatusToast('⚠️ Teacher voice could not load for this line');
           speakBrowser(cleanText, resolve);
         }
       });
     }
-    attemptVoice(1);
+    attemptVoice(2);
   });
 }
 
