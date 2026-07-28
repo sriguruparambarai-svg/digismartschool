@@ -904,7 +904,7 @@ var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v3';
+var SOLUTION_VER = 'v4';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1007,15 +1007,20 @@ async function solveAndTeach(){
         + '⚠️⚠️⚠️ ABSOLUTE RULE: MATH TERMS ONLY IN ENGLISH ⚠️⚠️⚠️\n'
         + 'FORBIDDEN Tamil words that mean math things: கணக்கு, எண், கூட்டல், கழித்தல், பெருக்கல், வகுத்தல், சமன், வரிசை, எண்பது, ஆயிரம், நூறு, நாற்பது, ஒன்று முதல், வரை உள்ள\n'
         + 'ALWAYS use ENGLISH for: numbers (40, 80, 1275), calculations (calculation), operations (add/subtract/multiply/divide), sequences (1 to 40), quantities (sum, product, formula)\n\n'
-        + 'CORRECT EXAMPLES:\n\n'
-        + '1. INTRO: "இந்த problem-la, we have to find the sum of numbers from 1 to 40. Direct addition long process, so we use sum of natural numbers formula."\n'
-        + '   ✅ Says "1 to 40" not "ஒன்று முதல் நாற்பது வரை"\n'
-        + '   ✅ Says "sum" not "கூட்டுத்தொகை"\n\n'
-        + '2. FORMULA: "Formula is S sub n equals n into n plus 1 by 2. இது very standard identity."\n\n'
-        + '3. STEP: "Here n equals 40. Substitute பண்றோம்."\n\n'
-        + '4. STEP WITH MULT: "S 40 equals 40 into 40 plus 1 by 2. Bracket-க்குள்ள add பண்றோம்."\n\n'
-        + '5. ROUGH SCRIPT: "40 plus 1 equals 41. Now multiply 40 into 41."\n\n'
-        + '6. ANSWER: "Final result: Sum equals 3240."\n\n'
+        + 'COMPLETE WORKED CLASS — copy this EXACT shape. Every step of the maths gets\n'
+        + 'its own line. NEVER give a general talk and jump to the answer. The Tamil\n'
+        + 'class has the SAME NUMBER OF STEPS as the English class, always.\n\n'
+        + 'Question: "Find the sum 1 + 2 + 3 + ... + 20"\n\n'
+        + 'intro: "இந்த problem-la sum of numbers from 1 to 20 find பண்ணணும்."\n\n'
+        + 'formulaScript: "Formula is S sub n equals n into n plus 1 by 2."\n\n'
+        + 'step 1 (n = 20)            readScript: "இங்க n equals 20."  whyScript: ""\n'
+        + 'step 2 (S20 = 20(20+1)/2)  readScript: "n place-la 20 substitute பண்றோம்."  whyScript: "Series-la 20 terms இருக்கு, அதனால n equals 20."\n'
+        + 'step 3 (S20 = 20 × 21/2)   readScript: "20 plus 1 equals 21."  whyScript: ""\n'
+        + 'step 4 (S20 = 420/2)       readScript: "20 into 21 equals 420."  whyScript: ""\n'
+        + 'step 5 (S20 = 210)         readScript: "420 divided by 2 equals 210."  whyScript: ""\n\n'
+        + 'finalScript: "Sum equals 210."\n\n'
+        + 'Notice: FIVE steps spoken one by one. Only ONE whyScript in the whole class.\n'
+        + 'Every line under 12 words. ஒரு step-கூட skip பண்ணக்கூடாது.\n\n'
         + 'STRICT RULES:\n'
         + '- ALL numbers as English digits: 40, 41, 80, 1275, 3240 (NEVER நாற்பது, ஆயிரம்)\n'
         + '- ALL math operations in ENGLISH: multiply, divide, substitute, add, equals, sum, product, formula\n'
@@ -1023,7 +1028,9 @@ async function solveAndTeach(){
         + '- Range expressions in ENGLISH: "1 to 40", "1 plus 2 plus 3 up to 40"\n'
         + '- Tamil script ONLY for connecting/reasoning words: இது, அப்போ, செய்யுவோம், க்குள்ள, பார்க்கலாம், பண்றோம், முடிக்கலாம்\n'
         + '- Use Tamil script (இப்போ) — NOT romanized (ippo)\n'
-        + '- 1-2 sentences per script field: state the operation AND one short Tamil reasoning of WHY (students chose Tamil mode because they need the why)\n'
+        + '- readScript: ONE short line under 12 words, reading the written step aloud. NOTHING more.\n'
+        + '- whyScript: empty for most steps — fill ONLY for a genuinely new idea (see VOICE RULES). Also under 12 words.\n'
+        + '- Short lines keep the Tamil voice clear. NEVER combine two steps into one spoken line.\n'
         + '- NO "children", NO "correct-a?", NO "very good"\n'
         + '- Direct intellectual explanation\n\n'
         + 'CRITICAL WORD ORDER for multiplication/division (English, not Tamil):\n'
@@ -1126,7 +1133,7 @@ async function solveAndTeach(){
       + '════════ RETURN THIS EXACT JSON ════════\n\n'
       + '{\n'
       + '  "problem": "clean short problem statement",\n'
-      + '  "intro": "1-2 sentence intro reading the problem clearly (direct, no chatter)",\n'
+      + '  "intro": "ONE short sentence reading the problem (a second sentence ONLY if the problem is too long for one). No chatter.",\n'
       + '  "formula": "ONLY a standard textbook formula/identity in its GENERAL form with letter variables. ACCEPT: Sn = n(n+1)/2 | an = a + (n-1)d | A = l \u00d7 b | a(r^n - 1)/(r - 1). REJECT: any line with numbers already substituted (20(20+1)/2 is a STEP, not a formula) | any line that repeats a step | the final answer. For derivation questions show the STARTING formula. Empty string if no standard formula applies \u2014 an empty formula is CORRECT for direct arithmetic.",\n'
       + '  "formulaScript": "1-2 sentence intellectual introduction of the formula",\n'
       + '  "steps": [\n'
