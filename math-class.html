@@ -575,6 +575,20 @@ html,body{
 .rough-entry.show{opacity:1;transform:translateX(0);}
 
 /* Vertical multiplication / division column format */
+/* Ask-and-Reveal pause */
+.ask-line{
+  font-family:'Caveat',cursive;font-size:1.35rem;font-weight:700;
+  color:var(--chalk-yellow,#f5e87a);margin:8px 0 6px;
+}
+.ask-reveal-btn{
+  padding:8px 18px;margin-bottom:6px;
+  background:linear-gradient(135deg,#C9A84C,#a8893a);color:#3d1010;
+  border:none;border-radius:10px;font-weight:700;font-size:.95rem;cursor:pointer;
+  box-shadow:0 4px 12px rgba(201,168,76,.3);
+  animation:askPulse 1.4s ease-in-out infinite;
+}
+@keyframes askPulse{0%,100%{transform:scale(1);}50%{transform:scale(1.06);}}
+
 /* Blocks Mode — base-ten blocks (pictorial layer for junior classes) */
 .blocks-area{display:flex;justify-content:flex-end;gap:18px;margin:8px 0 12px;}
 .blocks-place{min-width:64px;text-align:center;}
@@ -912,6 +926,7 @@ html,body{
       <button class="speed-btn active" id="sp-normal" onclick="setSpeed(1.0)">1x</button>
       <button class="speed-btn" onclick="setSpeed(1.2)">🏃</button>
     </div>
+    <button class="ctrl-btn" id="btn-ask" onclick="toggleAskMode()">✋ Ask: On</button>
     <button class="ctrl-btn tamil" onclick="explainTamil()">🇮🇳 Tamil</button>
     <button class="ctrl-btn" onclick="restartSetup()">📝 New</button>
     <button class="ctrl-btn" id="btn-nextq" onclick="nextQueuedQuestion()" style="display:none;">➡ Next Q</button>
@@ -927,6 +942,7 @@ var $ = function(id){ return document.getElementById(id); };
 var SOLUTION = null;      // The full problem solution from AI
 var STEP_IDX = -1;        // Current step (-1 = not started, 0 = first step)
 var IS_PLAYING = false;
+document.addEventListener('DOMContentLoaded', function(){ if(typeof updateAskBtn === 'function') updateAskBtn(); });
 var IS_PAUSED = false;
 var IS_SPEAKING_INTRO = false;  // True while intro voice plays (row narrations wait)
 var SPEED = 1.0;
@@ -2362,10 +2378,11 @@ function computeAddColumns(a, b){
     var write = isLast ? String(s) : String(s % 10);
     var carryOut = (!isLast && s >= 10) ? 1 : 0;
     var narr = (carry ? 'Carry 1, plus ' + d1 : String(d1)) + ' plus ' + d2 + ' equals ' + s + '.';
+    var askT = (carry ? 'carry 1 plus ' : '') + d1 + ' plus ' + d2;
     if(carryOut){
       narr += colJoin(' Write ' + (s % 10) + ', carry 1.', ' ' + (s % 10) + ' எழுதறோம், carry 1.');
     }
-    cols.push({ write: write, carryOut: carryOut, narrate: narr });
+    cols.push({ write: write, carryOut: carryOut, narrate: narr, askText: askT });
     carry = carryOut;
   }
   return { A: A, B: B, R: R, width: w, cols: cols };
@@ -2394,11 +2411,47 @@ function computeSubColumns(a, b){
       top[ti] = d1 + 10 - d2; // not used further, kept for clarity
     } else {
       narr = d1 + ' minus ' + d2 + ' equals ' + (d1 - d2) + '.';
-      cols.push({ write: String(d1 - d2), narrate: narr, borrowed: [], adjusts: adjusts.slice() });
+      cols.push({ write: String(d1 - d2), narrate: narr, borrowed: [], adjusts: adjusts.slice(), askText: d1 + ' minus ' + d2 });
     }
   }
   return { A: A, B: B, R: R, width: w, cols: cols };
 }
+// ═══ ASK-AND-REVEAL — one code-built question per rough working ═══
+var ASK_MODE = true;
+try{ ASK_MODE = (localStorage.getItem('dss_ask_mode') !== 'off'); }catch(e){}
+function updateAskBtn(){
+  var b = $('btn-ask');
+  if(b) b.textContent = ASK_MODE ? '✋ Ask: On' : '✋ Ask: Off';
+}
+function toggleAskMode(){
+  ASK_MODE = !ASK_MODE;
+  try{ localStorage.setItem('dss_ask_mode', ASK_MODE ? 'on' : 'off'); }catch(e){}
+  updateAskBtn();
+}
+function askQuestionLine(ask){
+  return colJoin('Class, ' + ask + ' equals?', 'சொல்லுங்க, ' + ask + '?');
+}
+// Speaks the question, shows the reveal button, and waits for the teacher's tap.
+// Pause/Stop release the wait (IS_PLAYING goes false).
+async function askPause(entry, askText){
+  await speakStep(askQuestionLine(askText));
+  if(!IS_PLAYING) return;
+  var box = document.createElement('div');
+  var line = document.createElement('div');
+  line.className = 'ask-line';
+  line.textContent = '❓ ' + askText + ' = ?';
+  var btn = document.createElement('button');
+  btn.className = 'ask-reveal-btn';
+  btn.textContent = '✋ Tap to reveal';
+  var tapped = false;
+  btn.onclick = function(){ tapped = true; };
+  box.appendChild(line); box.appendChild(btn);
+  entry.appendChild(box);
+  entry.parentElement.parentElement.scrollTop = entry.parentElement.parentElement.scrollHeight;
+  while(!tapped && IS_PLAYING){ await sleep(150); }
+  box.remove();
+}
+
 // ═══ BLOCKS MODE — base-ten blocks, the pictorial layer (CPA) ═══
 // Junior classes see the number BUILT from hundred-squares, ten-rods and
 // one-cubes before the digit columns run. Drawn entirely by code.
@@ -2525,7 +2578,8 @@ function computeStackColumns(addends){
     } else {
       narr = placePrefix(i) + spokenParts.join(' plus ') + ' equals ' + sum + '.' + writePhrase(carryOut ? String(sum % 10) : write, carryOut);
     }
-    cols.push({ write: write, carryOut: carryOut, narrate: narr });
+    cols.push({ write: write, carryOut: carryOut, narrate: narr,
+                askText: spokenParts.length >= 2 ? spokenParts.join(' plus ') : null });
     carry = carryOut;
   }
   return { strs: strs, R: R, nCols: nCols, cols: cols };
@@ -2573,11 +2627,18 @@ async function animateColumnStack(step){
   }
 
   var resCells = resRow.children, carryCells = carryRow.children;
+  var askedStack = false;
   for(var i = 0; i < data.cols.length; i++){
     if(!IS_PLAYING) return;
     var col = data.cols[i];
     // Blocks appear for this place, THEN the voice counts them, THEN the digit
     if(blocksApi){ blocksApi.reveal(i); await sleep(400); if(!IS_PLAYING) return; }
+    // Ask-and-reveal: once per working, at the first askable column
+    if(ASK_MODE && !askedStack && col.askText){
+      askedStack = true;
+      await askPause(entry, col.askText);
+      if(!IS_PLAYING) return;
+    }
     await speakStep(col.narrate);
     if(!IS_PLAYING) return;
     var write = col.write;
@@ -2660,11 +2721,18 @@ async function animateColumnAddSub(step){
   }
 
   var resCells = resRow.children, carryCells = carryRow.children, topCells = topRow.children;
+  var askedOnce = false;
   for(var i = 0; i < data.cols.length; i++){
     if(!IS_PLAYING) return;
     var col = data.cols[i];
     // Blocks for this place appear, then the voice, then the writing
     if(blocksApi){ blocksApi.reveal(i); await sleep(400); if(!IS_PLAYING) return; }
+    // Ask-and-reveal: once per working, at the first askable column
+    if(ASK_MODE && !askedOnce && col.askText){
+      askedOnce = true;
+      await askPause(entry, col.askText);
+      if(!IS_PLAYING) return;
+    }
     // Voice — the teacher says the column calculation...
     await speakStep(col.narrate);
     if(!IS_PLAYING) return;
@@ -2870,6 +2938,9 @@ function collectSpeakLines(sol){
         var sdata = computeStackColumns(sAdds);
         add(stackIntroLine(step.roughScript));
         if(isJuniorClass() && blocksEligible(sAdds)) add(blocksIntroLine());
+        for(var qs = 0; qs < sdata.cols.length; qs++){
+          if(sdata.cols[qs].askText){ add(askQuestionLine(sdata.cols[qs].askText)); break; }
+        }
         sdata.cols.forEach(function(col){ add(col.narrate); });
         add(colAnswerLine(sdata.R));
       }catch(stackErr){ add(step.roughScript || step.roughExplain); }
@@ -2883,6 +2954,9 @@ function collectSpeakLines(sol){
         if(step.roughType === 'add' && isJuniorClass()
            && blocksEligible([parseInt(step.roughA, 10), parseInt(step.roughB, 10)])){
           add(blocksIntroLine());
+        }
+        for(var qc = 0; qc < cdata.cols.length; qc++){
+          if(cdata.cols[qc].askText){ add(askQuestionLine(cdata.cols[qc].askText)); break; }
         }
         cdata.cols.forEach(function(col){ add(col.narrate); });
         add(colAnswerLine(cdata.R));
