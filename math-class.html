@@ -575,6 +575,23 @@ html,body{
 .rough-entry.show{opacity:1;transform:translateX(0);}
 
 /* Vertical multiplication / division column format */
+/* Blocks Mode — base-ten blocks (pictorial layer for junior classes) */
+.blocks-area{display:flex;justify-content:flex-end;gap:18px;margin:8px 0 12px;}
+.blocks-place{min-width:64px;text-align:center;}
+.blocks-label{
+  font-family:'Caveat',cursive;font-size:1.05rem;
+  color:var(--chalk-yellow,#f5e87a);opacity:.85;margin-bottom:6px;
+  border-bottom:1px dashed rgba(255,255,255,.35);padding-bottom:2px;
+}
+.blocks-pool{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;min-height:36px;align-content:flex-start;}
+.blk{opacity:0;transform:scale(.4);transition:opacity .35s,transform .35s;}
+.blk.blk-show{opacity:1;transform:scale(1);}
+.blk-h{width:26px;height:26px;background:rgba(201,168,76,.35);border:2px solid #C9A84C;border-radius:3px;
+  background-image:linear-gradient(rgba(255,255,255,.18) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.18) 1px,transparent 1px);
+  background-size:6px 6px;}
+.blk-t{width:9px;height:32px;background:rgba(232,201,154,.45);border:2px solid #E8C99A;border-radius:2px;}
+.blk-o{width:10px;height:10px;background:rgba(255,255,255,.85);border:1px solid #fff;border-radius:2px;}
+
 /* Column addition / subtraction (digit cells) */
 .colcalc{margin-top:6px;}
 .colcalc-row{display:flex;justify-content:flex-end;}
@@ -2382,6 +2399,79 @@ function computeSubColumns(a, b){
   }
   return { A: A, B: B, R: R, width: w, cols: cols };
 }
+// ═══ BLOCKS MODE — base-ten blocks, the pictorial layer (CPA) ═══
+// Junior classes see the number BUILT from hundred-squares, ten-rods and
+// one-cubes before the digit columns run. Drawn entirely by code.
+function isJuniorClass(){
+  var m = String(SCHOOL_CLASS || '').match(/\d+/);
+  if(!m) return true;               // KG / LKG / UKG style names
+  return parseInt(m[0], 10) <= 4;
+}
+function blocksEligible(nums){
+  // Phase 1: up to 999, and NO carrying in any place (regrouping is Phase 2).
+  if(!nums || !nums.length) return false;
+  var placeSums = [0, 0, 0];
+  for(var i = 0; i < nums.length; i++){
+    var n = nums[i];
+    if(isNaN(n) || n < 0 || n > 999) return false;
+    placeSums[0] += n % 10;
+    placeSums[1] += Math.floor(n / 10) % 10;
+    placeSums[2] += Math.floor(n / 100) % 10;
+  }
+  return placeSums[0] <= 9 && placeSums[1] <= 9 && placeSums[2] <= 9;
+}
+function blocksIntroLine(){
+  return colJoin('Let us build it with blocks.', 'Blocks வச்சு build பண்ணலாம்.');
+}
+// Builds the three-column blocks panel inside parentEl.
+// Returns { reveal(placeIdx) } — placeIdx 0=ones, 1=tens, 2=hundreds.
+function buildBlocksPanel(parentEl, nums){
+  var counts = [0, 0, 0];
+  nums.forEach(function(n){
+    counts[0] += n % 10;
+    counts[1] += Math.floor(n / 10) % 10;
+    counts[2] += Math.floor(n / 100) % 10;
+  });
+  var showHundreds = counts[2] > 0 || nums.some(function(n){ return n >= 100; });
+  var area = document.createElement('div');
+  area.className = 'blocks-area';
+  var defs = [
+    { idx: 2, label: 'Hundreds', cls: 'blk-h', show: showHundreds },
+    { idx: 1, label: 'Tens',     cls: 'blk-t', show: true },
+    { idx: 0, label: 'Ones',     cls: 'blk-o', show: true }
+  ];
+  var pools = {};
+  defs.forEach(function(d){
+    if(!d.show) return;
+    var col = document.createElement('div');
+    col.className = 'blocks-place';
+    var lab = document.createElement('div');
+    lab.className = 'blocks-label';
+    lab.textContent = d.label;
+    var pool = document.createElement('div');
+    pool.className = 'blocks-pool';
+    for(var k = 0; k < counts[d.idx]; k++){
+      var b = document.createElement('div');
+      b.className = 'blk ' + d.cls;
+      pool.appendChild(b);
+    }
+    col.appendChild(lab); col.appendChild(pool);
+    area.appendChild(col);
+    pools[d.idx] = pool;
+  });
+  parentEl.appendChild(area);
+  return {
+    reveal: function(placeIdx){
+      var pool = pools[placeIdx];
+      if(!pool) return;
+      var blocks = pool.children;
+      for(var k = 0; k < blocks.length; k++){
+        (function(el, delay){ setTimeout(function(){ el.classList.add('blk-show'); }, delay); })(blocks[k], k * 60);
+      }
+    }
+  };
+}
+
 // ═══ PLACE-VALUE STACK (multi-number column addition) ═══
 // For expansions like 300 + 0 + 5 — draws the numbers stacked by place and
 // teaches column by column using place NAMES (Ones, Tens, Hundreds...).
@@ -2465,6 +2555,11 @@ async function animateColumnStack(step){
   var line = document.createElement('div'); line.className = 'colcalc-line';
   var resRow = colCellsRow('colcalc-result', null, w);
   wrap.appendChild(line); wrap.appendChild(resRow);
+  // Blocks Mode: junior class + no carrying → the pictorial layer draws first
+  var blocksApi = null;
+  if(isJuniorClass() && blocksEligible(addends)){
+    blocksApi = buildBlocksPanel(entry, addends);
+  }
   entry.appendChild(wrap);
   rc.appendChild(entry);
   setTimeout(function(){ entry.classList.add('show'); }, 50);
@@ -2472,12 +2567,17 @@ async function animateColumnStack(step){
 
   await speakStep(stackIntroLine(step.roughScript));
   if(!IS_PLAYING) return;
+  if(blocksApi){
+    await speakStep(blocksIntroLine());
+    if(!IS_PLAYING) return;
+  }
 
   var resCells = resRow.children, carryCells = carryRow.children;
   for(var i = 0; i < data.cols.length; i++){
     if(!IS_PLAYING) return;
     var col = data.cols[i];
-    // Voice FIRST — then the digit and carry appear
+    // Blocks appear for this place, THEN the voice counts them, THEN the digit
+    if(blocksApi){ blocksApi.reveal(i); await sleep(400); if(!IS_PLAYING) return; }
     await speakStep(col.narrate);
     if(!IS_PLAYING) return;
     var write = col.write;
@@ -2531,6 +2631,12 @@ async function animateColumnAddSub(step){
   entry.className = 'rough-entry';
   entry.innerHTML = '<span class="rough-label-inline">'
     + escapeHtml(step.roughLabel || (type === 'add' ? 'Adding' : 'Subtracting')) + '</span>';
+  // Blocks Mode (add only): junior class + no carrying → pictorial layer first
+  var blocksApi = null;
+  if(type === 'add' && isJuniorClass()){
+    var blkNums = [parseInt(step.roughA, 10), parseInt(step.roughB, 10)];
+    if(blocksEligible(blkNums)) blocksApi = buildBlocksPanel(entry, blkNums);
+  }
   var wrap = document.createElement('div');
   wrap.className = 'colcalc';
   var carryRow = colCellsRow(type === 'add' ? 'colcalc-carry' : 'colcalc-adjust', null, w);
@@ -2548,12 +2654,18 @@ async function animateColumnAddSub(step){
 
   await speakStep(colIntroLine(type, data.A, data.B, step.roughScript));
   if(!IS_PLAYING) return;
+  if(blocksApi){
+    await speakStep(blocksIntroLine());
+    if(!IS_PLAYING) return;
+  }
 
   var resCells = resRow.children, carryCells = carryRow.children, topCells = topRow.children;
   for(var i = 0; i < data.cols.length; i++){
     if(!IS_PLAYING) return;
     var col = data.cols[i];
-    // Voice FIRST — the teacher says the column calculation...
+    // Blocks for this place appear, then the voice, then the writing
+    if(blocksApi){ blocksApi.reveal(i); await sleep(400); if(!IS_PLAYING) return; }
+    // Voice — the teacher says the column calculation...
     await speakStep(col.narrate);
     if(!IS_PLAYING) return;
     // ...THEN writes it: borrows struck, digit written, carry placed.
@@ -2754,8 +2866,10 @@ function collectSpeakLines(sol){
       }catch(rowErr){}
     } else if(step.roughAddends && parseAddends(step.roughAddends)){
       try{
-        var sdata = computeStackColumns(parseAddends(step.roughAddends));
+        var sAdds = parseAddends(step.roughAddends);
+        var sdata = computeStackColumns(sAdds);
         add(stackIntroLine(step.roughScript));
+        if(isJuniorClass() && blocksEligible(sAdds)) add(blocksIntroLine());
         sdata.cols.forEach(function(col){ add(col.narrate); });
         add(colAnswerLine(sdata.R));
       }catch(stackErr){ add(step.roughScript || step.roughExplain); }
@@ -2766,6 +2880,10 @@ function collectSpeakLines(sol){
           ? computeAddColumns(step.roughA, step.roughB)
           : computeSubColumns(step.roughA, step.roughB);
         add(colIntroLine(step.roughType, cdata.A, cdata.B, step.roughScript));
+        if(step.roughType === 'add' && isJuniorClass()
+           && blocksEligible([parseInt(step.roughA, 10), parseInt(step.roughB, 10)])){
+          add(blocksIntroLine());
+        }
         cdata.cols.forEach(function(col){ add(col.narrate); });
         add(colAnswerLine(cdata.R));
       }catch(colErr){ add(step.roughScript || step.roughExplain); }
