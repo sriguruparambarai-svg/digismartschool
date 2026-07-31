@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Say-Along Revision — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Caveat:wght@600&family=Noto+Sans+Tamil:wght@500;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --maroon-dark:#4a1010; --gold:#C9A84C; --gold-light:#FFD86A;
+  --sandal:#E8C99A; --stage-bg:#0d0f14; --text-light:#f5efe2;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--text-light);
+     font-family:'Nunito',sans-serif;overflow:hidden;height:100vh;}
+
+/* ── TOP BAR ── */
+#topbar{position:fixed;top:0;left:0;right:0;height:58px;
+  background:linear-gradient(180deg,rgba(20,8,6,0.97),rgba(20,8,6,0.9));
+  border-bottom:1.5px solid rgba(201,168,76,0.35);
+  display:flex;align-items:center;gap:10px;padding:0 14px;z-index:100;}
+#topbar .cls-pill{background:var(--maroon);color:var(--gold-light);border:1.5px solid var(--gold);
+  padding:5px 12px;border-radius:999px;font-weight:800;font-size:0.78rem;white-space:nowrap;}
+#topbar .topic{font-family:'Caveat',cursive;font-size:1.25rem;color:var(--sandal);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}
+.ctrl-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);
+  color:var(--sandal);padding:7px 13px;border-radius:9px;cursor:pointer;
+  font-family:inherit;font-weight:700;font-size:0.8rem;white-space:nowrap;}
+.ctrl-btn:hover{background:rgba(201,168,76,0.22);}
+.ctrl-btn.active{background:var(--gold);color:#2a1505;}
+.ctrl-btn:disabled{opacity:0.4;cursor:default;}
+#speed-sel{background:#241410;color:var(--sandal);border:1.5px solid rgba(201,168,76,0.4);
+  border-radius:9px;padding:7px 8px;font-family:inherit;font-weight:700;font-size:0.8rem;}
+
+/* ── STAGE ── */
+#stage{position:fixed;top:58px;left:0;right:0;bottom:56px;background:var(--stage-bg);overflow:hidden;}
+#stage-inner{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:flex-start;padding:22px 40px 18px;overflow-y:auto;}
+#stage-inner::-webkit-scrollbar{width:6px;}
+#stage-inner::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.35);border-radius:3px;}
+
+/* Card header */
+.rv-head{width:100%;max-width:1000px;text-align:center;flex:0 0 auto;}
+.rv-marks{display:inline-block;background:rgba(201,168,76,0.16);border:1.5px solid rgba(201,168,76,0.45);
+  color:var(--gold-light);border-radius:999px;padding:3px 13px;font-size:0.7rem;font-weight:800;
+  letter-spacing:1px;margin-bottom:12px;}
+.rv-q{font-family:'Cinzel',serif;font-size:clamp(1.15rem,2.3vw,1.75rem);color:var(--gold-light);
+  line-height:1.4;text-shadow:0 3px 18px rgba(0,0,0,0.6);}
+.rv-q.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;font-weight:700;}
+.rv-line{width:50%;max-width:360px;height:3px;margin:14px auto 12px;
+  background:linear-gradient(90deg,transparent,var(--gold),transparent);border-radius:2px;}
+.rv-about{font-family:'Caveat',cursive;font-size:clamp(1rem,1.7vw,1.3rem);color:var(--sandal);
+  opacity:0.9;line-height:1.5;max-width:800px;margin:0 auto;}
+.rv-about.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;font-size:1rem;font-weight:500;}
+
+/* Phase banner */
+.rv-phase{margin:16px 0 12px;display:flex;align-items:center;justify-content:center;gap:14px;
+  flex:0 0 auto;min-height:56px;}
+.rv-phase .lbl{font-family:'Caveat',cursive;font-size:clamp(1.3rem,2.6vw,2rem);font-weight:600;}
+.rv-phase.listen  .lbl{color:var(--gold-light);}
+.rv-phase.yours   .lbl{color:#7fe0a0;}
+.rv-phase.along   .lbl{color:#8ecbff;}
+.rv-phase.solo    .lbl{color:#ffb27f;}
+
+/* Countdown ring */
+.rv-ring{position:relative;width:52px;height:52px;flex:0 0 auto;}
+.rv-ring svg{transform:rotate(-90deg);width:52px;height:52px;}
+.rv-ring circle{fill:none;stroke-width:5;}
+.rv-ring .bg{stroke:rgba(201,168,76,0.18);}
+.rv-ring .fg{stroke:#7fe0a0;stroke-linecap:round;transition:stroke-dashoffset 0.1s linear;}
+.rv-ring.solo .fg{stroke:#ffb27f;}
+.rv-ring .num{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  font-weight:800;font-size:0.95rem;color:var(--sandal);}
+
+/* Points list */
+.rv-points{width:100%;max-width:1000px;display:flex;flex-direction:column;gap:10px;
+  flex:0 0 auto;padding-bottom:10px;}
+.rv-pt{display:flex;gap:12px;align-items:flex-start;
+  background:linear-gradient(160deg,rgba(107,26,26,0.28),rgba(30,12,8,0.5));
+  border:1.5px solid rgba(201,168,76,0.22);border-radius:12px;padding:13px 16px;
+  font-size:clamp(0.9rem,1.4vw,1.08rem);line-height:1.65;color:var(--text-light);
+  transition:all 0.35s ease;}
+.rv-pt.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;line-height:1.9;}
+.rv-pt .n{flex:0 0 auto;display:inline-flex;width:26px;height:26px;border-radius:50%;
+  background:rgba(201,168,76,0.3);color:var(--gold-light);font-weight:800;
+  align-items:center;justify-content:center;font-size:0.8rem;margin-top:2px;}
+.rv-pt.done{opacity:0.45;}
+.rv-pt.active{border-color:var(--gold);background:linear-gradient(160deg,rgba(107,26,26,0.6),rgba(45,18,10,0.7));
+  box-shadow:0 8px 28px rgba(0,0,0,0.5);transform:scale(1.015);}
+.rv-pt.active .n{background:var(--gold);color:#2a1505;}
+.rv-pt.hidden-pt{opacity:0.22;}
+.rv-pt.hidden-pt .txt{filter:blur(5px);user-select:none;}
+
+/* Self-check */
+.rv-check{width:100%;max-width:640px;text-align:center;margin-top:8px;}
+.rv-check h3{font-family:'Caveat',cursive;font-size:clamp(1.4rem,2.8vw,2.1rem);
+  color:var(--gold-light);margin-bottom:18px;}
+.rv-check-btns{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;}
+.rv-cbtn{border:none;border-radius:13px;padding:16px 30px;cursor:pointer;
+  font-family:'Nunito',sans-serif;font-weight:800;font-size:1rem;min-width:210px;}
+.rv-cbtn.yes{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}
+.rv-cbtn.no{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;}
+.rv-cbtn:hover{filter:brightness(1.1);}
+
+/* Done screen */
+.rv-done{text-align:center;max-width:640px;margin-top:20px;}
+.rv-done .big{font-family:'Cinzel',serif;font-size:clamp(1.5rem,3vw,2.3rem);
+  color:var(--gold-light);margin-bottom:14px;}
+.rv-done p{color:var(--sandal);line-height:1.8;margin-bottom:8px;}
+.rv-stat{display:inline-block;background:rgba(107,26,26,0.5);border:1.5px solid var(--gold);
+  border-radius:12px;padding:12px 22px;margin:6px;color:var(--gold-light);font-weight:800;}
+.rv-done-btn{display:block;width:100%;margin:12px auto 0;
+  background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;
+  padding:14px;border-radius:12px;font-family:inherit;font-weight:800;font-size:0.95rem;cursor:pointer;}
+.rv-done-btn.ghost{background:rgba(201,168,76,0.14);color:var(--sandal);
+  border:1.5px solid rgba(201,168,76,0.4);}
+
+/* Loading / error */
+.rv-msg{text-align:center;color:var(--sandal);margin-top:60px;line-height:1.8;max-width:620px;}
+.rv-spin{width:38px;height:38px;border:3px solid rgba(201,168,76,0.25);border-top-color:var(--gold);
+  border-radius:50%;animation:rvSpin 0.9s linear infinite;margin:0 auto 18px;}
+@keyframes rvSpin{to{transform:rotate(360deg);}}
+.rv-msg code{background:rgba(0,0,0,0.4);padding:2px 7px;border-radius:5px;color:var(--gold-light);
+  font-size:0.85rem;}
+
+/* ── BOTTOM BAR ── */
+#botbar{position:fixed;left:0;right:0;bottom:0;height:56px;
+  background:linear-gradient(0deg,rgba(15,6,4,0.98),rgba(15,6,4,0.9));
+  border-top:1.5px solid rgba(201,168,76,0.3);
+  display:flex;align-items:center;gap:12px;padding:0 16px;z-index:100;}
+#bot-text{flex:1;font-family:'Caveat',cursive;font-size:1.1rem;color:var(--sandal);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+#bot-prog{font-size:0.75rem;font-weight:800;color:var(--gold);white-space:nowrap;}
+.nav-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;
+  padding:8px 18px;border-radius:10px;font-family:'Caveat',cursive;font-size:1.05rem;
+  font-weight:600;cursor:pointer;}
+.nav-btn.ghost{background:rgba(201,168,76,0.14);color:var(--sandal);
+  border:1.5px solid rgba(201,168,76,0.4);}
+.nav-btn:disabled{opacity:0.4;cursor:default;}
+
+@media (max-width:820px){
+  #stage-inner{padding:16px 16px 14px;}
+  #topbar{gap:7px;padding:0 9px;}
+  #topbar .topic{font-size:1.05rem;}
+  .ctrl-btn{padding:6px 9px;font-size:0.72rem;}
+}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button class="ctrl-btn" onclick="rvGoBack()">← Back</button>
+  <span class="cls-pill" id="tb-cls">Class</span>
+  <span class="topic" id="tb-topic">Say-Along Revision</span>
+  <button class="ctrl-btn" id="btn-medium" onclick="rvSwitchMedium()" style="display:none;">தமிழ்</button>
+  <select id="speed-sel" title="Speaking speed">
+    <option value="0.85">Slow</option>
+    <option value="0.95" selected>Normal</option>
+    <option value="1.1">Fast</option>
+  </select>
+  <button class="ctrl-btn active" id="btn-voice" onclick="rvToggleVoice()">🔊 Voice</button>
+  <button class="ctrl-btn" id="btn-pause" onclick="rvTogglePause()">⏸ Pause</button>
+</div>
+
+<div id="stage"><div id="stage-inner">
+  <div class="rv-msg"><div class="rv-spin"></div>Loading revision cards…</div>
+</div></div>
+
+<div id="botbar">
+  <span id="bot-text">Getting ready…</span>
+  <span id="bot-prog"></span>
+  <button class="nav-btn ghost" id="btn-prev" onclick="rvPrevCard()">← Previous</button>
+  <button class="nav-btn ghost" id="btn-again" onclick="rvRepeatCard()">↺ Again</button>
+  <button class="nav-btn" id="btn-next" onclick="rvNextCard()">Skip →</button>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   SAY-ALONG REVISION — DigiSmartSchool
+   Teacher method: question → explain → point by point
+   (listen → your turn → say along) → full say-along → full solo
+   → self check.
+
+   Voice: /api/voice-class  ({text, cls} → {audio_b64})
+          Already caches by SHA-256 in lesson-audio/class-voice/
+          and auto-routes Tamil text to Sarah. Nothing new needed.
+
+   Cards: assets/revision/<file>.json
+   Opened as: revision-class.html?file=class6-social-l1-english
+   ══════════════════════════════════════════════════════════════ */
+
+var DECK      = null;   // loaded card file
+var CARDS     = [];
+var CUR       = -1;     // current card index
+var runSeq    = 0;      // aborts an in-flight card when the user navigates
+var isPaused  = false;
+var voiceOn   = true;
+var curAudio  = null;
+var AUDIO_MEM = {};     // text -> base64, so say-along replays cost nothing
+var FILEBASE  = '';     // file name without the -english / -tamil suffix
+var MEDIUM    = 'english';
+var STATS     = { done:0, repeated:0 };
+
+var DEFAULT_FILE = 'class6-social-l1-english';
+
+/* ────────────────────────────────────────────────
+   1. WHICH CARD FILE TO LOAD
+   ──────────────────────────────────────────────── */
+function rvWhichFile(){
+  // (a) explicit ?file= wins — lets the hub page and bookmarks be precise
+  var qs = new URLSearchParams(window.location.search);
+  var f  = qs.get('file');
+  if (f) return f.replace(/[^a-zA-Z0-9\-_]/g,'');
+
+  // (b) otherwise build it from an activated lesson, same keys the class pages use
+  var a = null;
+  try{ a = JSON.parse(sessionStorage.getItem('rev_activated') || 'null'); }catch(e){}
+  if (!a){ try{ a = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); }catch(e){} }
+  if (a && a.cls && a.subject && a.chapter){
+    return (String(a.cls) + '-' + String(a.subject) + '-' + String(a.chapter) + '-english')
+             .toLowerCase().replace(/\s+/g,'').replace(/[^a-z0-9\-]/g,'');
+  }
+
+  // (c) last resort — the pilot chapter
+  return DEFAULT_FILE;
+}
+
+function rvBaseName(file){
+  return file.replace(/-(english|tamil)$/,'');
+}
+
+async function rvLoadDeck(file){
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML = '<div class="rv-msg"><div class="rv-spin"></div>Loading revision cards…</div>';
+  try{
+    var r = await fetch('assets/revision/' + file + '.json', { cache:'no-store' });
+    if (!r.ok) throw new Error('not found');
+    var d = await r.json();
+    if (!d || !d.cards || !d.cards.length) throw new Error('empty');
+
+    DECK     = d;
+    CARDS    = d.cards;
+    MEDIUM   = (d.medium || 'english').toLowerCase();
+    FILEBASE = rvBaseName(file);
+    AUDIO_MEM = {};
+    STATS = { done:0, repeated:0 };
+
+    document.getElementById('tb-cls').textContent   = 'Class ' + (d.class || '');
+    document.getElementById('tb-topic').textContent =
+      (d.subject || '') + ' — ' + (d.chapter || '') +
+      (d.chapter_title ? ' : ' + d.chapter_title : '');
+
+    await rvCheckOtherMedium();
+    rvStartCard(0);
+  }catch(e){
+    inner.innerHTML =
+      '<div class="rv-msg">' +
+        '<div style="font-size:2.2rem;margin-bottom:12px;">📭</div>' +
+        '<b>No revision cards found for this chapter yet.</b><br><br>' +
+        'The page looked for <code>assets/revision/' + file + '.json</code><br><br>' +
+        'Once that file is uploaded to GitHub, this page will work straight away.' +
+      '</div>';
+    document.getElementById('bot-text').textContent = 'No cards loaded.';
+  }
+}
+
+/* Show the English/Tamil switch only if the other file actually exists. */
+async function rvCheckOtherMedium(){
+  var other = (MEDIUM === 'english') ? 'tamil' : 'english';
+  var btn   = document.getElementById('btn-medium');
+  try{
+    var r = await fetch('assets/revision/' + FILEBASE + '-' + other + '.json', { method:'HEAD' });
+    if (r.ok){
+      btn.style.display = '';
+      btn.textContent = (other === 'tamil') ? 'தமிழ்' : 'English';
+    } else {
+      btn.style.display = 'none';
+    }
+  }catch(e){ btn.style.display = 'none'; }
+}
+
+function rvSwitchMedium(){
+  var other = (MEDIUM === 'english') ? 'tamil' : 'english';
+  rvAbort();
+  rvLoadDeck(FILEBASE + '-' + other);
+}
+
+/* ────────────────────────────────────────────────
+   2. VOICE  (uses the existing /api/voice-class)
+   ──────────────────────────────────────────────── */
+function rvRate(){ return parseFloat(document.getElementById('speed-sel').value) || 0.95; }
+
+function rvClassLabel(){
+  var c = DECK && DECK.class ? String(DECK.class).trim() : '';
+  if (!c) return 'Class 6';
+  return /^\d+$/.test(c) ? ('Class ' + c) : c;   // "6" → "Class 6"; "UKG" stays as is
+}
+
+/* Fetch once, keep in memory. Say-along replays cost nothing. */
+async function rvGetAudio(text){
+  if (!text) return null;
+  if (AUDIO_MEM[text] !== undefined) return AUDIO_MEM[text];
+  try{
+    var r = await fetch('/api/voice-class', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text:String(text), cls: rvClassLabel() })
+    });
+    var d = await r.json();
+    AUDIO_MEM[text] = (d && d.audio_b64) ? d.audio_b64 : null;
+    return AUDIO_MEM[text];
+  }catch(e){ AUDIO_MEM[text] = null; return null; }
+}
+
+/* Load the next line quietly while the current one is still playing. */
+function rvPrefetch(text){ if (text) rvGetAudio(text); }
+
+function rvStopAudio(){
+  if (curAudio){ try{ curAudio.pause(); }catch(e){} curAudio = null; }
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+}
+
+/* Speaks the text. Resolves with how many SECONDS the speaking actually took,
+   so the silent pause afterwards can be sized to match it. */
+function rvSpeak(text, seq){
+  return new Promise(async function(resolve){
+    if (!voiceOn || !text){ resolve(rvEstimate(text)); return; }
+    var b64 = await rvGetAudio(text);
+    if (seq !== runSeq){ resolve(0); return; }
+
+    if (!b64){ rvSpeakBrowser(text, seq, resolve); return; }
+
+    var a = new Audio('data:audio/mpeg;base64,' + b64);
+    a.playbackRate = rvRate();
+    curAudio = a;
+    var t0 = Date.now();
+    a.onended = function(){ curAudio = null; resolve((Date.now()-t0)/1000); };
+    a.onerror = function(){ curAudio = null; resolve(rvEstimate(text)); };
+    a.play().catch(function(){ curAudio = null; rvSpeakBrowser(text, seq, resolve); });
+    if (isPaused){ try{ a.pause(); }catch(e){} }
+  });
+}
+
+function rvSpeakBrowser(text, seq, resolve){
+  if (!('speechSynthesis' in window)){ resolve(rvEstimate(text)); return; }
+  var u = new SpeechSynthesisUtterance(text);
+  u.lang = (MEDIUM === 'tamil') ? 'ta-IN' : 'en-IN';
+  u.rate = rvRate(); u.pitch = 1.05;
+  var t0 = Date.now();
+  u.onend = function(){ resolve((Date.now()-t0)/1000); };
+  u.onerror = function(){ resolve(rvEstimate(text)); };
+  window.speechSynthesis.speak(u);
+}
+
+/* If audio failed entirely, guess a sensible length from the word count. */
+function rvEstimate(text){
+  if (!text) return 2;
+  return Math.max(3, String(text).split(/\s+/).length * 0.42);
+}
+
+/* ────────────────────────────────────────────────
+   3. PAUSABLE WAITING  (the "your turn" silence)
+   ──────────────────────────────────────────────── */
+/* Counts down only while NOT paused, so the teacher can hold the class. */
+function rvWait(seconds, seq, ringId){
+  return new Promise(function(resolve){
+    var left = seconds;
+    var ring = ringId ? document.getElementById(ringId) : null;
+    var fg   = ring ? ring.querySelector('.fg') : null;
+    var num  = ring ? ring.querySelector('.num') : null;
+    var CIRC = 2 * Math.PI * 22;
+    if (fg){ fg.setAttribute('stroke-dasharray', CIRC); fg.setAttribute('stroke-dashoffset', 0); }
+
+    var t = setInterval(function(){
+      if (seq !== runSeq){ clearInterval(t); resolve(); return; }
+      if (!isPaused) left -= 0.1;
+      if (fg){
+        var frac = Math.max(0, left / seconds);
+        fg.setAttribute('stroke-dashoffset', CIRC * (1 - frac));
+      }
+      if (num) num.textContent = Math.max(0, Math.ceil(left));
+      if (left <= 0){ clearInterval(t); resolve(); }
+    }, 100);
+  });
+}
+
+/* ────────────────────────────────────────────────
+   4. SCREEN DRAWING
+   ──────────────────────────────────────────────── */
+function rvTamilClass(){ return (MEDIUM === 'tamil') ? ' tamil' : ''; }
+
+function rvEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+/* phase: 'q' | 'about' | 'listen' | 'yours' | 'along' | 'fullalong' | 'solo'
+   activeIdx: which point is being worked on (-1 = none)
+   reveal: how many points are visible so far */
+function rvDraw(card, phase, activeIdx, reveal){
+  var partTxt = card.part ? ('Part ' + card.part + ' of ' + card.of + ' · ') : '';
+  var marksTxt = card.marks ? (card.marks + ' mark' + (card.marks > 1 ? 's' : '')) : '';
+
+  var banner = '';
+  var ringId = '';
+  if (phase === 'listen')    banner = '<div class="rv-phase listen"><span class="lbl">🔊 Listen to teacher</span></div>';
+  if (phase === 'yours')   { ringId='ring-yours';
+    banner = '<div class="rv-phase yours"><span class="lbl">🗣️ Your turn — say it!</span>' + rvRing('ring-yours','') + '</div>'; }
+  if (phase === 'along')     banner = '<div class="rv-phase along"><span class="lbl">🎵 Say along with teacher</span></div>';
+  if (phase === 'fullalong') banner = '<div class="rv-phase along"><span class="lbl">🎵 Full answer — say along</span></div>';
+  if (phase === 'solo')    { ringId='ring-solo';
+    banner = '<div class="rv-phase solo"><span class="lbl">🙌 Now you alone!</span>' + rvRing('ring-solo','solo') + '</div>'; }
+  if (phase === 'q')         banner = '<div class="rv-phase listen"><span class="lbl">📖 Question</span></div>';
+  if (phase === 'about')     banner = '<div class="rv-phase listen"><span class="lbl">💡 What this is about</span></div>';
+
+  var pts = '';
+  for (var i = 0; i < card.points.length; i++){
+    var cls = 'rv-pt' + rvTamilClass();
+    if (i === activeIdx) cls += ' active';
+    else if (i < reveal) cls += ' done';
+    else cls += ' hidden-pt';
+    pts += '<div class="' + cls + '">' +
+             '<span class="n">' + (i+1) + '</span>' +
+             '<span class="txt">' + rvEsc(card.points[i]) + '</span>' +
+           '</div>';
+  }
+
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="rv-head">' +
+      (marksTxt || partTxt ? '<span class="rv-marks">' + partTxt + marksTxt + '</span>' : '') +
+      '<div class="rv-q' + rvTamilClass() + '">' + rvEsc(card.question) + '</div>' +
+      '<div class="rv-line"></div>' +
+      (card.about ? '<div class="rv-about' + rvTamilClass() + '">' + rvEsc(card.about) + '</div>' : '') +
+    '</div>' +
+    banner +
+    '<div class="rv-points">' + pts + '</div>';
+}
+
+function rvRing(id, extra){
+  return '<span class="rv-ring ' + extra + '" id="' + id + '">' +
+           '<svg viewBox="0 0 52 52"><circle class="bg" cx="26" cy="26" r="22"></circle>' +
+           '<circle class="fg" cx="26" cy="26" r="22"></circle></svg>' +
+           '<span class="num"></span></span>';
+}
+
+function rvBot(msg){
+  document.getElementById('bot-text').textContent = msg;
+  document.getElementById('bot-prog').textContent =
+    (CUR >= 0 && CARDS.length) ? ('Card ' + (CUR+1) + ' of ' + CARDS.length) : '';
+  document.getElementById('btn-prev').disabled = (CUR <= 0);
+}
+
+/* ────────────────────────────────────────────────
+   5. THE TEACHING FLOW  (one card, start to finish)
+   ──────────────────────────────────────────────── */
+async function rvRunCard(idx, fromPointsOnly){
+  var seq  = ++runSeq;
+  var card = CARDS[idx];
+  if (!card) return;
+
+  rvStopAudio();
+  isPaused = false;
+  document.getElementById('btn-pause').textContent = '⏸ Pause';
+
+  var full = card.points.join(' ');
+
+  /* — 1. Question — */
+  if (!fromPointsOnly){
+    rvDraw(card, 'q', -1, 0);
+    rvBot('Listening to the question…');
+    rvPrefetch(card.about || card.points[0]);
+    await rvSpeak(card.question, seq);
+    if (seq !== runSeq) return;
+    await rvWait(0.6, seq);
+    if (seq !== runSeq) return;
+
+    /* — 2. What it is about — */
+    if (card.about){
+      rvDraw(card, 'about', -1, 0);
+      rvBot('Understanding the question…');
+      rvPrefetch(card.points[0]);
+      await rvSpeak(card.about, seq);
+      if (seq !== runSeq) return;
+      await rvWait(0.6, seq);
+      if (seq !== runSeq) return;
+    }
+  }
+
+  /* — 3. Point by point: listen → your turn → say along — */
+  for (var i = 0; i < card.points.length; i++){
+    var pt = card.points[i];
+
+    // listen
+    rvDraw(card, 'listen', i, i);
+    rvBot('Point ' + (i+1) + ' of ' + card.points.length + ' — listen carefully.');
+    rvPrefetch(card.points[i+1] || full);
+    var spoken = await rvSpeak(pt, seq);
+    if (seq !== runSeq) return;
+    await rvWait(0.5, seq);
+    if (seq !== runSeq) return;
+
+    // your turn (silent — teacher's thinking time, no microphone)
+    rvDraw(card, 'yours', i, i);
+    rvBot('Say point ' + (i+1) + ' aloud, in your own voice.');
+    await rvWait(Math.max(3, spoken * 1.2), seq, 'ring-yours');
+    if (seq !== runSeq) return;
+
+    // say along (same audio replayed from memory — costs nothing)
+    rvDraw(card, 'along', i, i);
+    rvBot('Now say it together with the teacher.');
+    await rvSpeak(pt, seq);
+    if (seq !== runSeq) return;
+    await rvWait(0.5, seq);
+    if (seq !== runSeq) return;
+  }
+
+  var lastIdx = card.points.length - 1;
+
+  /* — 4. Full answer, say along — */
+  rvDraw(card, 'fullalong', -1, card.points.length);
+  rvBot('The whole answer now — say it along with the teacher.');
+  var fullSpoken = await rvSpeak(full, seq);
+  if (seq !== runSeq) return;
+  await rvWait(0.8, seq);
+  if (seq !== runSeq) return;
+
+  /* — 5. Full answer, alone (answer stays on screen) — */
+  rvDraw(card, 'solo', -1, card.points.length);
+  rvBot('Now say the full answer by yourself. The points are on the screen to help you.');
+  await rvWait(Math.max(6, fullSpoken * 1.15), seq, 'ring-solo');
+  if (seq !== runSeq) return;
+
+  /* — 6. Self check — */
+  rvShowCheck(card, seq);
+}
+
+function rvShowCheck(card, seq){
+  if (seq !== runSeq) return;
+  rvBot('Did you get the whole answer?');
+  var pts = '';
+  for (var i = 0; i < card.points.length; i++){
+    pts += '<div class="rv-pt done' + rvTamilClass() + '">' +
+             '<span class="n">' + (i+1) + '</span>' +
+             '<span class="txt">' + rvEsc(card.points[i]) + '</span></div>';
+  }
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="rv-head">' +
+      '<div class="rv-q' + rvTamilClass() + '">' + rvEsc(card.question) + '</div>' +
+      '<div class="rv-line"></div>' +
+    '</div>' +
+    '<div class="rv-check">' +
+      '<h3>Did you say the whole answer?</h3>' +
+      '<div class="rv-check-btns">' +
+        '<button class="rv-cbtn yes" onclick="rvCheckYes()">👍 Yes, I got it</button>' +
+        '<button class="rv-cbtn no"  onclick="rvCheckNo()">👎 Teach me once more</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="rv-points" style="margin-top:20px;opacity:0.85;">' + pts + '</div>';
+}
+
+function rvCheckYes(){ STATS.done++;     rvNextCard(); }
+function rvCheckNo(){  STATS.repeated++; rvRunCard(CUR, true); }   // straight back to the points
+
+/* ────────────────────────────────────────────────
+   6. NAVIGATION
+   ──────────────────────────────────────────────── */
+function rvAbort(){ runSeq++; rvStopAudio(); }
+
+function rvStartCard(i){
+  if (i < 0 || i >= CARDS.length){ rvShowDone(); return; }
+  CUR = i;
+  rvRunCard(i, false);
+}
+function rvNextCard(){ rvAbort(); rvStartCard(CUR + 1); }
+function rvPrevCard(){ rvAbort(); if (CUR > 0) rvStartCard(CUR - 1); }
+function rvRepeatCard(){ rvAbort(); rvStartCard(CUR); }
+
+function rvTogglePause(){
+  isPaused = !isPaused;
+  var b = document.getElementById('btn-pause');
+  b.textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+  b.classList.toggle('active', isPaused);
+  if (curAudio){
+    try{ isPaused ? curAudio.pause() : curAudio.play(); }catch(e){}
+  }
+  if (isPaused){ try{ window.speechSynthesis.pause(); }catch(e){} }
+  else         { try{ window.speechSynthesis.resume(); }catch(e){} }
+}
+
+function rvToggleVoice(){
+  voiceOn = !voiceOn;
+  var b = document.getElementById('btn-voice');
+  b.textContent = voiceOn ? '🔊 Voice' : '🔇 Muted';
+  b.classList.toggle('active', voiceOn);
+  if (!voiceOn) rvStopAudio();
+}
+
+function rvShowDone(){
+  rvAbort();
+  CUR = CARDS.length - 1;
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="rv-done">' +
+      '<div class="big">🎉 Revision Complete!</div>' +
+      '<p>Well done. You have said every answer out loud — that is how it stays in your memory.</p>' +
+      '<div><span class="rv-stat">✅ ' + STATS.done + ' cards done</span>' +
+      '<span class="rv-stat">↺ ' + STATS.repeated + ' repeated</span></div>' +
+      '<button class="rv-done-btn" onclick="rvStartCard(0)">↺ Revise this chapter again</button>' +
+      '<button class="rv-done-btn ghost" onclick="rvGoBack()">← Back</button>' +
+    '</div>';
+  rvBot('Revision complete.');
+  document.getElementById('bot-prog').textContent = '';
+}
+
+function rvGoBack(){
+  rvAbort();
+  var url = 'teachbot.html';
+  try{ url = sessionStorage.getItem('rev_returnUrl') || sessionStorage.getItem('sci_returnUrl') || url; }catch(e){}
+  window.location.href = url;
+}
+
+/* Keyboard: space = pause/resume, arrows = move between cards */
+document.addEventListener('keydown', function(e){
+  if (e.code === 'Space'){ e.preventDefault(); rvTogglePause(); }
+  if (e.code === 'ArrowRight') rvNextCard();
+  if (e.code === 'ArrowLeft')  rvPrevCard();
+});
+
+/* Speed change applies to the line currently playing */
+document.getElementById('speed-sel').addEventListener('change', function(){
+  if (curAudio){ try{ curAudio.playbackRate = rvRate(); }catch(e){} }
+});
+
+/* ── GO ── */
+rvLoadDeck(rvWhichFile());
+</script>
+</body>
+</html>
