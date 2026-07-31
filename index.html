@@ -1712,6 +1712,13 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
   <div class="btn-row" id="actions-bookback" style="display:none">
     <button class="btn btn-gold btn-sm" onclick="copyOutput('out-bookback')">📋 Copy</button>
     <button class="btn btn-outline btn-sm" onclick="printOutput('out-bookback')">🖨️ Print</button>
+    <button class="btn btn-outline btn-sm" id="bb-edit-btn" onclick="bbToggleEdit()">✏️ Edit Answers</button>
+  </div>
+  <textarea id="bb-edit-box" style="display:none;width:100%;min-height:380px;margin-top:10px;
+    padding:16px;border:2px solid #C9A84C;border-radius:10px;font-family:Nunito,sans-serif;
+    font-size:0.95rem;line-height:1.9;color:#2A0A0F;background:#FFFDF5;resize:vertical;"></textarea>
+  <div id="bb-edit-note" style="display:none;font-size:0.78rem;color:#A07830;margin-top:5px;">
+    ✏️ Correct anything that is wrong or off-syllabus, then tap <b>Done Editing</b>. Your edits are what get saved.
   </div>
   <div id="bb-save-wrap" style="display:none;margin-top:10px;">
     <button id="bb-save-btn" class="btn btn-full" style="background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:0.95rem;" onclick="saveBookBackToDiary()">💾 Save to Student Diary</button>
@@ -2417,6 +2424,14 @@ function showOutput(outId, actionsId, text, tool) {
   if(tool === 'bookback'){
     var wrap = document.getElementById('bb-save-wrap');
     if(wrap) wrap.style.display = 'block';
+    // fresh answers — always come out of edit mode so old text can't linger
+    var ebox = document.getElementById('bb-edit-box');
+    var enote = document.getElementById('bb-edit-note');
+    var ebtn = document.getElementById('bb-edit-btn');
+    if(ebox){ ebox.style.display = 'none'; ebox.value = ''; }
+    if(enote) enote.style.display = 'none';
+    if(ebtn)  ebtn.textContent = '✏️ Edit Answers';
+    out.style.display = '';
   }
   out.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
@@ -2819,6 +2834,44 @@ Keep it concise, warm and easy for parents to read on their phone.`;
 }
 
 // ── OUTPUT ACTIONS ──
+// ── Edit Book Back Answers before saving ──
+// The AI answer is what children will memorise, so the teacher must be able
+// to correct it first. Swaps the read-only output for a plain text box.
+function bbToggleEdit(){
+  var out  = document.getElementById('out-bookback');
+  var box  = document.getElementById('bb-edit-box');
+  var note = document.getElementById('bb-edit-note');
+  var btn  = document.getElementById('bb-edit-btn');
+  if(!out || !box) return;
+
+  var editing = (box.style.display !== 'none');
+
+  if(!editing){
+    // going INTO edit mode
+    box.value = out.textContent || '';
+    out.style.display  = 'none';
+    box.style.display  = 'block';
+    note.style.display = 'block';
+    btn.textContent    = '✅ Done Editing';
+    box.focus();
+  } else {
+    // coming OUT of edit mode — put the edited text back
+    out.innerHTML = renderGeneral(box.value);
+    out.style.display  = '';
+    box.style.display  = 'none';
+    note.style.display = 'none';
+    btn.textContent    = '✏️ Edit Answers';
+  }
+}
+
+// If the teacher is still editing when she saves, take the text from the box.
+function bbCurrentAnswers(){
+  var box = document.getElementById('bb-edit-box');
+  if(box && box.style.display !== 'none') return box.value || '';
+  var out = document.getElementById('out-bookback');
+  return out ? (out.textContent || '') : '';
+}
+
 function copyOutput(id) {
   navigator.clipboard.writeText(document.getElementById(id).textContent)
     .then(() => alert('✅ Copied to clipboard!'));
@@ -2935,7 +2988,7 @@ async function pushHomeworkToERP(d){
 async function saveBookBackToDiary(){
   var cls = document.getElementById('bb-class').value;
   var sub = document.getElementById('bb-subject').value;
-  var answers = document.getElementById('out-bookback').textContent || '';
+  var answers = bbCurrentAnswers();
   var lesson = document.getElementById('bb-content').value.substring(0,80) || 'Book Back';
 
   if(!cls || !sub){ alert('Please select Class and Subject first.'); return; }
