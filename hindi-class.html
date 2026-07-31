@@ -1790,10 +1790,31 @@ function scGoBack(){
 }
 
 /* ── TAMIL — Fullscreen Class engine ── */
+/* --- TAMIL v2 helpers: conversational teacher, book words kept as printed (31-07-2026) --- */
+function scTmClassNum(){
+  var s = String((typeof LESSON !== 'undefined' && LESSON.cls) || '').toLowerCase();
+  if (/pre.?kg|lkg|ukg|nursery|\bkg\b/.test(s)) return 0;
+  var m = s.match(/\d+/);
+  return m ? parseInt(m[0], 10) : 8;
+}
+var SC_TM_STOP = ' the and for are but not you all any can her was one our out day get has him his how man new now old see two way who did its let put say she too use with this that from they have been will your what when them then than were said each which their time about would there could other into more some only over also back after most such very just because being does off per via upon many much both same next last make made take then here where while these those been very much what will your ';
+function scTmKeyTerms(material){
+  var seen = {}, out = [];
+  var words = String(material).match(/[A-Za-z][A-Za-z\-']{3,}/g) || [];
+  for (var i = 0; i < words.length; i++){
+    var w = words[i], lw = w.toLowerCase();
+    if (SC_TM_STOP.indexOf(' ' + lw + ' ') !== -1) continue;
+    if (seen[lw]) continue;
+    seen[lw] = 1; out.push(w);
+    if (out.length >= 18) break;
+  }
+  return out.join(', ');
+}
+
 function scTamilKey(material){
   var h = 0;
   for (var i = 0; i < material.length; i++){ h = ((h << 5) - h + material.charCodeAt(i)) | 0; }
-  return 'sc_' + Math.abs(h).toString(36);
+  return 'sc2_' + Math.abs(h).toString(36);
 }
 
 async function scExplainTamil(){
@@ -1810,6 +1831,23 @@ async function scExplainTamil(){
 
     var material = (step.title + '. ' + (step.speech || '')).substring(0, 1500);
     var key = scTamilKey(material);
+    /* --- TAMIL v2 prompt build (31-07-2026) --- */
+    var scTmCls   = scTmClassNum();
+    var scTmLabel = (scTmCls === 0) ? 'KG' : ('Class ' + scTmCls);
+    var scTmTerms = scTmKeyTerms(material);
+    var scTmShape = (scTmCls <= 5)
+      ? '5 to 7 very short spoken lines. Ask a small question in almost every line and answer it yourself straight away. Use everyday examples a small child knows (\u0B9A\u0BBE\u0BAA\u0BCD\u0BAA\u0BBE\u0B9F\u0BC1, \u0BB5\u0BBF\u0BB3\u0BC8\u0BAF\u0BBE\u0B9F\u0BCD\u0B9F\u0BC1, \u0BB5\u0BC0\u0B9F\u0BC1).'
+      : '6 to 8 spoken lines, still question-led, with a little more depth and reason (why it happens).';
+    var scTmSys =
+      'You are a ' + scTmLabel + ' teacher in an ENGLISH-MEDIUM school in Tamil Nadu, chatting with your students in class. You are NOT reading a book aloud.\n' +
+      'RULE 1 \u2014 Every subject word, key word and book word stays EXACTLY as printed in the book, in its own script and spelling. NEVER translate a book word into Tamil. The child must hear the same word she will see in her book and in her exam. Example: say "bones", never \u0B8E\u0BB2\u0BC1\u0BAE\u0BCD\u0BAA\u0BC1\u0B95\u0BB3\u0BCD.\n' +
+      'RULE 2 \u2014 Every other word (explaining, joining, questioning) in Tamil script only. NEVER write Tamil words in English letters (no Tanglish, no transliteration).\n' +
+      'RULE 3 \u2014 Talk, do not narrate. Ask the class a small question, answer it yourself straight away, then move to the next question. Natural spoken classroom talk, not a paragraph.\n' +
+      'RULE 4 \u2014 Short spoken lines. Never greet, never say \u0BAE\u0BBE\u0BA3\u0BB5\u0BB0\u0BCD\u0B95\u0BB3\u0BC7 or any pet name. Start straight into the talk. No lists, labels, headings, markdown, emojis or stage directions.';
+    var scTmAsk =
+      scTmLabel + ' \u2014 Hindi. Turn the book point below into a live classroom chat in Tamil.\n' +
+      (scTmTerms ? 'KEEP THESE WORDS EXACTLY AS THEY ARE, DO NOT TRANSLATE THEM: ' + scTmTerms + '\n' : '') +
+      scTmShape + '\n\nBOOK POINT:\n' + material;
     var entry = SC_TAMIL_CACHE[key];
 
     if (!entry){
@@ -1817,10 +1855,9 @@ async function scExplainTamil(){
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          system: 'You are a modern Tamil Nadu school teacher. Reply ONLY in proper Tamil script (\u0BA4\u0BAE\u0BBF\u0BB4\u0BCD \u0B8E\u0BB4\u0BC1\u0BA4\u0BCD\u0BA4\u0BC1). NEVER write Tamil words in English letters (no Tanglish, no transliteration). Only technical/subject keywords may stay in English. Do NOT address students with pet names \u2014 start directly with the explanation. No labels, no markdown.',
-          messages:[{role:'user', content:
-            'Explain this Hindi lesson point aloud like a real Tamil Nadu teacher speaking Tamil in class. Write ONLY in Tamil script \u2014 keep just names and technical keywords in English. 3-5 sentences, explain the WHY simply:\n\n' + material}],
-          max_tokens: 500
+          system: scTmSys,
+          messages:[{role:'user', content: scTmAsk}],
+          max_tokens: 700
         })
       });
       var d = await aiRes.json();
