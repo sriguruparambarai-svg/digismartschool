@@ -51,6 +51,9 @@ body{font-family:'Nunito',sans-serif;background:var(--maroon-dark);min-height:10
 .dbtn.go{background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);}
 .dbtn.ta{background:rgba(201,168,76,0.18);color:var(--maroon);border:1.5px solid var(--gold);
   font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+.dbtn.del{flex:0 0 auto;min-width:0;background:rgba(160,38,58,0.1);color:#8B1A2A;
+  border:1.5px solid rgba(160,38,58,0.35);font-size:0.82rem;padding:12px 14px;}
+.dbtn.del:hover{background:rgba(160,38,58,0.2);}
 .dbtn:hover{filter:brightness(1.12);}
 
 .msg{background:var(--white);border:2px dashed var(--sandal-dark);border-radius:15px;
@@ -153,7 +156,11 @@ function groupDecks(decks){
     }
     if (!map[key].chapter_title && d.chapter_title) map[key].chapter_title = d.chapter_title;
   });
-  return Object.keys(map).map(function(k){ return map[k]; });
+  return Object.keys(map).map(function(k){
+    var g = map[k];
+    g.ids = Object.keys(g.media).map(function(m){ return g.media[m].id; });
+    return g;
+  });
 }
 
 function render(){
@@ -174,6 +181,7 @@ function render(){
 
   var html = '<div class="grid">';
   list.forEach(function(g){
+    var gi = GROUPS.indexOf(g);
     var btns = '';
     if (g.media.english){
       btns += '<button class="dbtn go" onclick="openDeck(\'' + esc(g.media.english.id) +
@@ -186,15 +194,23 @@ function render(){
 
     var count = (g.media.english || g.media.tamil).cards;
 
+    // the dropdown already stores "Class 4", so don't say Class twice
+    var clsTxt = String(g.class_name || '');
+    if (!/^class\b/i.test(clsTxt)) clsTxt = 'Class ' + clsTxt;
+
+    // only a school's OWN chapters can be removed — never the shared library
+    var remove = g.shared ? '' :
+      '<button class="dbtn del" onclick="askRemove(' + gi + ')">\u2715 Remove</button>';
+
     html +=
       '<div class="deck">' +
-        '<span class="pill">CLASS ' + esc(g.class_name) +
-          (g.shared ? ' · LIBRARY' : '') + '</span>' +
+        '<span class="pill">' + esc(clsTxt.toUpperCase()) +
+          (g.shared ? ' \u00b7 LIBRARY' : '') + '</span>' +
         '<h3>' + esc(g.chapter) +
           (g.chapter_title ? ' — ' + esc(g.chapter_title) : '') + '</h3>' +
         '<div class="sub">' + esc(g.subject || '') + '</div>' +
         '<div class="cnt">' + count + ' cards</div>' +
-        '<div class="btns">' + btns + '</div>' +
+        '<div class="btns">' + btns + remove + '</div>' +
       '</div>';
   });
   html += '</div>';
@@ -226,25 +242,69 @@ function pick(btn, c){
   render();
 }
 
-fetch('/api/revision-decks', {
-  method:'POST',
-  headers:{'Content-Type':'application/json'},
-  body: JSON.stringify({ action:'list_decks', school_id: schoolId() })
-})
-  .then(function(r){ return r.json(); })
-  .then(function(d){
-    if (d.error) throw new Error(d.error);
-    GROUPS = groupDecks(d.decks || []);
-    buildFilters();
-    render();
+/* ── Removing a chapter ────────────────────────────────────────
+   Only a school's own chapters. Asked twice on purpose, because the
+   cards are gone afterwards and would have to be made again.
+   ───────────────────────────────────────────────────────────── */
+async function askRemove(gi){
+  var g = GROUPS[gi];
+  if (!g) return;
+
+  var name = g.chapter + (g.chapter_title ? ' — ' + g.chapter_title : '');
+
+  if (!confirm(
+    'Remove "' + name + '"?\n\n' +
+    'Class ' + String(g.class_name).replace(/^class\s*/i,'') + ' · ' + g.subject + '\n\n' +
+    'The cards will be deleted. To use this chapter again next year, a teacher\n' +
+    'would have to generate and check the answers all over again.'
+  )) return;
+
+  if (!confirm('Last check — delete the cards for "' + name + '"?')) return;
+
+  try{
+    for (var i = 0; i < g.ids.length; i++){
+      var r = await fetch('/api/revision-decks', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          action:'delete_deck', id: g.ids[i], school_id: schoolId()
+        })
+      });
+      var d = await r.json();
+      if (d.error) throw new Error(d.error);
+    }
+    loadDecks();
+  }catch(e){
+    alert('Could not remove it: ' + (e.message || 'unknown problem'));
+  }
+}
+
+function loadDecks(){
+  document.getElementById('out').innerHTML =
+    '<div class="msg"><div class="spin"></div>Loading chapters…</div>';
+
+  fetch('/api/revision-decks', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'list_decks', school_id: schoolId() })
   })
-  .catch(function(e){
-    document.getElementById('out').innerHTML =
-      '<div class="msg"><div class="ico">⚠️</div>' +
-      '<b>Could not load the chapter list.</b><br><br>' +
-      esc(e.message || '') + '<br><br>' +
-      'If you are not logged in, please open this from Teacher Tools.</div>';
-  });
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      if (d.error) throw new Error(d.error);
+      GROUPS = groupDecks(d.decks || []);
+      buildFilters();
+      render();
+    })
+    .catch(function(e){
+      document.getElementById('out').innerHTML =
+        '<div class="msg"><div class="ico">⚠️</div>' +
+        '<b>Could not load the chapter list.</b><br><br>' +
+        esc(e.message || '') + '<br><br>' +
+        'If you are not logged in, please open this from Teacher Tools.</div>';
+    });
+}
+
+loadDecks();
 
 </script>
 </body>
