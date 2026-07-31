@@ -204,70 +204,98 @@ var STATS     = { done:0, repeated:0 };
 var DEFAULT_FILE = 'class6-social-l1-english';
 
 /* ────────────────────────────────────────────────
-   1. WHICH CARD FILE TO LOAD
+   1. WHICH DECK TO LOAD
+
+   Two ways in:
+     ?id=<uuid>   a deck saved by a teacher  → read from the database
+     ?file=<name> a card file in the repo    → the old pilot route, still works
    ──────────────────────────────────────────────── */
-function rvWhichFile(){
-  // (a) explicit ?file= wins — lets the hub page and bookmarks be precise
+function rvWhichSource(){
   var qs = new URLSearchParams(window.location.search);
-  var f  = qs.get('file');
-  if (f) return f.replace(/[^a-zA-Z0-9\-_]/g,'');
+  var id = qs.get('id');
+  if (id) return { type:'id', value: id };
 
-  // (b) otherwise build it from an activated lesson, same keys the class pages use
-  var a = null;
-  try{ a = JSON.parse(sessionStorage.getItem('rev_activated') || 'null'); }catch(e){}
-  if (!a){ try{ a = JSON.parse(sessionStorage.getItem('tm_activated') || 'null'); }catch(e){} }
-  if (a && a.cls && a.subject && a.chapter){
-    return (String(a.cls) + '-' + String(a.subject) + '-' + String(a.chapter) + '-english')
-             .toLowerCase().replace(/\s+/g,'').replace(/[^a-z0-9\-]/g,'');
-  }
+  var f = qs.get('file');
+  if (f) return { type:'file', value: f.replace(/[^a-zA-Z0-9\-_]/g,'') };
 
-  // (c) last resort — the pilot chapter
-  return DEFAULT_FILE;
+  return { type:'file', value: DEFAULT_FILE };
 }
 
 function rvBaseName(file){
   return file.replace(/-(english|tamil)$/,'');
 }
 
-async function rvLoadDeck(file){
+/* Which school is asking — same rule the Teacher Tools page uses. */
+function rvSchoolId(){
+  try{
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    var role = localStorage.getItem('dss_role') || '';
+    if (role === 'teacher') return u.school_id || (u.schools && u.schools.id) || '';
+    return u.school_id || u.id || '';
+  }catch(e){ return ''; }
+}
+
+async function rvLoadSource(src){
   var inner = document.getElementById('stage-inner');
   inner.innerHTML = '<div class="rv-msg"><div class="rv-spin"></div>Loading revision cards…</div>';
-  try{
-    var r = await fetch('assets/revision/' + file + '.json', { cache:'no-store' });
-    if (!r.ok) throw new Error('not found');
-    var d = await r.json();
-    if (!d || !d.cards || !d.cards.length) throw new Error('empty');
 
-    DECK     = d;
-    CARDS    = d.cards;
-    MEDIUM   = (d.medium || 'english').toLowerCase();
-    FILEBASE = rvBaseName(file);
+  try{
+    var d;
+
+    if (src.type === 'id'){
+      /* ── saved deck, straight from the database ── */
+      var r = await fetch('/api/revision-decks', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'get_deck', id: src.value })
+      });
+      var res = await r.json();
+      if (res.error) throw new Error(res.error);
+      d = res.deck;
+      d.class = d.class_name;
+      FILEBASE = '';                                   // no sibling file to switch to
+      document.getElementById('btn-medium').style.display = 'none';
+    } else {
+      /* ── card file in the repo (the original pilot chapter) ── */
+      var fr = await fetch('assets/revision/' + src.value + '.json', { cache:'no-store' });
+      if (!fr.ok) throw new Error('This chapter has no cards yet.');
+      d = await fr.json();
+      FILEBASE = rvBaseName(src.value);
+    }
+
+    if (!d || !d.cards || !d.cards.length) throw new Error('This chapter has no cards yet.');
+
+    DECK      = d;
+    CARDS     = d.cards;
+    MEDIUM    = (d.medium || 'english').toLowerCase();
     AUDIO_MEM = {};
-    STATS = { done:0, repeated:0 };
+    STATS     = { done:0, repeated:0 };
 
     document.getElementById('tb-cls').textContent   = 'Class ' + (d.class || '');
     document.getElementById('tb-topic').textContent =
       (d.subject || '') + ' — ' + (d.chapter || '') +
       (d.chapter_title ? ' : ' + d.chapter_title : '');
 
-    await rvCheckOtherMedium();
+    if (src.type === 'file') await rvCheckOtherMedium();
     rvStartCard(0);
+
   }catch(e){
     inner.innerHTML =
       '<div class="rv-msg">' +
         '<div style="font-size:2.2rem;margin-bottom:12px;">📭</div>' +
-        '<b>No revision cards found for this chapter yet.</b><br><br>' +
-        'The page looked for <code>assets/revision/' + file + '.json</code><br><br>' +
-        'Once that file is uploaded to GitHub, this page will work straight away.' +
+        '<b>' + (e.message || 'Could not open this chapter.') + '</b><br><br>' +
+        'A teacher can create cards from Teacher Tools → Book Back Answers → Save for Revision.' +
       '</div>';
     document.getElementById('bot-text').textContent = 'No cards loaded.';
   }
 }
 
-/* Show the English/Tamil switch only if the other file actually exists. */
+/* Kept for the repo-file route: show the language switch only if the
+   other file actually exists. Database decks use the picker instead. */
 async function rvCheckOtherMedium(){
   var other = (MEDIUM === 'english') ? 'tamil' : 'english';
   var btn   = document.getElementById('btn-medium');
+  if (!FILEBASE){ btn.style.display = 'none'; return; }
   try{
     var r = await fetch('assets/revision/' + FILEBASE + '-' + other + '.json', { method:'HEAD' });
     if (r.ok){
@@ -282,7 +310,7 @@ async function rvCheckOtherMedium(){
 function rvSwitchMedium(){
   var other = (MEDIUM === 'english') ? 'tamil' : 'english';
   rvAbort();
-  rvLoadDeck(FILEBASE + '-' + other);
+  rvLoadSource({ type:'file', value: FILEBASE + '-' + other });
 }
 
 /* ────────────────────────────────────────────────
@@ -631,7 +659,7 @@ document.getElementById('speed-sel').addEventListener('change', function(){
 });
 
 /* ── GO ── */
-rvLoadDeck(rvWhichFile());
+rvLoadSource(rvWhichSource());
 </script>
 </body>
 </html>

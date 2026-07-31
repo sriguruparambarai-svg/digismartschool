@@ -102,12 +102,16 @@ body{font-family:'Nunito',sans-serif;background:var(--maroon-dark);min-height:10
 <script>
 /* ══════════════════════════════════════════════════════════════
    REVISION CHAPTER PICKER
-   Reads assets/revision/index.json and lists every chapter that
-   has cards. To add a chapter: upload its card file, then add one
-   entry to index.json. No code change needed here, ever.
+
+   Lists every chapter this school can use:
+     • chapters its own teachers saved
+     • chapters in the shared library (free for all schools)
+
+   Nothing is read from the browser directly — the API does it
+   server-side with the service key.
    ══════════════════════════════════════════════════════════════ */
 
-var DECKS = [];
+var GROUPS = [];
 var FILTER = 'all';
 
 function esc(s){
@@ -115,59 +119,92 @@ function esc(s){
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-function openDeck(file){
-  window.open('revision-class.html?file=' + encodeURIComponent(file), '_blank');
+/* Same rule the Teacher Tools page uses to know which school is logged in. */
+function schoolId(){
+  try{
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    var role = localStorage.getItem('dss_role') || '';
+    if (role === 'teacher') return u.school_id || (u.schools && u.schools.id) || '';
+    return u.school_id || u.id || '';
+  }catch(e){ return ''; }
 }
 
-function setFilter(c){ FILTER = c; render(); }
+function openDeck(id){
+  window.open('revision-class.html?id=' + encodeURIComponent(id), '_blank');
+}
+
+/* One chapter may exist in English and in Tamil — two saved decks,
+   one card on screen with a button for each language. */
+function groupDecks(decks){
+  var map = {};
+  decks.forEach(function(d){
+    var key = d.class_name + '|' + d.subject + '|' + d.chapter;
+    if (!map[key]){
+      map[key] = {
+        class_name: d.class_name, subject: d.subject,
+        chapter: d.chapter, chapter_title: d.chapter_title,
+        shared: d.shared, media: {}
+      };
+    }
+    // a school's own version wins over a shared one with the same name
+    if (!map[key].media[d.medium] || !d.shared){
+      map[key].media[d.medium] = d;
+      if (!d.shared) map[key].shared = false;
+    }
+    if (!map[key].chapter_title && d.chapter_title) map[key].chapter_title = d.chapter_title;
+  });
+  return Object.keys(map).map(function(k){ return map[k]; });
+}
 
 function render(){
   var out = document.getElementById('out');
 
-  var list = DECKS.filter(function(d){
-    return FILTER === 'all' || String(d.class) === String(FILTER);
+  var list = GROUPS.filter(function(g){
+    return FILTER === 'all' || String(g.class_name) === String(FILTER);
   });
 
   if (!list.length){
     out.innerHTML =
       '<div class="msg"><div class="ico">📭</div>' +
-      '<b>No revision chapters here yet.</b><br>' +
-      'Chapters appear as soon as their card files are added.</div>';
+      '<b>No revision chapters yet.</b><br><br>' +
+      'A teacher can make them in <b>Teacher Tools → Book Back Answers</b>.<br>' +
+      'Generate the answers, check them, then tap <b>Save for Revision</b>.</div>';
     return;
   }
 
   var html = '<div class="grid">';
-  list.forEach(function(d){
-    var base = String(d.file).replace(/-(english|tamil)$/,'');
+  list.forEach(function(g){
+    var btns = '';
+    if (g.media.english){
+      btns += '<button class="dbtn go" onclick="openDeck(\'' + esc(g.media.english.id) +
+              '\')">▶ Start Revision</button>';
+    }
+    if (g.media.tamil){
+      btns += '<button class="dbtn ta" onclick="openDeck(\'' + esc(g.media.tamil.id) +
+              '\')">தமிழ்</button>';
+    }
+
+    var count = (g.media.english || g.media.tamil).cards;
+
     html +=
       '<div class="deck">' +
-        '<span class="pill">CLASS ' + esc(d.class) + '</span>' +
-        '<h3>' + esc(d.chapter) + (d.chapter_title ? ' — ' + esc(d.chapter_title) : '') + '</h3>' +
-        '<div class="sub">' + esc(d.subject || '') + '</div>' +
-        '<div class="cnt">' + (d.cards || '?') + ' cards</div>' +
-        '<div class="btns">' +
-          '<button class="dbtn go" onclick="openDeck(\'' + esc(base) + '-english\')">▶ Start Revision</button>' +
-          '<button class="dbtn ta" style="display:none;" ' +
-                  'data-tamil="' + esc(base) + '-tamil" ' +
-                  'onclick="openDeck(\'' + esc(base) + '-tamil\')">தமிழ்</button>' +
-        '</div>' +
+        '<span class="pill">CLASS ' + esc(g.class_name) +
+          (g.shared ? ' · LIBRARY' : '') + '</span>' +
+        '<h3>' + esc(g.chapter) +
+          (g.chapter_title ? ' — ' + esc(g.chapter_title) : '') + '</h3>' +
+        '<div class="sub">' + esc(g.subject || '') + '</div>' +
+        '<div class="cnt">' + count + ' cards</div>' +
+        '<div class="btns">' + btns + '</div>' +
       '</div>';
   });
   html += '</div>';
   out.innerHTML = html;
-
-  // Show the Tamil button only where a Tamil card file actually exists
-  Array.prototype.forEach.call(out.querySelectorAll('[data-tamil]'), function(btn){
-    fetch('assets/revision/' + btn.getAttribute('data-tamil') + '.json', { method:'HEAD' })
-      .then(function(r){ if (r.ok) btn.style.display = ''; })
-      .catch(function(){});
-  });
 }
 
 function buildFilters(){
   var classes = [];
-  DECKS.forEach(function(d){
-    if (classes.indexOf(String(d.class)) === -1) classes.push(String(d.class));
+  GROUPS.forEach(function(g){
+    if (classes.indexOf(String(g.class_name)) === -1) classes.push(String(g.class_name));
   });
   classes.sort(function(a,b){ return (parseInt(a,10) || 0) - (parseInt(b,10) || 0); });
 
@@ -185,26 +222,30 @@ function pick(btn, c){
     b.classList.remove('on');
   });
   btn.classList.add('on');
-  setFilter(c);
+  FILTER = c;
+  render();
 }
 
-fetch('assets/revision/index.json', { cache:'no-store' })
-  .then(function(r){
-    if (!r.ok) throw new Error('missing');
-    return r.json();
-  })
+fetch('/api/revision-decks', {
+  method:'POST',
+  headers:{'Content-Type':'application/json'},
+  body: JSON.stringify({ action:'list_decks', school_id: schoolId() })
+})
+  .then(function(r){ return r.json(); })
   .then(function(d){
-    DECKS = (d && d.decks) ? d.decks : [];
+    if (d.error) throw new Error(d.error);
+    GROUPS = groupDecks(d.decks || []);
     buildFilters();
     render();
   })
-  .catch(function(){
+  .catch(function(e){
     document.getElementById('out').innerHTML =
-      '<div class="msg"><div class="ico">📁</div>' +
-      '<b>Revision list not found.</b><br><br>' +
-      'This page needs <code>assets/revision/index.json</code> in the repo.<br>' +
-      'Once it is uploaded, the chapters will appear here automatically.</div>';
+      '<div class="msg"><div class="ico">⚠️</div>' +
+      '<b>Could not load the chapter list.</b><br><br>' +
+      esc(e.message || '') + '<br><br>' +
+      'If you are not logged in, please open this from Teacher Tools.</div>';
   });
+
 </script>
 </body>
 </html>
