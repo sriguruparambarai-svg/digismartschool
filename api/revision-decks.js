@@ -68,6 +68,44 @@ function sbRequest(method, path, bodyObj, extraHeaders) {
 }
 
 /* ─────────────────────────────────────────────────────────────
+   Who is asking?
+
+   The school is taken from a signed token issued at login, not from
+   whatever the browser claims. Same method as the ERP's hrm-data.js.
+
+   DEPLOY A: if no token is sent, we fall back to the school code in
+   the request, so nobody already logged in is locked out. Once every
+   teacher has logged in again and is carrying a token, remove the
+   fallback (see FALLBACK below) and this becomes properly sealed.
+   ───────────────────────────────────────────────────────────── */
+const crypto = require('crypto');
+
+function verifySessionToken(token) {
+  try {
+    var parts = String(token || '').split('.');
+    if (parts.length !== 2) return null;
+    var payload = Buffer.from(parts[0], 'base64').toString('utf8');
+    var secret = process.env.SUPABASE_SECRET_KEY || '';
+    var sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    if (sig !== parts[1]) return null;            // seal broken → reject
+    var d = JSON.parse(payload);
+    if (Date.now() > d.exp) return null;          // expired → reject
+    return d;                                      // { sid, role, exp }
+  } catch (e) { return null; }
+}
+
+// Returns { school, role, trusted }.
+// trusted=true means it came from a sealed token and can be believed.
+function whoIsAsking(body) {
+  var s = verifySessionToken(body.session);
+  if (s) {
+    return { school: String(s.sid || ''), role: s.role || '', trusted: true };
+  }
+  // ── FALLBACK (remove in Deploy B) ──
+  return { school: clean(body.school_id, 100), role: '', trusted: false };
+}
+
+/* ─────────────────────────────────────────────────────────────
    Checking what came in
    ───────────────────────────────────────────────────────────── */
 function clean(v, limit) {
@@ -145,13 +183,19 @@ async function listDecks(schoolId) {
 }
 
 // One deck, with all its cards — this is what the revision page plays.
-async function getDeck(id) {
+async function getDeck(id, who) {
   var r = await sbRequest('GET',
     TABLE + '?id=eq.' + encodeURIComponent(id) + '&select=*&limit=1', null);
 
   if (!r.ok) return { error: 'Could not load that chapter' };
   var row = Array.isArray(r.data) ? r.data[0] : null;
   if (!row) return { error: 'That chapter no longer exists' };
+
+  // A school may open the shared library, or its own chapters. Nothing else.
+  if (who.trusted && row.school_id !== '' &&
+      row.school_id !== who.school && who.role !== 'super_admin') {
+    return { error: 'That chapter belongs to a different school' };
+  }
 
   return {
     deck: {
@@ -171,9 +215,24 @@ async function getDeck(id) {
 // Create or replace. The database rule (one deck per chapter) means saving
 // again REPLACES the old cards rather than adding a second copy — so a class
 // can never be shown two different versions of the same answer.
-async function saveDeck(body) {
+async function saveDeck(body, who) {
+  // Saving to the SHARED library (school_id '') is super admin only.
+  // A school saving its own chapter always uses its own school code,
+  // whatever it may have put in the request.
+  var owner;
+  if (who.trusted) {
+    var wantsShared = (body.school_id === '' || body.school_id === undefined);
+    if (wantsShared && who.role !== 'super_admin') {
+      return { error: 'Only the DigiSmartSchool admin can add to the shared library' };
+    }
+    owner = wantsShared ? '' : who.school;
+    if (who.role === 'super_admin' && !wantsShared) owner = clean(body.school_id, 100);
+  } else {
+    owner = clean(body.school_id, 100);                // FALLBACK (remove in Deploy B)
+  }
+
   var row = {
-    school_id:     clean(body.school_id, 100),          // '' = shared library
+    school_id:     owner,                               // '' = shared library
     class_name:    clean(body.class_name, 50),
     subject:       clean(body.subject, 100),
     chapter:       clean(body.chapter, 200),
@@ -217,11 +276,26 @@ async function saveDeck(body) {
 // The admin page passes '__library__' to remove a shared chapter — a value
 // no real school code can have, since school codes never contain underscores
 // at both ends and this string is never sent by any teacher-facing page.
-async function deleteDeck(id, schoolId) {
+async function deleteDeck(id, who, rawSchool) {
   if (!id) return { error: 'Nothing to delete' };
-  if (!schoolId) return { error: 'Only a school can remove its own chapters' };
 
-  var target = (schoolId === '__library__') ? '' : schoolId;
+  var target;
+  if (who.trusted) {
+    // Removing from the shared library is super admin only.
+    var wantsLibrary = (rawSchool === '__library__' || rawSchool === '');
+    if (wantsLibrary) {
+      if (who.role !== 'super_admin') {
+        return { error: 'Only the DigiSmartSchool admin can remove library chapters' };
+      }
+      target = '';
+    } else {
+      target = who.school;                              // always the token's school
+    }
+  } else {
+    // ── FALLBACK (remove in Deploy B) ──
+    if (!rawSchool) return { error: 'Only a school can remove its own chapters' };
+    target = (rawSchool === '__library__') ? '' : rawSchool;
+  }
 
   var r = await sbRequest('DELETE',
     TABLE + '?id=eq.' + encodeURIComponent(id) +
@@ -247,13 +321,14 @@ module.exports = async function (req, res) {
 
   var body = req.body || {};
   var action = clean(body.action, 40);
+  var who = whoIsAsking(body);
 
   try {
     var out;
-    if (action === 'list_decks')       out = await listDecks(clean(body.school_id, 100));
-    else if (action === 'get_deck')    out = await getDeck(clean(body.id, 100));
-    else if (action === 'save_deck')   out = await saveDeck(body);
-    else if (action === 'delete_deck') out = await deleteDeck(clean(body.id, 100), clean(body.school_id, 100));
+    if (action === 'list_decks')       out = await listDecks(who.school);
+    else if (action === 'get_deck')    out = await getDeck(clean(body.id, 100), who);
+    else if (action === 'save_deck')   out = await saveDeck(body, who);
+    else if (action === 'delete_deck') out = await deleteDeck(clean(body.id, 100), who, clean(body.school_id, 100));
     else return res.status(400).json({ error: 'Unknown action: ' + action });
 
     return res.status(out && out.error ? 400 : 200).json(out);

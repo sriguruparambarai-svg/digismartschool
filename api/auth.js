@@ -1,4 +1,19 @@
 const https = require('https');
+const crypto = require('crypto');
+
+// ── Signed session token (same shape as DigiSmart ERP staff-login.js) ──
+// The school code is sealed inside by the server, so an API can trust it
+// instead of believing whatever the browser claims to be.
+function makeSessionToken(schoolId, role) {
+  const payload = JSON.stringify({
+    sid: String(schoolId || ''),
+    role: role || '',
+    exp: Date.now() + 12 * 60 * 60 * 1000     // 12 hours
+  });
+  const secret = process.env.SUPABASE_SECRET_KEY || '';
+  const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return Buffer.from(payload).toString('base64') + '.' + sig;
+}
 
 module.exports.config = { api: { bodyParser: { sizeLimit: '20mb' } } };
 
@@ -98,7 +113,7 @@ module.exports = async function(req2, res) {
       const { access_token } = r.data;
 
       if (email === 'sriguruparambarai@gmail.com') {
-        return res.json({ success: true, role: 'super_admin', user: { name: 'Kayal - Super Admin', email }, token: access_token });
+        return res.json({ success: true, role: 'super_admin', user: { name: 'Kayal - Super Admin', email }, token: access_token, session_token: makeSessionToken('', 'super_admin') });
       }
 
       const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
@@ -119,11 +134,11 @@ module.exports = async function(req2, res) {
           }
           const daysLeft = Math.floor((expiry - today) / (1000*60*60*24));
           if (daysLeft <= 7) {
-            return res.json({ success: true, role: 'school_admin', user: school, token: access_token, warning: 'Your subscription expires in ' + daysLeft + ' day(s). Please renew to avoid interruption.' });
+            return res.json({ success: true, role: 'school_admin', user: school, token: access_token, session_token: makeSessionToken(school.school_code || school.id, 'school_admin'), warning: 'Your subscription expires in ' + daysLeft + ' day(s). Please renew to avoid interruption.' });
           }
         }
 
-        return res.json({ success: true, role: 'school_admin', user: school, token: access_token });
+        return res.json({ success: true, role: 'school_admin', user: school, token: access_token, session_token: makeSessionToken(school.school_code || school.id, 'school_admin') });
       }
 
       const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
@@ -145,7 +160,7 @@ module.exports = async function(req2, res) {
           }
         }
 
-        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token });
+        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token, session_token: makeSessionToken((teacherSchool && (teacherSchool.school_code || teacherSchool.id)) || teacher.school_id, 'teacher') });
       }
 
       return res.json({ error: 'Account not found. Contact your administrator.' });
