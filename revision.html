@@ -122,7 +122,14 @@ function esc(s){
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-/* Same rule the Teacher Tools page uses to know which school is logged in. */
+/* The sealed token from login. The API reads the school from this, so a
+   changed school code in the browser gets it nowhere. */
+function sessionToken(){
+  try{ return localStorage.getItem('dss_session') || ''; }catch(e){ return ''; }
+}
+
+/* Still sent while Deploy A's fallback is in place, for anyone who has not
+   logged in again yet. Ignored by the API once a token is present. */
 function schoolId(){
   try{
     var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
@@ -267,7 +274,7 @@ async function askRemove(gi){
         method:'POST',
         headers:{'Content-Type':'application/json'},
         body: JSON.stringify({
-          action:'delete_deck', id: g.ids[i], school_id: schoolId()
+          action:'delete_deck', id: g.ids[i], session: sessionToken(), school_id: schoolId()
         })
       });
       var d = await r.json();
@@ -286,7 +293,7 @@ function loadDecks(){
   fetch('/api/revision-decks', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ action:'list_decks', school_id: schoolId() })
+    body: JSON.stringify({ action:'list_decks', session: sessionToken(), school_id: schoolId() })
   })
     .then(function(r){ return r.json(); })
     .then(function(d){
