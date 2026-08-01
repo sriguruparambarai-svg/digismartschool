@@ -214,13 +214,18 @@ async function saveDeck(body) {
 
 // A school can only delete its OWN decks. The shared library is never
 // removable this way, so one school can't wipe out everyone else's chapters.
+// The admin page passes '__library__' to remove a shared chapter — a value
+// no real school code can have, since school codes never contain underscores
+// at both ends and this string is never sent by any teacher-facing page.
 async function deleteDeck(id, schoolId) {
   if (!id) return { error: 'Nothing to delete' };
   if (!schoolId) return { error: 'Only a school can remove its own chapters' };
 
+  var target = (schoolId === '__library__') ? '' : schoolId;
+
   var r = await sbRequest('DELETE',
     TABLE + '?id=eq.' + encodeURIComponent(id) +
-    '&school_id=eq.' + encodeURIComponent(schoolId),
+    '&school_id=eq.' + encodeURIComponent(target),
     null,
     { 'Prefer': 'return=representation' });
 
