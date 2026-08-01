@@ -103,6 +103,7 @@ tr:hover td{background:#fef9f0;}
   <div class="tbl-sidebar">
     <button class="tbl-sidebar-item tbl-on" id="tbl-tab-schools" onclick="tblTab('schools')">🏫 Schools</button>
     <button class="tbl-sidebar-item" id="tbl-tab-library" onclick="tblTab('library')">📚 Textbook Library</button>
+    <button class="tbl-sidebar-item" id="tbl-tab-revision" onclick="tblTab('revision')">🗣️ Revision Library</button>
   </div>
   <div class="tbl-content">
   <div class="tbl-panel tbl-show" id="tbl-panel-schools">
@@ -437,20 +438,409 @@ loadSchools();
 
     </div>
   </div><!-- /library panel -->
+
+  <!-- ══════════ REVISION LIBRARY ══════════ -->
+  <div class="tbl-panel" id="tbl-panel-revision">
+    <div style="padding:20px;">
+
+      <div class="tbl-card">
+        <div class="tbl-card-title">🗣️ Add a Chapter to the Shared Library</div>
+
+        <div style="background:#fef6e8;border-left:4px solid #C9A84C;border-radius:8px;
+             padding:12px 15px;font-size:0.87rem;color:#5A2030;line-height:1.75;margin-bottom:16px;">
+          Chapters saved here are <b>free for every school</b>. Use this for Samacheer and other
+          shared textbooks, so the same chapter is never built twice.<br>
+          Generate the answers in <b>Teacher Tools → Book Back Answers</b>, check them, then paste
+          them below.
+        </div>
+
+        <div class="tbl-g2">
+          <div>
+            <label class="tbl-lbl">Class</label>
+            <select class="tbl-inp" id="rl-class">
+              <option value="">Choose…</option>
+              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+              <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+              <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+            </select>
+          </div>
+          <div>
+            <label class="tbl-lbl">Subject</label>
+            <input class="tbl-inp" type="text" id="rl-subject" placeholder="e.g. Social Science">
+          </div>
+        </div>
+
+        <div class="tbl-g2" style="margin-top:10px;">
+          <div>
+            <label class="tbl-lbl">Chapter / Lesson</label>
+            <input class="tbl-inp" type="text" id="rl-chapter" placeholder="e.g. Lesson 1">
+          </div>
+          <div>
+            <label class="tbl-lbl">Language</label>
+            <select class="tbl-inp" id="rl-medium">
+              <option value="english">English</option>
+              <option value="tamil">Tamil</option>
+            </select>
+          </div>
+        </div>
+
+        <label class="tbl-lbl">Chapter title <span style="font-weight:400;color:#A07830;">(optional)</span></label>
+        <input class="tbl-inp" type="text" id="rl-title" placeholder="e.g. Maps, Globes and the Earth">
+
+        <label class="tbl-lbl">Paste the book back answers here</label>
+        <textarea class="tbl-inp" id="rl-source" rows="11"
+          style="font-weight:400;line-height:1.75;resize:vertical;"
+          placeholder="Paste the full question-and-answer text for this chapter…"></textarea>
+
+        <button class="btn btn-primary" id="rl-make-btn" style="width:100%;margin-top:14px;"
+          onclick="rlMakeCards()">✨ Make Revision Cards</button>
+
+        <div class="spin-box" id="rl-working" style="display:none;">
+          <div class="spinner"></div>Splitting the answers into cards…
+        </div>
+        <div class="error" id="rl-err"></div>
+      </div>
+
+      <!-- check and save -->
+      <div class="tbl-card" id="rl-review" style="display:none;">
+        <div class="tbl-card-title">
+          <span>📋 Check the Cards</span>
+          <span style="font-size:0.8rem;color:#A07830;font-weight:600;" id="rl-count"></span>
+        </div>
+        <div style="background:#FFF4D6;border:1.5px solid #C9A84C;border-radius:8px;
+             padding:12px 15px;font-size:0.86rem;color:#4A0A12;line-height:1.7;margin-bottom:16px;">
+          <b>Read these before saving.</b> Every school will get them, and children memorise them
+          word for word. Answer points are one per line.
+        </div>
+        <div id="rl-cards"></div>
+        <div style="display:flex;gap:10px;margin-top:16px;">
+          <button class="btn btn-outline" style="flex:1;" onclick="rlCancel()">Cancel</button>
+          <button class="btn btn-primary" style="flex:2;" id="rl-save-btn" onclick="rlSave()">
+            💾 Save to Shared Library</button>
+        </div>
+      </div>
+
+      <!-- what's already there -->
+      <div class="tbl-card">
+        <div class="tbl-card-title">
+          <span>📚 Chapters in the Shared Library</span>
+          <button class="btn btn-outline" style="padding:5px 12px;font-size:0.8rem;"
+            onclick="rlLoadList()">↻ Refresh</button>
+        </div>
+        <div id="rl-list"><div style="padding:12px;color:#999;text-align:center;">Loading…</div></div>
+      </div>
+
+    </div>
+  </div><!-- /revision panel -->
+
   </div><!-- /tbl-content -->
 </div><!-- /tbl-wrap -->
 
 
 <script>
+
+// ═══════════════════════════════════════════════════════════════
+//  REVISION LIBRARY  (shared chapters, free for every school)
+//
+//  Saved with no school owner, so every school sees them. This is
+//  also the cost control: one school's wording is reused everywhere,
+//  so the same sentence is never sent to ElevenLabs twice.
+// ═══════════════════════════════════════════════════════════════
+
+var RL_CARDS = [];
+
+function rlEsc(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function rlAttr(s){
+  return rlEsc(s).replace(/"/g,'&quot;');
+}
+function rlErr(msg){
+  var e = document.getElementById('rl-err');
+  e.textContent = msg || '';
+  e.style.display = msg ? 'block' : 'none';
+}
+
+// Same instruction the teacher's Save for Revision uses — reshape only,
+// never rewrite, so library cards and school cards read the same way.
+function rlPrompt(cls, answers){
+  return 'You are reformatting a teacher\'s book back answers into revision cards that children '
+    + 'will memorise by saying them aloud. This is for ' + cls + ' in Tamil Nadu, India.\n\n'
+    + 'ABSOLUTE RULE: do not change any fact and do not rewrite anything in your own words. '
+    + 'Use the teacher\'s own wording. You are only reshaping what is already written.\n\n'
+    + 'Make one card for each question:\n'
+    + '  "question" - the question as written (you may drop the leading number)\n'
+    + '  "about"    - ONE short plain sentence saying what the question is asking. '
+    +                'This is the only sentence you may write yourself.\n'
+    + '  "points"   - the teacher\'s answer, split into separate sentences\n'
+    + '  "marks"    - 1 for one-liners, 2 for short answers, 5 for long answers\n\n'
+    + 'Rules for points:\n'
+    + '1. Each point is ONE complete sentence ending in a full stop, short enough for a child '
+    +    'to say in one breath.\n'
+    + '2. Write every number, symbol and abbreviation in WORDS, because a voice reads this aloud. '
+    +    'Examples: 82 degrees 30 minutes E becomes "eighty two degrees thirty minutes east"; '
+    +    '1:50,000 becomes "one is to fifty thousand"; 23 and a half degrees N becomes '
+    +    '"twenty three and a half degrees north"; % becomes "per cent".\n'
+    + '3. If a point is written as "Label: explanation" and the label only repeats the '
+    +    'explanation, drop the label. If the label adds meaning, fold it into the sentence.\n'
+    + '4. Maximum 6 points per card. If an answer needs more, split it into two or more cards, '
+    +    'each with "part" and "of" numbers, and say the part in the question, '
+    +    'for example "... Part one, the Torrid Zone."\n'
+    + '5. Never add a fact that is not in the teacher\'s answer.\n\n'
+    + 'Reply with ONLY this JSON and nothing else, no explanation, no code fences:\n'
+    + '{"cards":[{"question":"...","about":"...","marks":2,"points":["...","..."]}]}\n\n'
+    + 'THE TEACHER\'S ANSWERS:\n' + answers;
+}
+
+async function rlMakeCards(){
+  rlErr('');
+  var cls     = document.getElementById('rl-class').value;
+  var subject = document.getElementById('rl-subject').value.trim();
+  var chapter = document.getElementById('rl-chapter').value.trim();
+  var source  = document.getElementById('rl-source').value.trim();
+
+  if(!cls)     { rlErr('Please choose a class.'); return; }
+  if(!subject) { rlErr('Please type the subject.'); return; }
+  if(!chapter) { rlErr('Please name the chapter.'); return; }
+  if(source.length < 50){ rlErr('Please paste the book back answers first.'); return; }
+
+  document.getElementById('rl-working').style.display = 'block';
+  document.getElementById('rl-make-btn').disabled = true;
+  document.getElementById('rl-review').style.display = 'none';
+
+  try{
+    var res = await fetch('/api/ai', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        max_tokens: 8000,
+        messages: [{ role:'user', content: rlPrompt(cls, source) }]
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error.message || d.error);
+
+    var text = '';
+    if(d.content && d.content.length){
+      d.content.forEach(function(b){ if(b.type === 'text') text += b.text; });
+    }
+    text = text.replace(/```json/gi,'').replace(/```/g,'').trim();
+
+    var a = text.indexOf('{'), b = text.lastIndexOf('}');
+    if(a === -1 || b === -1) throw new Error('The AI did not return cards.');
+    var parsed = JSON.parse(text.substring(a, b + 1));
+    if(!parsed.cards || !parsed.cards.length) throw new Error('No cards were produced.');
+
+    RL_CARDS = parsed.cards;
+    rlRender();
+    document.getElementById('rl-review').style.display = 'block';
+    document.getElementById('rl-review').scrollIntoView({ behavior:'smooth' });
+
+  }catch(e){
+    rlErr('Could not make the cards: ' + e.message +
+          '  If this chapter is very long, try it in two halves.');
+  }finally{
+    document.getElementById('rl-working').style.display = 'none';
+    document.getElementById('rl-make-btn').disabled = false;
+  }
+}
+
+function rlRender(){
+  document.getElementById('rl-count').textContent = RL_CARDS.length + ' cards';
+  var h = '';
+  RL_CARDS.forEach(function(c, i){
+    var part = (c.part && c.of) ? (' · Part ' + c.part + ' of ' + c.of) : '';
+    h += '<div class="rl-card" data-i="' + i + '" style="border:2px solid #EDD9A3;'
+       + 'border-radius:10px;padding:14px;margin-bottom:12px;background:#fffdf5;">'
+       +   '<div style="display:flex;align-items:center;gap:9px;margin-bottom:9px;">'
+       +     '<span style="background:#6B0F1A;color:#E8C96A;border-radius:999px;padding:3px 11px;'
+       +       'font-size:0.72rem;font-weight:800;">CARD ' + (i+1) + rlEsc(part) + '</span>'
+       +     '<span style="flex:1;"></span>'
+       +     '<button onclick="rlDrop(' + i + ')" style="background:#fbeaea;border:1.5px solid #d9a0a0;'
+       +       'color:#8B1A2A;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:0.75rem;'
+       +       'font-weight:700;">Remove</button>'
+       +   '</div>'
+       +   '<label class="tbl-lbl" style="margin-top:0;">Question</label>'
+       +   '<input class="tbl-inp rl-q" value="' + rlAttr(c.question) + '" style="font-weight:600;">'
+       +   '<label class="tbl-lbl">What it is about</label>'
+       +   '<input class="tbl-inp rl-a" value="' + rlAttr(c.about || '') + '" style="font-weight:400;">'
+       +   '<label class="tbl-lbl">Answer points — one per line</label>'
+       +   '<textarea class="tbl-inp rl-p" rows="' + Math.max(3,(c.points||[]).length) + '" '
+       +     'style="font-weight:400;line-height:1.75;resize:vertical;">'
+       +     rlEsc((c.points || []).join('\n')) + '</textarea>'
+       + '</div>';
+  });
+  document.getElementById('rl-cards').innerHTML = h;
+}
+
+function rlGather(){
+  var out = [];
+  Array.prototype.forEach.call(document.querySelectorAll('#rl-cards .rl-card'), function(box, i){
+    var old = RL_CARDS[i] || {};
+    var pts = (box.querySelector('.rl-p').value || '').split('\n')
+                .map(function(s){ return s.trim(); })
+                .filter(function(s){ return s.length > 0; });
+    var card = {
+      id:       'c' + (i+1),
+      question: (box.querySelector('.rl-q').value || '').trim(),
+      about:    (box.querySelector('.rl-a').value || '').trim(),
+      points:   pts
+    };
+    if(old.marks) card.marks = old.marks;
+    if(old.part) { card.part = old.part; card.of = old.of; }
+    out.push(card);
+  });
+  RL_CARDS = out;
+  return out;
+}
+
+function rlDrop(i){
+  rlGather();
+  RL_CARDS.splice(i,1);
+  if(!RL_CARDS.length){ rlCancel(); return; }
+  rlRender();
+}
+
+function rlCancel(){
+  RL_CARDS = [];
+  document.getElementById('rl-review').style.display = 'none';
+}
+
+async function rlSave(){
+  var cards = rlGather();
+  for(var i=0;i<cards.length;i++){
+    if(!cards[i].question){ alert('Card ' + (i+1) + ' has no question.'); return; }
+    if(!cards[i].points.length){ alert('Card ' + (i+1) + ' has no answer points.'); return; }
+  }
+
+  var chapter = document.getElementById('rl-chapter').value.trim();
+  if(!confirm('Save "' + chapter + '" to the shared library?\n\n' +
+              cards.length + ' cards. Every school will be able to use this.')) return;
+
+  var btn = document.getElementById('rl-save-btn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+
+  try{
+    var res = await fetch('/api/revision-decks', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:        'save_deck',
+        school_id:     '',                       // empty = shared library
+        class_name:    document.getElementById('rl-class').value,
+        subject:       document.getElementById('rl-subject').value.trim(),
+        chapter:       chapter,
+        chapter_title: document.getElementById('rl-title').value.trim(),
+        medium:        document.getElementById('rl-medium').value,
+        cards:         cards,
+        source_text:   document.getElementById('rl-source').value,
+        created_by:    'Shared Library'
+      })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+
+    alert('✅ Saved. ' + d.cards + ' cards are now available to every school.');
+    rlCancel();
+    document.getElementById('rl-chapter').value = '';
+    document.getElementById('rl-title').value   = '';
+    document.getElementById('rl-source').value  = '';
+    rlLoadList();
+
+  }catch(e){
+    alert('Save failed: ' + e.message);
+  }finally{
+    btn.disabled = false; btn.textContent = '💾 Save to Shared Library';
+  }
+}
+
+// ── what's already in the library ──
+async function rlLoadList(){
+  var box = document.getElementById('rl-list');
+  if(!box) return;
+  box.innerHTML = '<div style="padding:12px;color:#999;text-align:center;">Loading…</div>';
+
+  try{
+    var res = await fetch('/api/revision-decks', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'list_decks', school_id:'' })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+
+    var shared = (d.decks || []).filter(function(x){ return x.shared; });
+    if(!shared.length){
+      box.innerHTML = '<div style="padding:22px;color:#999;text-align:center;">' +
+        'Nothing in the shared library yet.<br>Add your first chapter above.</div>';
+      return;
+    }
+
+    var h = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;'
+          + 'font-size:0.88rem;">'
+          + '<thead><tr style="background:#fef6e8;">'
+          + '<th style="padding:9px;text-align:left;">Class</th>'
+          + '<th style="padding:9px;text-align:left;">Subject</th>'
+          + '<th style="padding:9px;text-align:left;">Chapter</th>'
+          + '<th style="padding:9px;text-align:left;">Language</th>'
+          + '<th style="padding:9px;text-align:center;">Cards</th>'
+          + '<th style="padding:9px;"></th></tr></thead><tbody>';
+
+    shared.forEach(function(x){
+      h += '<tr style="border-bottom:1px solid #eee;">'
+         + '<td style="padding:9px;">' + rlEsc(x.class_name) + '</td>'
+         + '<td style="padding:9px;">' + rlEsc(x.subject) + '</td>'
+         + '<td style="padding:9px;">' + rlEsc(x.chapter)
+         +   (x.chapter_title ? '<br><span style="color:#999;font-size:0.8rem;">'
+              + rlEsc(x.chapter_title) + '</span>' : '') + '</td>'
+         + '<td style="padding:9px;">' + (x.medium === 'tamil' ? 'Tamil' : 'English') + '</td>'
+         + '<td style="padding:9px;text-align:center;font-weight:700;">' + x.cards + '</td>'
+         + '<td style="padding:9px;text-align:right;">'
+         +   '<button onclick="rlRemove(\'' + rlEsc(x.id) + '\',\'' + rlAttr(x.chapter) + '\')" '
+         +     'style="background:#fbeaea;border:1.5px solid #d9a0a0;color:#8B1A2A;border-radius:6px;'
+         +     'padding:5px 11px;cursor:pointer;font-size:0.78rem;font-weight:700;">Remove</button>'
+         + '</td></tr>';
+    });
+    box.innerHTML = h + '</tbody></table></div>';
+
+  }catch(e){
+    box.innerHTML = '<div style="padding:16px;color:#8B1A2A;text-align:center;">' +
+      'Could not load the library: ' + rlEsc(e.message) + '</div>';
+  }
+}
+
+// Removing from the library affects EVERY school, so it asks twice.
+async function rlRemove(id, chapter){
+  if(!confirm('Remove "' + chapter + '" from the shared library?\n\n' +
+              'Every school will lose access to these cards.')) return;
+  if(!confirm('Last check — delete "' + chapter + '" for all schools?')) return;
+
+  try{
+    var res = await fetch('/api/revision-decks', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'delete_deck', id:id, school_id:'__library__' })
+    });
+    var d = await res.json();
+    if(d.error) throw new Error(d.error);
+    rlLoadList();
+  }catch(e){
+    alert('Could not remove it: ' + e.message);
+  }
+}
+
 // ===== TEXTBOOK LIBRARY FUNCTIONS =====
 function tblTab(tab) {
-  ['schools','library'].forEach(function(t) {
+  ['schools','library','revision'].forEach(function(t) {
     var tb = document.getElementById('tbl-tab-' + t);
     var pn = document.getElementById('tbl-panel-' + t);
     if (tb) tb.classList.toggle('tbl-on', t === tab);
     if (pn) pn.classList.toggle('tbl-show', t === tab);
   });
   if (tab === 'library') { tblLoadBooks(); tblLoadAccess(); }
+  if (tab === 'revision') { rlLoadList(); }
 }
 
 var tblFile = null;
