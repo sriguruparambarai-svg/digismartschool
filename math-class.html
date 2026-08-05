@@ -823,16 +823,16 @@ html,body{
 
   <div class="field-label">🗣️ Teaching Language</div>
   <div class="lang-toggle">
-    <button class="lang-btn active" id="lang-en" onclick="selectLang('en')">
+    <button class="lang-btn active" id="lang-mix" onclick="selectLang('mix')">
+      <span>
+        <span class="lang-emoji">🇮🇳</span> தமிழ் + English Mode
+        <span class="lang-sub">Real Tamil Nadu teacher style — recommended</span>
+      </span>
+    </button>
+    <button class="lang-btn" id="lang-en" onclick="selectLang('en')">
       <span>
         <span class="lang-emoji">🇬🇧</span> English Mode
         <span class="lang-sub">Full English teaching</span>
-      </span>
-    </button>
-    <button class="lang-btn" id="lang-mix" onclick="selectLang('mix')">
-      <span>
-        <span class="lang-emoji">🇮🇳</span> தமிழ் + English Mode
-        <span class="lang-sub">Real Tamil Nadu teacher style</span>
       </span>
     </button>
   </div>
@@ -942,14 +942,21 @@ var $ = function(id){ return document.getElementById(id); };
 var SOLUTION = null;      // The full problem solution from AI
 var STEP_IDX = -1;        // Current step (-1 = not started, 0 = first step)
 var IS_PLAYING = false;
-document.addEventListener('DOMContentLoaded', function(){ if(typeof updateAskBtn === 'function') updateAskBtn(); });
+document.addEventListener('DOMContentLoaded', function(){
+  if(typeof updateAskBtn === 'function') updateAskBtn();
+  if(typeof applyRememberedLang === 'function') applyRememberedLang();
+});
 var IS_PAUSED = false;
 var IS_SPEAKING_INTRO = false;  // True while intro voice plays (row narrations wait)
 var SPEED = 1.0;
 var CURRENT_AUDIO = null;
 var AUDIO_CACHE = {};     // spokenLine -> base64 audio (pre-generated before class starts)
 var SCHOOL_CLASS = 'Class 7';
-var TEACH_LANG = 'en';    // 'en' or 'mix' (Tamil+English)
+// Maths class teaches in Tamil-mix by DEFAULT (maths understanding matters more
+// than English practice). English is always one tap away on the setup screen.
+// The teacher's last choice is remembered on this computer.
+var TEACH_LANG = 'mix';   // 'en' or 'mix' (Tamil+English)
+try{ if(localStorage.getItem('dss_math_lang') === 'en') TEACH_LANG = 'en'; }catch(e){}
 
 // Saved-class version tag.
 // Saved classes are keyed by question + class + language. Bumping this tag makes
@@ -975,6 +982,14 @@ function selectLang(lang){
   TEACH_LANG = lang;
   document.getElementById('lang-en').classList.toggle('active', lang === 'en');
   document.getElementById('lang-mix').classList.toggle('active', lang === 'mix');
+  try{ localStorage.setItem('dss_math_lang', lang); }catch(e){}
+}
+// On load, show the remembered choice as selected.
+function applyRememberedLang(){
+  var en = document.getElementById('lang-en'), mx = document.getElementById('lang-mix');
+  if(!en || !mx) return;
+  en.classList.toggle('active', TEACH_LANG === 'en');
+  mx.classList.toggle('active', TEACH_LANG === 'mix');
 }
 
 // ═══════════════════════════════════════════
