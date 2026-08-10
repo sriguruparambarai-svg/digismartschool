@@ -962,7 +962,7 @@ try{ if(localStorage.getItem('dss_math_lang') === 'en') TEACH_LANG = 'en'; }catc
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v7';
+var SOLUTION_VER = 'v8';
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1156,6 +1156,17 @@ async function solveAndTeach(){
       + 'RULE 3 — NEVER JUMP TO THE ANSWER.\n'
       + '  The final answer must be ARRIVED AT by the steps, never announced early.\n'
       + '  A solution with fewer than 4 steps is almost always skipping. Re-check it.\n\n'
+      + 'RULE 4 — NEVER STATE NUMBERS WITHOUT SHOWING WHERE THEY CAME FROM.\n'
+      + '  If a line states a GROUP of numbers that you OBTAINED BY CALCULATING\n'
+      + '  (differences between terms, ratios, factors, multiples, term values,\n'
+      + '  square roots, remainders), then EACH of those calculations is written on\n'
+      + '  its OWN line FIRST. The group is stated only AFTERWARDS, as a summary.\n'
+      + '  Writing the group straight away is SKIPPING — even though it looks like\n'
+      + '  ONE move, it is really several. The student cannot see where the numbers\n'
+      + '  came from and cannot reproduce the working alone.\n'
+      + '  WRONG: "Differences: 2, 3, 4, 5, 6"  (six numbers appear from nowhere)\n'
+      + '  RIGHT: 3 - 1 = 2 | 6 - 3 = 3 | 10 - 6 = 4 | 15 - 10 = 5 | 21 - 15 = 6,\n'
+      + '         each on its own line, THEN "Differences: 2, 3, 4, 5, 6".\n\n'
       + 'REFERENCE PATTERN — copy this granularity exactly.\n'
       + 'Question: "Find the sum 1 + 2 + 3 + ... + 20"\n'
       + '  formula : Sn = n(n+1)/2\n'
@@ -1173,6 +1184,30 @@ async function solveAndTeach(){
       + '  step 3  : 3x = 15\n'
       + '  step 4  : x = 15/3\n'
       + '  step 5  : x = 5\n\n'
+      + 'THIRD REFERENCE — a NUMBER PATTERN. This is the granularity that gets\n'
+      + 'missed most often. Copy it exactly.\n'
+      + 'Question: "Find the next three terms: 1, 3, 6, 10, 15, 21, ..."\n'
+      + '  step 1  : 1, 3, 6, 10, 15, 21, ...\n'
+      + '            whyScript: "To find the pattern, subtract each number from the one after it."\n'
+      + '  step 2  : 3 - 1 = 2\n'
+      + '  step 3  : 6 - 3 = 3\n'
+      + '  step 4  : 10 - 6 = 4\n'
+      + '  step 5  : 15 - 10 = 5\n'
+      + '  step 6  : 21 - 15 = 6\n'
+      + '  step 7  : Differences: 2, 3, 4, 5, 6\n'
+      + '            whyScript: "Each difference is 1 more than the one before it."\n'
+      + '  step 8  : 6 + 1 = 7\n'
+      + '  step 9  : 7 + 1 = 8\n'
+      + '  step 10 : 8 + 1 = 9\n'
+      + '  step 11 : Next differences: 7, 8, 9\n'
+      + '  step 12 : 21 + 7 = 28\n'
+      + '  step 13 : 28 + 8 = 36\n'
+      + '  step 14 : 36 + 9 = 45\n'
+      + '  step 15 : Next three terms: 28, 36, 45\n'
+      + 'The five subtractions are FIVE SEPARATE LINES, not one. Writing\n'
+      + '"Differences: 2, 3, 4, 5, 6" without them is exactly what RULE 4 forbids.\n'
+      + 'The SAME treatment applies to any pattern: ratios in a GP (3/1 = 3, 9/3 = 3),\n'
+      + 'squares (1x1 = 1, 2x2 = 4, 3x3 = 9), cubes, factors, multiples.\n\n'
       + '════════ VOICE RULES — APPLIES TO BOTH LANGUAGES ════════\n\n'
       + 'Every step has TWO spoken fields:\n\n'
       + 'readScript — ALWAYS present. ONE short sentence that reads the written line\n'
@@ -1287,7 +1322,7 @@ async function solveAndTeach(){
       + '6. Use proper symbols: × ÷ ² ³ π √ °\n'
       + '7. Brackets naturally: n(n+1), 40(41), 2(x+3)\n'
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
-      + '9. 4 to 8 steps total.\n'
+      + '9. 4 to 8 steps FOR EACH PART of the question. A question with parts (a), (b), (c), (d), (e) gets 4 to 8 steps for EVERY part — never shorten the later parts to keep a total low, and never let part (a) be detailed while (b) onwards are compressed. Pattern and sequence questions obeying RULE 4 will need MORE than 8 steps per part, and that is correct.\n'
       + '10. Final answer must be SHORT.\n'
       + '11. Every script sounds like an intellectual professor — precise, focused, no emotional words.\n'
       + '12. ANGLES: write the ° symbol in main text, but in every SPOKEN script say the English word "degrees" after the number (e.g. "134 degrees"), never the bare number.\n'
@@ -2242,6 +2277,12 @@ async function showStep(idx){
   }
 
   // ── PHASE 2: Chalk-write the math on the blackboard ──
+  // The reason (whyScript) is SPOKEN WHILE the chalk is writing, so the board
+  // is never frozen while the teacher talks. The line being written IS the
+  // illustration of what is being said. readScript still comes after (PHASE 3),
+  // because it reads aloud a line that must already be on the board.
+  var whyText = (step.whyScript && String(step.whyScript).trim()) ? step.whyScript : '';
+  var whyPromise = whyText ? speakStep(whyText) : null;
   if(contentEl){
     if(hasMatrixNotation(step.main)){
       renderMathWithMatrices(contentEl, step.main || '');
@@ -2252,16 +2293,15 @@ async function showStep(idx){
       await writePromise;
     }
   }
+  // Let the spoken reason finish before the line is read aloud (no overlap).
+  if(whyPromise) await whyPromise;
   if(!IS_PLAYING) return;
 
   // ── PHASE 3: Teacher speaks the line just written ──
   var spoken = step.readScript || step.teacherScript || step.explanation || step.main;
   await speakStep(spoken);
   if(!IS_PLAYING) return;
-  if(step.whyScript && String(step.whyScript).trim()){
-    await speakStep(step.whyScript);
-    if(!IS_PLAYING) return;
-  }
+  // (whyScript already spoken during PHASE 2, while the chalk was writing.)
 }
 
 async function showFinalAnswer(){
