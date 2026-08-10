@@ -1334,7 +1334,7 @@ async function solveAndTeach(){
       body: JSON.stringify({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        max_tokens: 4500
+        max_tokens: 12000
       })
     });
     if(!resp.ok){
@@ -1358,7 +1358,15 @@ async function solveAndTeach(){
     if(firstBrace >= 0 && lastBrace > firstBrace){
       text = text.substring(firstBrace, lastBrace + 1);
     }
-    var solution = JSON.parse(text);
+    var solution;
+    try{
+      solution = JSON.parse(text);
+    }catch(parseErr){
+      // Nearly always the same cause: the step-by-step answer ran past the
+      // size limit and came back cut off mid-JSON. Tell the teacher what to
+      // do about it rather than showing a parser message.
+      throw new Error('The answer was too long and got cut off. Please teach one part at a time — paste only part (a), then part (b), and so on.');
+    }
     if(!solution.steps || !Array.isArray(solution.steps) || solution.steps.length === 0){
       throw new Error('Could not break down the problem into steps. Try a simpler problem.');
     }
