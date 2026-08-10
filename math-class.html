@@ -171,6 +171,27 @@ html,body{
 .rq-text:focus{border-color:var(--gold);}
 .rq-body{flex:1;display:flex;flex-direction:column;gap:6px;}
 .rq-body .rq-text{flex:none;width:100%;}
+.rq-group{
+  margin-bottom:18px;padding:12px 12px 4px;
+  border:1.5px solid rgba(201,168,76,.22);border-radius:12px;
+  background:rgba(255,255,255,.02);
+}
+.rq-grouphead{margin-bottom:10px;}
+.rq-modebar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:2px;
+}
+.rq-modelabel{font-size:.72rem;font-weight:800;color:rgba(232,201,154,.65);}
+.rq-modebtn{
+  padding:5px 12px;border-radius:8px;cursor:pointer;
+  border:1.5px solid rgba(201,168,76,.45);
+  background:rgba(201,168,76,.12);color:var(--sandal);
+  font-family:inherit;font-size:.72rem;font-weight:800;
+  transition:all .15s;
+}
+.rq-modebtn:hover{background:rgba(201,168,76,.25);border-color:var(--gold);}
+.rq-parts{padding-left:16px;border-left:2px solid rgba(201,168,76,.2);margin-left:6px;}
+.rq-parts .rq-row{margin-bottom:8px;}
+.rq-group[data-mode="whole"] .rq-parts{opacity:.72;}
 .rq-note{
   font-size:.72rem;font-weight:800;color:#FFD86A;
   background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.35);
@@ -839,7 +860,7 @@ html,body{
 
   <div class="err-msg" id="err-msg"></div>
 
-  <button class="solve-btn" id="solve-btn" onclick="solveAndTeach()">
+  <button class="solve-btn" id="solve-btn" onclick="startFromPasteBox()">
     ✏️ Solve & Teach Step-by-Step
   </button>
 </div>
@@ -852,8 +873,9 @@ html,body{
     <div class="setup-label">DigiSmartSchool</div>
     <div class="setup-title">✅ Check the Questions</div>
     <div class="setup-desc">
-      These questions were read from your photo. Untick the ones you don't want,
-      and tap any question to correct the text if the AI misread something.
+      Untick anything you don't want to teach, and tap any line to correct the
+      text. Questions with parts (a), (b), (c)... are taught one part at a time
+      — use "Teach as one question" if they are multiple-choice options.
     </div>
   </div>
   <div id="review-list"></div>
@@ -1010,6 +1032,27 @@ function loadExample(key){
 // ═══════════════════════════════════════════
 // SOLVE & TEACH — call AI to get step-by-step solution
 // ═══════════════════════════════════════════
+// Entry point for the paste box. If the pasted text contains sub-parts,
+// show the review screen first so the teacher can pick which parts to teach
+// (and can bundle them back into one question if they are MCQ options).
+// Anything without sub-parts goes straight to class, exactly as before.
+function startFromPasteBox(){
+  var problem = $('problem-input').value.trim();
+  if(!problem || problem.length < 5){
+    showError('Please paste a math problem first.');
+    return;
+  }
+  if(splitIntoParts(problem)){
+    QUESTION_QUEUE = [];
+    QUEUE_IDX = 0;
+    updateNextQButton();
+    hideError();
+    showReviewScreen([problem]);
+    return;
+  }
+  solveAndTeach();
+}
+
 async function solveAndTeach(){
   var problem = $('problem-input').value.trim();
   if(!problem || problem.length < 5){
@@ -1334,7 +1377,7 @@ async function solveAndTeach(){
       body: JSON.stringify({
         system: systemPrompt,
         messages: [{ role: 'user', content: userPrompt }],
-        max_tokens: 12000
+        max_tokens: 6000
       })
     });
     if(!resp.ok){
@@ -4426,6 +4469,45 @@ async function extractQuestionsFromPhoto(base64, mediaType){
   }
 }
 
+// -- SUB-QUESTION SPLITTER --
+// A question like "Write the next three terms: (a) 1,3,6... (b) 1,8,27..."
+// is really five small questions sharing one opening line. Teaching all of
+// them in a single AI call produces a very long answer that runs past the
+// 60-second Vercel limit. Splitting them lets each part be its own quick
+// call, its own cached class, and its own entry in the Next Q queue.
+//
+// Returns null when the text has no genuine sub-parts.
+// Labels must start at (a) and run consecutively — this keeps stray brackets
+// like "(a + b)²" from being mistaken for a part label.
+function splitIntoParts(text){
+  var t = String(text || '');
+  var re = /\(([a-h])\)/gi;
+  var found = [];
+  var m;
+  while((m = re.exec(t)) !== null){
+    found.push({ letter: m[1].toLowerCase(), index: m.index });
+  }
+  if(found.length < 2) return null;
+
+  var order = 'abcdefgh';
+  var seq = [];
+  for(var i = 0; i < found.length; i++){
+    if(found[i].letter === order.charAt(seq.length)) seq.push(found[i]);
+  }
+  if(seq.length < 2) return null;
+
+  var stem = t.substring(0, seq[0].index).trim();
+  var parts = [];
+  for(var j = 0; j < seq.length; j++){
+    var start = seq[j].index;
+    var end = (j + 1 < seq.length) ? seq[j + 1].index : t.length;
+    var chunk = t.substring(start, end).trim();
+    if(chunk.length < 3) return null;   // nothing after the label — not a real part
+    parts.push(chunk);
+  }
+  return { stem: stem, parts: parts };
+}
+
 // -- REVIEW SCREEN --
 function showReviewScreen(questions){
   var list = $('review-list');
@@ -4433,17 +4515,13 @@ function showReviewScreen(questions){
   questions.forEach(function(q){
     var isFigure = /^\s*\[FIGURE\]\s*/i.test(q);
     var cleanQ = q.replace(/^\s*\[FIGURE\]\s*/i, '');
-    var row = document.createElement('div');
-    row.className = 'rq-row';
-    row.innerHTML =
-      '<label class="rq-check"><input type="checkbox" checked/><span class="rq-box">\u2713</span></label>' +
-      '<div class="rq-body">' +
-        (isFigure ? '<div class="rq-note">\uD83D\uDCD0 This question uses a diagram \u2014 please verify the angle values against the book.</div>' : '') +
-        '<textarea class="rq-text" rows="2"></textarea>' +
-      '</div>';
-    list.appendChild(row);
-    row.querySelector('.rq-text').value = cleanQ;
-    row.querySelector('input[type=checkbox]').addEventListener('change', updateReviewCount);
+    var split = splitIntoParts(cleanQ);
+
+    if(split){
+      list.appendChild(buildGroupRow(split, isFigure));
+    } else {
+      list.appendChild(buildPlainRow(cleanQ, isFigure));
+    }
   });
   updateReviewCount();
   $('setup').classList.add('hidden');
@@ -4451,8 +4529,136 @@ function showReviewScreen(questions){
   window.scrollTo(0, 0);
 }
 
+function figureNote(isFigure){
+  return isFigure
+    ? '<div class="rq-note">\uD83D\uDCD0 This question uses a diagram \u2014 please verify the angle values against the book.</div>'
+    : '';
+}
+
+// One ordinary question — unchanged behaviour.
+function buildPlainRow(textValue, isFigure){
+  var row = document.createElement('div');
+  row.className = 'rq-row';
+  row.innerHTML =
+    '<label class="rq-check"><input type="checkbox" checked/><span class="rq-box">\u2713</span></label>' +
+    '<div class="rq-body">' +
+      figureNote(isFigure) +
+      '<textarea class="rq-text" rows="2"></textarea>' +
+    '</div>';
+  row.querySelector('.rq-text').value = textValue;
+  row.querySelector('input[type=checkbox]').addEventListener('change', updateReviewCount);
+  return row;
+}
+
+// A question with sub-parts — stem on top, each part tickable underneath.
+// Two modes, switched by the teacher:
+//   split  = every ticked part becomes its own class (the usual case)
+//   whole  = stem + all ticked parts taught as ONE class (multiple-choice,
+//            where (a)(b)(c)(d) are options rather than separate questions)
+function buildGroupRow(split, isFigure){
+  var group = document.createElement('div');
+  group.className = 'rq-group';
+  group.setAttribute('data-mode', 'split');
+
+  var head = document.createElement('div');
+  head.className = 'rq-row rq-grouphead';
+  head.innerHTML =
+    '<div class="rq-body">' +
+      figureNote(isFigure) +
+      '<textarea class="rq-text rq-stem" rows="2"></textarea>' +
+      '<div class="rq-modebar">' +
+        '<span class="rq-modelabel"></span>' +
+        '<button type="button" class="rq-modebtn"></button>' +
+      '</div>' +
+    '</div>';
+  head.querySelector('.rq-stem').value = split.stem;
+  head.querySelector('.rq-modebtn').addEventListener('click', function(){
+    toggleGroupMode(group);
+  });
+  group.appendChild(head);
+
+  var partsWrap = document.createElement('div');
+  partsWrap.className = 'rq-parts';
+  split.parts.forEach(function(p){
+    var row = document.createElement('div');
+    row.className = 'rq-row rq-part';
+    row.innerHTML =
+      '<label class="rq-check"><input type="checkbox" checked/><span class="rq-box">\u2713</span></label>' +
+      '<div class="rq-body"><textarea class="rq-text" rows="2"></textarea></div>';
+    row.querySelector('.rq-text').value = p;
+    row.querySelector('input[type=checkbox]').addEventListener('change', updateReviewCount);
+    partsWrap.appendChild(row);
+  });
+  group.appendChild(partsWrap);
+
+  refreshGroupLabel(group);
+  return group;
+}
+
+function toggleGroupMode(group){
+  var mode = group.getAttribute('data-mode') === 'split' ? 'whole' : 'split';
+  group.setAttribute('data-mode', mode);
+  refreshGroupLabel(group);
+  updateReviewCount();
+}
+
+function refreshGroupLabel(group){
+  var isSplit = group.getAttribute('data-mode') === 'split';
+  var lbl = group.querySelector('.rq-modelabel');
+  var btn = group.querySelector('.rq-modebtn');
+  var n = group.querySelectorAll('.rq-part').length;
+  if(lbl){
+    lbl.textContent = isSplit
+      ? (n + ' sub-questions \u2014 each taught as its own class')
+      : ('Taught together as one class (choose this for multiple-choice options)');
+  }
+  if(btn){
+    btn.textContent = isSplit ? 'Teach as one question' : 'Teach parts separately';
+  }
+}
+
+// Builds the exact list of questions the class will teach, in order.
+// Used by BOTH the count on the button and the actual start, so what the
+// teacher is told matches what they get.
+function collectChosenQuestions(){
+  var chosen = [];
+  var children = $('review-list').children;
+  for(var i = 0; i < children.length; i++){
+    var el = children[i];
+
+    if(el.classList.contains('rq-group')){
+      var stem = el.querySelector('.rq-stem').value.trim();
+      var partRows = el.querySelectorAll('.rq-part');
+      var ticked = [];
+      for(var p = 0; p < partRows.length; p++){
+        var pcb = partRows[p].querySelector('input[type=checkbox]');
+        var ptxt = partRows[p].querySelector('.rq-text').value.trim();
+        if(pcb.checked && ptxt.length > 0) ticked.push(ptxt);
+      }
+      if(ticked.length === 0) continue;
+
+      if(el.getAttribute('data-mode') === 'whole'){
+        // One class covering the stem and every ticked part together.
+        chosen.push((stem + ' ' + ticked.join(' ')).trim());
+      } else {
+        // Each part becomes its own class, carrying the stem so the AI
+        // still knows what is being asked of it.
+        ticked.forEach(function(t){
+          chosen.push(stem ? (stem + ' ' + t) : t);
+        });
+      }
+
+    } else if(el.classList.contains('rq-row')){
+      var cb = el.querySelector('input[type=checkbox]');
+      var txt = el.querySelector('.rq-text').value.trim();
+      if(cb && cb.checked && txt.length > 4) chosen.push(txt);
+    }
+  }
+  return chosen;
+}
+
 function updateReviewCount(){
-  var n = document.querySelectorAll('#review-list input[type=checkbox]:checked').length;
+  var n = collectChosenQuestions().length;
   var btn = $('review-start-btn');
   if(!btn) return;
   if(n === 0){
@@ -4476,13 +4682,7 @@ function cancelReview(){
 }
 
 function startSelectedQuestions(){
-  var rows = document.querySelectorAll('#review-list .rq-row');
-  var chosen = [];
-  rows.forEach(function(row){
-    var cb = row.querySelector('input[type=checkbox]');
-    var txt = row.querySelector('.rq-text').value.trim();
-    if(cb.checked && txt.length > 4) chosen.push(txt);
-  });
+  var chosen = collectChosenQuestions();
   if(chosen.length === 0) return;
   QUESTION_QUEUE = chosen;
   QUEUE_IDX = 0;
