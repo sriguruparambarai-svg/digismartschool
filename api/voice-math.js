@@ -1,7 +1,7 @@
 // api/voice-math.js
 // DEDICATED voice API for Math Class only
 // English mode: Monika Sogam (Indian female teacher voice)
-// Tamil-mix mode: Sarah (multilingual voice good with Tamil script)
+// Tamil-mix mode: Amelia (on trial; Sarah kept one line below for a quick revert)
 // This is SEPARATE from voice-class.js so it doesn't affect Teaching Mode voices.
 //
 // AUDIO CACHING (added):
@@ -15,7 +15,12 @@ const crypto = require('crypto');
 
 // Voice IDs
 const MATH_VOICE_ENGLISH = '5lf6Bj1bjbGRTV68afJj';  // Monika Sogam - clear Indian English
-const MATH_VOICE_TAMIL   = 'EXAVITQu4vr4xnSDxMaL';  // Sarah - multilingual, good with Tamil
+// TAMIL-MIX MATHS VOICE — currently Amelia (trial).
+// To switch back to Sarah, comment the Amelia line and uncomment the Sarah line.
+// Nothing else needs changing: the cache key below includes the voice ID, so
+// every Sarah recording already saved stays untouched and is reused instantly.
+const MATH_VOICE_TAMIL   = 'pGAwIQNN9UjOkKxjAyGQ';  // Amelia - trial for Tamil-mix maths
+// const MATH_VOICE_TAMIL   = 'EXAVITQu4vr4xnSDxMaL';  // Sarah - previous Tamil voice
 
 // Supabase Storage (same project + env key as api/auth.js)
 const SUPA_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
