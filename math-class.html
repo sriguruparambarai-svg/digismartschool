@@ -984,7 +984,7 @@ try{ if(localStorage.getItem('dss_math_lang') === 'en') TEACH_LANG = 'en'; }catc
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v8';
+var SOLUTION_VER = 'v9';   // v9: coordinate-geometry questions now draw a graph
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1296,7 +1296,7 @@ async function solveAndTeach(){
       + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
       + '    }\n'
       + '  ],\n'
-      + '  "figures": [ OPTIONAL - only for line-geometry questions, see FIGURES section below ],\n'
+      + '  "figures": [ OPTIONAL - line geometry, triangles, circles, coordinate graphs, solids. See FIGURES section below ],\n'
       + '  "finalAnswer": "short final answer e.g. Sum = 820",\n'
       + '  "finalScript": "1 sentence stating the final result (no celebration, just conclusion)",\n'
       + '  "verificationScript": "OPTIONAL verification, empty string if none",\n'
@@ -1310,8 +1310,15 @@ async function solveAndTeach(){
       + '  - "mul":  multiplication — auto-renders vertical column format\n'
       + '  - "div":  division — auto-renders Indian bracket format\n'
       + '  - "custom": complex — put full explanation in roughCustom field\n\n'
-      + '════════ FIGURES (line-geometry questions ONLY) ════════\n'
-      + 'If (and ONLY if) the question is about parallel lines, a transversal, intersecting lines, or angles on a straight line, add a top-level "figures" array so the figures are DRAWN on the blackboard:\n'
+      + '════════ FIGURES (draw whenever the question has a shape or a graph) ════════\n'
+      + 'Whenever the question involves a shape, a diagram or a coordinate plane, add a top-level "figures" array so the figure is DRAWN on the blackboard. A student should SEE the geometry, not only the algebra. Include a figure when the question is about ANY of these:\n'
+      + '  - parallel lines, a transversal, intersecting lines, angles on a straight line  -> transversal / intersecting / straight_line\n'
+      + '  - triangles, similar triangles, Thales/BPT, angle of elevation or depression  -> triangle / triangle_parallel / height_distance / triangle_points\n'
+      + '  - circles, tangents, chords  -> circle_tangent / circle_two_tangents / circle_chord\n'
+      + '  - COORDINATE GEOMETRY of every kind: area of a triangle or quadrilateral from vertices, distance between two points, midpoint, section formula, collinearity, slope, straight line y = mx + c, or a quadratic/function graph  -> ALWAYS use "graph"\n'
+      + '  - mensuration solids: cylinder, cone, sphere, hemisphere, frustum, combined solids  -> solid\n'
+      + 'COORDINATE GEOMETRY IS NOT PLAIN ALGEBRA. If the question gives points such as (-3, 5), (5, 6) and (5, -2), you MUST return a "graph" figure plotting those points, with closeShape joining them when the question asks for an area. Never solve a coordinate-geometry question with formulas alone.\n'
+      + 'Figure formats:\n'
       + '  "figures": [\n'
       + '    {"label":"(a)","type":"transversal","parallel":true,"labels":{"top":"m","bottom":"n","trans":"t"},"angles":[{"at":"top","pos":"ur","value":"43°"},{"at":"bottom","pos":"ll","value":"134°"}]}\n'
       + '  ]\n'
@@ -1351,7 +1358,7 @@ async function solveAndTeach(){
       + '    For combined shapes: height = the cylinder/lower part, height2 = the cone/upper part. Include ONLY the values the question gives (any value may be a variable like "h" or "l").\n'
       + '    Step linking: radius "figRef":{"figure":"","side":"R"}; top radius "side":"R2"; height "side":"H"; upper height "side":"H2"; slant "side":"L"\n'
       + 'MATRICES (matrix chapter questions): write every matrix in "main" and "finalAnswer" using double-bracket notation with rows: [[1,2],[3,4]] means row 1 = 1,2 and row 2 = 3,4. The blackboard automatically renders it with proper big brackets. Example main: "A + B = [[4,6],[10,12]]". Keep ONE matrix operation per step. In SPOKEN scripts NEVER read bracket symbols — say the rows in words: "row 1: 4 and 6, row 2: 10 and 12".\n\n'
-      + 'For questions that need NO figure (arithmetic, algebra, word problems), OMIT "figures" completely.\n\n'
+      + 'For questions that genuinely need NO figure - plain arithmetic, pure algebra (solving equations, factorising, simplifying), number patterns, matrices, or word problems with no shape - OMIT "figures" completely. Coordinate geometry is NOT in this list; it always gets a graph.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
       + '2. main field = ONLY the math expression. NO English sentences on the board.\n'
