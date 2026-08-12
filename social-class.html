@@ -319,17 +319,34 @@ function scPlanPrompt(){
     'maratha_empire, british_india, pandya_kingdom, pallava_kingdom, tamil_nadu. ' +
     '"markers" are 1 to 4 real cities/sites with true latitude and longitude (e.g. Delhi 28.61,77.21; Hampi 15.34,76.47; ' +
     'Madurai 9.93,78.12; Thanjavur 10.79,79.14). Prefer a map step for at least one empire-extent moment in history lessons.\n' +
-    '- Use "globe" ONLY for Geography concepts about the Earth itself. "mode" must be one of: ' +
-    '"latlong" (latitudes, longitudes, equator, tropics, prime meridian, time zones), ' +
+    '- Use "globe" ONLY for Geography concepts about the Earth itself. "mode" must be one of these EIGHT: ' +
+    '"latlong" (the grid of latitudes and longitudes, equator, tropics, prime meridian), ' +
     '"daynight" (rotation of the Earth, day and night), ' +
     '"seasons" (revolution around the Sun, tilt of the axis, seasons), ' +
-    '"rotation" (plain spinning Earth to locate places). ' +
+    '"rotation" (plain spinning Earth to locate places), ' +
+    '"hemispheres" (Northern and Southern, or Eastern and Western halves shown in two colours), ' +
+    '"timezones" (24 coloured time-zone wedges, Prime Meridian and Indian Standard Time marked), ' +
+    '"dateline" (the International Date Line at 180 degrees, and how the date changes across it), ' +
+    '"heatzones" (Torrid, Temperate and Frigid heat zones as coloured bands). ' +
+    'IMPORTANT: if a lesson needs more than one globe step, every globe step MUST use a DIFFERENT mode. ' +
+    'Never show the same mode twice in one lesson - choose the mode that matches what that step is about. ' +
     '"markers" optional, 0 to 3 real places with true worldwide latitude and longitude.\n' +
     '- For CIVICS and ECONOMICS lessons prefer these modern infographic steps over plain concept steps: ' +
     '"structure" for how a body/organisation is arranged (organs of government, Panchayati Raj levels, courts \u2014 one root, 2 to 4 children, each with 0 to 3 sub items); ' +
     '"cycle" for processes that repeat or flow in order (an election process, how a law is made, a production chain \u2014 3 to 6 short items); ' +
     '"compare" for contrasting exactly two things (Lok Sabha vs Rajya Sabha, rights vs duties \u2014 2 to 4 short points each side); ' +
     '"stat" for important figures, but ONLY numbers that actually appear in the lesson text \u2014 never invent numbers (2 to 4 stats, value short like "545" or "29 states").\n' +
+    '== VARIETY (very important - children lose interest when screens repeat) ==\n' +
+    '- NEVER use the same "type" twice in a row. Alternate: a visual step, then an explaining step, then a different visual step.\n' +
+    '- Use AT LEAST FOUR different step types in every lesson. A lesson that is mostly "concept" steps is a failure.\n' +
+    '- Use AT MOST THREE "concept" steps in the whole lesson. If you are about to write a fourth, turn it into a ' +
+    '"photo", "diagram", "globe" (a different mode), "map", "cycle", "compare", "structure" or "stat" step instead.\n' +
+    '- If the same type is used more than once, it MUST look different each time: a different globe "mode", ' +
+    'a different "diagram" key, a different photo "search", or different map "regions".\n' +
+    '- Whenever a step mentions a real place, monument, person, animal, plant or object that can be photographed, ' +
+    'prefer a "photo" step over a "concept" step. Real pictures hold a child\u2019s attention.\n' +
+    '- Aim for about two-thirds visual steps (photo, diagram, globe, map, timeline, cycle, compare, structure, stat) ' +
+    'and one-third talking steps (title, concept).\n' +
     '- "speech" is what the teacher SAYS aloud: 2 to 4 warm, clear sentences in simple Indian classroom English, ' +
     'documentary-narrator style, occasionally connecting to Tamil Nadu students\u2019 daily life. No emojis.\n' +
     '- Every string must be plain text. Keep JSON strictly valid.';
@@ -413,7 +430,7 @@ function scNormaliseStep(s){
   }
   if (type === 'globe'){
     var gm = String(s.mode || 'rotation').toLowerCase();
-    out.mode = ['latlong','daynight','seasons','rotation'].indexOf(gm) !== -1 ? gm : 'rotation';
+    out.mode = ['latlong','daynight','seasons','rotation','hemispheres','timezones','dateline','heatzones'].indexOf(gm) !== -1 ? gm : 'rotation';
     out.markers = (Array.isArray(s.markers) ? s.markers : []).slice(0, 3).map(function(m){
       return { name: String((m && m.name) || '').substring(0, 40), lat: parseFloat(m && m.lat), lng: parseFloat(m && m.lng) };
     }).filter(function(m){ return m.name && isFinite(m.lat) && isFinite(m.lng) && m.lat >= -90 && m.lat <= 90 && m.lng >= -180 && m.lng <= 180; });
@@ -989,6 +1006,120 @@ function renderGlobe(inner, step){
       '<div><span class="sw" style="background:#6a86b8;"></span>Other latitudes &amp; longitudes</div>';
   }
 
+  /* ── HEMISPHERES: the two halves shown in different colours ── */
+  if (mode === 'hemispheres'){
+    var eastWest = /east|west|prime meridian|longitude/i.test(String(step.title || '') + ' ' + String(step.speech || ''));
+    var capA = new THREE.Mesh(
+      new THREE.SphereGeometry(R + 0.012, 48, 48, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x4ade80, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
+    );
+    var capB = new THREE.Mesh(
+      new THREE.SphereGeometry(R + 0.012, 48, 48, 0, Math.PI * 2, Math.PI / 2, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.34, side: THREE.DoubleSide })
+    );
+    if (eastWest){ capA.rotation.z = Math.PI / 2; capB.rotation.z = Math.PI / 2; }
+    earth.add(capA); earth.add(capB);
+    earth.add(scLatCircle(0, R + 0.02, 0xFFD86A));
+    earth.add(scLngCircle(0, R + 0.02, 0xFFD86A));
+    var nA = scMakeSprite(eastWest ? 'Eastern' : 'Northern', '#4ade80');
+    nA.position.copy(scLatLngToVec(eastWest ? 0 : 55, eastWest ? 80 : 0, R + 0.75));
+    earth.add(nA);
+    var nB = scMakeSprite(eastWest ? 'Western' : 'Southern', '#fb923c');
+    nB.position.copy(scLatLngToVec(eastWest ? 0 : -55, eastWest ? -80 : 0, R + 0.75));
+    earth.add(nB);
+    legend.style.display = 'block';
+    legend.innerHTML = eastWest
+      ? '<div><span class="sw" style="background:#4ade80;"></span>Eastern Hemisphere</div>' +
+        '<div><span class="sw" style="background:#fb923c;"></span>Western Hemisphere</div>' +
+        '<div><span class="sw" style="background:#FFD86A;"></span>Prime Meridian (0\u00B0) divides them</div>'
+      : '<div><span class="sw" style="background:#4ade80;"></span>Northern Hemisphere</div>' +
+        '<div><span class="sw" style="background:#fb923c;"></span>Southern Hemisphere</div>' +
+        '<div><span class="sw" style="background:#FFD86A;"></span>Equator (0\u00B0) divides them</div>';
+  }
+
+  /* ── HEAT ZONES: Torrid, Temperate, Frigid as coloured bands ── */
+  if (mode === 'heatzones'){
+    var bands = [
+      { a: -23.5, b:  23.5, c: 0xef4444 },
+      { a:  23.5, b:  66.5, c: 0x4ade80 },
+      { a: -66.5, b: -23.5, c: 0x4ade80 },
+      { a:  66.5, b:  90,   c: 0x93c5fd },
+      { a: -90,   b: -66.5, c: 0x93c5fd }
+    ];
+    bands.forEach(function(bd){
+      var p0 = (90 - bd.b) * Math.PI / 180;
+      var p1 = (90 - bd.a) * Math.PI / 180;
+      earth.add(new THREE.Mesh(
+        new THREE.SphereGeometry(R + 0.012, 48, 32, 0, Math.PI * 2, p0, Math.max(0.001, p1 - p0)),
+        new THREE.MeshBasicMaterial({ color: bd.c, transparent: true, opacity: 0.4, side: THREE.DoubleSide })
+      ));
+    });
+    [23.5, -23.5, 66.5, -66.5].forEach(function(lt){ earth.add(scLatCircle(lt, R + 0.022, 0xffffff, true)); });
+    earth.add(scLatCircle(0, R + 0.024, 0xFFD86A));
+    var tzl = scMakeSprite('Torrid Zone', '#ef4444');
+    tzl.position.copy(scLatLngToVec(0, 40, R + 0.6));
+    earth.add(tzl);
+    legend.style.display = 'block';
+    legend.innerHTML =
+      '<div><span class="sw" style="background:#ef4444;"></span>Torrid \u2014 hottest, near the Equator</div>' +
+      '<div><span class="sw" style="background:#4ade80;"></span>Temperate \u2014 moderate</div>' +
+      '<div><span class="sw" style="background:#93c5fd;"></span>Frigid \u2014 coldest, near the poles</div>';
+  }
+
+  /* ── TIME ZONES: 24 wedges of 15 degrees each ── */
+  if (mode === 'timezones'){
+    for (var tz = 0; tz < 24; tz++){
+      var lngStart = -180 + tz * 15;
+      earth.add(new THREE.Mesh(
+        new THREE.SphereGeometry(R + 0.012, 12, 40,
+          (lngStart + 180) * Math.PI / 180, 15 * Math.PI / 180, 0, Math.PI),
+        new THREE.MeshBasicMaterial({
+          color: (tz % 2 === 0) ? 0x60a5fa : 0xfbbf24,
+          transparent: true, opacity: 0.3, side: THREE.DoubleSide
+        })
+      ));
+    }
+    earth.add(scLngCircle(0, R + 0.024, 0x4ade80));
+    earth.add(scLngCircle(82.5, R + 0.024, 0xFFD86A));
+    var istLbl = scMakeSprite('IST 82.5\u00B0E', '#FFD86A');
+    istLbl.position.copy(scLatLngToVec(24, 82.5, R + 0.6));
+    earth.add(istLbl);
+    legend.style.display = 'block';
+    legend.innerHTML =
+      '<div>The Earth is divided into <b>24 time zones</b>.</div>' +
+      '<div>Each wedge is <b>15\u00B0</b> wide = <b>1 hour</b>.</div>' +
+      '<div><span class="sw" style="background:#4ade80;"></span>Prime Meridian (0\u00B0)</div>' +
+      '<div><span class="sw" style="background:#FFD86A;"></span>Indian Standard Time (82.5\u00B0E)</div>';
+  }
+
+  /* ── DATE LINE: the 180 degree meridian, and the date change ── */
+  if (mode === 'dateline'){
+    earth.add(new THREE.Mesh(
+      new THREE.SphereGeometry(R + 0.012, 40, 40, 0, Math.PI, 0, Math.PI),
+      new THREE.MeshBasicMaterial({ color: 0x60a5fa, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    ));
+    earth.add(new THREE.Mesh(
+      new THREE.SphereGeometry(R + 0.012, 40, 40, Math.PI, Math.PI, 0, Math.PI),
+      new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0.3, side: THREE.DoubleSide })
+    ));
+    earth.add(scLngCircle(180, R + 0.03, 0xffffff));
+    earth.add(scLngCircle(0, R + 0.024, 0x4ade80));
+    var dlLbl = scMakeSprite('Date Line 180\u00B0', '#ffffff');
+    dlLbl.position.copy(scLatLngToVec(12, 180, R + 0.7));
+    earth.add(dlLbl);
+    var todayLbl = scMakeSprite('Today', '#f472b6');
+    todayLbl.position.copy(scLatLngToVec(-30, 150, R + 0.55));
+    earth.add(todayLbl);
+    var yestLbl = scMakeSprite('Yesterday', '#60a5fa');
+    yestLbl.position.copy(scLatLngToVec(-30, -150, R + 0.55));
+    earth.add(yestLbl);
+    legend.style.display = 'block';
+    legend.innerHTML =
+      '<div>The <b>International Date Line</b> runs near 180\u00B0.</div>' +
+      '<div><span class="sw" style="background:#f472b6;"></span>Cross it going west \u2014 you lose a day</div>' +
+      '<div><span class="sw" style="background:#93c5fd;"></span>Cross it going east \u2014 you gain a day</div>';
+  }
+
   var sunMesh = null, orbitAngle = 0;
   if (mode === 'daynight'){
     scene.add(new THREE.AmbientLight(0xffffff, 0.12));
@@ -1370,7 +1501,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v2|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var data = 'v3|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
     .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
