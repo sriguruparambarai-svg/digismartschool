@@ -42,8 +42,8 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 .start-btn:hover{filter:brightness(1.12);}
 
 /* ═══ CLASSROOM ═══ */
-#room{display:none;min-height:100vh;flex-direction:column;}
-#room.show{display:flex;}
+#room{display:none;flex-direction:column;}
+#room.show{display:flex;height:100vh;overflow:hidden;}
 .topbar{background:linear-gradient(90deg,#4d1212,#6B1A1A);padding:.7rem 1.1rem;
   display:flex;align-items:center;gap:.8rem;border-bottom:2px solid rgba(201,150,42,.4);}
 .topbar h2{font-family:'Caveat',cursive;font-size:1.6rem;color:var(--sandal);}
@@ -53,11 +53,11 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
   background:rgba(0,0,0,.25);border:1.5px solid rgba(232,201,154,.45);color:var(--sandal);}
 .tb-btn:hover{background:rgba(0,0,0,.45);}
 
-.main{flex:1;display:flex;gap:14px;padding:14px;align-items:stretch;}
-.stage-wrap{flex:1.35;min-width:0;display:flex;flex-direction:column;
+.main{flex:1;min-height:0;display:flex;gap:14px;padding:14px;align-items:stretch;}
+.stage-wrap{flex:1.35;min-width:0;min-height:0;display:flex;flex-direction:column;
   background:linear-gradient(160deg,var(--board-dark),var(--board-mid));
   border:3px solid #3b2a12;border-radius:16px;overflow:hidden;position:relative;}
-#stage{flex:1;min-height:340px;position:relative;}
+#stage{flex:1;min-height:0;position:relative;}
 #stage canvas{display:block;width:100%;height:100%;}
 #label-layer{position:absolute;inset:0;pointer-events:none;}
 .face-lbl{position:absolute;transform:translate(-50%,-50%);font-family:'Caveat',cursive;
@@ -79,11 +79,11 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 .tool.on{background:rgba(201,150,42,.25);border-color:var(--gold);color:#fff;}
 
 /* Notes panel */
-.notes{flex:1;min-width:280px;max-width:430px;background:rgba(0,0,0,.28);
+.notes{flex:1;min-width:280px;max-width:430px;min-height:0;background:rgba(0,0,0,.28);
   border:2.5px solid #3b2a12;border-radius:16px;padding:14px;display:flex;flex-direction:column;}
 .notes h3{font-family:'Caveat',cursive;font-size:1.5rem;color:var(--chalk-yellow);
   border-bottom:1.5px dashed rgba(232,201,154,.3);padding-bottom:.4rem;margin-bottom:.7rem;}
-#note-list{flex:1;overflow-y:auto;}
+#note-list{flex:1;min-height:0;overflow-y:auto;}
 .note-item{font-family:'Kalam',cursive;font-size:1.08rem;color:var(--chalk);
   margin-bottom:.75rem;opacity:0;transform:translateY(8px);animation:noteIn .45s ease forwards;
   line-height:1.5;}
@@ -139,9 +139,11 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 #loading p{margin-top:1rem;color:var(--sandal);font-family:'Caveat',cursive;font-size:1.4rem;}
 
 @media(max-width:900px){
+  #room.show{height:auto;overflow:visible;}
   .main{flex-direction:column;}
-  .notes{max-width:none;}
-  #stage{min-height:300px;}
+  .notes{max-width:none;max-height:46vh;}
+  .stage-wrap{height:56vh;}
+  #stage{min-height:0;}
 }
 </style>
 </head>
@@ -294,6 +296,9 @@ function initThree(){
 
   resizeThree();
   window.addEventListener('resize', resizeThree);
+  if(window.ResizeObserver){
+    try { new ResizeObserver(function(){ resizeThree(); }).observe(host); } catch(e){}
+  }
   bindDrag(host);
   renderLoop();
 }
@@ -301,8 +306,11 @@ function resizeThree(){
   if(!renderer) return;
   var host = $('stage');
   var w = host.clientWidth || 600, h = host.clientHeight || 400;
+  if(w < 2 || h < 2) return;
   camera.aspect = w / h; camera.updateProjectionMatrix();
-  renderer.setSize(w, h, false);
+  renderer.setSize(w, h, true);
+  renderer.domElement.style.width = '100%';
+  renderer.domElement.style.height = '100%';
 }
 function bindDrag(host){
   var down = false, lx = 0, ly = 0;
@@ -976,6 +984,11 @@ function sayOf(step, lang){
 }
 
 /* ════════ PLAYER ════════ */
+// Steps that start a fresh topic wipe the board first, so only the
+// shape being taught right now is written up.
+var FRESH_ACTS = { intro:1, show:1, recap:1, pintro:1, pattern:1, precap:1 };
+function clearNotes(){ $('note-list').innerHTML = ''; }
+
 function addNote(k, t){
   var d = document.createElement('div');
   d.className = 'note-item' + (k ? ' k-' + k : '');
@@ -1031,6 +1044,7 @@ async function runStep(i){
   var mySeq = ++SEQ;
   var step = STEPS[i];
   $('stepcount').textContent = 'Step ' + (i + 1) + ' / ' + STEPS.length;
+  if(FRESH_ACTS[step.act]) clearNotes();
   if(step.note && step.note.t) addNote(step.note.k, step.note.t);
   var vis = doAction(step, mySeq);
   var aud = speakStep(step);
