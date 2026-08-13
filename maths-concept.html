@@ -100,6 +100,11 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 /* Pattern stage */
 #pattern-stage{flex:1;display:none;align-items:center;justify-content:center;flex-direction:column;padding:16px;}
 #pattern-stage.show{display:flex;}
+
+/* Counting in Groups stage */
+#count-stage{flex:1;display:none;min-height:0;padding:8px;}
+#count-stage.show{display:block;}
+#count-svg{width:100%;height:100%;display:block;}
 #pat-strip{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;align-items:center;}
 .pat-cell{width:82px;height:82px;border-radius:14px;display:flex;align-items:center;justify-content:center;
   background:rgba(255,255,255,.05);border:2px dashed rgba(232,201,154,.3);
@@ -168,6 +173,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
       <label>Concept</label>
       <div class="chip-row" id="topic-row">
         <div class="chip on" data-topic="shapes">3D Shapes</div>
+        <div class="chip" data-topic="groups">Counting in Groups</div>
         <div class="chip" data-topic="patterns">Patterns</div>
       </div>
     </div>
@@ -204,6 +210,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
         <div id="pat-options"></div>
         <div id="pat-msg"></div>
       </div>
+      <div id="count-stage"><svg id="count-svg" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
       <div class="stage-tools" id="stage-tools"></div>
     </div>
 
@@ -771,6 +778,537 @@ function renderPattern(p, mySeq){
   })();
 }
 
+/* ═══════════════════════════════════════════════════════════
+   CHAPTER 1 — COUNTING IN GROUPS  (Class 2, Term 1, pages 30–41)
+   Book notation is followed exactly: a CIRCLE is a ten, a
+   TRIANGLE is a one. Characters are Ravi and Priya.
+   ═══════════════════════════════════════════════════════════ */
+var CNS = 'http://www.w3.org/2000/svg';
+function cSvg(){ return $('count-svg'); }
+function cEl(tag, at){
+  var e = document.createElementNS(CNS, tag);
+  for(var k in at){ if(at[k] != null) e.setAttribute(k, at[k]); }
+  return e;
+}
+function cClear(){ var s = cSvg(); while(s && s.firstChild) s.removeChild(s.firstChild); }
+function cAdd(e){ cSvg().appendChild(e); return e; }
+function cG(x, y, parent){
+  var g = cEl('g', { transform: 'translate(' + x + ',' + y + ')' });
+  (parent || cSvg()).appendChild(g);
+  g._x = x; g._y = y;
+  return g;
+}
+function cAt(g, x, y){ g._x = x; g._y = y; g.setAttribute('transform', 'translate(' + x + ',' + y + ')'); }
+function cTxt(x, y, s, size, fill, anchor, family){
+  var t = cEl('text', { x: x, y: y, 'font-size': size || 22,
+    fill: fill || '#f2efe9', 'text-anchor': anchor || 'middle',
+    'dominant-baseline': 'middle', 'font-family': family || 'Caveat, cursive' });
+  t.textContent = s;
+  return cAdd(t);
+}
+function cFadeIn(el, ms){
+  el.setAttribute('opacity', 0);
+  return tween(ms || 300, function(k){ el.setAttribute('opacity', k); });
+}
+/* Fly a set of groups from where they are to new spots */
+function cFly(items, ms){
+  items.forEach(function(o){ o.sx = o.g._x; o.sy = o.g._y; });
+  return tween(ms || 700, function(k){
+    items.forEach(function(o){ cAt(o.g, o.sx + (o.x - o.sx) * k, o.sy + (o.y - o.sy) * k); });
+  });
+}
+
+/* ── The little pictures ── */
+function cChoc(parent){
+  var g = cG(0, 0, parent);
+  g.appendChild(cEl('rect', { x: -13, y: -13, width: 26, height: 26, rx: 6,
+    fill: '#7A4A22', stroke: '#3A1F0C', 'stroke-width': 1.6 }));
+  g.appendChild(cEl('rect', { x: -8, y: -8, width: 16, height: 16, rx: 3,
+    fill: 'none', stroke: 'rgba(255,255,255,.30)', 'stroke-width': 1.2 }));
+  return g;
+}
+function cBlock(parent, col){
+  var g = cG(0, 0, parent);
+  g.appendChild(cEl('rect', { x: -9, y: -9, width: 18, height: 18, rx: 3,
+    fill: col || '#4A88C9', stroke: 'rgba(0,0,0,.45)', 'stroke-width': 1.2 }));
+  return g;
+}
+function cTray(x, y){
+  var g = cG(x, y);
+  g.appendChild(cEl('rect', { x: -85, y: -37, width: 170, height: 74, rx: 10,
+    fill: 'rgba(255,255,255,.05)', stroke: 'rgba(232,201,154,.55)', 'stroke-width': 2 }));
+  for(var r = 0; r < 2; r++){
+    for(var c = 0; c < 5; c++){
+      g.appendChild(cEl('rect', { x: -78 + c * 32, y: -30 + r * 32, width: 28, height: 28, rx: 5,
+        fill: 'rgba(0,0,0,.22)', stroke: 'rgba(232,201,154,.20)', 'stroke-width': 1 }));
+    }
+  }
+  return g;
+}
+function traySlot(i){ return { x: -78 + (i % 5) * 32 + 14, y: -30 + Math.floor(i / 5) * 32 + 14 }; }
+
+/* Circle = one TEN, triangle = one ONE  (exactly as the book draws it) */
+function cTen(x, y){
+  var g = cG(x, y);
+  g.appendChild(cEl('circle', { r: 25, fill: 'rgba(201,150,42,.18)',
+    stroke: '#F5E87A', 'stroke-width': 3 }));
+  var t = cEl('text', { x: 0, y: 1, 'font-size': 21, fill: '#F5E87A',
+    'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+  t.textContent = '10'; g.appendChild(t);
+  return g;
+}
+function cOne(x, y){
+  var g = cG(x, y);
+  g.appendChild(cEl('polygon', { points: '0,-17 16,13 -16,13',
+    fill: 'rgba(159,211,255,.20)', stroke: '#9FD3FF', 'stroke-width': 2.6 }));
+  var t = cEl('text', { x: 0, y: 6, 'font-size': 15, fill: '#9FD3FF',
+    'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+  t.textContent = '1'; g.appendChild(t);
+  return g;
+}
+function cCard(x, y, n, w){
+  var g = cG(x, y);
+  var W = w || 78;
+  g.appendChild(cEl('rect', { x: -W / 2, y: -34, width: W, height: 68, rx: 10,
+    fill: 'rgba(255,255,255,.06)', stroke: 'rgba(232,201,154,.5)', 'stroke-width': 2 }));
+  var t = cEl('text', { x: 0, y: 2, 'font-size': 34, fill: '#F5E87A',
+    'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+  t.textContent = String(n); g.appendChild(t);
+  g._val = n;
+  return g;
+}
+/* a 10 x 10 hundred square */
+function cHundredFlat(x, y, col, s){
+  var g = cG(x, y), u = s || 7;
+  g.appendChild(cEl('rect', { x: -5 * u, y: -5 * u, width: 10 * u, height: 10 * u,
+    fill: col || 'rgba(95,208,139,.30)', stroke: '#f2efe9', 'stroke-width': 1.8 }));
+  for(var i = 1; i < 10; i++){
+    g.appendChild(cEl('line', { x1: -5 * u + i * u, y1: -5 * u, x2: -5 * u + i * u, y2: 5 * u,
+      stroke: 'rgba(255,255,255,.28)', 'stroke-width': 0.7 }));
+    g.appendChild(cEl('line', { x1: -5 * u, y1: -5 * u + i * u, x2: 5 * u, y2: -5 * u + i * u,
+      stroke: 'rgba(255,255,255,.28)', 'stroke-width': 0.7 }));
+  }
+  return g;
+}
+/* a child in the canteen queue */
+function cKid(x, y, col){
+  var g = cG(x, y);
+  g.appendChild(cEl('circle', { cx: 0, cy: -34, r: 15, fill: '#E8C99A' }));
+  g.appendChild(cEl('rect', { x: -17, y: -16, width: 34, height: 52, rx: 12, fill: col }));
+  g.appendChild(cEl('circle', { cx: -5, cy: -36, r: 2.2, fill: '#3A2410' }));
+  g.appendChild(cEl('circle', { cx:  5, cy: -36, r: 2.2, fill: '#3A2410' }));
+  return g;
+}
+var KID_COLS = ['#F4693B', '#3FA9F5', '#5FD08B', '#B06CF0', '#F7B32B', '#FF7EB6'];
+
+/* ═════════ SECTION 1 — trays of 10 (Priya's chocolate shop) ═════════ */
+async function actTrays(mySeq, tens, ones){
+  cClear();
+  cTxt(500, 34, "Priya's sweet shop — every tray holds 10 chocolates", 24, '#E8C99A');
+  var total = tens * 10 + ones, all = [], i;
+  for(i = 0; i < total; i++){
+    var g = cChoc();
+    cAt(g, 120 + (i % 18) * 48, 80 + Math.floor(i / 18) * 42);
+    all.push(g);
+  }
+  await sleep(700); if(mySeq !== SEQ) return;
+
+  var trays = [], ty = 300;
+  for(i = 0; i < tens; i++){
+    var tx = 500 - (tens - 1) * 96 + i * 192;
+    if(tens > 4){ tx = 130 + i * (740 / Math.max(1, tens - 1)); }
+    trays.push(cTray(tx, ty + (tens > 4 && i % 2 ? 96 : 0)));
+  }
+  var count = cTxt(500, 535, '', 38, '#F5E87A');
+
+  for(i = 0; i < tens; i++){
+    if(mySeq !== SEQ) return;
+    var moves = [];
+    for(var j = 0; j < 10; j++){
+      var s = traySlot(j);
+      moves.push({ g: all[i * 10 + j], x: trays[i]._x + s.x, y: trays[i]._y + s.y });
+    }
+    await cFly(moves, 620);
+    count.textContent = 'Filled ' + (i + 1) + ' tray' + (i ? 's' : '') + ' = ' + ((i + 1) * 10);
+    await sleep(320);
+  }
+  if(mySeq !== SEQ) return;
+  var loose = [];
+  for(i = tens * 10; i < total; i++){
+    loose.push({ g: all[i], x: 400 + (i - tens * 10) * 44, y: 475 });
+  }
+  if(loose.length){ await cFly(loose, 620); }
+  if(mySeq !== SEQ) return;
+  count.textContent = tens + ' trays of 10 and ' + ones + ' loose = ' + total;
+  await sleep(600);
+}
+
+/* ═════════ SECTION 2 — block sticks and ten strips ═════════ */
+async function actBlocks(mySeq, sticks, loose){
+  cClear();
+  cTxt(500, 34, 'Ravi and Priya make towers of ten blocks', 24, '#E8C99A');
+  var total = sticks * 10 + loose, all = [], i;
+  for(i = 0; i < total; i++){
+    var g = cBlock(null, i < sticks * 10 ? '#4A88C9' : '#F7B32B');
+    cAt(g, 110 + (i % 22) * 38, 70 + Math.floor(i / 22) * 36);
+    all.push(g);
+  }
+  await sleep(700); if(mySeq !== SEQ) return;
+
+  var count = cTxt(500, 530, '', 34, '#F5E87A');
+  var gap = 760 / Math.max(1, sticks);
+  for(i = 0; i < sticks; i++){
+    if(mySeq !== SEQ) return;
+    var bx = 140 + i * gap, moves = [];
+    for(var j = 0; j < 10; j++){
+      moves.push({ g: all[i * 10 + j], x: bx, y: 235 + j * 19 });
+    }
+    await cFly(moves, 480);
+    count.textContent = (i + 1) + ' block stick' + (i ? 's' : '') + ' = ' + ((i + 1) * 10) + ' blocks';
+    await sleep(230);
+  }
+  if(mySeq !== SEQ) return;
+  var lm = [];
+  for(i = sticks * 10; i < total; i++){ lm.push({ g: all[i], x: 420 + (i - sticks * 10) * 38, y: 465 }); }
+  if(lm.length) await cFly(lm, 560);
+  if(mySeq !== SEQ) return;
+  count.textContent = sticks + ' block sticks and ' + loose + ' blocks = ' + (sticks * 10) + ' + ' + loose + ' = ' + total;
+  await sleep(600);
+}
+
+async function actStrips(mySeq, list){
+  cClear();
+  cTxt(500, 34, '1 ten strip = 10 units', 24, '#E8C99A');
+  var yy = 130;
+  for(var n = 0; n < list.length; n++){
+    if(mySeq !== SEQ) return;
+    var strips = list[n][0], units = list[n][1], i, j;
+    for(i = 0; i < strips; i++){
+      var sg = cG(150, yy + i * 34);
+      sg.appendChild(cEl('rect', { x: 0, y: -14, width: 280, height: 28, rx: 4,
+        fill: 'rgba(74,136,201,.30)', stroke: '#f2efe9', 'stroke-width': 1.8 }));
+      for(j = 1; j < 10; j++){
+        sg.appendChild(cEl('line', { x1: j * 28, y1: -14, x2: j * 28, y2: 14,
+          stroke: 'rgba(255,255,255,.35)', 'stroke-width': 0.9 }));
+      }
+      await cFadeIn(sg, 220);
+      if(mySeq !== SEQ) return;
+    }
+    for(j = 0; j < units; j++){
+      var ug = cG(470 + j * 32, yy);
+      ug.appendChild(cEl('rect', { x: -13, y: -14, width: 26, height: 28, rx: 4,
+        fill: 'rgba(247,179,43,.35)', stroke: '#f2efe9', 'stroke-width': 1.6 }));
+      await cFadeIn(ug, 130);
+      if(mySeq !== SEQ) return;
+    }
+    cTxt(760, yy + (strips - 1) * 17, strips + ' strips and ' + units + ' units = ' + (strips * 10 + units),
+      30, '#F5E87A', 'start');
+    yy += strips * 34 + 70;
+    await sleep(450);
+  }
+}
+
+/* ═════════ SECTION 3 — ten sticks make one hundred ═════════ */
+async function actHundred(mySeq){
+  cClear();
+  cTxt(500, 34, 'Ravi had 7 block sticks. Priya had 3.', 24, '#E8C99A');
+  var sticks = [], i, j;
+  for(i = 0; i < 10; i++){
+    var col = i < 7 ? '#E05B45' : '#4A88C9';
+    var g = cG(i < 7 ? 130 + i * 62 : 640 + (i - 7) * 62, 250);
+    for(j = 0; j < 10; j++){
+      g.appendChild(cEl('rect', { x: -9, y: -90 + j * 18, width: 18, height: 18, rx: 3,
+        fill: col, stroke: 'rgba(0,0,0,.45)', 'stroke-width': 1.1 }));
+    }
+    sticks.push(g);
+  }
+  await sleep(900); if(mySeq !== SEQ) return;
+  var moves = [];
+  for(i = 0; i < 10; i++){ moves.push({ g: sticks[i], x: 300 + i * 42, y: 250 }); }
+  await cFly(moves, 1100);
+  if(mySeq !== SEQ) return;
+  cTxt(500, 400, '10 block sticks = 100 blocks', 40, '#F5E87A');
+  await sleep(400);
+  cTxt(500, 452, '10 tens = 1 hundred', 32, '#8FE3B4');
+  await sleep(600);
+}
+async function actHundredNames(mySeq){
+  cClear();
+  cTxt(500, 34, 'Counting in hundreds', 24, '#E8C99A');
+  var names = ['One Hundred', 'Two Hundred', 'Three Hundred', 'Four Hundred', 'Five Hundred',
+               'Six Hundred', 'Seven Hundred', 'Eight Hundred', 'Nine Hundred', 'One Thousand'];
+  for(var i = 0; i < 10; i++){
+    if(mySeq !== SEQ) return;
+    var col = i % 5, row = Math.floor(i / 5);
+    var x = 130 + col * 190, y = 150 + row * 200;
+    var f = cHundredFlat(x, y, i === 9 ? 'rgba(247,179,43,.35)' : 'rgba(95,208,139,.28)', 6);
+    await cFadeIn(f, 180);
+    if(mySeq !== SEQ) return;
+    cTxt(x, y + 62, (i === 9 ? 1000 : (i + 1) * 100), 30, '#F5E87A');
+    cTxt(x, y + 92, names[i], 19, '#E8C99A');
+    await sleep(180);
+  }
+  await sleep(400);
+}
+
+/* ═════════ SECTION 4 — tens and ones: circles and triangles ═════════ */
+async function actTensOnes(mySeq, n){
+  cClear();
+  cTxt(500, 32, "Ravi's toffees — count them in groups of ten", 24, '#E8C99A');
+  var tens = Math.floor(n / 10), ones = n % 10, all = [], i;
+  for(i = 0; i < n; i++){
+    var g = cG(120 + (i % 15) * 50, 95 + Math.floor(i / 15) * 46);
+    g.appendChild(cEl('circle', { r: 12, fill: '#C96A4A', stroke: 'rgba(0,0,0,.4)', 'stroke-width': 1.2 }));
+    all.push(g);
+  }
+  await sleep(700); if(mySeq !== SEQ) return;
+
+  var count = cTxt(500, 512, '', 34, '#F5E87A');
+  /* gather each ten, then replace it with the book's circle symbol */
+  for(i = 0; i < tens; i++){
+    if(mySeq !== SEQ) return;
+    var cx = 500 - (tens - 1) * 60 + i * 120, cy = 300, moves = [];
+    for(var j = 0; j < 10; j++){
+      var a = (j / 10) * Math.PI * 2;
+      moves.push({ g: all[i * 10 + j], x: cx + Math.cos(a) * 16, y: cy + Math.sin(a) * 16 });
+    }
+    await cFly(moves, 480);
+    if(mySeq !== SEQ) return;
+    for(var k = 0; k < 10; k++){ all[i * 10 + k].setAttribute('opacity', 0); }
+    var ring = cTen(cx, cy);
+    await cFadeIn(ring, 240);
+    count.textContent = (i + 1) + ' ten' + (i ? 's' : '') + ' = ' + ((i + 1) * 10);
+    await sleep(200);
+  }
+  if(mySeq !== SEQ) return;
+  for(i = 0; i < ones; i++){
+    var og = all[tens * 10 + i];
+    var ox = 500 - (ones - 1) * 35 + i * 70;
+    await cFly([{ g: og, x: ox, y: 420 }], 300);
+    if(mySeq !== SEQ) return;
+    og.setAttribute('opacity', 0);
+    await cFadeIn(cOne(ox, 420), 200);
+  }
+  if(mySeq !== SEQ) return;
+  count.textContent = tens + ' tens + ' + ones + ' ones = ' + (tens * 10) + ' + ' + ones + ' = ' + n;
+  await sleep(500);
+}
+
+async function actHTO(mySeq, n){
+  cClear();
+  cTxt(500, 40, 'Where each digit sits', 26, '#E8C99A');
+  var d = String(n).padStart(3, '0').split('');
+  var heads = ['H', 'T', 'O'], full = ['Hundreds', 'Tens', 'Ones'];
+  for(var i = 0; i < 3; i++){
+    if(mySeq !== SEQ) return;
+    var x = 300 + i * 200;
+    var box = cG(x, 240);
+    box.appendChild(cEl('rect', { x: -85, y: -95, width: 170, height: 190, rx: 12,
+      fill: 'rgba(255,255,255,.05)', stroke: 'rgba(232,201,154,.55)', 'stroke-width': 2.2 }));
+    box.appendChild(cEl('line', { x1: -85, y1: -35, x2: 85, y2: -35,
+      stroke: 'rgba(232,201,154,.45)', 'stroke-width': 1.8 }));
+    var h = cEl('text', { x: 0, y: -65, 'font-size': 30, fill: '#E8C99A',
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+    h.textContent = heads[i]; box.appendChild(h);
+    var v = cEl('text', { x: 0, y: 30, 'font-size': 64, fill: '#F5E87A',
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+    v.textContent = d[i]; box.appendChild(v);
+    await cFadeIn(box, 260);
+    if(mySeq !== SEQ) return;
+    cTxt(x, 368, full[i], 22, '#E8C99A');
+    await sleep(200);
+  }
+  cTxt(500, 450, 'Number: ' + n, 40, '#8FE3B4');
+  await sleep(500);
+}
+
+/* ═════════ SECTION 5 — less than, more than ═════════ */
+async function actCompare(mySeq, a, b){
+  cClear();
+  cTxt(500, 32, 'Which is more? Count the tens first.', 24, '#E8C99A');
+  var rows = [a, b], i, j;
+  for(i = 0; i < 2; i++){
+    if(mySeq !== SEQ) return;
+    var n = rows[i], t = Math.floor(n / 10), o = n % 10, y = 150 + i * 190;
+    cTxt(90, y, String(n), 46, '#F5E87A');
+    for(j = 0; j < t; j++){
+      await cFadeIn(cTen(175 + j * 58, y), 110);
+      if(mySeq !== SEQ) return;
+    }
+    for(j = 0; j < o; j++){
+      await cFadeIn(cOne(185 + t * 58 + j * 38, y), 70);
+      if(mySeq !== SEQ) return;
+    }
+    cTxt(975, y, t + ' tens', 26, '#9FD3FF', 'end');
+    await sleep(260);
+  }
+  if(mySeq !== SEQ) return;
+  var ta = Math.floor(a / 10), tb = Math.floor(b / 10);
+  var sign = (a > b) ? '>' : (a < b ? '<' : '=');
+  var msg = (ta === tb)
+    ? 'Same tens — so we look at the ones.'
+    : (ta + ' tens beats ' + tb + ' tens.');
+  cTxt(500, 470, msg, 26, '#E8C99A');
+  await sleep(350);
+  cTxt(500, 522, a + '  ' + sign + '  ' + b, 46, '#8FE3B4');
+  await sleep(600);
+}
+async function actCompare3(mySeq, pairs){
+  cClear();
+  cTxt(500, 40, 'Comparing bigger numbers', 26, '#E8C99A');
+  for(var i = 0; i < pairs.length; i++){
+    if(mySeq !== SEQ) return;
+    var p = pairs[i], y = 140 + i * 115;
+    var A = cCard(250, y, p[0], 130), B = cCard(560, y, p[1], 130);
+    await cFadeIn(A, 180); await cFadeIn(B, 180);
+    if(mySeq !== SEQ) return;
+    await sleep(280);
+    cTxt(405, y, p[2], 46, '#8FE3B4');
+    cTxt(680, y, p[3], 20, '#E8C99A', 'start');
+    await sleep(360);
+  }
+  await sleep(400);
+}
+
+/* ═════════ SECTION 6 — increasing and decreasing order ═════════ */
+async function actOrder(mySeq, nums){
+  cClear();
+  cTxt(500, 34, 'Put them in order', 24, '#E8C99A');
+  var cards = [], i;
+  for(i = 0; i < nums.length; i++){
+    cards.push(cCard(200 + i * 150, 140, nums[i]));
+  }
+  await sleep(800); if(mySeq !== SEQ) return;
+
+  var up = cards.slice().sort(function(p, q){ return p._val - q._val; });
+  cTxt(120, 300, 'Increasing', 26, '#8FE3B4', 'start');
+  await cFly(up.map(function(g, k){ return { g: g, x: 300 + k * 130, y: 300 }; }), 900);
+  if(mySeq !== SEQ) return;
+  await sleep(500);
+
+  var clones = up.map(function(g, k){ return cCard(300 + k * 130, 300, g._val); });
+  clones.forEach(function(c){ c.setAttribute('opacity', 0); });
+  var down = clones.slice().reverse();
+  cTxt(120, 450, 'Decreasing', 26, '#F4A0A0', 'start');
+  clones.forEach(function(c){ c.setAttribute('opacity', 1); });
+  await cFly(down.map(function(g, k){ return { g: g, x: 300 + k * 130, y: 450 }; }), 900);
+  await sleep(500);
+}
+
+/* ═════════ SECTION 7 — ordinal numbers ═════════ */
+var ORD = ['First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth', 'Ninth', 'Tenth',
+  'Eleventh', 'Twelfth', 'Thirteenth', 'Fourteenth', 'Fifteenth', 'Sixteenth', 'Seventeenth',
+  'Eighteenth', 'Nineteenth', 'Twentieth'];
+function ordShort(n){
+  if(n === 1) return '1st'; if(n === 2) return '2nd'; if(n === 3) return '3rd';
+  return n + 'th';
+}
+async function actOrdinal(mySeq){
+  cClear();
+  cTxt(500, 34, 'The queue at the school canteen', 24, '#E8C99A');
+  var counter = cG(830, 300);
+  counter.appendChild(cEl('rect', { x: -60, y: -80, width: 120, height: 160, rx: 10,
+    fill: 'rgba(201,150,42,.18)', stroke: 'rgba(232,201,154,.6)', 'stroke-width': 2 }));
+  cTxt(830, 300, 'Counter', 22, '#E8C99A');
+  var names = ['Ravi', 'Karthik', 'Priya', 'Meena', 'Arjun', 'Latha'];
+  for(var i = 0; i < 6; i++){
+    if(mySeq !== SEQ) return;
+    var x = 690 - i * 115;
+    var k = cKid(x, 310, KID_COLS[i]);
+    await cFadeIn(k, 220);
+    if(mySeq !== SEQ) return;
+    cTxt(x, 375, names[i], 20, '#E8C99A');
+    cTxt(x, 195, ordShort(i + 1), 40, '#F5E87A');
+    cTxt(x, 232, ORD[i], 20, '#9FD3FF');
+    await sleep(330);
+  }
+  cTxt(500, 480, 'Ordinal numbers tell us the POSITION in a line', 26, '#8FE3B4');
+  await sleep(600);
+}
+async function actOrdinalTable(mySeq){
+  cClear();
+  cTxt(500, 32, 'The first twenty ordinal numbers', 24, '#E8C99A');
+  for(var i = 0; i < 20; i++){
+    if(mySeq !== SEQ) return;
+    var col = i % 5, row = Math.floor(i / 5);
+    var x = 130 + col * 190, y = 110 + row * 110;
+    var b = cG(x, y);
+    b.appendChild(cEl('rect', { x: -80, y: -40, width: 160, height: 80, rx: 10,
+      fill: 'rgba(255,255,255,.04)', stroke: 'rgba(232,201,154,.4)', 'stroke-width': 1.6 }));
+    var t1 = cEl('text', { x: 0, y: -12, 'font-size': 30, fill: '#F5E87A',
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+    t1.textContent = ordShort(i + 1); b.appendChild(t1);
+    var t2 = cEl('text', { x: 0, y: 17, 'font-size': 18, fill: '#E8C99A',
+      'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-family': 'Caveat, cursive' });
+    t2.textContent = ORD[i]; b.appendChild(t2);
+    await cFadeIn(b, 90);
+  }
+  await sleep(500);
+}
+async function actGroupsRecap(mySeq){
+  cClear();
+  cTxt(500, 44, 'Counting in Groups', 40, '#F5E87A');
+  var lines = [
+    ['10 ones make 1 ten', '#8FE3B4'],
+    ['10 tens make 1 hundred', '#8FE3B4'],
+    ['A circle is a ten, a triangle is a one', '#9FD3FF'],
+    ['Compare the tens first, then the ones', '#E8C99A'],
+    ['Ordinal numbers show the position', '#E8C99A']
+  ];
+  for(var i = 0; i < lines.length; i++){
+    if(mySeq !== SEQ) return;
+    var t = cTxt(500, 140 + i * 72, lines[i][0], 32, lines[i][1]);
+    t.setAttribute('opacity', 0);
+    await cFadeIn(t, 300);
+    await sleep(240);
+  }
+  await sleep(500);
+}
+
+/* ═════════ THE LESSON ═════════ */
+function groupsLesson(band){
+  return [
+    { id:'g_intro', act:'gintro', note:{ k:'title', t:'Counting in Groups' } },
+
+    { id:'g_trays', act:'trays', tens:2, ones:4,
+      note:{ k:'key', t:'One tray holds 10 chocolates. 2 trays and 4 loose = 24.' } },
+    { id:'g_trays2', act:'trays2',
+      note:{ k:'', t:'4 trays and 6 loose = 46 · 7 trays and 2 loose = 72' } },
+
+    { id:'g_blocks', act:'blocks', sticks:8, loose:6,
+      note:{ k:'key', t:'A tower of 10 blocks is a BLOCK STICK. 8 sticks and 6 loose = 86.' } },
+    { id:'g_stick', act:'stick',
+      note:{ k:'', t:'1 block stick = 10 blocks. 6 sticks and 4 = 64 · 3 sticks and 2 = 32' } },
+    { id:'g_strips', act:'strips',
+      note:{ k:'', t:'1 ten strip = 10 units. 2 strips and 1 unit = 21 · 5 strips and 6 units = 56' } },
+
+    { id:'g_hundred', act:'hundred',
+      note:{ k:'key', t:'10 block sticks stand together = 100 blocks. So 10 tens = 1 hundred.' } },
+    { id:'g_names', act:'names',
+      note:{ k:'', t:'100, 200, 300 … 900. Ten hundreds = 1000, one thousand.' } },
+
+    { id:'g_tens', act:'tensones', n:42,
+      note:{ k:'key', t:'A CIRCLE is a ten. A TRIANGLE is a one. 4 tens + 2 ones = 40 + 2 = 42.' } },
+    { id:'g_hto', act:'hto', n:42,
+      note:{ k:'', t:'H T O. In 42, Tens = 4 and Ones = 2.' } },
+
+    { id:'g_cmp', act:'compare', a:76, b:67,
+      note:{ k:'key', t:'76 has 7 tens. 67 has only 6 tens. So 67 is less than 76.' } },
+    { id:'g_cmp3', act:'compare3',
+      note:{ k:'', t:'123 > 84 · 104 < 123 · 178 > 172' } },
+
+    { id:'g_order', act:'order', nums:[19, 12, 10, 18],
+      note:{ k:'key', t:'Increasing: 10, 12, 18, 19. Decreasing: 19, 18, 12, 10.' } },
+
+    { id:'g_ord', act:'ordinal',
+      note:{ k:'ask', t:'Ravi was first, Karthik second, Priya third in the queue.' } },
+    { id:'g_ordt', act:'ordtable',
+      note:{ k:'', t:'1st, 2nd, 3rd, 4th … up to 20th.' } },
+
+    { id:'g_recap', act:'grecap', note:{ k:'title', t:'What we learnt' } }
+  ];
+}
+
 /* ════════ LESSON BUILDING ════════ */
 function shapesLesson(band){
   var order = ['cube', 'cuboid', 'cylinder', 'cone', 'sphere'];
@@ -881,6 +1419,70 @@ function sayFor(step, lang){
       en = 'Whenever you see a line of shapes or numbers, first ask — what is repeating? Once you find the rule, the next one is easy.';
       ta = 'வடிவங்கள் அல்லது எண்கள் வரிசையாக இருந்தால், முதலில் கேளுங்கள் — எது திரும்ப வருகிறது? விதி கிடைத்துவிட்டால் அடுத்தது எளிது.';
       break;
+    case 'gintro':
+      en = 'Counting one by one takes a long time and we lose count. So we count in groups. Watch how much faster it becomes.';
+      ta = 'ஒவ்வொன்றாக எண்ணினால் நேரம் அதிகம் ஆகும், எண்ணிக்கையும் மறந்துவிடும். அதனால் நாம் groups ஆக எண்ணுவோம். எவ்வளவு வேகமாகிறது என்று பாருங்கள்.';
+      break;
+    case 'trays':
+      en = 'Priya runs a sweet shop. Every tray holds exactly 10 chocolates. Watch the chocolates fill the trays — ten, twenty. Two trays and four loose chocolates make twenty four.';
+      ta = 'Priya ஒரு sweet shop நடத்துகிறாள். ஒவ்வொரு tray-யிலும் சரியாக 10 chocolates. Chocolates trays-ல் நிரம்புவதைப் பாருங்கள் — ten, twenty. 2 trays மற்றும் 4 loose chocolates சேர்ந்து 24.';
+      break;
+    case 'trays2':
+      en = 'Let us do two more from the book. Four trays and six loose is forty six. Seven trays and two loose is seventy two.';
+      ta = 'புத்தகத்தில் இருந்து இன்னும் இரண்டு செய்வோம். 4 trays மற்றும் 6 loose என்றால் 46. 7 trays மற்றும் 2 loose என்றால் 72.';
+      break;
+    case 'blocks':
+      en = 'Ravi and Priya had too many blocks to count one by one. So they built towers of ten. A tower of ten blocks is called a block stick. Eight sticks and six loose blocks make eighty six.';
+      ta = 'Ravi-யும் Priya-வும் ஒவ்வொன்றாக எண்ண முடியாத அளவு blocks வைத்திருந்தார்கள். அதனால் பத்து பத்தாக towers கட்டினார்கள். 10 blocks கொண்ட tower-க்கு block stick என்று பெயர். 8 sticks மற்றும் 6 loose blocks சேர்ந்து 86.';
+      break;
+    case 'stick':
+      en = 'Remember this: one block stick is ten blocks. Six sticks and four blocks make sixty four. Three sticks and two make thirty two.';
+      ta = 'இதை நினைவில் வையுங்கள்: 1 block stick என்பது 10 blocks. 6 sticks மற்றும் 4 blocks சேர்ந்து 64. 3 sticks மற்றும் 2 சேர்ந்து 32.';
+      break;
+    case 'strips':
+      en = 'We can also count with ten strips. One ten strip is ten units. Two strips and one unit make twenty one. Five strips and six units make fifty six.';
+      ta = 'Ten strips வைத்தும் எண்ணலாம். 1 ten strip என்பது 10 units. 2 strips மற்றும் 1 unit சேர்ந்து 21. 5 strips மற்றும் 6 units சேர்ந்து 56.';
+      break;
+    case 'hundred':
+      en = 'Ravi had seven block sticks and Priya had three. When they placed them side by side, they had ten sticks — and ten sticks is one hundred blocks. So ten tens make one hundred.';
+      ta = 'Ravi-யிடம் 7 block sticks, Priya-விடம் 3. அவற்றை அருகருகே வைத்தபோது 10 sticks கிடைத்தன — 10 sticks என்பது 100 blocks. எனவே 10 tens சேர்ந்தால் 1 hundred.';
+      break;
+    case 'names':
+      en = 'Now let us count in hundreds. One hundred, two hundred, three hundred, and so on up to nine hundred. And ten hundreds together make one thousand.';
+      ta = 'இப்போது hundreds ஆக எண்ணுவோம். One hundred, two hundred, three hundred என்று nine hundred வரை. 10 hundreds சேர்ந்தால் one thousand.';
+      break;
+    case 'tensones':
+      en = "Ravi's toffee packet tore and the toffees scattered. He kept losing count, so he made groups of ten. In our book a circle stands for one ten and a triangle stands for one. Four tens and two ones — forty plus two is forty two.";
+      ta = 'Ravi-யின் toffee packet கிழிந்து toffees சிதறின. எண்ணிக்கை மறந்ததால் அவன் பத்து பத்தாக groups செய்தான். நமது புத்தகத்தில் ஒரு circle என்பது ஒரு ten, ஒரு triangle என்பது ஒரு one. 4 tens மற்றும் 2 ones — 40 கூட்டல் 2 சமம் 42.';
+      break;
+    case 'hto':
+      en = 'Every digit has its own place. H is for hundreds, T for tens, O for ones. In forty two, the tens place has four and the ones place has two.';
+      ta = 'ஒவ்வொரு digit-க்கும் அதற்கான place உண்டு. H என்பது hundreds, T என்பது tens, O என்பது ones. 42-ல் tens place-ல் 4, ones place-ல் 2.';
+      break;
+    case 'compare':
+      en = 'Ravi had seventy six pencils, but Priya packed only sixty seven. Look — seventy six has seven tens, sixty seven has only six tens. So sixty seven is less than seventy six. Always compare the tens first.';
+      ta = 'Ravi-யிடம் 76 pencils இருந்தன, ஆனால் Priya 67 மட்டுமே pack செய்தாள். பாருங்கள் — 76-ல் 7 tens, 67-ல் 6 tens மட்டுமே. எனவே 67 என்பது 76-ஐ விட குறைவு. எப்போதும் முதலில் tens-ஐ ஒப்பிடுங்கள்.';
+      break;
+    case 'compare3':
+      en = 'For bigger numbers the same rule works. A three digit number always beats a two digit one. If the hundreds are the same, compare the tens. If the tens are the same too, compare the ones.';
+      ta = 'பெரிய எண்களுக்கும் அதே விதி. 3-digit எண் எப்போதும் 2-digit எண்ணை விட பெரியது. Hundreds ஒன்றாக இருந்தால் tens-ஐ ஒப்பிடுங்கள். Tens-ம் ஒன்றாக இருந்தால் ones-ஐ ஒப்பிடுங்கள்.';
+      break;
+    case 'order':
+      en = 'Increasing order means smallest first, going up. Decreasing order means greatest first, coming down. Watch the cards arrange themselves both ways.';
+      ta = 'Increasing order என்றால் சிறியது முதலில், பெரியது வரை. Decreasing order என்றால் பெரியது முதலில், சிறியது வரை. Cards இரண்டு விதமாகவும் அடுக்குவதைப் பாருங்கள்.';
+      break;
+    case 'ordinal':
+      en = 'Ravi and his friends stood in a queue at the canteen. Ravi was first, Karthik second, Priya third. These special numbers that show position are called ordinal numbers.';
+      ta = 'Ravi-யும் அவன் நண்பர்களும் canteen-ல் வரிசையில் நின்றார்கள். Ravi first, Karthik second, Priya third. இடத்தைக் காட்டும் இந்த சிறப்பு எண்களுக்கு ordinal numbers என்று பெயர்.';
+      break;
+    case 'ordtable':
+      en = 'Here are the first twenty. First, second, third, fourth, and after that it is easy — just add t h to the number, like fifth, sixth, seventh.';
+      ta = 'இதோ முதல் இருபது. First, second, third, fourth, அதன் பிறகு எளிது — எண்ணுடன் t h சேர்த்தால் போதும், fifth, sixth, seventh என்று.';
+      break;
+    case 'grecap':
+      en = 'So remember: ten ones make one ten, and ten tens make one hundred. A circle is a ten, a triangle is a one. When comparing, always look at the tens first.';
+      ta = 'நினைவில் வையுங்கள்: 10 ones சேர்ந்தால் 1 ten, 10 tens சேர்ந்தால் 1 hundred. Circle என்பது ten, triangle என்பது one. ஒப்பிடும்போது எப்போதும் முதலில் tens-ஐ பாருங்கள்.';
+      break;
   }
   return lang === 'tamil' ? ta : en;
 }
@@ -899,7 +1501,7 @@ async function enrichNarration(){
     ? 'Write in Tamil script, BUT keep every maths and textbook word in English letters exactly as printed in the book: cube, cuboid, cylinder, cone, sphere, face, edge, vertex, corner, net, pattern. Never write those words in Tamil script.'
     : 'Write in simple Indian classroom English.';
   var prompt = 'You are a warm, patient Tamil Nadu school teacher taking a ' + CLS + ' class on "'
-    + (TOPIC === 'shapes' ? '3D Shapes' : 'Patterns') + '".\n'
+    + TOPIC_NAME() + '".\n'
     + 'Below is the lesson, step by step, with a basic sentence for each step.\n'
     + 'Rewrite each "base" sentence so it sounds like a real teacher speaking aloud to ' + CLS + ' children.\n'
     + langLine + '\n'
@@ -986,7 +1588,8 @@ function sayOf(step, lang){
 /* ════════ PLAYER ════════ */
 // Steps that start a fresh topic wipe the board first, so only the
 // shape being taught right now is written up.
-var FRESH_ACTS = { intro:1, show:1, recap:1, pintro:1, pattern:1, precap:1 };
+var FRESH_ACTS = { intro:1, show:1, recap:1, pintro:1, pattern:1, precap:1,
+  gintro:1, trays:1, blocks:1, hundred:1, tensones:1, compare:1, order:1, ordinal:1, grecap:1 };
 function clearNotes(){ $('note-list').innerHTML = ''; }
 
 function addNote(k, t){
@@ -1003,6 +1606,13 @@ function syncTools(){
 function buildTools(){
   var box = $('stage-tools');
   box.innerHTML = '';
+  if(TOPIC === 'groups'){
+    var rb = document.createElement('div');
+    rb.className = 'tool'; rb.textContent = '↻ Show again';
+    rb.onclick = function(){ replay(); };
+    box.appendChild(rb);
+    return;
+  }
   if(TOPIC !== 'shapes') return;
   var defs = [
     ['tool-spin',    '⟳ Spin',        function(){ autoSpin = !autoSpin; syncTools(); }],
@@ -1021,6 +1631,31 @@ function buildTools(){
   syncTools();
 }
 async function doAction(step, mySeq){
+  if(TOPIC === 'groups'){
+    switch(step.act){
+      case 'trays':    return actTrays(mySeq, step.tens, step.ones);
+      case 'trays2':   await actTrays(mySeq, 4, 6); if(mySeq !== SEQ) return;
+                       await sleep(500); return actTrays(mySeq, 7, 2);
+      case 'blocks':   return actBlocks(mySeq, step.sticks, step.loose);
+      case 'stick':    await actBlocks(mySeq, 6, 4); if(mySeq !== SEQ) return;
+                       await sleep(500); return actBlocks(mySeq, 3, 2);
+      case 'strips':   return actStrips(mySeq, [[2, 1], [5, 6]]);
+      case 'hundred':  return actHundred(mySeq);
+      case 'names':    return actHundredNames(mySeq);
+      case 'tensones': return actTensOnes(mySeq, step.n);
+      case 'hto':      return actHTO(mySeq, step.n);
+      case 'compare':  return actCompare(mySeq, step.a, step.b);
+      case 'compare3': return actCompare3(mySeq, [
+                         [123, 84, '>', '3 digits beat 2 digits'],
+                         [104, 123, '<', 'same hundreds, 0 tens is less than 2 tens'],
+                         [178, 172, '>', 'same hundreds and tens, 8 is more than 2']]);
+      case 'order':    return actOrder(mySeq, step.nums);
+      case 'ordinal':  return actOrdinal(mySeq);
+      case 'ordtable': return actOrdinalTable(mySeq);
+      case 'grecap':   return actGroupsRecap(mySeq);
+      default:         cClear(); return sleep(900);
+    }
+  }
   if(TOPIC === 'patterns'){
     $('pattern-stage').classList.add('show');
     $('stage').style.display = 'none';
@@ -1063,24 +1698,37 @@ function goNext(){ if(IDX + 1 < STEPS.length){ stopAudio(); runStep(IDX + 1); } 
 function goPrev(){ if(IDX > 0){ stopAudio(); runStep(IDX - 1); } }
 function replay(){ stopAudio(); runStep(IDX); }
 
+function TOPIC_NAME(){
+  return TOPIC === 'shapes' ? '3D Shapes'
+       : TOPIC === 'groups' ? 'Counting in Groups'
+       : 'Patterns';
+}
+
 /* ════════ START ════════ */
 async function startClass(){
   BAND  = bandFor(CLS);
-  STEPS = (TOPIC === 'shapes') ? shapesLesson(BAND) : patternsLesson(BAND);
+  STEPS = (TOPIC === 'shapes')  ? shapesLesson(BAND)
+        : (TOPIC === 'groups')  ? groupsLesson(BAND)
+        :                         patternsLesson(BAND);
   SAY_OVERRIDE = {};
   $('setup').classList.add('hidden');
   $('room').classList.add('show');
-  $('hdr-meta').textContent = CLS + ' · ' + (TOPIC === 'shapes' ? '3D Shapes' : 'Patterns');
+  $('hdr-meta').textContent = CLS + ' · ' + TOPIC_NAME();
   $('note-list').innerHTML = '';
   $('btn-lang').textContent = LANG === 'tamil' ? 'TA' : (LANG === 'both' ? 'EN+TA' : 'EN');
 
+  $('stage').style.display = 'none';
+  $('pattern-stage').classList.remove('show');
+  $('count-stage').classList.remove('show');
   if(TOPIC === 'shapes'){
     $('stage').style.display = 'block';
-    $('pattern-stage').classList.remove('show');
     if(!renderer) initThree(); else resizeThree();
     $('fec-row').style.display = 'flex';
+  } else if(TOPIC === 'groups'){
+    $('count-stage').classList.add('show');
+    $('fec-row').style.display = 'none';
+    cClear();
   } else {
-    $('stage').style.display = 'none';
     $('pattern-stage').classList.add('show');
     $('fec-row').style.display = 'none';
   }
@@ -1154,7 +1802,9 @@ function autostart(){
   if(d.lang === 'tamil') LANG = 'tamil';
   else if(d.lang === 'both') LANG = 'both';
   var hay = ((d.chapter || '') + ' ' + (d.lessonText || '')).toLowerCase();
-  TOPIC = /pattern|தொடர்/.test(hay) ? 'patterns' : 'shapes';
+  TOPIC = /group|counting in group|tens and one|ordinal|குழு/.test(hay) ? 'groups'
+        : /pattern|தொடர்/.test(hay) ? 'patterns'
+        : 'shapes';
   $('topic-row').querySelectorAll('.chip').forEach(function(x){
     x.classList.toggle('on', x.getAttribute('data-topic') === TOPIC);
   });
