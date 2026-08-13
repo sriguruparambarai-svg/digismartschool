@@ -984,7 +984,7 @@ try{ if(localStorage.getItem('dss_math_lang') === 'en') TEACH_LANG = 'en'; }catc
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v9';   // v9: coordinate-geometry questions now draw a graph
+var SOLUTION_VER = 'v10';  // v10: junior 3D shapes - cube/cuboid + face shading + counts
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1317,6 +1317,7 @@ async function solveAndTeach(){
       + '  - circles, tangents, chords  -> circle_tangent / circle_two_tangents / circle_chord\n'
       + '  - COORDINATE GEOMETRY of every kind: area of a triangle or quadrilateral from vertices, distance between two points, midpoint, section formula, collinearity, slope, straight line y = mx + c, or a quadratic/function graph  -> ALWAYS use "graph"\n'
       + '  - mensuration solids: cylinder, cone, sphere, hemisphere, frustum, combined solids  -> solid\n'
+      + '  - JUNIOR 3D SHAPES (classes 1 to 5): any question that NAMES a cube, cuboid, cylinder, cone or sphere - naming them, counting faces / edges / corners, or adding those counts  -> solid (ONE figure per shape named, even though there is no formula)\n'
       + 'COORDINATE GEOMETRY IS NOT PLAIN ALGEBRA. If the question gives points such as (-3, 5), (5, 6) and (5, -2), you MUST return a "graph" figure plotting those points, with closeShape joining them when the question asks for an area. Never solve a coordinate-geometry question with formulas alone.\n'
       + 'Figure formats:\n'
       + '  "figures": [\n'
@@ -1357,8 +1358,14 @@ async function solveAndTeach(){
       + '    shape choices: "cylinder", "cone", "sphere", "hemisphere", "frustum" (radius = bottom R, radius2 = top r), "cone_on_cylinder", "hemisphere_on_cylinder", "ice_cream" (cone below, hemisphere scoop on top).\n'
       + '    For combined shapes: height = the cylinder/lower part, height2 = the cone/upper part. Include ONLY the values the question gives (any value may be a variable like "h" or "l").\n'
       + '    Step linking: radius "figRef":{"figure":"","side":"R"}; top radius "side":"R2"; height "side":"H"; upper height "side":"H2"; slant "side":"L"\n'
+      + '    ALSO AVAILABLE: "cube" (side) and "cuboid" (length, width, height), drawn as 3D boxes with the hidden edges dashed.\n'
+      + '      cube example:   {"label":"Cube","type":"solid","shape":"cube","side":{"value":"4 cm"}}\n'
+      + '      cuboid example: {"label":"Cuboid","type":"solid","shape":"cuboid","length":{"value":"8 cm"},"width":{"value":"3 cm"},"height":{"value":"5 cm"}}\n'
+      + '      Step linking for these: side "figRef":{"figure":"Cube","side":"S"}; length "side":"Len"; width "side":"W"; height "side":"H"\n'
+      + '    JUNIOR RULE (classes 1 to 5) - THIS IS COMPULSORY: if the question names any 3D shape, return one "solid" figure for EVERY shape named, with "label" set to the plain shape name ("Cube", "Cuboid", "Cylinder", "Cone", "Sphere"). Do this EVEN WHEN there is no formula, no calculation and no measurements at all - simply leave out radius/height/side. The blackboard then shades the faces in colour, writes 1, 2, 3 on the faces the child can see, and prints a Faces / Edges / Corners card under the shape, so a small child can COUNT instead of being told. Every step that talks about a shape must carry "figRef":{"figure":"Cube"} so that shape lights up while you speak about it.\n'
+      + '    You may override the printed counts with "counts":{"faces":3,"edges":2,"corners":0} when the textbook uses different numbers. Otherwise the standard book counts are used automatically.\n'
       + 'MATRICES (matrix chapter questions): write every matrix in "main" and "finalAnswer" using double-bracket notation with rows: [[1,2],[3,4]] means row 1 = 1,2 and row 2 = 3,4. The blackboard automatically renders it with proper big brackets. Example main: "A + B = [[4,6],[10,12]]". Keep ONE matrix operation per step. In SPOKEN scripts NEVER read bracket symbols — say the rows in words: "row 1: 4 and 6, row 2: 10 and 12".\n\n'
-      + 'For questions that genuinely need NO figure - plain arithmetic, pure algebra (solving equations, factorising, simplifying), number patterns, matrices, or word problems with no shape - OMIT "figures" completely. Coordinate geometry is NOT in this list; it always gets a graph.\n\n'
+      + 'For questions that genuinely need NO figure - plain arithmetic, pure algebra (solving equations, factorising, simplifying), number patterns, matrices, or word problems with no shape - OMIT "figures" completely. Coordinate geometry is NOT in this list; it always gets a graph. A junior-class question that names a 3D shape is NOT in this list either, even when the working is only simple addition such as 6 + 6 = 12; it always gets one solid figure per shape.\n\n'
       + '════════ STRICT RULES ════════\n'
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
       + '2. main field = ONLY the math expression. NO English sentences on the board.\n'
@@ -3705,6 +3712,118 @@ function _figSegLabel(svg, a, b, value, key, sideSign){
   _figKeyedText(svg, off.x, off.y, value, key);
 }
 
+// ── Junior solids (classes 1-5): face shading, face numbers, count card ──
+// Small children must SEE and COUNT the faces, not be told the answer.
+var _JR_TINT = ['rgba(201,168,76,.22)', 'rgba(159,211,255,.20)', 'rgba(126,217,160,.18)'];
+var _JR_INK  = ['#FFD86A', '#9FD3FF', '#8FE3B4'];
+var _JR_COUNTS = {
+  cube: [6, 12, 8], cuboid: [6, 12, 8], cylinder: [3, 2, 0],
+  cone: [2, 1, 1], sphere: [1, 0, 0], hemisphere: [2, 1, 0]
+};
+var _JR_NOTE = {
+  cube: '3 more faces are hidden behind',
+  cuboid: '3 more faces are hidden behind',
+  cylinder: '1 more flat face is hidden below',
+  cone: '1 flat face is at the bottom', sphere: '', hemisphere: ''
+};
+// A figure may force the style with junior:true / junior:false; otherwise the class decides.
+function _figIsJuniorSolid(fig){
+  if(fig && fig.junior === true) return true;
+  if(fig && fig.junior === false) return false;
+  try{ return isJuniorClass(); }catch(e){ return false; }
+}
+// The 8 corners of a cube / cuboid drawn in oblique 3D view
+function _figBoxPts(sh){
+  var isCu = (sh === 'cube');
+  var X0 = isCu ? 62 : 48, Y0 = isCu ? 88 : 96;
+  var WW = isCu ? 128 : 158, HH = isCu ? 128 : 112;
+  var DX = isCu ? 54 : 48, DY = isCu ? 46 : 40;
+  var A = { x: X0, y: Y0 }, B = { x: X0 + WW, y: Y0 };
+  var C = { x: X0 + WW, y: Y0 + HH }, D = { x: X0, y: Y0 + HH };
+  return { A: A, B: B, C: C, D: D,
+    E: { x: A.x + DX, y: A.y - DY }, F: { x: B.x + DX, y: B.y - DY },
+    G: { x: C.x + DX, y: C.y - DY }, H: { x: D.x + DX, y: D.y - DY } };
+}
+function _figPolyD(pts){
+  var d = '';
+  for(var i = 0; i < pts.length; i++){
+    d += (i ? 'L ' : 'M ') + pts[i].x.toFixed(1) + ' ' + pts[i].y.toFixed(1) + ' ';
+  }
+  return d + 'Z';
+}
+function _figCentroid(pts){
+  var sx = 0, sy = 0;
+  for(var i = 0; i < pts.length; i++){ sx += pts[i].x; sy += pts[i].y; }
+  return { x: sx / pts.length, y: sy / pts.length };
+}
+// Paint a tinted face BEHIND the chalk outlines (goes in right after <defs>)
+function _figJrShade(svg, d, tint){
+  var el = _figEl('path', { d: d, fill: tint, stroke: 'none' });
+  var first = svg.firstChild;
+  if(first && first.nextSibling) svg.insertBefore(el, first.nextSibling);
+  else svg.appendChild(el);
+  return el;
+}
+function _figJrNum(svg, x, y, n, ink){
+  svg.appendChild(_figEl('circle', { cx: x, cy: y, r: 15,
+    fill: 'rgba(24,12,7,.74)', stroke: 'none' }));
+  var t = _figEl('text', { x: x, y: y, 'font-family': 'Caveat, cursive', 'font-size': 26,
+    fill: ink, 'text-anchor': 'middle', 'dominant-baseline': 'middle' });
+  t.textContent = String(n);
+  svg.appendChild(t);
+  return t;
+}
+// Faces / Edges / Corners card under the shape. Returns the height the SVG now needs.
+function _figJrCountStrip(svg, sh, fig){
+  var base = _JR_COUNTS[sh];
+  if(!base) return 0;
+  var ov = (fig && fig.counts) || {};
+  var vals = [
+    (ov.faces   != null ? ov.faces   : base[0]),
+    (ov.edges   != null ? ov.edges   : base[1]),
+    (ov.corners != null ? ov.corners : base[2])
+  ];
+  var names = ['Faces', 'Edges', 'Corners'];
+  var note = _JR_NOTE[sh] || '';
+  if(note) _figText(svg, 160, 226, note, 14, 'rgba(232,201,154,.75)');
+  var yTop = 238;
+  for(var i = 0; i < 3; i++){
+    var bx = 12 + i * 101;
+    svg.appendChild(_figEl('rect', { x: bx, y: yTop, width: 96, height: 40, rx: 9,
+      fill: 'rgba(255,255,255,.04)', stroke: 'rgba(201,168,76,.38)', 'stroke-width': 1.4 }));
+    _figText(svg, bx + 48, yTop + 13, names[i], 13, 'rgba(232,201,154,.8)');
+    _figText(svg, bx + 48, yTop + 29, String(vals[i]), 21, '#FFD86A');
+  }
+  return yTop + 40 + 8;
+}
+// Everything the junior style adds on top of a normal solid drawing
+function _figJrSolidExtras(svg, sh, fig){
+  var i, faces, ctr;
+  if(sh === 'cube' || sh === 'cuboid'){
+    var P = _figBoxPts(sh);
+    faces = [[P.A, P.B, P.C, P.D], [P.A, P.B, P.F, P.E], [P.B, P.C, P.G, P.F]];
+    for(i = 0; i < 3; i++){
+      _figJrShade(svg, _figPolyD(faces[i]), _JR_TINT[i]);
+      ctr = _figCentroid(faces[i]);
+      _figJrNum(svg, ctr.x, ctr.y, i + 1, _JR_INK[i]);
+    }
+  } else if(sh === 'cylinder'){
+    _figJrShade(svg, 'M 92 56 A 68 15 0 1 0 228 56 A 68 15 0 1 0 92 56 Z', _JR_TINT[0]);
+    _figJrShade(svg, 'M 92 56 L 92 184 A 68 15 0 0 0 228 184 L 228 56 A 68 15 0 0 1 92 56 Z', _JR_TINT[1]);
+    _figJrNum(svg, 160, 56, 1, _JR_INK[0]);
+    _figJrNum(svg, 160, 124, 2, _JR_INK[1]);
+  } else if(sh === 'cone'){
+    _figJrShade(svg, 'M 160 32 L 84 188 A 76 16 0 0 0 236 188 Z', _JR_TINT[1]);
+    _figJrShade(svg, 'M 84 188 A 76 16 0 1 0 236 188 A 76 16 0 1 0 84 188 Z', _JR_TINT[0]);
+    _figJrNum(svg, 160, 130, 1, _JR_INK[1]);
+  } else if(sh === 'sphere'){
+    _figJrShade(svg, 'M 78 116 A 82 82 0 1 0 242 116 A 82 82 0 1 0 78 116 Z', _JR_TINT[0]);
+    _figJrNum(svg, 160, 116, 1, _JR_INK[0]);
+  }
+  var need = _figJrCountStrip(svg, sh, fig);
+  if(need > 230) svg.setAttribute('viewBox', '0 0 320 ' + Math.round(need));
+}
+
 // ── The three figure types ──
 function renderLineFigure(fig, keyPrefix){
   if(keyPrefix == null) keyPrefix = '';
@@ -3952,6 +4071,37 @@ function renderLineFigure(fig, keyPrefix){
       _figDome(svg, CX, icY, iRX);
       if(rV) _figDim(svg, { x: CX, y: icY }, { x: CX + iRX, y: icY }, rV, keyPrefix + '|sdR', -1);
       if(hV) _figSegLabel(svg, { x: CX, y: icY }, { x: CX, y: tipY }, hV, keyPrefix + '|sdH', 1);
+
+    } else if(sh === 'cube' || sh === 'cuboid'){
+      // 3D box in oblique view: solid front / top / right, dashed hidden edges
+      var BP = _figBoxPts(sh);
+      _figDashSeg(svg, BP.E, BP.H);
+      _figDashSeg(svg, BP.H, BP.G);
+      _figDashSeg(svg, BP.D, BP.H);
+      _figPlainLine(svg, BP.A, BP.B);
+      _figPlainLine(svg, BP.B, BP.C);
+      _figPlainLine(svg, BP.C, BP.D);
+      _figPlainLine(svg, BP.D, BP.A);
+      _figPlainLine(svg, BP.E, BP.F);
+      _figPlainLine(svg, BP.F, BP.G);
+      _figPlainLine(svg, BP.A, BP.E);
+      _figPlainLine(svg, BP.B, BP.F);
+      _figPlainLine(svg, BP.C, BP.G);
+      var sdV = (fig.side && fig.side.value) || null;
+      var lnV = (fig.length && fig.length.value) || null;
+      var wdV = (fig.width && fig.width.value) || null;
+      if(sh === 'cube'){
+        if(sdV) _figDim(svg, BP.D, BP.C, sdV, keyPrefix + '|sdS', 1);
+      } else {
+        if(lnV) _figDim(svg, BP.D, BP.C, lnV, keyPrefix + '|sdLen', 1);
+        if(hV)  _figDim(svg, BP.B, BP.C, hV,  keyPrefix + '|sdH', -1);
+        if(wdV) _figDim(svg, BP.C, BP.G, wdV, keyPrefix + '|sdW', 1);
+      }
+    }
+
+    // Junior classes: colour the faces, number them, print the counts card
+    if(_figIsJuniorSolid(fig)){
+      try{ _figJrSolidExtras(svg, sh, fig); }catch(eJr){}
     }
 
   } else if(fig.type === 'graph'){
@@ -4860,7 +5010,14 @@ window.addEventListener('load', function(){
     { label:'Frustum', fig:{ type:'solid', shape:'frustum',
         radius:{value:'R = 8'}, radius2:{value:'r = 4'}, height:{value:'h'} } },
     { label:'Ice cream (cone + hemisphere)', fig:{ type:'solid', shape:'ice_cream',
-        radius:{value:'3.5'}, height:{value:'12 cm'} } }
+        radius:{value:'3.5'}, height:{value:'12 cm'} } },
+    { label:'Cuboid (senior, with sizes)', fig:{ type:'solid', shape:'cuboid',
+        length:{value:'8 cm'}, width:{value:'3 cm'}, height:{value:'5 cm'} } },
+    { label:'Cube', fig:{ type:'solid', shape:'cube', junior:true } },
+    { label:'Cuboid', fig:{ type:'solid', shape:'cuboid', junior:true } },
+    { label:'Cylinder', fig:{ type:'solid', shape:'cylinder', junior:true } },
+    { label:'Cone', fig:{ type:'solid', shape:'cone', junior:true } },
+    { label:'Sphere', fig:{ type:'solid', shape:'sphere', junior:true } }
   ]);
   // Matrix layout demo: a sample step rendered below the figures
   try{
