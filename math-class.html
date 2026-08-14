@@ -573,6 +573,48 @@ html,body{
 }
 .your-turn-ans.show{display:block;}
 
+/* LET'S MAKE IT - hands-on paper activity panel */
+.make-it{
+  margin-top:20px;
+  padding:16px 20px;
+  background:rgba(201,168,76,.08);
+  border:2px solid var(--chalk-yellow,#f5e87a);
+  border-radius:12px;
+  display:none;
+  opacity:0;
+  transition:opacity .6s;
+}
+.make-it.show{display:block;opacity:1;}
+.make-it-title{
+  font-family:'Caveat',cursive;
+  font-size:1.5rem;font-weight:700;
+  color:var(--chalk-yellow,#f5e87a);
+  margin-bottom:10px;
+}
+.make-it-cards{display:flex;flex-wrap:wrap;gap:16px;justify-content:center;}
+.make-card{
+  background:#fff;border-radius:10px;
+  padding:10px 10px 12px;width:190px;text-align:center;
+  box-shadow:0 4px 14px rgba(0,0,0,.35);
+}
+.make-card-name{
+  font-family:Verdana,Arial,sans-serif;
+  font-size:.95rem;font-weight:700;color:#6B1A1A;margin-bottom:6px;
+}
+.make-card-img{width:100%;height:auto;display:block;margin-bottom:8px;}
+.make-print{
+  padding:8px 14px;
+  background:linear-gradient(135deg,#C9A84C,#a8893a);
+  color:#3d1010;border:none;border-radius:9px;
+  font-weight:700;font-size:.9rem;cursor:pointer;
+}
+.make-it-steps{
+  margin:14px 0 0;padding-left:22px;
+  font-family:'Caveat',cursive;font-size:1.3rem;color:#fff;
+}
+.make-it-steps li{margin-bottom:4px;}
+@media(max-width:600px){.make-card{width:100%;max-width:260px;}}
+
 /* Rough work entries */
 .rough-entry{
   font-family:'Caveat',cursive;
@@ -916,6 +958,11 @@ html,body{
         <div class="your-turn-q" id="your-turn-q"></div>
         <button class="your-turn-reveal" id="your-turn-reveal" onclick="revealPracticeAnswer()">Show Answer</button>
         <div class="your-turn-ans" id="your-turn-ans"></div>
+      </div>
+      <div class="make-it" id="make-it">
+        <div class="make-it-title">&#9986; Let's Make It!</div>
+        <div class="make-it-cards" id="make-it-cards"></div>
+        <ol class="make-it-steps" id="make-it-steps"></ol>
       </div>
     </div>
 
@@ -2240,6 +2287,7 @@ async function runPlayback(){
     updateStepIndicator();
     await showFinalAnswer();
     if(IS_PLAYING) await showYourTurn();
+    if(IS_PLAYING) await showMakeIt();
   }
   IS_PLAYING = false;
   $('btn-play').innerHTML = '▶ Play';
@@ -2414,6 +2462,7 @@ function resetYourTurn(){
   $('your-turn-ans').textContent = '';
   $('your-turn-ans').classList.remove('show');
   $('your-turn-reveal').style.display = '';
+  resetMakeIt();
 }
 async function showYourTurn(){
   // Older saved classes (before this feature) have no practice fields — skip quietly.
@@ -2434,6 +2483,105 @@ async function revealPracticeAnswer(){
   ansEl.classList.add('show');
   await chalkWrite(ansEl, '✓ ' + a, 90);
   await speakStep(practiceAnswerLine());
+}
+
+// = LET'S MAKE IT - hands-on paper activity (fold only, no glue, no cutting by children) =
+// The shape is read from the figure the lesson ALREADY carries, so this can never
+// appear on the wrong chapter and costs no extra API call. Works on cached lessons too.
+var ACTIVITY_BANK = {
+  cube:   { name: 'Cube',   file: '/assets/activities/net-cube.svg' },
+  cuboid: { name: 'Cuboid', file: '/assets/activities/net-cuboid.svg' }
+};
+var MAKE_STEPS = [
+  'Fold along every dotted line.',
+  'Bring the sides up to make a box.',
+  'Tuck the small flaps inside.',
+  'Count the faces - how many?'
+];
+function findActivities(sol){
+  var found = [], seen = {};
+  var figs = (sol && sol.figures) ? sol.figures : [];
+  figs.forEach(function(f){
+    var sh = (f && (f.shape || (f.fig && f.fig.shape))) || '';
+    sh = String(sh).toLowerCase().trim();
+    if(ACTIVITY_BANK[sh] && !seen[sh]){ seen[sh] = 1; found.push(ACTIVITY_BANK[sh]); }
+  });
+  return found;
+}
+// Built by a helper so warmVoices pre-generates EXACTLY the text speakStep asks for.
+function makeItLine(list){
+  if(!list || !list.length) return '';
+  var names = list.map(function(a){ return a.name.toLowerCase(); }).join(' and a ');
+  return TEACH_LANG === 'mix'
+    ? ('\u0b87\u0baa\u0bcd\u0baa\u0bcb \u0ba8\u0bbe\u0bae \u0b95\u0bc8\u0baf\u0bbe\u0bb2 \u0b92\u0bb0\u0bc1 ' + names
+       + ' \u0b9a\u0bc6\u0baf\u0bcd\u0baf\u0bb2\u0bbe\u0bae\u0bcd. Teacher cut \u0baa\u0ba3\u0bcd\u0ba3\u0bbf '
+       + '\u0b95\u0bc6\u0bbe\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4 sheet-\u0b90 \u0b8e\u0b9f\u0bc1\u0b99\u0bcd\u0b95. '
+       + '\u0b8e\u0bb2\u0bcd\u0bb2\u0bbe dotted line-\u0bb2\u0baf\u0bc1\u0bae\u0bcd fold \u0baa\u0ba3\u0bcd\u0ba3\u0bc1\u0b99\u0bcd\u0b95. '
+       + '\u0baa\u0b95\u0bcd\u0b95\u0b99\u0bcd\u0b95\u0bb3\u0bc8 \u0bae\u0bc7\u0bb2 \u0ba4\u0bc2\u0b95\u0bcd\u0b95\u0bbf box '
+       + '\u0bae\u0bbe\u0ba4\u0bbf\u0bb0\u0bbf \u0b86\u0b95\u0bcd\u0b95\u0bc1\u0b99\u0bcd\u0b95. '
+       + '\u0b9a\u0bbf\u0ba9\u0bcd\u0ba9 flaps-\u0b90 \u0b89\u0bb3\u0bcd\u0bb3 tuck \u0baa\u0ba3\u0bcd\u0ba3\u0bc1\u0b99\u0bcd\u0b95. '
+       + '\u0b87\u0baa\u0bcd\u0baa\u0bcb faces-\u0b90 count \u0baa\u0ba3\u0bcd\u0ba3\u0bc1\u0b99\u0bcd\u0b95. '
+       + '\u0b86\u0bb1\u0bc1 faces! Very good children.')
+    : ('Now let us make a real ' + names + ' with our own hands. '
+       + 'Take the sheet your teacher has cut for you. Fold along every dotted line. '
+       + 'Bring the sides up to make a box. Tuck the small flaps inside. '
+       + 'Now count the faces you can touch. Six faces! Very good children.');
+}
+function resetMakeIt(){
+  var p = document.getElementById('make-it');
+  if(!p) return;
+  p.classList.remove('show');
+  var c = document.getElementById('make-it-cards');
+  if(c) c.innerHTML = '';
+}
+async function showMakeIt(){
+  var list = findActivities(SOLUTION);
+  if(!list.length) return;
+  var p = $('make-it'), cards = $('make-it-cards');
+  if(!p || !cards) return;
+  cards.innerHTML = '';
+  list.forEach(function(a){
+    var c = document.createElement('div');
+    c.className = 'make-card';
+    c.innerHTML =
+      '<div class="make-card-name">' + escapeHtml(a.name) + '</div>'
+      + '<img class="make-card-img" src="' + a.file + '" alt="' + escapeHtml(a.name) + ' fold sheet">'
+      + '<button class="make-print" onclick="printActivity(\'' + a.file + '\',\'' + a.name + '\')">'
+      + '&#128424; Print Fold Sheet</button>';
+    cards.appendChild(c);
+  });
+  var sl = $('make-it-steps');
+  if(sl){
+    sl.innerHTML = MAKE_STEPS.map(function(s){ return '<li>' + escapeHtml(s) + '</li>'; }).join('');
+  }
+  p.classList.add('show');
+  p.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  await speakStep(makeItLine(list));
+}
+// Opens a clean A4 print sheet - teacher cuts the outline before class.
+function printActivity(file, name){
+  var w = window.open('', '_blank');
+  if(!w){ showStatusToast('Please allow pop-ups so the fold sheet can print.'); return; }
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'
+    + name + ' Fold Sheet</title><style>'
+    + '@page{size:A4 portrait;margin:8mm;}'
+    + 'body{margin:0;font-family:Verdana,Arial,sans-serif;color:#3d1010;text-align:center;}'
+    + 'h1{font-size:15pt;margin:0 0 2mm;}'
+    + 'p.note{font-size:9pt;line-height:1.4;margin:0 0 3mm;color:#6B1A1A;}'
+    + 'img{display:block;margin:0 auto;max-width:100%;}'
+    + '</style></head><body>'
+    + '<h1>Make a ' + name + '</h1>'
+    + '<p class="note">Teacher: cut along the solid outline before the class. '
+    + 'Children: fold on every dotted line, stand the sides up, tuck the small flaps inside. '
+    + 'Then count the faces.</p>'
+    + '<img id="sheet" src="' + file + '" alt="' + name + ' fold sheet">'
+    + '<scr' + 'ipt>var i=document.getElementById("sheet");'
+    + 'function go(){setTimeout(function(){window.focus();window.print();},250);}'
+    + 'if(i.complete){go();}else{i.onload=go;i.onerror=go;}<\/scr' + 'ipt>'
+    + '</body></html>';
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
 }
 
 function addRoughWork(label, roughData){
@@ -3097,6 +3245,10 @@ function collectSpeakLines(sol){
       add('The answer is: ' + sol.practiceAnswer);
     }
   }
+  try{
+    var actList = findActivities(sol);
+    if(actList.length) add(makeItLine(actList));
+  }catch(actErr){}
   return lines;
 }
 
