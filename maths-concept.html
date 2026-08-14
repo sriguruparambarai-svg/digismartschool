@@ -101,6 +101,24 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 #pattern-stage{flex:1;display:none;align-items:center;justify-content:center;flex-direction:column;padding:16px;}
 #pattern-stage.show{display:flex;}
 
+/* Let's Make It stage - paper fold activity */
+#make-stage{flex:1;display:none;align-items:center;justify-content:center;
+  gap:22px;padding:16px;flex-wrap:wrap;}
+#make-stage.show{display:flex;}
+.make-card{background:#fff;border-radius:12px;padding:10px;
+  box-shadow:0 6px 20px rgba(0,0,0,.4);text-align:center;max-width:300px;}
+.make-card-name{font-family:'Kalam',cursive;font-size:.95rem;font-weight:700;
+  color:#6B1A1A;margin-bottom:6px;}
+.make-card-img{width:100%;height:auto;max-height:46vh;display:block;object-fit:contain;}
+.make-side{max-width:340px;}
+.make-steps{margin:0 0 14px;padding-left:22px;
+  font-family:'Caveat',cursive;font-size:1.45rem;color:var(--chalk-yellow);}
+.make-steps li{margin-bottom:6px;}
+.make-print{display:inline-block;padding:10px 20px;border-radius:10px;cursor:pointer;
+  background:linear-gradient(135deg,#C9A84C,#a8893a);color:#3d1010;
+  font-family:'Kalam',cursive;font-weight:700;font-size:1rem;}
+@media(max-width:820px){ .make-card-img{max-height:32vh;} }
+
 /* Counting in Groups stage */
 #count-stage{flex:1;display:none;min-height:0;padding:8px;}
 #count-stage.show{display:block;}
@@ -211,6 +229,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
         <div id="pat-msg"></div>
       </div>
       <div id="count-stage"><svg id="count-svg" viewBox="0 0 1000 560" preserveAspectRatio="xMidYMid meet"></svg></div>
+      <div id="make-stage"></div>
       <div class="stage-tools" id="stage-tools"></div>
     </div>
 
@@ -1333,6 +1352,8 @@ function shapesLesson(band){
         note:{ k:'ask', t: 'Open it flat — the net. Count the faces again: ' + I.f + '.' } });
       S.push({ id: sh + '_close', act:'fold', shape: sh,
         note:{ k:'', t: 'Fold it back and we have our ' + I.en + ' again.' } });
+      S.push({ id: sh + '_make', act:'make', shape: sh,
+        note:{ k:'ask', t: 'Now make your own ' + I.en + ' with paper. Fold, tuck, and count the faces.' } });
     }
   });
   S.push({ id:'recap', act:'recap', note:{ k:'title', t:'What we learnt' } });
@@ -1396,6 +1417,17 @@ function sayFor(step, lang){
     case 'fold':
       en = 'Now I fold it back, and we have our ' + nm + ' again. The same six faces, just closed up.';
       ta = 'இப்போது மீண்டும் மடித்து வைக்கிறேன், நமது ' + nm + ' கிடைத்துவிட்டது. அதே faces தான், மூடிவிட்டோம்.';
+      break;
+    case 'make':
+      en = 'Now we will make this ' + nm + ' with our own hands. Your teacher has cut a sheet for you. '
+         + 'Fold along every dotted line. Bring the sides up to make a box. Tuck the small flaps inside. '
+         + 'Then count the faces you can touch. Six faces!';
+      ta = 'இப்போது இந்த ' + nm + '-ஐ நாமே கையால் செய்யப் போகிறோம். '
+         + 'Teacher உங்களுக்கு ஒரு sheet cut பண்ணி கொடுத்திருக்கிறார். '
+         + 'எல்லா dotted line-லும் fold பண்ணுங்கள். '
+         + 'பக்கங்களை மேலே தூக்கி box மாதிரி ஆக்குங்கள். '
+         + 'சின்ன flaps-ஐ உள்ளே tuck பண்ணுங்கள். '
+         + 'பிறகு faces-ஐ எண்ணுங்கள். ஆறு faces!';
       break;
     case 'recap':
       en = 'So remember these three words. A face is a flat side. An edge is the line where two faces meet. '
@@ -1489,7 +1521,7 @@ function sayFor(step, lang){
 
 /* ── AI enrichment: better wording, same steps. Falls back silently. ── */
 async function enrichNarration(){
-  var key = 'mcx_say__' + CLS + '__' + TOPIC + '__' + LANG + '__v1';
+  var key = 'mcx_say__' + CLS + '__' + TOPIC + '__' + LANG + '__v2';
   try {
     var cached = localStorage.getItem(key);
     if(cached){ SAY_OVERRIDE = JSON.parse(cached); return; }
@@ -1588,8 +1620,75 @@ function sayOf(step, lang){
 /* ════════ PLAYER ════════ */
 // Steps that start a fresh topic wipe the board first, so only the
 // shape being taught right now is written up.
-var FRESH_ACTS = { intro:1, show:1, recap:1, pintro:1, pattern:1, precap:1,
+var FRESH_ACTS = { intro:1, show:1, recap:1, make:1, pintro:1, pattern:1, precap:1,
   gintro:1, trays:1, blocks:1, hundred:1, tensones:1, compare:1, order:1, ordinal:1, grecap:1 };
+/* ════════ LET'S MAKE IT - paper fold activity (fold only, no glue) ════════ */
+// Children only fold and tuck. The teacher cuts the outline before the class.
+var ACTIVITY_BANK = {
+  cube:   { name: 'Cube',   file: '/assets/activities/net-cube.svg' },
+  cuboid: { name: 'Cuboid', file: '/assets/activities/net-cuboid.svg' }
+};
+var MAKE_STEPS = [
+  'Fold along every dotted line.',
+  'Bring the sides up to make a box.',
+  'Tuck the small flaps inside.',
+  'Count the faces \u2014 how many?'
+];
+// Pass a shape name to show the sheet, or null to put the 3D stage back.
+function showMakeStage(shape){
+  var ms = document.getElementById('make-stage');
+  if(!ms) return;
+  var a = shape ? ACTIVITY_BANK[shape] : null;
+  if(!a){
+    ms.classList.remove('show');
+    ms.innerHTML = '';
+    if(TOPIC === 'shapes') $('stage').style.display = 'block';
+    return;
+  }
+  ms.innerHTML =
+    '<div class="make-card">'
+    + '<div class="make-card-name">Make a ' + a.name + '</div>'
+    + '<img class="make-card-img" src="' + a.file + '" alt="' + a.name + ' fold sheet">'
+    + '</div>'
+    + '<div class="make-side">'
+    + '<ol class="make-steps">'
+    + MAKE_STEPS.map(function(s){ return '<li>' + s + '</li>'; }).join('')
+    + '</ol>'
+    + '<div class="make-print" id="make-print-btn">\u1F5A8 Print Fold Sheet</div>'
+    + '</div>';
+  var b = document.getElementById('make-print-btn');
+  if(b){
+    b.textContent = '\u2399 Print Fold Sheet';
+    b.onclick = function(){ printActivity(a.file, a.name); };
+  }
+  $('stage').style.display = 'none';
+  ms.classList.add('show');
+}
+// Opens a clean A4 sheet in a new tab and sends it to the printer.
+function printActivity(file, name){
+  var w = window.open('', '_blank');
+  if(!w){ alert('Please allow pop-ups so the fold sheet can print.'); return; }
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'
+    + name + ' Fold Sheet</title><style>'
+    + '@page{size:A4 portrait;margin:8mm;}'
+    + 'body{margin:0;font-family:Verdana,Arial,sans-serif;color:#3d1010;text-align:center;}'
+    + 'h1{font-size:15pt;margin:0 0 2mm;}'
+    + 'p.note{font-size:9pt;line-height:1.4;margin:0 0 3mm;color:#6B1A1A;}'
+    + 'img{display:block;margin:0 auto;max-width:100%;}'
+    + '</style></head><body>'
+    + '<h1>Make a ' + name + '</h1>'
+    + '<p class="note">Teacher: cut along the solid outline before the class. '
+    + 'Children: fold on every dotted line, stand the sides up, tuck the small flaps inside. '
+    + 'Then count the faces.</p>'
+    + '<img id="sheet" src="' + file + '" alt="' + name + ' fold sheet">'
+    + '<scr' + 'ipt>var i=document.getElementById("sheet");'
+    + 'function go(){setTimeout(function(){window.focus();window.print();},250);}'
+    + 'if(i.complete){go();}else{i.onload=go;i.onerror=go;}<\/scr' + 'ipt>'
+    + '</body></html>';
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
 function clearNotes(){ $('note-list').innerHTML = ''; }
 
 function addNote(k, t){
@@ -1662,6 +1761,7 @@ async function doAction(step, mySeq){
     if(step.act === 'pattern') return renderPattern(step.pat, mySeq);
     return sleep(500);
   }
+  showMakeStage(step.act === 'make' ? step.shape : null);
   switch(step.act){
     case 'show':    showShape(step.shape); autoSpin = true; syncTools(); return sleep(1400);
     case 'faces':   if(!curShape || curShape.name !== step.shape) showShape(step.shape);
@@ -1670,6 +1770,7 @@ async function doAction(step, mySeq){
     case 'corners': return actCountCorners(mySeq);
     case 'unfold':  return actUnfold(mySeq);
     case 'fold':    return actFold(mySeq);
+    case 'make':    return sleep(1200);
     default:        return sleep(900);
   }
 }
