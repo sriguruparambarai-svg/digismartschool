@@ -347,6 +347,7 @@
       <button class="tab" data-t="letter">Letter &amp; number tracing<small>English, Tamil, Hindi, numbers</small></button>
 
       <div class="tabgrp">Maths</div>
+      <button class="tab" data-t="mseq">Write the numbers<small>1 to 50, two times, across the lines</small></button>
       <button class="tab" data-t="count">Count and write<small>Count the pictures, write the number</small></button>
       <button class="tab" data-t="mnum">Missing numbers<small>Fill the empty boxes in order</small></button>
       <button class="tab" data-t="mbaf">Before, after, between<small>Which number comes where</small></button>
@@ -568,6 +569,31 @@ Draw your school bag</textarea>
       </div>
     </div>
 
+    <!-- write the numbers -->
+    <div data-panel="mseq" style="display:none">
+      <div class="row2 grp">
+        <div>
+          <label>From</label>
+          <input type="number" id="sFrom" value="1" min="0" max="990">
+        </div>
+        <div>
+          <label>To</label>
+          <input type="number" id="sTo" value="10" min="1" max="1000">
+        </div>
+      </div>
+      <div class="row2 grp">
+        <div>
+          <label>How many times</label>
+          <input type="number" id="sTimes" value="2" min="1" max="10">
+        </div>
+        <div>
+          <label>Of which, traced</label>
+          <input type="number" id="sTrace" value="1" min="0" max="10">
+        </div>
+      </div>
+      <p class="hint">Writes the whole run across the ruled lines, then repeats it. The traced rounds print in light grey; the rest are left as empty lines to write on.</p>
+    </div>
+
     <!-- missing numbers -->
     <div data-panel="mnum" style="display:none">
       <div class="row2 grp">
@@ -677,11 +703,14 @@ Draw your school bag</textarea>
 
     <label class="chk" data-only="maths"><input type="checkbox" id="mKey" checked> Add answer key page</label>
 
+    <label class="chk" data-only="write"><input type="checkbox" id="fitOne" checked> Shrink to fit one page if it nearly fits</label>
+
     <div class="grp" data-only="write">
       <label>Line style</label>
       <select id="lines">
         <option value="4" selected>Four-line (KG standard)</option>
         <option value="3">Three-line</option>
+        <option value="2">Two-line (Tamil)</option>
         <option value="1">Single line</option>
       </select>
     </div>
@@ -765,7 +794,7 @@ Draw your school bag</textarea>
       }
       var onlyWrite = document.querySelectorAll("[data-only=write]");
       for(var m=0;m<onlyWrite.length;m++){
-        onlyWrite[m].style.display = (mode==="word"||mode==="letter") ? "" : "none";
+        onlyWrite[m].style.display = (mode==="word"||mode==="letter"||mode==="mseq") ? "" : "none";
       }
       var onlyMaths = document.querySelectorAll("[data-only=maths]");
       for(var q=0;q<onlyMaths.length;q++){
@@ -905,6 +934,11 @@ Draw your school bag</textarea>
               '<div class="ln" style="top:66.666%"></div>'+
               '<div class="ln" style="top:100%"></div>';
       base = 'bottom:calc(33.333% - 0.2em)';
+    } else if(lines==="2"){
+      h = Math.round(fs*1.7);
+      inner = '<div class="ln" style="top:0"></div>'+
+              '<div class="ln" style="top:100%"></div>';
+      base = 'bottom:calc(0% - 0.2em)';
     } else if(lines==="3"){
       h = Math.round(fs*1.7);
       inner = '<div class="ln" style="top:0"></div>'+
@@ -925,7 +959,7 @@ Draw your school bag</textarea>
   function stripH(fs){
     var lines = val("lines");
     if(lines==="4"){ return Math.round(fs*2.05); }
-    if(lines==="3"){ return Math.round(fs*1.7); }
+    if(lines==="3" || lines==="2"){ return Math.round(fs*1.7); }
     return Math.round(fs*1.6);
   }
 
@@ -936,8 +970,8 @@ Draw your school bag</textarea>
   }
 
   /* ---------- word family ---------- */
-  function buildWords(){
-    var fs = num("size",36);
+  function buildWords(fsOv){
+    var fs = fsOv || num("size",36);
     var lst = val("words").split("\n");
     var times = num("wTimes",5);
     var trace = Math.min(num("wTrace",2), times);
@@ -965,14 +999,14 @@ Draw your school bag</textarea>
         if(n===per){ blocks.push({h:sh, html:strip(cell,fs,fam)}); cell=""; n=0; }
       }
       if(cell){ blocks.push({h:sh, html:strip(cell,fs,fam)}); }
-      blocks.push({h:6, html:'<div style="height:6px"></div>'});
+      blocks.push({h:4, html:'<div style="height:4px"></div>'});
     }
     return blocks;
   }
 
   /* ---------- letters ---------- */
-  function buildLetters(){
-    var fs = num("size",36);
+  function buildLetters(fsOv){
+    var fs = fsOv || num("size",36);
     var raw = val("letters").replace(/^\s+|\s+$/g,"");
     var lst = raw ? raw.split(/\s+/) : [];
     var rows = num("lRows",2);
@@ -999,7 +1033,7 @@ Draw your school bag</textarea>
         }
         blocks.push({h:sh, html:strip(cell,fs,fam)});
       }
-      blocks.push({h:8, html:'<div style="height:8px"></div>'});
+      blocks.push({h:4, html:'<div style="height:4px"></div>'});
     }
     return blocks;
   }
@@ -1233,6 +1267,41 @@ Draw your school bag</textarea>
     return key+'<div class="cgrid" style="grid-template-columns:repeat('+cols+',1fr)">'+cells+'</div>';
   }
 
+  /* ---------- write the numbers in sequence ---------- */
+  function buildSeq(fsOv){
+    var fs = fsOv || num("size",36);
+    var a = num("sFrom",1), b = num("sTo",10);
+    if(b<a){ var t=a; a=b; b=t; }
+    if(b-a>499){ b=a+499; }
+    var times = num("sTimes",2);
+    var traced = Math.min(num("sTrace",1), times);
+    var fam = FONTS[val("font")] || FONTS.edu;
+    var gap = Math.round(fs*0.55) + 6;
+    var sh = stripH(fs)+16;
+    var blocks = [];
+
+    for(var r=0;r<times;r++){
+      var kind = (r<traced) ? "trace" : "blank";
+      var cell="", used=0;
+      for(var v=a;v<=b;v++){
+        var txt = String(v);
+        var w = Math.round(measure(txt,fs,fam)) + gap;
+        if(w>704){ w=704; }
+        if(used + w > 704 && cell){
+          blocks.push({h:sh, html:strip(cell,fs,fam)});
+          cell=""; used=0;
+        }
+        cell += slot(txt, kind, fs, w);
+        used += w;
+      }
+      if(cell){ blocks.push({h:sh, html:strip(cell,fs,fam)}); }
+      if(r<times-1){
+        blocks.push({h:10, html:'<div style="height:10px"></div>'});
+      }
+    }
+    return blocks;
+  }
+
   /* ---------- maths ---------- */
   var mnum=[], mbaf=[], mpic=[], mcmp=[];
   var MATHS = ["mnum","mbaf","mpic","mcmp"];
@@ -1375,6 +1444,12 @@ Draw your school bag</textarea>
   /* ---------- render ---------- */
   var PAGE_CAP = 780;
 
+  function total(blocks){
+    var t=0;
+    for(var i=0;i<blocks.length;i++){ t += blocks[i].h; }
+    return t;
+  }
+
   function paginate(blocks, colour){
     var hf = FONTS[val("font")] || FONTS.edu;
     var st = ' style="--hf:'+hf+'"';
@@ -1405,8 +1480,18 @@ Draw your school bag</textarea>
     var colour = $("colour").checked ? " colour" : "";
     var body;
 
-    if(mode==="word" || mode==="letter"){
-      var blocks = (mode==="word") ? buildWords() : buildLetters();
+    if(mode==="word" || mode==="letter" || mode==="mseq"){
+      var mk = (mode==="word") ? buildWords : (mode==="letter" ? buildLetters : buildSeq);
+      var blocks = mk();
+      if($("fitOne").checked && blocks.length && total(blocks) > PAGE_CAP){
+        var base = num("size",36);
+        var steps = [base-4, base-8, base-12, base-16, base-20];
+        for(var z=0;z<steps.length;z++){
+          if(steps[z] < 18){ break; }
+          var alt = mk(steps[z]);
+          if(total(alt) <= PAGE_CAP){ blocks = alt; break; }
+        }
+      }
       if(!blocks.length){
         body = '<p style="text-align:center;color:#999">Type something on the left to begin.</p>';
       } else {
@@ -1452,7 +1537,8 @@ Draw your school bag</textarea>
                "nFrom","nTo","nPer","nGap",
                "bType","bQty","bMax",
                "pOp","pQty","pMax","pShape",
-               "kWhich","kQty","kMax"];
+               "kWhich","kQty","kMax",
+               "sFrom","sTo","sTimes","sTrace","fitOne"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
