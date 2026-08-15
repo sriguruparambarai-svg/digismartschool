@@ -6,7 +6,7 @@
 <title>KG Worksheet Generator — DigiSmartSchool</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Comic+Neue:wght@400;700&family=Edu+NSW+ACT+Foundation:wght@400..700&family=Patrick+Hand&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Comic+Neue:wght@400;700&family=Edu+NSW+ACT+Foundation:wght@400..700&family=Patrick+Hand&family=Noto+Sans+Tamil:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&family=Baloo+Thambi+2:wght@400;600&family=Baloo+2:wght@400;600&display=swap" rel="stylesheet">
 <style>
   :root{
     --maroon:#6B1A1A;
@@ -359,9 +359,28 @@ am</textarea>
     <!-- letters -->
     <div data-panel="letter" style="display:none">
       <div class="grp">
+        <label>Letter set</label>
+        <select id="lSet">
+          <option value="capsA" selected>English — capitals</option>
+          <option value="smallA">English — small letters</option>
+          <option value="tVowel">Tamil — உயிர் எழுத்து</option>
+          <option value="tCons">Tamil — மெய் எழுத்து</option>
+          <option value="tUyirmei">Tamil — உயிர்மெய் row</option>
+          <option value="hVowel">Hindi — स्वर</option>
+          <option value="hCons">Hindi — व्यंजन</option>
+          <option value="hBara">Hindi — बारहखड़ी row</option>
+          <option value="hNum">Hindi — numbers</option>
+          <option value="custom">Type my own</option>
+        </select>
+      </div>
+      <div class="grp" id="baseWrap" style="display:none">
+        <label>Base letter</label>
+        <select id="lBase"></select>
+      </div>
+      <div class="grp">
         <label>Letters</label>
         <input type="text" id="letters" value="A B C D E">
-        <p class="hint">Separate with spaces. Works for Tamil and Hindi letters too.</p>
+        <p class="hint">Separate each letter with a space. You can edit this list after choosing a set.</p>
       </div>
       <div class="row2 grp">
         <div>
@@ -531,6 +550,15 @@ Draw your school bag</textarea>
       </div>
     </div>
 
+    <div class="grp" data-only="write">
+      <label>Tamil &amp; Hindi style</label>
+      <select id="iFont">
+        <option value="noto" selected>Clear print</option>
+        <option value="baloo">Rounded</option>
+      </select>
+      <p class="hint">The page switches to this automatically when it sees Tamil or Hindi letters.</p>
+    </div>
+
     <label class="chk"><input type="checkbox" id="colour"> Print in colour <span style="color:#888">(for display boards)</span></label>
     <label class="chk"><input type="checkbox" id="showNd" checked> Show name &amp; date lines</label>
     <label class="chk"><input type="checkbox" id="showSign" checked> Show signature lines</label>
@@ -606,6 +634,75 @@ Draw your school bag</textarea>
     plain:"'Century Gothic','Nirmala UI','Latha',sans-serif"
   };
 
+  var SETS = {
+    capsA:"A B C D E F G H I J K L M N O P Q R S T U V W X Y Z",
+    smallA:"a b c d e f g h i j k l m n o p q r s t u v w x y z",
+    tVowel:"அ ஆ இ ஈ உ ஊ எ ஏ ஐ ஒ ஓ ஔ ஃ",
+    tCons:"க் ங் ச் ஞ் ட் ண் த் ந் ப் ம் ய் ர் ல் வ் ழ் ள் ற் ன்",
+    hVowel:"अ आ इ ई उ ऊ ऋ ए ऐ ओ औ अं अः",
+    hCons:"क ख ग घ ङ च छ ज झ ञ ट ठ ड ढ ण त थ द ध न प फ ब भ म य र ल व श ष स ह",
+    hNum:"१ २ ३ ४ ५ ६ ७ ८ ९ १०"
+  };
+  var T_BASE = "க ங ச ஞ ட ண த ந ப ம ய ர ல வ ழ ள ற ன".split(" ");
+  var T_SIGN = ["","ா","ி","ீ","ு","ூ","ெ","ே","ை","ொ","ோ","ௌ"];
+  var H_BASE = SETS.hCons.split(" ");
+  var H_SIGN = ["","ा","ि","ी","ु","ू","े","ै","ो","ौ","ं","ः"];
+
+  function fillBase(){
+    var set = val("lSet");
+    var wrap = $("baseWrap"), sel = $("lBase");
+    if(set!=="tUyirmei" && set!=="hBara"){ wrap.style.display="none"; return; }
+    var list = (set==="tUyirmei") ? T_BASE : H_BASE;
+    var keep = sel.value;
+    var html = "";
+    for(var i=0;i<list.length;i++){
+      html += '<option value="'+list[i]+'">'+list[i]+'</option>';
+    }
+    sel.innerHTML = html;
+    if(list.indexOf(keep)>=0){ sel.value = keep; }
+    wrap.style.display = "";
+  }
+
+  function applySet(){
+    var set = val("lSet");
+    if(set==="custom"){ return; }
+    if(set==="tUyirmei" || set==="hBara"){
+      fillBase();
+      var b = $("lBase").value || (set==="tUyirmei" ? T_BASE[0] : H_BASE[0]);
+      var signs = (set==="tUyirmei") ? T_SIGN : H_SIGN;
+      var out = [];
+      for(var i=0;i<signs.length;i++){ out.push(b+signs[i]); }
+      $("letters").value = out.join(" ");
+      return;
+    }
+    fillBase();
+    if(SETS[set]){ $("letters").value = SETS[set]; }
+  }
+
+  var TAMIL = /[\u0B80-\u0BFF]/;
+  var DEVA  = /[\u0900-\u097F]/;
+
+  function fontFor(text){
+    var rounded = (val("iFont")==="baloo");
+    if(TAMIL.test(text)){
+      return rounded ? "'Baloo Thambi 2','Nirmala UI','Latha',sans-serif"
+                     : "'Noto Sans Tamil','Nirmala UI','Latha',sans-serif";
+    }
+    if(DEVA.test(text)){
+      return rounded ? "'Baloo 2','Nirmala UI',sans-serif"
+                     : "'Noto Sans Devanagari','Nirmala UI',sans-serif";
+    }
+    return FONTS[val("font")] || FONTS.edu;
+  }
+
+  var mc = document.createElement("canvas").getContext("2d");
+  function measure(text, fs, fam){
+    mc.font = fs+"px "+fam;
+    var w = mc.measureText(text).width;
+    if(!w || !isFinite(w)){ w = text.length*fs*0.66; }
+    return w;
+  }
+
   function signature(){
     if(!$("showSign").checked){ return ""; }
     return '<div class="sign">'+
@@ -619,7 +716,7 @@ Draw your school bag</textarea>
   }
 
   /* ---------- ruled strip ---------- */
-  function strip(itemsHtml, fs){
+  function strip(itemsHtml, fs, fam){
     var lines = val("lines");
     var h, inner="", base;
 
@@ -643,7 +740,15 @@ Draw your school bag</textarea>
     }
 
     return '<div class="strip" style="height:'+h+'px">'+inner+
-           '<div class="items" style="'+base+';font-size:'+fs+'px">'+itemsHtml+'</div></div>';
+           '<div class="items" style="'+base+';font-size:'+fs+'px'+
+           (fam ? ';--hf:'+fam : '')+'">'+itemsHtml+'</div></div>';
+  }
+
+  function stripH(fs){
+    var lines = val("lines");
+    if(lines==="4"){ return Math.round(fs*2.05); }
+    if(lines==="3"){ return Math.round(fs*1.7); }
+    return Math.round(fs*1.6);
   }
 
   function slot(text, kind, fs, w){
@@ -658,13 +763,15 @@ Draw your school bag</textarea>
     var lst = val("words").split("\n");
     var times = num("wTimes",5);
     var trace = Math.min(num("wTrace",2), times);
-    var out = "";
+    var blocks = [];
+    var sh = stripH(fs)+16;
 
     for(var i=0;i<lst.length;i++){
       var w = lst[i].replace(/^\s+|\s+$/g,"");
       if(!w){ continue; }
 
-      var slotW = Math.round(w.length*fs*0.66) + 34;
+      var fam = fontFor(w);
+      var slotW = Math.round(measure(w,fs,fam)) + 34;
       if(slotW>704){ slotW=704; }
       var per = Math.max(1, Math.floor(704/slotW));
 
@@ -677,12 +784,12 @@ Draw your school bag</textarea>
       for(var k=0;k<kinds.length;k++){
         cell += slot(w, kinds[k], fs, slotW);
         n++;
-        if(n===per){ out += strip(cell,fs); cell=""; n=0; }
+        if(n===per){ blocks.push({h:sh, html:strip(cell,fs,fam)}); cell=""; n=0; }
       }
-      if(cell){ out += strip(cell,fs); }
-      out += '<div style="height:6px"></div>';
+      if(cell){ blocks.push({h:sh, html:strip(cell,fs,fam)}); }
+      blocks.push({h:6, html:'<div style="height:6px"></div>'});
     }
-    return out || '<p style="text-align:center;color:#999">Type a word on the left to begin.</p>';
+    return blocks;
   }
 
   /* ---------- letters ---------- */
@@ -692,11 +799,14 @@ Draw your school bag</textarea>
     var lst = raw ? raw.split(/\s+/) : [];
     var rows = num("lRows",2);
     var trace = num("lTrace",3);
-    var out = "";
+    var blocks = [];
+    var sh = stripH(fs)+16;
 
     for(var i=0;i<lst.length;i++){
       var L = lst[i];
-      var slotW = Math.round(L.length*fs*0.72) + 30;
+      var fam = fontFor(L);
+      var slotW = Math.round(measure(L,fs,fam)) + 30;
+      if(slotW<fs*0.9){ slotW = Math.round(fs*0.9)+30; }
       if(slotW>704){ slotW=704; }
       var per = Math.max(1, Math.floor(704/slotW));
 
@@ -709,11 +819,11 @@ Draw your school bag</textarea>
           else { kind="blank"; }
           cell += slot(L, kind, fs, slotW);
         }
-        out += strip(cell,fs);
+        blocks.push({h:sh, html:strip(cell,fs,fam)});
       }
-      out += '<div style="height:8px"></div>';
+      blocks.push({h:8, html:'<div style="height:8px"></div>'});
     }
-    return out || '<p style="text-align:center;color:#999">Type some letters on the left to begin.</p>';
+    return blocks;
   }
 
   /* ---------- counting ---------- */
@@ -946,12 +1056,46 @@ Draw your school bag</textarea>
   }
 
   /* ---------- render ---------- */
+  var PAGE_CAP = 780;
+
+  function paginate(blocks, colour){
+    var hf = FONTS[val("font")] || FONTS.edu;
+    var st = ' style="--hf:'+hf+'"';
+    var pages = [], cur = "", used = 0, i;
+
+    for(i=0;i<blocks.length;i++){
+      if(used + blocks[i].h > PAGE_CAP && cur){
+        pages.push(cur); cur = ""; used = 0;
+      }
+      cur += blocks[i].html;
+      used += blocks[i].h;
+    }
+    if(cur){ pages.push(cur); }
+
+    var html = "";
+    for(i=0;i<pages.length;i++){
+      var head = header();
+      if(pages.length>1){
+        head += '<p style="text-align:right;font-size:11.5px;color:#777;margin:-14px 0 10px">Page '+(i+1)+' of '+pages.length+'</p>';
+      }
+      html += '<div class="paper'+colour+'"'+st+'>'+head+pages[i]+signature()+footer()+'</div>';
+    }
+    $("sheet").innerHTML = html;
+    return null;
+  }
+
   function render(){
     var colour = $("colour").checked ? " colour" : "";
     var body;
 
-    if(mode==="word"){ body = buildWords(); }
-    else if(mode==="letter"){ body = buildLetters(); }
+    if(mode==="word" || mode==="letter"){
+      var blocks = (mode==="word") ? buildWords() : buildLetters();
+      if(!blocks.length){
+        body = '<p style="text-align:center;color:#999">Type something on the left to begin.</p>';
+      } else {
+        return paginate(blocks, colour);
+      }
+    }
     else if(mode==="dots"){ body = buildDots(); }
     else if(mode==="half"){ body = buildHalf(); }
     else if(mode==="draw"){ body = buildDraw(); }
@@ -978,13 +1122,16 @@ Draw your school bag</textarea>
                "lines","size","tstyle","colour","showNd","showSign","font",
                "dShape","dStart","dGuide","dColourAfter",
                "hShape","hDots","dTasks",
-               "gRows","gCols","gS1","gC1","gS2","gC2","gS3","gC3","gS4","gC4"];
+               "gRows","gCols","gS1","gC1","gS2","gC2","gS3","gC3","gS4","gC4",
+               "lSet","lBase","iFont"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
     el.addEventListener("input", function(){
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
-      if(this.id.charAt(0)==="g"){ makeGrid(); }
+      if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
+      if(this.id==="lSet" || this.id==="lBase"){ applySet(); }
+      if(this.id==="letters"){ $("lSet").value="custom"; fillBase(); }
       render();
     });
     el.addEventListener("change", render);
@@ -1002,7 +1149,12 @@ Draw your school bag</textarea>
 
   makeCounts();
   makeGrid();
+  fillBase();
   render();
+
+  if(document.fonts && document.fonts.ready){
+    document.fonts.ready.then(function(){ render(); });
+  }
 })();
 </script>
 </body>
