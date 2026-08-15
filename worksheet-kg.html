@@ -935,10 +935,14 @@ Draw your school bag</textarea>
               '<div class="ln" style="top:100%"></div>';
       base = 'bottom:calc(33.333% - 0.2em)';
     } else if(lines==="2"){
-      h = Math.round(fs*1.7);
-      inner = '<div class="ln" style="top:0"></div>'+
-              '<div class="ln" style="top:100%"></div>';
-      base = 'bottom:calc(0% - 0.2em)';
+      h = Math.round(fs*1.6);
+      var gapB = Math.round(fs*0.34);
+      var band = Math.round(fs*0.98);
+      var topY = h - gapB - band;
+      if(topY < 2){ topY = 2; }
+      inner = '<div class="ln" style="top:'+topY+'px"></div>'+
+              '<div class="ln" style="top:'+(h-gapB)+'px"></div>';
+      base = 'bottom:calc('+gapB+'px - 0.2em)';
     } else if(lines==="3"){
       h = Math.round(fs*1.7);
       inner = '<div class="ln" style="top:0"></div>'+
@@ -959,8 +963,20 @@ Draw your school bag</textarea>
   function stripH(fs){
     var lines = val("lines");
     if(lines==="4"){ return Math.round(fs*2.05); }
-    if(lines==="3" || lines==="2"){ return Math.round(fs*1.7); }
+    if(lines==="2"){ return Math.round(fs*1.6); }
+    if(lines==="3"){ return Math.round(fs*1.7); }
     return Math.round(fs*1.6);
+  }
+
+  var LINE_W = 704;
+
+  function rowW(count, natural){
+    if(count<1){ return natural; }
+    var w = Math.floor(LINE_W/count);
+    var cap = Math.round(natural*2.2);
+    if(w > cap){ w = cap; }
+    if(w < natural){ w = natural; }
+    return w;
   }
 
   function slot(text, kind, fs, w){
@@ -978,14 +994,25 @@ Draw your school bag</textarea>
     var blocks = [];
     var sh = stripH(fs)+16;
 
-    for(var i=0;i<lst.length;i++){
-      var w = lst[i].replace(/^\s+|\s+$/g,"");
-      if(!w){ continue; }
+    var words = [];
+    for(var q=0;q<lst.length;q++){
+      var ww = lst[q].replace(/^\s+|\s+$/g,"");
+      if(ww){ words.push(ww); }
+    }
+    var natural = 0;
+    for(var q2=0;q2<words.length;q2++){
+      var nw = Math.round(measure(words[q2],fs,fontFor(words[q2]))) + 34;
+      if(nw>natural){ natural = nw; }
+    }
+    if(natural>LINE_W){ natural = LINE_W; }
+    var perAll = Math.max(1, Math.floor(LINE_W/Math.max(1,natural)));
+
+    for(var i=0;i<words.length;i++){
+      var w = words[i];
 
       var fam = fontFor(w);
-      var slotW = Math.round(measure(w,fs,fam)) + 34;
-      if(slotW>704){ slotW=704; }
-      var per = Math.max(1, Math.floor(704/slotW));
+      var per = Math.min(perAll, num("wTimes",5)+1);
+      var slotW = rowW(per, natural);
 
       var kinds = ["model"];
       for(var t=0;t<times;t++){
@@ -1014,13 +1041,18 @@ Draw your school bag</textarea>
     var blocks = [];
     var sh = stripH(fs)+16;
 
+    var natural = Math.round(fs*0.9) + 30;
+    for(var q=0;q<lst.length;q++){
+      var nw = Math.round(measure(lst[q],fs,fontFor(lst[q]))) + 30;
+      if(nw>natural){ natural = nw; }
+    }
+    if(natural>LINE_W){ natural = LINE_W; }
+    var per = Math.max(1, Math.floor(LINE_W/natural));
+    var slotW = rowW(per, natural);
+
     for(var i=0;i<lst.length;i++){
       var L = lst[i];
       var fam = fontFor(L);
-      var slotW = Math.round(measure(L,fs,fam)) + 30;
-      if(slotW<fs*0.9){ slotW = Math.round(fs*0.9)+30; }
-      if(slotW>704){ slotW=704; }
-      var per = Math.max(1, Math.floor(704/slotW));
 
       for(var r=0;r<rows;r++){
         var cell="";
@@ -1280,21 +1312,24 @@ Draw your school bag</textarea>
     var sh = stripH(fs)+16;
     var blocks = [];
 
+    var natural = Math.round(measure(String(b),fs,fam)) + gap;
+    if(natural>LINE_W){ natural = LINE_W; }
+    var per = Math.max(1, Math.floor(LINE_W/natural));
+
     for(var r=0;r<times;r++){
       var kind = (r<traced) ? "trace" : "blank";
-      var cell="", used=0;
-      for(var v=a;v<=b;v++){
-        var txt = String(v);
-        var w = Math.round(measure(txt,fs,fam)) + gap;
-        if(w>704){ w=704; }
-        if(used + w > 704 && cell){
-          blocks.push({h:sh, html:strip(cell,fs,fam)});
-          cell=""; used=0;
+      var run = [];
+      for(var v=a;v<=b;v++){ run.push(String(v)); }
+
+      for(var i0=0;i0<run.length;i0+=per){
+        var chunk = run.slice(i0, i0+per);
+        var cw = rowW(chunk.length, natural);
+        var cell = "";
+        for(var c0=0;c0<chunk.length;c0++){
+          cell += slot(chunk[c0], kind, fs, cw);
         }
-        cell += slot(txt, kind, fs, w);
-        used += w;
+        blocks.push({h:sh, html:strip(cell,fs,fam)});
       }
-      if(cell){ blocks.push({h:sh, html:strip(cell,fs,fam)}); }
       if(r<times-1){
         blocks.push({h:10, html:'<div style="height:10px"></div>'});
       }
