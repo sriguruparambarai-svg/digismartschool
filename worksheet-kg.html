@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>KG Worksheet Generator — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&family=Comic+Neue:wght@400;700&family=Edu+NSW+ACT+Foundation:wght@400..700&family=Patrick+Hand&display=swap" rel="stylesheet">
 <style>
   :root{
     --maroon:#6B1A1A;
@@ -122,7 +125,8 @@
     width:794px;
     min-height:1123px;
     background:#fff;
-    padding:45px 45px 40px;
+    padding:45px 45px 112px;
+    --hf:'Andika','Nirmala UI','Latha',sans-serif;
     margin:0 auto 26px;
     box-shadow:0 2px 14px rgba(0,0,0,.16);
     color:#000;
@@ -160,7 +164,7 @@
     line-height:1;
     white-space:nowrap;
   }
-  .strip .items span{display:inline-block;font-family:'Comic Sans MS','Century Gothic',sans-serif}
+  .strip .items span{display:inline-block;font-family:var(--hf)}
   .it-model{color:#000}
   .it-trace{color:#b9b9b9}
   .it-hollow{color:transparent;-webkit-text-stroke:1.4px #a8a8a8}
@@ -187,6 +191,22 @@
   }
   .paper.colour .cq .box{border-color:var(--maroon)}
   .ansbox{color:#999}
+
+  .sign{
+    position:absolute;
+    left:45px;right:45px;bottom:54px;
+    display:flex;
+    justify-content:space-between;
+    gap:46px;
+  }
+  .sign div{flex:1;text-align:center}
+  .sign u{
+    display:block;
+    border-bottom:1px solid #555;
+    height:30px;
+    text-decoration:none;
+  }
+  .sign i{font-style:normal;font-size:12.5px;color:#333;display:block;margin-top:5px}
 
   .foot{
     position:absolute;
@@ -219,10 +239,12 @@
       margin:0;
       width:210mm;
       min-height:297mm;
-      padding:12mm 12mm 10mm;
+      padding:12mm 12mm 32mm;
       page-break-after:always;
     }
     .paper:last-child{page-break-after:auto}
+    .sign{left:12mm;right:12mm;bottom:16mm}
+    .foot{left:12mm;right:12mm;bottom:8mm}
   }
 </style>
 </head>
@@ -355,6 +377,18 @@ am</textarea>
       </select>
     </div>
 
+    <div class="grp" data-only="write">
+      <label>Letter style</label>
+      <select id="font">
+        <option value="edu" selected>School handwriting</option>
+        <option value="andika">Print — clear</option>
+        <option value="comic">Rounded</option>
+        <option value="patrick">Casual handwriting</option>
+        <option value="plain">Plain</option>
+      </select>
+      <p class="hint">School handwriting matches how children are taught to form letters. Tamil and Hindi letters fall back to a plain style automatically.</p>
+    </div>
+
     <div class="row2 grp" data-only="write">
       <div>
         <label>Letter size</label>
@@ -375,6 +409,7 @@ am</textarea>
 
     <label class="chk"><input type="checkbox" id="colour"> Print in colour <span style="color:#888">(for display boards)</span></label>
     <label class="chk"><input type="checkbox" id="showNd" checked> Show name &amp; date lines</label>
+    <label class="chk"><input type="checkbox" id="showSign" checked> Show signature lines</label>
 
     <p class="hint" style="margin-top:14px">Tip: in the print window set Margins to <b>None</b> and turn off "Headers and footers" for an exact fit.</p>
   </div>
@@ -436,6 +471,22 @@ am</textarea>
     var ins = val("instr");
     if(ins){ h += '<p class="winstr">'+esc(ins)+'</p>'; }
     return h;
+  }
+
+  var FONTS = {
+    edu:"'Edu NSW ACT Foundation','Nirmala UI','Latha',cursive",
+    andika:"'Andika','Nirmala UI','Latha',sans-serif",
+    comic:"'Comic Neue','Comic Sans MS','Nirmala UI','Latha',cursive",
+    patrick:"'Patrick Hand','Nirmala UI','Latha',cursive",
+    plain:"'Century Gothic','Nirmala UI','Latha',sans-serif"
+  };
+
+  function signature(){
+    if(!$("showSign").checked){ return ""; }
+    return '<div class="sign">'+
+           '<div><u></u><i>Parent\'s signature</i></div>'+
+           '<div><u></u><i>Teacher\'s signature</i></div>'+
+           '</div>';
   }
 
   function footer(){
@@ -592,13 +643,15 @@ am</textarea>
     else if(mode==="letter"){ body = buildLetters(); }
     else { body = buildCount(false); }
 
-    var html = '<div class="paper'+colour+'">'+header()+body+footer()+'</div>';
+    var hf = FONTS[val("font")] || FONTS.edu;
+    var st = ' style="--hf:'+hf+'"';
+    var html = '<div class="paper'+colour+'"'+st+'>'+header()+body+signature()+footer()+'</div>';
 
     if(mode==="count" && $("cKey").checked){
       html += '<div class="paper'+colour+'">'+header()+
               '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
               '<div style="height:10px"></div>'+
-              buildCount(true)+footer()+'</div>';
+              buildCount(true)+signature()+footer()+'</div>';
     }
 
     $("sheet").innerHTML = html;
@@ -607,7 +660,7 @@ am</textarea>
   /* ---------- wiring ---------- */
   var watch = ["school","cls","subj","title","instr","words","wTimes","wTrace",
                "letters","lRows","lTrace","cQty","cMax","cShape","cKey",
-               "lines","size","tstyle","colour","showNd"];
+               "lines","size","tstyle","colour","showNd","showSign","font"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
