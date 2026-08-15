@@ -272,6 +272,35 @@
   .paper.colour .mbox{border-color:var(--maroon)}
   .mbox.ans{color:#999;font-weight:400}
 
+  .nnrow{display:flex;align-items:flex-end;gap:14px}
+  .nnnum{
+    flex:0 0 78px;width:78px;text-align:right;
+    font-size:27px;font-weight:600;
+    padding-bottom:9px;
+  }
+  .nnfill{flex:1;min-width:0}
+
+  .mt{display:flex;gap:70px;margin-top:12px}
+  .mtcol{flex:1}
+  .mtitem{
+    display:flex;align-items:center;gap:12px;
+    padding:12px 4px;
+    border-bottom:1px dashed #ccc;
+    font-size:23px;
+  }
+  .mtitem.r{justify-content:flex-start}
+  .mtdot{
+    width:9px;height:9px;border-radius:50%;
+    background:#000;flex:0 0 9px;
+  }
+  .paper.colour .mtdot{background:var(--maroon)}
+  .mtitem .tx{flex:1}
+  .mtitem.l .tx{text-align:right}
+  .mtkey{
+    display:grid;grid-template-columns:repeat(3,1fr);
+    gap:10px 22px;margin-top:12px;font-size:19px;
+  }
+
   .cmp{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
   .cmpc{
     display:flex;align-items:center;justify-content:center;gap:40px;
@@ -353,6 +382,7 @@
       <button class="tab" data-t="mbaf">Before, after, between<small>Which number comes where</small></button>
       <button class="tab" data-t="mpic">Picture add &amp; subtract<small>Count the pictures, then answer</small></button>
       <button class="tab" data-t="mcmp">Compare numbers<small>Circle the bigger or smaller one</small></button>
+      <button class="tab" data-t="nname">Number names<small>One, two, three — English, Tamil, Hindi</small></button>
 
       <div class="tabgrp">Activities</div>
       <button class="tab" data-t="dots">Join the dots<small>Follow the numbers to find the picture</small></button>
@@ -678,6 +708,48 @@ Draw your school bag</textarea>
       </div>
     </div>
 
+    <!-- number names -->
+    <div data-panel="nname" style="display:none">
+      <div class="grp">
+        <label>Language</label>
+        <select id="wnLang">
+          <option value="en" selected>English</option>
+          <option value="ta">Tamil</option>
+          <option value="hi">Hindi</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>Numbers</label>
+        <select id="wnSet">
+          <option value="1-10" selected>1 to 10</option>
+          <option value="1-20">1 to 20</option>
+          <option value="11-20">11 to 20</option>
+          <option value="tens">Tens — 10 to 100</option>
+          <option value="custom">Custom range</option>
+        </select>
+      </div>
+      <div class="row2 grp" id="wnRange" style="display:none">
+        <div>
+          <label>From</label>
+          <input type="number" id="wnFrom" value="1" min="1" max="100">
+        </div>
+        <div>
+          <label>To</label>
+          <input type="number" id="wnTo" value="20" min="1" max="100">
+        </div>
+      </div>
+      <div class="grp">
+        <label>What the child does</label>
+        <select id="wnFmt">
+          <option value="trace" selected>Trace the name, then write it</option>
+          <option value="writename">Write the name</option>
+          <option value="writenum">Write the number</option>
+          <option value="match">Match the following</option>
+        </select>
+      </div>
+      <p class="hint">Tamil and Hindi cover 1 to 20 and the tens. English goes up to 100.</p>
+    </div>
+
     <!-- compare numbers -->
     <div data-panel="mcmp" style="display:none">
       <div class="grp">
@@ -794,7 +866,7 @@ Draw your school bag</textarea>
       }
       var onlyWrite = document.querySelectorAll("[data-only=write]");
       for(var m=0;m<onlyWrite.length;m++){
-        onlyWrite[m].style.display = (mode==="word"||mode==="letter"||mode==="mseq") ? "" : "none";
+        onlyWrite[m].style.display = (mode==="word"||mode==="letter"||mode==="mseq"||mode==="nname") ? "" : "none";
       }
       var onlyMaths = document.querySelectorAll("[data-only=maths]");
       for(var q=0;q<onlyMaths.length;q++){
@@ -1337,9 +1409,144 @@ Draw your school bag</textarea>
     return blocks;
   }
 
+  /* ---------- number names ---------- */
+  var EN1 = ["zero","one","two","three","four","five","six","seven","eight","nine",
+             "ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen",
+             "seventeen","eighteen","nineteen"];
+  var EN10 = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+
+  var TA_N = {1:"ஒன்று",2:"இரண்டு",3:"மூன்று",4:"நான்கு",5:"ஐந்து",6:"ஆறு",7:"ஏழு",
+              8:"எட்டு",9:"ஒன்பது",10:"பத்து",11:"பதினொன்று",12:"பன்னிரண்டு",
+              13:"பதின்மூன்று",14:"பதினான்கு",15:"பதினைந்து",16:"பதினாறு",17:"பதினேழு",
+              18:"பதினெட்டு",19:"பத்தொன்பது",20:"இருபது",30:"முப்பது",40:"நாற்பது",
+              50:"ஐம்பது",60:"அறுபது",70:"எழுபது",80:"எண்பது",90:"தொண்ணூறு",100:"நூறு"};
+
+  var HI_N = {1:"एक",2:"दो",3:"तीन",4:"चार",5:"पाँच",6:"छह",7:"सात",8:"आठ",9:"नौ",
+              10:"दस",11:"ग्यारह",12:"बारह",13:"तेरह",14:"चौदह",15:"पंद्रह",16:"सोलह",
+              17:"सत्रह",18:"अठारह",19:"उन्नीस",20:"बीस",30:"तीस",40:"चालीस",50:"पचास",
+              60:"साठ",70:"सत्तर",80:"अस्सी",90:"नब्बे",100:"सौ"};
+
+  function cap(w){ return w.charAt(0).toUpperCase()+w.slice(1); }
+
+  function numName(n, lang){
+    if(lang==="ta"){ return TA_N[n] || ""; }
+    if(lang==="hi"){ return HI_N[n] || ""; }
+    if(n<0 || n>100){ return ""; }
+    if(n===100){ return "Hundred"; }
+    if(n<20){ return cap(EN1[n]); }
+    var t = EN10[Math.floor(n/10)], o = n%10;
+    return cap(o ? (t+"-"+EN1[o]) : t);
+  }
+
+  function nnList(){
+    var set = val("wnSet"), lang = val("wnLang");
+    var raw = [], i;
+    if(set==="1-10"){ for(i=1;i<=10;i++){ raw.push(i); } }
+    else if(set==="1-20"){ for(i=1;i<=20;i++){ raw.push(i); } }
+    else if(set==="11-20"){ for(i=11;i<=20;i++){ raw.push(i); } }
+    else if(set==="tens"){ for(i=10;i<=100;i+=10){ raw.push(i); } }
+    else {
+      var a=num("wnFrom",1), b=num("wnTo",20);
+      if(b<a){ var t=a; a=b; b=t; }
+      if(b-a>49){ b=a+49; }
+      for(i=a;i<=b;i++){ raw.push(i); }
+    }
+    var out = [];
+    for(i=0;i<raw.length;i++){
+      if(numName(raw[i],lang)){ out.push(raw[i]); }
+    }
+    return out;
+  }
+
+  var nnOrder = [];
+  function makeNname(){
+    var list = nnList();
+    nnOrder = list.slice();
+    for(var i=nnOrder.length-1;i>0;i--){
+      var j = Math.floor(Math.random()*(i+1));
+      var t = nnOrder[i]; nnOrder[i]=nnOrder[j]; nnOrder[j]=t;
+    }
+  }
+
+  /* ruled formats -> blocks, so they paginate like the writing sheets */
+  function buildNnameBlocks(fsOv){
+    var fs = fsOv || num("size",36);
+    if(fs>34){ fs = 34; }
+    var lang = val("wnLang"), fmt = val("wnFmt");
+    var list = nnList();
+    var avail = LINE_W - 92;
+    var blocks = [];
+    var sh = stripH(fs)+16;
+
+    var natural = 0, i;
+    for(i=0;i<list.length;i++){
+      var nw = Math.round(measure(numName(list[i],lang),fs,fontFor(numName(list[i],lang)))) + 30;
+      if(nw>natural){ natural = nw; }
+    }
+    if(natural>avail){ natural = avail; }
+    var per = Math.max(1, Math.floor(avail/natural));
+    var slotW = Math.min(Math.floor(avail/per), Math.round(natural*2.2));
+    if(slotW<natural){ slotW = natural; }
+
+    for(i=0;i<list.length;i++){
+      var n = list[i], nm = numName(n,lang), fam = fontFor(nm);
+      var cell = "";
+      for(var c=0;c<per;c++){
+        var kind;
+        if(fmt==="trace"){ kind = (c===0) ? "model" : (c<3 ? "trace" : "blank"); }
+        else { kind = (c===0 && false) ? "model" : "blank"; }
+        cell += slot(nm, kind, fs, slotW);
+      }
+      blocks.push({h:sh, html:
+        '<div class="nnrow"><div class="nnnum">'+n+'</div>'+
+        '<div class="nnfill">'+strip(cell,fs,fam)+'</div></div>'});
+    }
+    return blocks;
+  }
+
+  /* compact formats */
+  function buildNname(ans){
+    var lang = val("wnLang"), fmt = val("wnFmt");
+    var list = nnList(), i, out="";
+
+    if(fmt==="writenum"){
+      for(i=0;i<list.length;i++){
+        var nm = numName(list[i],lang);
+        out += '<div class="mrow"><div class="no">'+(i+1)+'.</div>'+
+               '<span class="op" style="flex:1;font-size:23px">'+esc(nm)+'</span>'+
+               box(ans?list[i]:"",ans)+'</div>';
+      }
+      return out;
+    }
+
+    if(!nnOrder.length){ makeNname(); }
+    var right = [];
+    for(i=0;i<nnOrder.length;i++){
+      if(list.indexOf(nnOrder[i])>=0){ right.push(nnOrder[i]); }
+    }
+    for(i=0;i<list.length;i++){
+      if(right.indexOf(list[i])<0){ right.push(list[i]); }
+    }
+
+    if(ans){
+      var k = '<div class="mtkey">';
+      for(i=0;i<list.length;i++){
+        k += '<div>'+list[i]+' &mdash; '+esc(numName(list[i],lang))+'</div>';
+      }
+      return k+'</div>';
+    }
+
+    var L="", R="";
+    for(i=0;i<list.length;i++){
+      L += '<div class="mtitem l"><span class="tx">'+list[i]+'</span><span class="mtdot"></span></div>';
+      R += '<div class="mtitem r"><span class="mtdot"></span><span class="tx">'+esc(numName(right[i],lang))+'</span></div>';
+    }
+    return '<div class="mt"><div class="mtcol">'+L+'</div><div class="mtcol">'+R+'</div></div>';
+  }
+
   /* ---------- maths ---------- */
   var mnum=[], mbaf=[], mpic=[], mcmp=[];
-  var MATHS = ["mnum","mbaf","mpic","mcmp"];
+  var MATHS = ["mnum","mbaf","mpic","mcmp","nname"];
 
   function rnd(a,b){ return a + Math.floor(Math.random()*(b-a+1)); }
 
@@ -1464,6 +1671,7 @@ Draw your school bag</textarea>
   }
 
   function buildMaths(m, ans){
+    if(m==="nname"){ return buildNname(ans); }
     if(m==="mnum"){ return buildMnum(ans); }
     if(m==="mbaf"){ return buildMbaf(ans); }
     if(m==="mpic"){ return buildMpic(ans); }
@@ -1474,6 +1682,7 @@ Draw your school bag</textarea>
     else if(m==="mbaf"){ makeMbaf(); }
     else if(m==="mpic"){ makeMpic(); }
     else if(m==="mcmp"){ makeMcmp(); }
+    else if(m==="nname"){ makeNname(); }
   }
 
   /* ---------- render ---------- */
@@ -1515,8 +1724,12 @@ Draw your school bag</textarea>
     var colour = $("colour").checked ? " colour" : "";
     var body;
 
-    if(mode==="word" || mode==="letter" || mode==="mseq"){
-      var mk = (mode==="word") ? buildWords : (mode==="letter" ? buildLetters : buildSeq);
+    var nnRuled = (mode==="nname" && (val("wnFmt")==="trace" || val("wnFmt")==="writename"));
+
+    if(mode==="word" || mode==="letter" || mode==="mseq" || nnRuled){
+      var mk = (mode==="word") ? buildWords
+             : (mode==="letter" ? buildLetters
+             : (mode==="mseq" ? buildSeq : buildNnameBlocks));
       var blocks = mk();
       if($("fitOne").checked && blocks.length && total(blocks) > PAGE_CAP){
         var base = num("size",36);
@@ -1573,7 +1786,8 @@ Draw your school bag</textarea>
                "bType","bQty","bMax",
                "pOp","pQty","pMax","pShape",
                "kWhich","kQty","kMax",
-               "sFrom","sTo","sTimes","sTrace","fitOne"];
+               "sFrom","sTo","sTimes","sTrace","fitOne",
+               "wnLang","wnSet","wnFrom","wnTo","wnFmt"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
@@ -1585,6 +1799,10 @@ Draw your school bag</textarea>
       if("bType bQty bMax".indexOf(this.id)>=0){ makeMbaf(); }
       if("pOp pQty pMax".indexOf(this.id)>=0){ makeMpic(); }
       if("kQty kMax".indexOf(this.id)>=0){ makeMcmp(); }
+      if(this.id.indexOf("wn")===0){
+        $("wnRange").style.display = (val("wnSet")==="custom") ? "" : "none";
+        makeNname();
+      }
       if(this.id==="letters"){ $("lSet").value="custom"; fillBase(); }
       render();
     });
@@ -1594,7 +1812,7 @@ Draw your school bag</textarea>
   $("shuffle").addEventListener("click", function(){
     makeCounts();
     makeGrid();
-    makeMnum(); makeMbaf(); makeMpic(); makeMcmp();
+    makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
     render();
   });
 
@@ -1604,7 +1822,7 @@ Draw your school bag</textarea>
 
   makeCounts();
   makeGrid();
-  makeMnum(); makeMbaf(); makeMpic(); makeMcmp();
+  makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
   fillBase();
   (function(){
     var om = document.querySelectorAll("[data-only=maths]");
