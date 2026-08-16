@@ -1,6 +1,65 @@
 // /api/voice.js  — Vercel serverless function
 // Receives { text, tone, lang } → calls ElevenLabs → returns { audio: base64 }
 
+import crypto from 'crypto';
+
+// ── AUDIO CACHE (Supabase Storage) ─────────────────────────
+// Generated audio is saved to bucket 'lesson-audio', folder 'teach-voice/'.
+// Same voice + same spoken text = same file, so every replay of a line —
+// in any classroom, in any school, on any day — costs ZERO ElevenLabs credits.
+// This mirrors the proven cache already running in api/voice-class.js.
+// If Supabase is ever unavailable we silently fall back to normal generation,
+// so a storage problem can never stop a lesson.
+const SUPA_HOST    = 'pzxosqukijwpjdlfdfst.supabase.co';
+const AUDIO_BUCKET = 'lesson-audio';
+const AUDIO_FOLDER = 'teach-voice';
+
+function audioKey(voiceId, speechText) {
+  const hash = crypto.createHash('sha256')
+    .update(voiceId + '|' + speechText)
+    .digest('hex')
+    .slice(0, 40);
+  return AUDIO_FOLDER + '/' + hash + '.mp3';
+}
+
+// Fetch previously saved audio. Returns base64 string on hit, null on miss. Never throws.
+async function fetchCachedAudio(objectPath, supaKey) {
+  try {
+    const r = await fetch(
+      'https://' + SUPA_HOST + '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      { method: 'GET', headers: { apikey: supaKey, Authorization: 'Bearer ' + supaKey } }
+    );
+    if (!r.ok) return null;
+    const buf = await r.arrayBuffer();
+    if (!buf || buf.byteLength === 0) return null;
+    return Buffer.from(buf).toString('base64');
+  } catch (e) {
+    return null;
+  }
+}
+
+// Save generated audio for future replays. Never throws — a failed save cannot break playback.
+async function saveCachedAudio(objectPath, supaKey, audioBuffer) {
+  try {
+    const r = await fetch(
+      'https://' + SUPA_HOST + '/storage/v1/object/' + AUDIO_BUCKET + '/' + objectPath,
+      {
+        method: 'POST',
+        headers: {
+          apikey: supaKey,
+          Authorization: 'Bearer ' + supaKey,
+          'Content-Type': 'audio/mpeg',
+          'x-upsert': 'true'
+        },
+        body: audioBuffer
+      }
+    );
+    return r.ok;
+  } catch (e) {
+    return false;
+  }
+}
+
 // ── VOICE IDs ──
 // English: "Sarah" — calm, clear, multilingual
 const VOICE_ID_EN = 'EXAVITQu4vr4xnSDxMaL';
@@ -107,6 +166,17 @@ export default async function handler(req, res) {
   const voiceSettings = TONE_SETTINGS[tone] || TONE_SETTINGS.normal;
   const formattedText = formatForSpeech(text, tone, lang || 'en');
 
+  // ── CACHE CHECK: if this exact line was spoken before, replay the saved file ──
+  const supaKey = process.env.SUPABASE_SECRET_KEY;
+  const cacheObjectPath = audioKey(voiceId, formattedText);
+  if (supaKey) {
+    const cachedAudio = await fetchCachedAudio(cacheObjectPath, supaKey);
+    if (cachedAudio) {
+      return res.status(200).json({ audio: cachedAudio, cached: true });
+    }
+  }
+  // ── CACHE MISS: generate as normal below ──
+
   try {
     const elevenRes = await fetch(
       `https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`,
@@ -136,9 +206,15 @@ export default async function handler(req, res) {
     }
 
     const arrayBuffer = await elevenRes.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    const audioBuffer = Buffer.from(arrayBuffer);
+    const base64 = audioBuffer.toString('base64');
 
-    return res.status(200).json({ audio: base64 });
+    // ── SAVE TO CACHE so the next play of this line is free ──
+    if (supaKey) {
+      await saveCachedAudio(cacheObjectPath, supaKey, audioBuffer);
+    }
+
+    return res.status(200).json({ audio: base64, cached: false });
 
   } catch (err) {
     console.error('Voice API error:', err.message);
