@@ -389,15 +389,20 @@ async function buildLesson(){
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       system: 'You return ONLY a valid JSON array. No markdown fences, no preamble, no text after the array.',
-      prompt: prompt, max_tokens: 6000
+      messages: [{ role:'user', content: prompt }],
+      max_tokens: 6000
     })
   });
   var d = await r.json();
-  var txt = d.completion || d.text || d.content || '';
+  if(d && (d.type === 'error' || d.error)){
+    throw new Error(typeof d.error === 'string' ? d.error : (d.message || 'AI error'));
+  }
+  var txt = '';
   if(Array.isArray(d.content)) txt = d.content.map(function(x){ return x.text || ''; }).join('');
+  else txt = d.completion || d.text || d.content || '';
   txt = String(txt).replace(/```json|```/g,'').trim();
   var a = txt.indexOf('['), b = txt.lastIndexOf(']');
-  if(a < 0 || b < 0) throw new Error('bad shape');
+  if(a < 0 || b < 0) throw new Error('Unexpected reply: ' + txt.substring(0,120));
 
   var arr = JSON.parse(txt.slice(a, b + 1));
   var steps = [];
@@ -557,11 +562,12 @@ async function startClass(){
       STEPS = await buildLesson();
       saveLesson(STEPS);
     } catch(e){
+      var why = (e && e.message) ? String(e.message) : 'Unknown problem';
       STEPS = [{
         id:'err', title:'Could not prepare this lesson',
-        board:['Please check the internet connection','and press Replay to try again.'],
+        board:['Reason: ' + why.substring(0,140), 'Press Replay to try again.'],
         kind:'idea', say_en:'Sorry, I could not prepare this lesson just now. Please try again.',
-        say_ta:'', note:''
+        say_ta:'', note:'Error: ' + why.substring(0,140)
       }];
     }
   }

@@ -1819,12 +1819,16 @@ async function enrichNarration(){
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system: 'You return ONLY a valid JSON array. No markdown fences, no preamble, no text after the array.',
-        prompt: prompt, max_tokens: 4000
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 4000
       })
     });
     var d = await r.json();
-    var txt = d.completion || d.text || d.content || '';
+    // api/ai returns the Anthropic reply as-is: content is an array of blocks.
+    if(d && (d.type === 'error' || d.error)) return;
+    var txt = '';
     if(Array.isArray(d.content)) txt = d.content.map(function(x){ return x.text || ''; }).join('');
+    else txt = d.completion || d.text || d.content || '';
     txt = String(txt).replace(/```json|```/g, '').trim();
     var a = txt.indexOf('['), b = txt.lastIndexOf(']');
     if(a < 0 || b < 0) return;
