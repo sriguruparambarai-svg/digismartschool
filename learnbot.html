@@ -5959,22 +5959,36 @@ function setLangBtn(l, btn){
 // launchMathsConcept: opens the Maths Concept Class (3D shapes / patterns).
 // Works with or without an activated lesson — it teaches the idea, not the book sums.
 function launchMathsConcept(){
+  // Concept Class teaches the IDEA, not the book sums, so it must never be
+  // blocked on a book lesson being activated. The #s-class dropdown is hidden
+  // and only filled by the Teacher Panel, so blocking on it made this tile
+  // impossible to open. maths-concept.html has its own class + topic picker.
   var clsEl = document.getElementById('s-class');
   var cls   = clsEl ? clsEl.value : '';
-  if(!cls){ alert('Please select your Class first.'); return; }
 
   var activated = null;
   try { activated = JSON.parse(sessionStorage.getItem('tm_activated')||'null'); } catch(e){}
 
-  var mcData = {
-    cls:     (activated && activated.cls)   ? activated.cls   : cls,
-    chapter: (activated && activated.topic) ? activated.topic : '',
-    lessonText: (activated && activated.lessonText) ? String(activated.lessonText).substring(0,600) : '',
-    lang:    (typeof teachLang !== 'undefined' ? teachLang : 'english')
-  };
+  var chosenCls = (activated && activated.cls) ? activated.cls : cls;
 
   try { sessionStorage.setItem('mcx_returnUrl', window.location.href); } catch(e){}
-  try { sessionStorage.setItem('mcx_autostart', JSON.stringify(mcData)); } catch(e){}
+
+  if(chosenCls){
+    // We genuinely know the class — pre-fill and go straight into the lesson.
+    var mcData = {
+      cls:     chosenCls,
+      chapter: (activated && activated.topic) ? activated.topic : '',
+      lessonText: (activated && activated.lessonText) ? String(activated.lessonText).substring(0,600) : '',
+      lang:    (typeof teachLang !== 'undefined' ? teachLang : 'english')
+    };
+    try { sessionStorage.setItem('mcx_autostart', JSON.stringify(mcData)); } catch(e){}
+  } else {
+    // Nothing activated — open clean so the teacher picks class and topic on
+    // the page. Clearing any stale payload stops an old lesson auto-launching.
+    try { sessionStorage.removeItem('mcx_autostart'); } catch(e){}
+    try { sessionStorage.removeItem('bb_autostart');  } catch(e){}
+  }
+
   window.location.href = 'maths-concept.html';
 }
 
