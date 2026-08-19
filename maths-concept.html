@@ -1770,7 +1770,30 @@ function sayFor(step, lang){
 
 /* ── AI enrichment: better wording, same steps. Falls back silently. ── */
 async function enrichNarration(){
-  var key = 'mcx_say__' + CLS + '__' + TOPIC + '__' + LANG + '__v6';
+  var VER = 'v7';
+  var key = 'mcx_say__' + CLS + '__' + TOPIC + '__' + LANG + '__' + VER;
+
+  // 1. Shared server cache first. Written once by whoever opens the lesson
+  //    first, then read free by every other classroom and every other school.
+  //    Any failure here falls straight through — a storage problem must never
+  //    stop a class.
+  try {
+    var sr = await fetch('/api/concept-cache', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'get', board: 'NCERT', cls: CLS, subject: 'Maths',
+        topic: TOPIC, lang: LANG, ver: VER
+      })
+    });
+    var sd = await sr.json();
+    if(sd && sd.found && sd.map && Object.keys(sd.map).length){
+      SAY_OVERRIDE = sd.map;
+      try { localStorage.setItem(key, JSON.stringify(sd.map)); } catch(e){}
+      return;
+    }
+  } catch(e){ /* server cache unavailable — carry on */ }
+
+  // 2. This browser's own copy, for instant repeat views on the same device.
   try {
     var cached = localStorage.getItem(key);
     if(cached){ SAY_OVERRIDE = JSON.parse(cached); return; }
@@ -1811,6 +1834,16 @@ async function enrichNarration(){
     if(Object.keys(map).length){
       SAY_OVERRIDE = map;
       try { localStorage.setItem(key, JSON.stringify(map)); } catch(e){}
+      // Share it so nobody else has to pay to generate this lesson again.
+      try {
+        fetch('/api/concept-cache', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'save', board: 'NCERT', cls: CLS, subject: 'Maths',
+            topic: TOPIC, lang: LANG, ver: VER, narration: map
+          })
+        }).catch(function(){});
+      } catch(e){}
     }
   } catch(e){ /* built-in narration is used */ }
 }
