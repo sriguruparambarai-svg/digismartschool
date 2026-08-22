@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Particles — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --gold:#C9962A; --sandal:#E8C99A;
+  --board-dark:#163016; --board-mid:#1b3d1b;
+  --chalk:#f2efe9; --chalk-yellow:#f5e87a; --chalk-blue:#a8d8f0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:transparent;font-family:'Nunito',sans-serif;color:#fff;overflow:hidden;}
+#wrap{height:100%;display:flex;flex-direction:column;}
+
+#stage{flex:1;min-height:0;position:relative;}
+#stage canvas{display:block;width:100%;height:100%;cursor:grab;}
+#stage canvas:active{cursor:grabbing;}
+
+#state-badge{position:absolute;top:12px;left:14px;pointer-events:none;}
+#state-name{font-family:'Caveat',cursive;font-size:2.4rem;line-height:1;
+  color:var(--chalk-yellow);text-shadow:0 0 14px rgba(0,0,0,.75);}
+#state-sub{font-family:'Kalam',cursive;font-size:.95rem;color:var(--sandal);
+  text-shadow:0 0 10px rgba(0,0,0,.8);margin-top:2px;}
+
+#temp-badge{position:absolute;top:12px;right:14px;text-align:center;
+  padding:.45rem .8rem;border-radius:12px;background:rgba(0,0,0,.42);
+  border:1.5px solid rgba(232,201,154,.4);pointer-events:none;}
+#temp-badge .l{font-size:.68rem;letter-spacing:.1em;text-transform:uppercase;color:var(--sandal);}
+#temp-badge .v{font-family:'Caveat',cursive;font-size:2rem;color:var(--chalk-yellow);line-height:1;}
+
+.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+
+/* Controls */
+#controls{padding:.7rem .9rem;border-top:1.5px dashed rgba(232,201,154,.28);
+  display:flex;gap:.7rem;align-items:center;flex-wrap:wrap;}
+.pbtn{padding:.5rem 1rem;border-radius:10px;cursor:pointer;font-weight:700;font-size:.9rem;
+  background:rgba(255,255,255,.05);border:1.6px solid rgba(232,201,154,.35);
+  color:var(--sandal);font-family:'Nunito',sans-serif;white-space:nowrap;}
+.pbtn:hover{background:rgba(255,255,255,.13);}
+.pbtn.on{background:var(--maroon);border-color:var(--gold);color:#fff;}
+
+#slider-row{flex:1;min-width:190px;display:flex;align-items:center;gap:.6rem;}
+#slider-row .ico{font-size:1.1rem;}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:6px;
+  background:linear-gradient(90deg,#3a7bd5 0%,#8fd3f4 30%,#f5e87a 60%,#f4a0a0 100%);
+  outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;
+  border-radius:50%;background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+  background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+
+@media(max-width:640px){
+  #state-name{font-size:1.7rem;}
+  #temp-badge .v{font-size:1.5rem;}
+  .pbtn{padding:.42rem .7rem;font-size:.82rem;}
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="stage">
+    <div id="state-badge">
+      <div id="state-name">Solid</div>
+      <div id="state-sub"></div>
+    </div>
+    <div id="temp-badge">
+      <div class="l" id="temp-lab">Heat</div>
+      <div class="v" id="temp-val">Cold</div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <span class="pbtn on" data-goto="solid"  id="b-solid">Solid</span>
+    <span class="pbtn"    data-goto="liquid" id="b-liquid">Liquid</span>
+    <span class="pbtn"    data-goto="gas"    id="b-gas">Gas</span>
+    <span id="slider-row">
+      <span class="ico">❄️</span>
+      <input type="range" id="temp" min="0" max="100" value="8">
+      <span class="ico">🔥</span>
+    </span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   PARTICLES ENGINE — states of matter, in 3D
+
+   A teaching model, not a research simulation. The behaviour is
+   deliberately simple and honest:
+
+     Solid  — particles held in a fixed lattice, vibrating in place
+     Liquid — bonds loosened, particles slide over each other and
+              pool at the bottom, still touching
+     Gas    — bonds gone, particles fly free and fill the whole space
+
+   Heat is the one thing the teacher changes. Everything else follows
+   from it, so a child sees cause and effect rather than three
+   separate pictures.
+
+   Embed with URL settings, all optional:
+     ?substance=water     water | generic
+     &start=solid         solid | liquid | gas
+     &lang=english        english | tamil
+     &name=Water          label shown under the state name
+
+   Covers: Class 6 States of Water, Class 7 Changes Around Us,
+   Class 8 Particulate Nature of Matter and Solutions,
+   Class 9 Mixtures and their Separation.
+   ══════════════════════════════════════════════════════════════ */
+
+var P = new URLSearchParams(location.search);
+var SUBSTANCE = (P.get('substance') || 'water').toLowerCase();
+var START     = (P.get('start') || 'solid').toLowerCase();
+var LANG      = (P.get('lang') || 'english').toLowerCase();
+var NAME      = P.get('name') || '';
+
+/* ── Words ── */
+var WORDS = {
+  english: {
+    solid:'Solid', liquid:'Liquid', gas:'Gas',
+    heat:'Heat', cold:'Cold', warm:'Warm', hot:'Hot', veryhot:'Very hot',
+    solidSub:'Particles held in place, only shaking',
+    liquidSub:'Particles slide past each other',
+    gasSub:'Particles fly free and fill the space'
+  },
+  tamil: {
+    solid:'திடம்', liquid:'திரவம்', gas:'வாயு',
+    heat:'வெப்பம்', cold:'குளிர்', warm:'சூடு', hot:'அதிக சூடு', veryhot:'மிக அதிக சூடு',
+    solidSub:'துகள்கள் ஓரிடத்தில் நின்று அதிர்கின்றன',
+    liquidSub:'துகள்கள் ஒன்றன்மேல் ஒன்று நகர்கின்றன',
+    gasSub:'துகள்கள் சுதந்திரமாகப் பறந்து இடத்தை நிரப்புகின்றன'
+  }
+};
+var W = WORDS[LANG] || WORDS.english;
+
+/* Water gets its everyday names, because "ice" means more than "solid". */
+var WATER_NAMES = {
+  english: { solid:'Ice', liquid:'Water', gas:'Steam' },
+  tamil:   { solid:'பனிக்கட்டி', liquid:'தண்ணீர்', gas:'நீராவி' }
+};
+
+var COLOURS = {
+  water:   { particle:0x8fd3f4, hot:0xf4a0a0, box:0x8fb3a0 },
+  generic: { particle:0xE8C99A, hot:0xf4a0a0, box:0x8fb3a0 }
+};
+var COL = COLOURS[SUBSTANCE] || COLOURS.generic;
+
+/* ── Scene ── */
+var scene, camera, renderer, group, boxMesh;
+var particles = [];          // { mesh, home:Vector3, vel:Vector3 }
+var N_SIDE = 5;              // 5 x 5 x 5 = 125 particles
+var BOX = 5.2;               // half-width of the container
+var SPACING = 1.05;
+var RADIUS = 0.42;
+var MIN_DIST = RADIUS * 2;
+
+var temp = 8;                // 0..100, the only thing the teacher changes
+var dragging = false, lastX = 0, lastY = 0, rotY = 0.6, rotX = 0.25, autoSpin = true;
+
+function init(){
+  var stage = document.getElementById('stage');
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+  camera.position.set(0, 2.5, 17);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  stage.appendChild(renderer.domElement);
+
+  group = new THREE.Group();
+  scene.add(group);
+
+  // Container: a plain wireframe box so the child sees "the space it can fill".
+  var boxGeo = new THREE.BoxGeometry(BOX*2, BOX*2, BOX*2);
+  var edges = new THREE.EdgesGeometry(boxGeo);
+  boxMesh = new THREE.LineSegments(edges,
+    new THREE.LineBasicMaterial({ color: COL.box, transparent:true, opacity:0.32 }));
+  group.add(boxMesh);
+
+  // Particles, laid out as a lattice sitting on the floor of the box.
+  var geo = new THREE.SphereGeometry(RADIUS, 14, 12);
+  var half = (N_SIDE - 1) / 2;
+  for(var x = 0; x < N_SIDE; x++){
+    for(var y = 0; y < N_SIDE; y++){
+      for(var z = 0; z < N_SIDE; z++){
+        var mat = new THREE.MeshStandardMaterial({
+          color: COL.particle, roughness:0.35, metalness:0.15,
+          emissive: COL.particle, emissiveIntensity:0.12
+        });
+        var m = new THREE.Mesh(geo, mat);
+        var home = new THREE.Vector3(
+          (x - half) * SPACING,
+          (y - half) * SPACING - (BOX - N_SIDE*SPACING/2) + 0.6,
+          (z - half) * SPACING
+        );
+        m.position.copy(home);
+        group.add(m);
+        particles.push({ mesh:m, home:home.clone(), vel:new THREE.Vector3() });
+      }
+    }
+  }
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+  var key = new THREE.DirectionalLight(0xffffff, 0.85);
+  key.position.set(6, 9, 8); scene.add(key);
+  var rim = new THREE.DirectionalLight(0xC9962A, 0.35);
+  rim.position.set(-7, -3, -6); scene.add(rim);
+
+  resize();
+  window.addEventListener('resize', resize);
+  wireControls();
+  gotoState(START, true);
+  animate();
+}
+
+function resize(){
+  var stage = document.getElementById('stage');
+  var w = stage.clientWidth || 640, h = stage.clientHeight || 420;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+
+/* ── How heat changes behaviour ──
+   bond    : how strongly a particle is held in its lattice place
+   thermal : how much random shaking it has
+   gravity : pulls particles down once bonds have loosened          */
+function physicsFor(t01){
+  var bond    = Math.max(0, Math.min(1, 1 - t01 * 1.55));
+  var thermal = 0.004 + t01 * t01 * 0.085;
+  var gravity = 0.0028 * (1 - t01) * (1 - t01);
+  return { bond:bond, thermal:thermal, gravity:gravity };
+}
+
+function stateOf(t){
+  if(t < 33) return 'solid';
+  if(t < 67) return 'liquid';
+  return 'gas';
+}
+
+function step(){
+  var t01 = temp / 100;
+  var ph = physicsFor(t01);
+  var i, p, q, d = new THREE.Vector3();
+
+  for(i = 0; i < particles.length; i++){
+    p = particles[i];
+    // Pull back to the lattice place — strong when cold, gone when hot.
+    if(ph.bond > 0.001){
+      d.copy(p.home).sub(p.mesh.position).multiplyScalar(ph.bond * 0.045);
+      p.vel.add(d);
+    }
+    // Random shaking: this IS the heat, as far as a child can see.
+    p.vel.x += (Math.random() - 0.5) * ph.thermal;
+    p.vel.y += (Math.random() - 0.5) * ph.thermal;
+    p.vel.z += (Math.random() - 0.5) * ph.thermal;
+    // Weight, so a liquid pools at the bottom instead of floating.
+    p.vel.y -= ph.gravity;
+  }
+
+  // Particles cannot sit inside each other. This is what keeps a liquid
+  // looking like a liquid instead of collapsing into one blob.
+  for(i = 0; i < particles.length; i++){
+    for(var j = i + 1; j < particles.length; j++){
+      p = particles[i]; q = particles[j];
+      d.copy(p.mesh.position).sub(q.mesh.position);
+      var dist2 = d.lengthSq();
+      if(dist2 < MIN_DIST * MIN_DIST && dist2 > 1e-6){
+        var dist = Math.sqrt(dist2);
+        var push = (MIN_DIST - dist) * 0.16;
+        d.multiplyScalar(push / dist);
+        p.vel.add(d); q.vel.sub(d);
+      }
+    }
+  }
+
+  // Move, damp, and bounce off the container walls.
+  var damp = 0.88 + t01 * 0.09;
+  var lim = BOX - RADIUS;
+  for(i = 0; i < particles.length; i++){
+    p = particles[i];
+    p.vel.multiplyScalar(damp);
+    p.mesh.position.add(p.vel);
+    ['x','y','z'].forEach(function(ax){
+      if(p.mesh.position[ax] >  lim){ p.mesh.position[ax] =  lim; p.vel[ax] *= -0.62; }
+      if(p.mesh.position[ax] < -lim){ p.mesh.position[ax] = -lim; p.vel[ax] *= -0.62; }
+    });
+    // Warm particles glow a little — heat you can see.
+    p.mesh.material.emissiveIntensity = 0.10 + t01 * 0.42;
+  }
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  step();
+  if(autoSpin && !dragging) rotY += 0.0022;
+  group.rotation.y = rotY;
+  group.rotation.x = rotX;
+  renderer.render(scene, camera);
+}
+
+/* ── Labels ── */
+function refreshLabels(){
+  var st = stateOf(temp);
+  var nm = document.getElementById('state-name');
+  var sub = document.getElementById('state-sub');
+
+  var label = W[st];
+  if(SUBSTANCE === 'water'){
+    var wn = WATER_NAMES[LANG] || WATER_NAMES.english;
+    label = wn[st] + ' (' + W[st] + ')';
+  }
+  nm.textContent = label;
+  sub.textContent = W[st + 'Sub'];
+  nm.className  = (LANG === 'tamil') ? 'tamil' : '';
+  sub.className = (LANG === 'tamil') ? 'tamil' : '';
+
+  var v = temp < 20 ? W.cold : temp < 50 ? W.warm : temp < 80 ? W.hot : W.veryhot;
+  document.getElementById('temp-val').textContent = v;
+  document.getElementById('temp-val').className = 'v' + (LANG === 'tamil' ? ' tamil' : '');
+  document.getElementById('temp-lab').textContent = W.heat;
+
+  ['solid','liquid','gas'].forEach(function(s){
+    document.getElementById('b-' + s).classList.toggle('on', s === st);
+  });
+}
+
+function setButtonWords(){
+  ['solid','liquid','gas'].forEach(function(s){
+    var b = document.getElementById('b-' + s);
+    b.textContent = W[s];
+    if(LANG === 'tamil') b.classList.add('tamil');
+  });
+}
+
+/* ── Teacher controls ── */
+var glideTo = null;
+
+function gotoState(st, instant){
+  var target = st === 'gas' ? 88 : st === 'liquid' ? 50 : 8;
+  if(instant){
+    temp = target;
+    document.getElementById('temp').value = temp;
+    refreshLabels();
+  } else {
+    glideTo = target;   // ease across so the change is visible, not a jump
+  }
+}
+
+function wireControls(){
+  setButtonWords();
+  refreshLabels();
+
+  var slider = document.getElementById('temp');
+  slider.addEventListener('input', function(){
+    glideTo = null;
+    temp = parseInt(this.value, 10);
+    refreshLabels();
+  });
+
+  ['solid','liquid','gas'].forEach(function(s){
+    document.getElementById('b-' + s).addEventListener('click', function(){
+      gotoState(s, false);
+    });
+  });
+
+  // Drag to turn the model, the way a real object would be turned.
+  var cv = renderer.domElement;
+  function down(x, y){ dragging = true; autoSpin = false; lastX = x; lastY = y; }
+  function move(x, y){
+    if(!dragging) return;
+    rotY += (x - lastX) * 0.007;
+    rotX += (y - lastY) * 0.005;
+    rotX = Math.max(-0.9, Math.min(0.9, rotX));
+    lastX = x; lastY = y;
+  }
+  function up(){ dragging = false; }
+
+  cv.addEventListener('mousedown', function(e){ down(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', function(e){ move(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', up);
+  cv.addEventListener('touchstart', function(e){
+    if(e.touches[0]) down(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  cv.addEventListener('touchmove', function(e){
+    if(e.touches[0]) move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  window.addEventListener('touchend', up);
+}
+
+/* Ease the temperature when a preset button is pressed, so the class
+   watches the change happen instead of seeing a different picture. */
+setInterval(function(){
+  if(glideTo === null) return;
+  var diff = glideTo - temp;
+  if(Math.abs(diff) < 0.6){ temp = glideTo; glideTo = null; }
+  else temp += diff * 0.08;
+  document.getElementById('temp').value = Math.round(temp);
+  refreshLabels();
+}, 40);
+
+/* Let the parent page drive the model if it wants to. */
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(!d || d.kind !== 'particles') return;
+  if(d.state) gotoState(String(d.state), false);
+  if(typeof d.temp === 'number'){
+    glideTo = null;
+    temp = Math.max(0, Math.min(100, d.temp));
+    document.getElementById('temp').value = temp;
+    refreshLabels();
+  }
+});
+
+if(window.THREE) init();
+else document.getElementById('stage').innerHTML =
+  '<div style="padding:2rem;text-align:center;color:#E8C99A;font-family:Kalam,cursive">'
+  + '3D could not load. Please check the internet connection.</div>';
+</script>
+</body>
+</html>
