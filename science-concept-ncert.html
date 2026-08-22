@@ -235,7 +235,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
    same way the Maths page does.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v2';          // v2: 3D model engines available to lessons
+var LESSON_VER = 'v3';          // v3: circuit engine added
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -258,7 +258,8 @@ var RICH_MAP = {};   // no hand-built Science lessons yet
    falls back to the written board, so nothing ever shows an error
    in front of a class. */
 var ENGINES = {
-  particles: 'models/particles.html'
+  particles: 'models/particles.html',
+  circuit:   'models/circuit.html'
 };
 
 function modelUrlFor(model){
@@ -269,6 +270,9 @@ function modelUrlFor(model){
   if(model.substance) q.push('substance=' + encodeURIComponent(model.substance));
   if(model.start)     q.push('start='     + encodeURIComponent(model.start));
   if(model.name)      q.push('name='      + encodeURIComponent(model.name));
+  if(model.mode)      q.push('mode='      + encodeURIComponent(model.mode));
+  if(model.cells)     q.push('cells='     + encodeURIComponent(model.cells));
+  if(model.closed === false || model.closed === 'false') q.push('closed=0');
   q.push('lang=' + encodeURIComponent(LANG === 'both' ? 'english' : LANG));
   return base + '?' + q.join('&');
 }
@@ -422,16 +426,28 @@ async function buildLesson(){
     + '  say_ta — the Tamil version, or "" if not needed\n'
     + '  note   — one short line for the side notes panel, or ""\n'
     + '  model  — OPTIONAL. Include ONLY where a working 3D model genuinely\n'
-    + '           teaches the step better than words. One available engine:\n'
-    + '             {"engine":"particles","substance":"water","start":"solid"}\n'
-    + '           It shows particles held in a lattice, loosening into a liquid,\n'
-    + '           then flying free as a gas, with a heat slider the teacher drags.\n'
-    + '           substance: "water" (labels it Ice/Water/Steam) or "generic".\n'
-    + '           start: "solid", "liquid" or "gas".\n'
-    + '           Use it ONLY for states of matter, melting, boiling, evaporation,\n'
-    + '           particle arrangement, or how a solute spreads through a solvent.\n'
-    + '           Use it at most twice in a lesson, at the moment the class should\n'
-    + '           SEE the idea. Omit "model" entirely on every other step.\n'
+    + '           teaches the step better than words. Two engines exist:\n\n'
+    + '           {"engine":"particles","substance":"water","start":"solid"}\n'
+    + '             Particles held in a lattice, loosening into a liquid, then\n'
+    + '             flying free as a gas, with a heat slider the teacher drags.\n'
+    + '             substance: "water" (labels it Ice/Water/Steam) or "generic".\n'
+    + '             start: "solid", "liquid" or "gas".\n'
+    + '             ONLY for states of matter, melting, boiling, evaporation,\n'
+    + '             particle arrangement, or a solute spreading through a solvent.\n\n'
+    + '           {"engine":"circuit","mode":"simple","cells":1}\n'
+    + '             A working circuit. Current runs as moving dots, the bulb\n'
+    + '             lights, and the teacher opens the switch or adds cells.\n'
+    + '             mode: "simple"   one cell, one bulb, one switch\n'
+    + '                   "series"   two bulbs sharing one path, both dimmer\n'
+    + '                   "parallel" two paths, both bulbs stay bright\n'
+    + '                   "material" a gap the teacher fills with copper, plastic,\n'
+    + '                              iron, rubber or pencil lead to test conducting\n'
+    + '             cells: 1, 2 or 3. Add "closed": false to start with the\n'
+    + '             switch open, which is useful for asking why nothing happens.\n'
+    + '             ONLY for electric circuits, closed and open circuits, cells,\n'
+    + '             switches, bulbs, conductors and insulators, series and parallel.\n\n'
+    + '           Use models at most twice in a lesson, at the moment the class\n'
+    + '           should SEE the idea. Omit "model" entirely on every other step.\n'
     + '           When a step has a model, keep board lines to 2 short lines: the\n'
     + '           class should watch the model, not read.\n\n'
     + 'Return ONLY a JSON array. Start with [ and end with ].';
@@ -471,7 +487,10 @@ async function buildLesson(){
         engine:    String(o.model.engine || ''),
         substance: String(o.model.substance || ''),
         start:     String(o.model.start || ''),
-        name:      String(o.model.name || '')
+        name:      String(o.model.name || ''),
+        mode:      String(o.model.mode || ''),
+        cells:     o.model.cells ? String(o.model.cells) : '',
+        closed:    (o.model.closed === false) ? false : true
       } : null
     });
   });
