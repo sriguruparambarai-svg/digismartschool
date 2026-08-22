@@ -162,7 +162,7 @@ var switchBar, switchPivot, matBlock;
 var current = 0;       // 0..1, how hard the current is flowing
 var shownCurrent = 0;  // eased, so the class sees it build not snap
 
-var rotY = 0, rotX = 0.18, dragging = false, lastX = 0, lastY = 0;
+var rotY = 0, rotX = 0, dragging = false, lastX = 0, lastY = 0;
 
 var WIRE_COL = 0x9AA5B1, DOT_COL = 0xf5e87a;
 
@@ -174,20 +174,27 @@ function V(x, y){ return new THREE.Vector3(x, y, 0); }
    clever generator, and a wrong circuit on a projector is unforgivable. */
 function layout(){
   var L = -4.6, R = 4.6, T = 2.5, B = -2.5;
+  var BG = 0.74;   // half the gap a bulb sits in
+  var CG = 0.95;   // half the gap a cell sits in
+  var SG = 0.78;   // half the gap a switch sits in
 
   if(MODE === 'parallel'){
     return {
-      paths: [
-        // outer loop: cell along the bottom, up both sides
-        { pts:[V(0,B), V(R,B), V(R,0)], share:1 },
-        { pts:[V(L,0), V(L,B), V(0,B)], share:1 },
-        // branch one, across the top
-        { pts:[V(R,0), V(R,T), V(0,T), V(L,T), V(L,0)], share:0.5 },
-        // branch two, straight across the middle
-        { pts:[V(R,0), V(0,0), V(L,0)], share:0.5 }
+      // Two loops sharing the bottom wire. The dots double up along the
+      // shared part, which is exactly right: more current flows there.
+      flow: [
+        { pts:[V(L,B), V(R,B), V(R,T), V(L,T), V(L,B)], share:1 },
+        { pts:[V(L,B), V(R,B), V(R,0), V(L,0), V(L,B)], share:1 }
+      ],
+      wires: [
+        [V(L,B), V(-CG,B)], [V(CG,B), V(R,B)],
+        [V(R,B), V(R,-2.08)], [V(R,-0.52), V(R,T)],
+        [V(R,T), V(BG,T)],  [V(-BG,T), V(L,T)],
+        [V(R,0), V(BG,0)],  [V(-BG,0), V(L,0)],
+        [V(L,T), V(L,B)]
       ],
       bulbs: [ { at:V(0,T), share:1 }, { at:V(0,0), share:1 } ],
-      sw:    { at:V(R,-1.3), seg:0 },
+      sw:    V(R,-1.3),
       cell:  V(0,B),
       title: W.parallelT, sub: W.parallelSub
     };
@@ -195,30 +202,49 @@ function layout(){
 
   if(MODE === 'series'){
     return {
-      paths: [ { pts:[V(0,B), V(R,B), V(R,T), V(1.7,T), V(-1.7,T), V(L,T), V(L,B), V(0,B)], share:1 } ],
-      bulbs: [ { at:V(1.7,T), share:0.5 }, { at:V(-1.7,T), share:0.5 } ],
-      sw:    { at:V(R,0), seg:0 },
+      flow: [ { pts:[V(L,B), V(R,B), V(R,T), V(L,T), V(L,B)], share:1 } ],
+      wires: [
+        [V(L,B), V(-CG,B)], [V(CG,B), V(R,B)],
+        [V(R,B), V(R,-SG)], [V(R,SG), V(R,T)],
+        [V(R,T), V(1.8+BG,T)], [V(1.8-BG,T), V(-1.8+BG,T)], [V(-1.8-BG,T), V(L,T)],
+        [V(L,T), V(L,B)]
+      ],
+      bulbs: [ { at:V(1.8,T), share:0.5 }, { at:V(-1.8,T), share:0.5 } ],
+      sw:    V(R,0),
       cell:  V(0,B),
       title: W.seriesT, sub: W.seriesSub
     };
   }
 
   if(MODE === 'material'){
+    var MX = -1.5, MW = 1.15;   // the test block and its half-width
+    var CX = 2.2;
     return {
-      paths: [ { pts:[V(0,B), V(R,B), V(R,T), V(0,T), V(L,T), V(L,B), V(-1.6,B)], share:1 },
-               { pts:[V(1.6,B), V(0,B)], share:1 } ],
+      flow: [ { pts:[V(L,B), V(R,B), V(R,T), V(L,T), V(L,B)], share:1 } ],
+      wires: [
+        [V(L,B), V(MX-MW,B)], [V(MX+MW,B), V(CX-CG,B)], [V(CX+CG,B), V(R,B)],
+        [V(R,B), V(R,T)],
+        [V(R,T), V(BG,T)], [V(-BG,T), V(L,T)],
+        [V(L,T), V(L,B)]
+      ],
       bulbs: [ { at:V(0,T), share:1 } ],
       sw:    null,
-      cell:  V(2.9,B),
-      gap:   V(0,B),
+      cell:  V(CX,B),
+      gap:   V(MX,B),
       title: W.matT, sub: ''
     };
   }
 
   return {
-    paths: [ { pts:[V(0,B), V(R,B), V(R,T), V(0,T), V(L,T), V(L,B), V(0,B)], share:1 } ],
+    flow: [ { pts:[V(L,B), V(R,B), V(R,T), V(L,T), V(L,B)], share:1 } ],
+    wires: [
+      [V(L,B), V(-CG,B)], [V(CG,B), V(R,B)],
+      [V(R,B), V(R,-SG)], [V(R,SG), V(R,T)],
+      [V(R,T), V(BG,T)], [V(-BG,T), V(L,T)],
+      [V(L,T), V(L,B)]
+    ],
     bulbs: [ { at:V(0,T), share:1 } ],
-    sw:    { at:V(R,0), seg:0 },
+    sw:    V(R,0),
     cell:  V(0,B),
     title: '', sub: ''
   };
@@ -241,7 +267,8 @@ function init(){
   root = new THREE.Group();
   scene.add(root);
 
-  LAY.paths.forEach(buildWire);
+  LAY.wires.forEach(buildWireRun);
+  LAY.flow.forEach(buildFlow);
   LAY.bulbs.forEach(buildBulb);
   buildCell(LAY.cell);
   if(LAY.sw)  buildSwitch(LAY.sw.at);
@@ -260,19 +287,48 @@ function init(){
   animate();
 }
 
-function buildWire(p){
-  var curve = new THREE.CatmullRomCurve3(p.pts, false, 'catmullrom', 0.02);
-  var tube = new THREE.Mesh(
-    new THREE.TubeGeometry(curve, 90, 0.09, 8, false),
-    new THREE.MeshStandardMaterial({ color:WIRE_COL, roughness:0.5, metalness:0.6 })
-  );
-  root.add(tube);
+/* A wire run is a straight length of metal. Drawing each run separately
+   with a rounded joint at every corner keeps the corners square, the way
+   a circuit is drawn in every textbook. The earlier smoothed curve bent
+   the corners and pulled the whole shape crooked. */
+function buildWireRun(seg){
+  var a = seg[0], b = seg[1];
+  var dir = new THREE.Vector3().subVectors(b, a);
+  var len = dir.length();
+  if(len < 0.001) return;
 
-  // The moving dots ARE the lesson. Everything else is scenery.
+  var mesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.10, 0.10, len, 10),
+    new THREE.MeshStandardMaterial({ color:WIRE_COL, roughness:0.42, metalness:0.72 })
+  );
+  mesh.position.copy(a).add(b).multiplyScalar(0.5);
+  mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir.clone().normalize());
+  root.add(mesh);
+
+  // A small ball at each end hides the joint where two runs meet.
+  var jointGeo = new THREE.SphereGeometry(0.10, 10, 8);
+  var jointMat = new THREE.MeshStandardMaterial({ color:WIRE_COL, roughness:0.42, metalness:0.72 });
+  [a, b].forEach(function(pt){
+    var j = new THREE.Mesh(jointGeo, jointMat);
+    j.position.copy(pt);
+    root.add(j);
+  });
+}
+
+/* The dots follow the full loop, straight from corner to corner — no
+   smoothing, so they turn sharply exactly where the wire does. */
+function buildFlow(p){
+  var pts = p.pts;
+  var cum = [0], total = 0;
+  for(var i = 1; i < pts.length; i++){
+    total += pts[i].distanceTo(pts[i-1]);
+    cum.push(total);
+  }
+
   var dots = [];
-  var n = Math.max(6, Math.round(curve.getLength() * 1.5));
-  var geo = new THREE.SphereGeometry(0.15, 10, 8);
-  for(var i = 0; i < n; i++){
+  var n = Math.max(8, Math.round(total * 1.15));
+  var geo = new THREE.SphereGeometry(0.155, 10, 8);
+  for(var k = 0; k < n; k++){
     var m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
       color:DOT_COL, emissive:DOT_COL, emissiveIntensity:0.9, roughness:0.3
     }));
@@ -280,79 +336,144 @@ function buildWire(p){
     root.add(m);
     dots.push(m);
   }
-  paths.push({ curve:curve, dots:dots, share:(p.share == null ? 1 : p.share), offset:0 });
+  paths.push({ pts:pts, cum:cum, total:total, dots:dots,
+               share:(p.share == null ? 1 : p.share), offset:0 });
 }
 
+/* Where along the loop is fraction t? */
+function flowPointAt(p, t){
+  var d = ((t % 1) + 1) % 1 * p.total;
+  for(var i = 1; i < p.cum.length; i++){
+    if(d <= p.cum[i]){
+      var seg = p.cum[i] - p.cum[i-1];
+      var f = seg > 0 ? (d - p.cum[i-1]) / seg : 0;
+      return new THREE.Vector3().lerpVectors(p.pts[i-1], p.pts[i], f);
+    }
+  }
+  return p.pts[p.pts.length - 1].clone();
+}
+
+/* The bulb sits IN the wire, centred on the line, the way the symbol is
+   drawn in the book — a circle on the wire. It used to hang above the
+   wire, which read as a lamp floating in space. The filament inside is
+   what actually glows, so a child sees WHERE the light comes from. */
 function buildBulb(b){
   var g = new THREE.Group();
   g.position.copy(b.at);
 
   var glass = new THREE.Mesh(
-    new THREE.SphereGeometry(0.62, 22, 18),
+    new THREE.SphereGeometry(0.66, 24, 18),
     new THREE.MeshStandardMaterial({
-      color:0xfff4cc, emissive:0xffd24a, emissiveIntensity:0,
-      roughness:0.18, metalness:0.05, transparent:true, opacity:0.92
+      color:0xdfe8ee, emissive:0xffd24a, emissiveIntensity:0,
+      roughness:0.12, metalness:0.02, transparent:true, opacity:0.42
     })
   );
   g.add(glass);
 
-  var base = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.26, 0.3, 0.42, 14),
-    new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.45, metalness:0.7 })
+  // Filament: a small coil across the middle. This is the part that lights.
+  var fil = new THREE.Mesh(
+    new THREE.TorusGeometry(0.2, 0.045, 8, 20),
+    new THREE.MeshStandardMaterial({
+      color:0x8a7a55, emissive:0xffc94a, emissiveIntensity:0, roughness:0.4
+    })
   );
-  base.position.y = -0.72;
-  g.add(base);
+  fil.rotation.y = Math.PI / 2;
+  g.add(fil);
 
-  var light = new THREE.PointLight(0xffd24a, 0, 9);
+  // Metal caps where the wire enters each side.
+  var capMat = new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.4, metalness:0.75 });
+  [-1, 1].forEach(function(s){
+    var cap = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 0.2, 12), capMat);
+    cap.rotation.z = Math.PI / 2;
+    cap.position.x = s * 0.68;
+    g.add(cap);
+  });
+
+  var light = new THREE.PointLight(0xffd24a, 0, 10);
   g.add(light);
 
   root.add(g);
-  bulbs.push({ glass:glass, light:light, share:(b.share == null ? 1 : b.share) });
+  bulbs.push({ glass:glass, fil:fil, light:light, share:(b.share == null ? 1 : b.share) });
 }
 
+/* A cell a child recognises: dark body, gold cap at the plus end, and
+   a plus and a minus sign built from bars so no font is needed. */
 function buildCell(at){
   var g = new THREE.Group();
   g.position.copy(at);
+
   var body = new THREE.Mesh(
-    new THREE.BoxGeometry(1.7, 0.72, 0.5),
-    new THREE.MeshStandardMaterial({ color:0x6B1A1A, roughness:0.55, metalness:0.2 })
+    new THREE.CylinderGeometry(0.42, 0.42, 1.5, 20),
+    new THREE.MeshStandardMaterial({ color:0x6B1A1A, roughness:0.5, metalness:0.25 })
   );
+  body.rotation.z = Math.PI / 2;
   g.add(body);
-  var cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.12, 0.12, 0.2, 10),
-    new THREE.MeshStandardMaterial({ color:0xC9962A, roughness:0.35, metalness:0.8 })
+
+  var band = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.44, 0.44, 0.18, 20),
+    new THREE.MeshStandardMaterial({ color:0xC9962A, roughness:0.35, metalness:0.7 })
   );
-  cap.rotation.z = Math.PI / 2;
-  cap.position.x = 0.94;
-  g.add(cap);
+  band.rotation.z = Math.PI / 2;
+  band.position.x = 0.5;
+  g.add(band);
+
+  // plus terminal
+  var nub = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.16, 0.16, 0.22, 12),
+    new THREE.MeshStandardMaterial({ color:0xC9962A, roughness:0.3, metalness:0.85 })
+  );
+  nub.rotation.z = Math.PI / 2;
+  nub.position.x = 0.86;
+  g.add(nub);
+
+  var signMat = new THREE.MeshStandardMaterial({
+    color:0xfff2d0, emissive:0xfff2d0, emissiveIntensity:0.55, roughness:0.4
+  });
+  var bar = function(w, h, x, y, z){
+    var m = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.06), signMat);
+    m.position.set(x, y, z);
+    return m;
+  };
+  g.add(bar(0.32, 0.09, 0.30, 0, 0.43));   // plus, across
+  g.add(bar(0.09, 0.32, 0.30, 0, 0.43));   // plus, up
+  g.add(bar(0.32, 0.09, -0.42, 0, 0.43));  // minus
+
   root.add(g);
 }
 
+/* Switch: a lever hinged at the lower contact. Closed, it bridges the two
+   posts. Open, it swings clear and the gap in the metal is plainly visible
+   — that gap is the entire lesson. */
 function buildSwitch(at){
-  switchPivot = new THREE.Group();
-  switchPivot.position.copy(at);
-  switchPivot.position.y += 0.55;
-  switchBar = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 1.15, 0.16),
-    new THREE.MeshStandardMaterial({ color:0xC9962A, roughness:0.35, metalness:0.75 })
-  );
-  switchBar.position.y = -0.55;
-  switchPivot.add(switchBar);
-  root.add(switchPivot);
-
-  [-0.62, 0.62].forEach(function(dy){
-    var k = new THREE.Mesh(
-      new THREE.SphereGeometry(0.16, 12, 10),
-      new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.4, metalness:0.7 })
-    );
+  var postMat = new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.35, metalness:0.8 });
+  var posts = [];
+  [-0.78, 0.78].forEach(function(dy){
+    var k = new THREE.Mesh(new THREE.SphereGeometry(0.19, 14, 12), postMat);
     k.position.set(at.x, at.y + dy, 0);
     root.add(k);
+    posts.push(k);
   });
+
+  switchPivot = new THREE.Group();
+  switchPivot.position.set(at.x, at.y - 0.78, 0.04);   // hinge on the lower post
+  switchBar = new THREE.Mesh(
+    new THREE.BoxGeometry(0.19, 1.56, 0.19),
+    new THREE.MeshStandardMaterial({ color:0xC9962A, roughness:0.3, metalness:0.82 })
+  );
+  switchBar.position.y = 0.78;                          // reaches the upper post
+  switchPivot.add(switchBar);
+  root.add(switchPivot);
 }
 
 function buildMaterial(at){
+  var postMat = new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.35, metalness:0.8 });
+  [-1.15, 1.15].forEach(function(dx){
+    var k = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), postMat);
+    k.position.set(at.x + dx, at.y, 0);
+    root.add(k);
+  });
   matBlock = new THREE.Mesh(
-    new THREE.BoxGeometry(2.6, 0.6, 0.45),
+    new THREE.BoxGeometry(2.0, 0.62, 0.5),
     new THREE.MeshStandardMaterial({ color:MATERIALS[0].colour, roughness:0.6, metalness:0.25 })
   );
   matBlock.position.copy(at);
@@ -365,7 +486,7 @@ function resize(){
   camera.aspect = w / h;
 
   // Frame the whole circuit whatever the screen shape — never cut it off.
-  var needW = 12.4, needH = 8.2;
+  var needW = 12.8, needH = 8.6;
   var vFov = camera.fov * Math.PI / 180;
   var distV = (needH / 2) / Math.tan(vFov / 2);
   var hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
@@ -430,20 +551,18 @@ function animate(){
 
   // Switch bar swings open, leaving a visible gap in the path.
   if(switchPivot){
-    var want = closed ? 0 : -0.62;
-    switchPivot.rotation.z += (want - switchPivot.rotation.z) * 0.16;
+    var want = closed ? 0 : 0.72;   // swings clear, leaving a visible break
+    switchPivot.rotation.z += (want - switchPivot.rotation.z) * 0.15;
   }
 
   // Current dots run round the loop. Speed follows the current, so more
   // cells visibly means faster flow, not just a brighter bulb.
   paths.forEach(function(p){
-    var speed = shownCurrent * p.share * 0.0042;
+    var speed = shownCurrent * p.share * 0.0045;
     p.offset = (p.offset + speed) % 1;
     var n = p.dots.length;
     for(var i = 0; i < n; i++){
-      var t = (p.offset + i / n) % 1;
-      var pt = p.curve.getPointAt(t);
-      p.dots[i].position.copy(pt);
+      p.dots[i].position.copy(flowPointAt(p, p.offset + i / n));
       p.dots[i].visible = shownCurrent > 0.02;
       p.dots[i].material.emissiveIntensity = 0.5 + shownCurrent * 0.9;
     }
@@ -451,8 +570,10 @@ function animate(){
 
   bulbs.forEach(function(b){
     var lit = shownCurrent * b.share;
-    b.glass.material.emissiveIntensity = lit * 2.4;
-    b.light.intensity = lit * 2.6;
+    b.glass.material.emissiveIntensity = lit * 1.5;
+    b.glass.material.opacity = 0.42 + lit * 0.35;
+    b.fil.material.emissiveIntensity = lit * 3.2;   // the filament is what glows
+    b.light.intensity = lit * 2.8;
   });
 
   root.rotation.y = rotY;
