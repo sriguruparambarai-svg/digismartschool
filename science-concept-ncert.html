@@ -538,13 +538,33 @@ function kindClass(kind){
        : kind === 'number' ? 'k-num' : '';
 }
 
-function addNote(cls, text){
+function addNote(cls, text, animate){
   if(!text) return;
   var d = document.createElement('div');
   d.className = 'note-item ' + (cls || '');
+  if(animate === false) d.style.animation = 'none';
   d.textContent = text;
   $('note-list').appendChild(d);
-  $('note-list').scrollTop = $('note-list').scrollHeight;
+}
+
+/* Rebuild the board notes for steps 0..upto.
+   Rebuilding rather than appending means Prev, Next and Replay always
+   leave exactly one copy of each line — a teacher moves back and forth
+   constantly, and duplicated notes look broken on a projector.
+   Only the current step's lines animate in; earlier ones appear settled. */
+function rebuildNotes(upto){
+  var nl = $('note-list');
+  nl.innerHTML = '';
+  addNote('k-title', CHAPTER.chapter_title, false);
+  for(var k = 0; k <= upto && k < STEPS.length; k++){
+    var st = STEPS[k];
+    var fresh = (k === upto);
+    if(modelUrlFor(st.model)){
+      (st.board || []).forEach(function(line){ addNote('', line, fresh); });
+    }
+    if(st.note) addNote(st.kind === 'key' ? 'k-key' : '', st.note, fresh);
+  }
+  nl.scrollTop = nl.scrollHeight;
 }
 
 async function runStep(i){
@@ -570,7 +590,6 @@ async function runStep(i){
       fr.setAttribute('data-url', url);
       fr.src = url;
     }
-    (s.board || []).forEach(function(line){ addNote('', line); });
   } else {
     mw.classList.remove('show');
     $('model-frame').removeAttribute('data-url');
@@ -591,8 +610,7 @@ async function runStep(i){
     });
   }
 
-  if(i === 0){ $('note-list').innerHTML = ''; addNote('k-title', CHAPTER.chapter_title); }
-  if(s.note) addNote(s.kind === 'key' ? 'k-key' : '', s.note);
+  rebuildNotes(i);
 
   await speakStep(s);
   if(my !== SEQ) return;
