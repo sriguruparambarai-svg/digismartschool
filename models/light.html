@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Light — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --gold:#C9962A; --sandal:#E8C99A;
+  --chalk:#f2efe9; --chalk-yellow:#f5e87a; --chalk-blue:#a8d8f0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:transparent;font-family:'Nunito',sans-serif;color:#fff;overflow:hidden;}
+#wrap{height:100%;display:flex;flex-direction:column;}
+#stage{flex:1;min-height:0;position:relative;}
+#stage canvas{display:block;width:100%;height:100%;cursor:grab;}
+#stage canvas:active{cursor:grabbing;}
+
+#state-badge{position:absolute;top:12px;left:14px;pointer-events:none;max-width:72%;}
+#state-name{font-family:'Caveat',cursive;font-size:2.2rem;line-height:1;
+  color:var(--chalk-yellow);text-shadow:0 0 14px rgba(0,0,0,.8);}
+#state-sub{font-family:'Kalam',cursive;font-size:.95rem;color:var(--sandal);
+  text-shadow:0 0 10px rgba(0,0,0,.85);margin-top:3px;line-height:1.35;}
+
+#read-badge{position:absolute;top:12px;right:14px;text-align:center;
+  padding:.45rem .85rem;border-radius:12px;background:rgba(0,0,0,.45);
+  border:1.5px solid rgba(232,201,154,.4);pointer-events:none;min-width:98px;}
+#read-badge .l{font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--sandal);}
+#read-badge .v{font-family:'Caveat',cursive;font-size:1.8rem;color:var(--chalk-yellow);line-height:1.05;}
+
+.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+
+#controls{padding:.7rem .9rem;border-top:1.5px dashed rgba(232,201,154,.28);
+  display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;}
+.pbtn{padding:.5rem .95rem;border-radius:10px;cursor:pointer;font-weight:700;font-size:.9rem;
+  background:rgba(255,255,255,.05);border:1.6px solid rgba(232,201,154,.35);
+  color:var(--sandal);font-family:'Nunito',sans-serif;white-space:nowrap;}
+.pbtn:hover{background:rgba(255,255,255,.13);}
+.pbtn.on{background:var(--maroon);border-color:var(--gold);color:#fff;}
+.sep{width:1px;height:26px;background:rgba(232,201,154,.28);margin:0 .2rem;}
+.lab{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--sandal);opacity:.8;}
+#sl-row{flex:1;min-width:180px;display:flex;align-items:center;gap:.6rem;}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:6px;
+  background:linear-gradient(90deg,#3a5f8f 0%,#f5e87a 100%);outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;
+  border-radius:50%;background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+  background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+
+@media(max-width:640px){
+  #state-name{font-size:1.6rem;}
+  #read-badge .v{font-size:1.35rem;}
+  .pbtn{padding:.42rem .7rem;font-size:.82rem;}
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="stage">
+    <div id="state-badge">
+      <div id="state-name"></div>
+      <div id="state-sub"></div>
+    </div>
+    <div id="read-badge">
+      <div class="l" id="read-lab"></div>
+      <div class="v" id="read-val"></div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <span class="pbtn" id="b-medium">Water</span>
+    <span class="pbtn" id="b-updown">From glass</span>
+    <span class="pbtn" id="b-shape">Concave</span>
+    <span class="sep" id="sl-sep"></span>
+    <span id="sl-row">
+      <span class="lab" id="sl-lab"></span>
+      <input type="range" id="sl" min="0" max="100" value="45">
+    </span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   LIGHT ENGINE — rays you can watch bend
+
+   Every ray here is calculated, never drawn by eye. The reflected
+   ray leaves at the angle the law says. The refracted ray bends by
+   Snell's law, and past the critical angle it stops bending and
+   comes straight back, because that is what really happens. The
+   image through a lens sits where the two construction rays cross,
+   not where it would look tidy.
+
+   That matters: a ray diagram drawn by hand can be wrong and still
+   look convincing, and a child cannot tell the difference.
+
+   Modes:
+     shadow     a lamp, an object and a screen. Slide the object and
+                the shadow grows, because light travels in straight lines.
+     mirror     a plane mirror with the normal drawn in. Change the
+                incoming angle and watch the two angles stay equal.
+     refraction light crossing into water or glass. Send it the other
+                way and past the critical angle it cannot get out.
+     lens       a convex or concave lens with an object. The two standard
+                rays cross where the image forms.
+
+   Embed with URL settings, all optional:
+     ?mode=mirror     shadow | mirror | refraction | lens
+     &lang=english    english | tamil
+
+   Covers: Class 7 Light: Shadows and Reflections, Class 8 Light:
+   Mirrors and Lenses, Class 10 Light: Reflection and Refraction.
+   ══════════════════════════════════════════════════════════════ */
+
+var P = new URLSearchParams(location.search);
+var MODE = (P.get('mode') || 'mirror').toLowerCase();
+var LANG = (P.get('lang') || 'english').toLowerCase();
+if(['shadow','mirror','refraction','lens'].indexOf(MODE) < 0) MODE = 'mirror';
+
+var WORDS = {
+  english: {
+    water:'Water', glass:'Glass', fromAir:'From air', fromGlass:'From glass',
+    convex:'Convex', concave:'Concave',
+    angleL:'Angle', shadowL:'Shadow', imageL:'Image', distanceL:'Distance',
+    objectDist:'Object distance', incoming:'Incoming angle',
+    shadowT:'How a shadow is made',
+    shadowSub:'Light goes only in straight lines, so the object blocks a patch of it',
+    mirrorT:'Reflection in a plane mirror',
+    mirrorSub:'The angle going in equals the angle coming out, measured from the normal',
+    refrT:'Light bending into a new material',
+    refrSub:'Light slows down and bends towards the normal as it enters',
+    refrOutSub:'Coming out it bends away from the normal',
+    tirT:'Total internal reflection',
+    tirSub:'Past the critical angle the light cannot get out at all, so it all reflects back',
+    lensConvexT:'A convex lens', lensConcaveT:'A concave lens',
+    lensConvexSub:'Rays are brought together. Where they cross, the image forms.',
+    lensConcaveSub:'Rays spread apart. The image only seems to come from behind the lens.',
+    real:'Real, upside down', virtual:'Upright, seen through the lens',
+    noImage:'Rays stay parallel', critical:'Critical angle',
+    farAway:'Forms far away,\noff the board'
+  },
+  tamil: {
+    water:'தண்ணீர்', glass:'கண்ணாடி', fromAir:'காற்றில் இருந்து', fromGlass:'கண்ணாடியில் இருந்து',
+    convex:'குவி', concave:'குழி',
+    angleL:'கோணம்', shadowL:'நிழல்', imageL:'பிம்பம்', distanceL:'தூரம்',
+    objectDist:'பொருளின் தூரம்', incoming:'வரும் கோணம்',
+    shadowT:'நிழல் எப்படி உருவாகிறது',
+    shadowSub:'ஒளி நேர்கோட்டில் மட்டுமே செல்கிறது, எனவே பொருள் அதைத் தடுக்கிறது',
+    mirrorT:'சமதள கண்ணாடியில் எதிரொளிப்பு',
+    mirrorSub:'உள்ளே வரும் கோணமும் வெளியே செல்லும் கோணமும் சமம்',
+    refrT:'ஒளி புதிய பொருளில் விலகுதல்',
+    refrSub:'ஒளி மெதுவாகி normal-ஐ நோக்கி விலகுகிறது',
+    refrOutSub:'வெளியே வரும்போது normal-ஐ விட்டு விலகுகிறது',
+    tirT:'முழு அக எதிரொளிப்பு',
+    tirSub:'கிரிட்டிகல் கோணத்தைத் தாண்டினால் ஒளி வெளியே வர முடியாது, முழுவதும் திரும்புகிறது',
+    lensConvexT:'குவி வில்லை', lensConcaveT:'குழி வில்லை',
+    lensConvexSub:'கதிர்கள் ஒன்று சேர்கின்றன. அவை சந்திக்கும் இடத்தில் பிம்பம் உருவாகிறது.',
+    lensConcaveSub:'கதிர்கள் விரிகின்றன. பிம்பம் வில்லைக்குப் பின்னால் இருப்பது போல் தெரிகிறது.',
+    real:'நிஜம், தலைகீழ்', virtual:'நேராக, வில்லை வழியாக',
+    noImage:'கதிர்கள் இணையாகவே', critical:'கிரிட்டிகல் கோணம்',
+    farAway:'மிகத் தொலைவில்,\nபலகைக்கு வெளியே'
+  }
+};
+var W = WORDS[LANG] || WORDS.english;
+
+var RAY = 0xf5e87a, RAY_DIM = 0xC9962A, NORMAL_COL = 0xa8d8f0, GHOST = 0x8fa8b8;
+
+var scene, camera, renderer, root, drawGroup;
+var slider = 45, medium = 'water', fromDense = false, concave = false;
+var rotY = 0, rotX = 0, dragging = false, lastX = 0, lastY = 0;
+
+function $(id){ return document.getElementById(id); }
+function V(x, y, z){ return new THREE.Vector3(x, y, z || 0); }
+function rad(d){ return d * Math.PI / 180; }
+function deg(r){ return r * 180 / Math.PI; }
+
+/* ── Drawing helpers ── */
+function addLine(pts, colour, opacity, dashed){
+  if(pts.length < 2) return;
+  var mat = new THREE.LineBasicMaterial({
+    color:colour, transparent:true, opacity:(opacity == null ? 1 : opacity)
+  });
+  if(!dashed){
+    drawGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+    return;
+  }
+  // Dashes built by hand, so no extra Three.js feature is needed.
+  for(var i = 0; i < pts.length - 1; i++){
+    var a = pts[i], b = pts[i+1];
+    var d = new THREE.Vector3().subVectors(b, a);
+    var len = d.length(), step = 0.34;
+    var n = Math.max(1, Math.floor(len / step));
+    for(var k = 0; k < n; k += 2){
+      var p1 = a.clone().add(d.clone().multiplyScalar(k / n));
+      var p2 = a.clone().add(d.clone().multiplyScalar(Math.min(1, (k + 1) / n)));
+      drawGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints([p1, p2]), mat));
+    }
+  }
+}
+
+function addArrow(at, dir, colour, size){
+  var s = size || 0.34;
+  var m = new THREE.Mesh(
+    new THREE.ConeGeometry(s * 0.42, s, 12),
+    new THREE.MeshStandardMaterial({ color:colour, emissive:colour, emissiveIntensity:0.55, roughness:0.4 })
+  );
+  m.position.copy(at);
+  var ang = Math.atan2(dir.y, dir.x);
+  m.rotation.z = ang - Math.PI / 2;
+  drawGroup.add(m);
+}
+
+function ray(from, to, colour, opacity, arrow){
+  addLine([from, to], colour, opacity);
+  if(arrow !== false){
+    var d = new THREE.Vector3().subVectors(to, from).normalize();
+    var at = from.clone().add(new THREE.Vector3().subVectors(to, from).multiplyScalar(0.58));
+    addArrow(at, d, colour);
+  }
+}
+
+function label(text, at, colour, scale){
+  var cv = document.createElement('canvas');
+  cv.width = 256; cv.height = 128;
+  var g = cv.getContext('2d');
+  g.clearRect(0, 0, 256, 128);
+  g.fillStyle = colour || '#f5e87a';
+  g.font = 'bold 74px Georgia, serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(text, 128, 66);
+  var sp = new THREE.Sprite(new THREE.SpriteMaterial({
+    map:new THREE.CanvasTexture(cv), transparent:true
+  }));
+  sp.position.copy(at);
+  var s = scale || 1;
+  sp.scale.set(1.7 * s, 0.85 * s, 1);
+  drawGroup.add(sp);
+}
+
+function clearDraw(){
+  while(drawGroup.children.length){
+    var c = drawGroup.children.pop();
+    if(c.geometry && c.geometry.dispose) c.geometry.dispose();
+  }
+}
+
+/* ══════════ MODE: SHADOW ══════════
+   A point lamp, a round object, a screen. The shadow is exactly as big
+   as the straight lines say it is: move the object nearer the lamp and
+   it swallows more of the light. */
+function drawShadow(){
+  var srcX = -7.0, scrX = 6.6, R = 0.95;
+  var objX = -4.6 + (slider / 100) * 9.0;
+
+  // Lamp
+  var lamp = new THREE.Mesh(
+    new THREE.SphereGeometry(0.42, 18, 14),
+    new THREE.MeshStandardMaterial({ color:0xfff2c4, emissive:0xffd24a, emissiveIntensity:1.5 })
+  );
+  lamp.position.set(srcX, 0, 0);
+  drawGroup.add(lamp);
+
+  // Screen
+  var screen = new THREE.Mesh(
+    new THREE.BoxGeometry(0.3, 9.2, 0.9),
+    new THREE.MeshStandardMaterial({ color:0xE8DCC4, roughness:0.9 })
+  );
+  screen.position.set(scrX, 0, 0);
+  drawGroup.add(screen);
+
+  // Object
+  var obj = new THREE.Mesh(
+    new THREE.SphereGeometry(R, 22, 16),
+    new THREE.MeshStandardMaterial({ color:0x3d2a18, roughness:0.85 })
+  );
+  obj.position.set(objX, 0, 0);
+  drawGroup.add(obj);
+
+  var d = objX - srcX;                 // lamp to object
+  var D = scrX - srcX;                 // lamp to screen
+  var half = R * D / Math.max(0.4, d); // how tall the shadow is on the screen
+
+  // The shadow itself
+  var sh = new THREE.Mesh(
+    new THREE.BoxGeometry(0.1, Math.min(9.0, half * 2), 0.95),
+    new THREE.MeshStandardMaterial({ color:0x1a1408, roughness:1 })
+  );
+  sh.position.set(scrX - 0.22, 0, 0);
+  drawGroup.add(sh);
+
+  // Rays. Ones that clear the object carry on; ones that hit it stop dead.
+  for(var i = -7; i <= 7; i++){
+    var yEnd = i * 0.62;
+    var dir = new THREE.Vector3(scrX - srcX, yEnd, 0).normalize();
+    var tObj = (objX - srcX) / dir.x;
+    var yAtObj = dir.y * tObj;
+    var blocked = Math.abs(yAtObj) <= R;
+    if(blocked){
+      addLine([V(srcX, 0), V(srcX + dir.x * tObj * 0.96, dir.y * tObj * 0.96)], RAY, 0.9);
+    } else {
+      addLine([V(srcX, 0), V(scrX - 0.3, yEnd)], RAY, 0.55);
+    }
+  }
+
+  // The two rays that just graze the object mark the shadow's edge.
+  [1, -1].forEach(function(s){
+    addLine([V(srcX, 0), V(scrX - 0.3, s * half)], 0xff8a3d, 0.95);
+  });
+
+  return { lab:W.shadowL, val:(half * 2).toFixed(1) + ' units',
+           title:W.shadowT, sub:W.shadowSub };
+}
+
+/* ══════════ MODE: MIRROR ══════════
+   The reflected ray is placed at the angle the law gives, so the two
+   angles are equal because they are computed to be, not because the
+   picture was drawn that way. */
+function drawMirror(){
+  var i = 8 + (slider / 100) * 72;      // angle from the normal
+  var hitY = -2.2, L = 6.2;
+
+  var mirror = new THREE.Mesh(
+    new THREE.BoxGeometry(13, 0.26, 1.1),
+    new THREE.MeshStandardMaterial({ color:0xB8C4CC, roughness:0.08, metalness:0.95 })
+  );
+  mirror.position.set(0, hitY - 0.13, 0);
+  drawGroup.add(mirror);
+
+  // Hatching behind the mirror, the way the book draws it.
+  for(var x = -6.2; x <= 6.2; x += 0.62){
+    addLine([V(x, hitY - 0.26), V(x - 0.42, hitY - 0.85)], 0x8fa8b8, 0.7);
+  }
+
+  addLine([V(0, hitY), V(0, hitY + 5.4)], NORMAL_COL, 0.85, true);
+  label('N', V(0.42, hitY + 5.2), '#a8d8f0', 0.8);
+
+  var inFrom = V(-Math.sin(rad(i)) * L, hitY + Math.cos(rad(i)) * L);
+  ray(inFrom, V(0, hitY), RAY, 1);
+
+  var outTo = V(Math.sin(rad(i)) * L, hitY + Math.cos(rad(i)) * L);
+  ray(V(0, hitY), outTo, RAY, 1);
+
+  // Angle arcs, drawn from the normal out to each ray.
+  [[-1, 'i'], [1, 'r']].forEach(function(s){
+    var pts = [], r0 = 1.5;
+    for(var k = 0; k <= 22; k++){
+      var a = (k / 22) * rad(i);
+      pts.push(V(s[0] * Math.sin(a) * r0, hitY + Math.cos(a) * r0));
+    }
+    addLine(pts, 0xa8e6a8, 0.9);
+    var mid = rad(i) / 2;
+    label(s[1], V(s[0] * Math.sin(mid) * (r0 + 0.62), hitY + Math.cos(mid) * (r0 + 0.62)),
+          '#a8e6a8', 0.72);
+  });
+
+  return { lab:W.angleL, val:'i = ' + Math.round(i) + '°\nr = ' + Math.round(i) + '°',
+           title:W.mirrorT, sub:W.mirrorSub };
+}
+
+/* ══════════ MODE: REFRACTION ══════════
+   Snell's law, worked out honestly. Send the light up out of the glass
+   and past the critical angle there is no refracted ray at all — the
+   maths says so, and the picture follows the maths. */
+function drawRefraction(){
+  var n1 = 1.0, n2 = (medium === 'glass') ? 1.5 : 1.33;
+  if(fromDense){ var t = n1; n1 = n2; n2 = t; }
+
+  var i = 5 + (slider / 100) * 80;
+  var L = 6.0;
+
+  // The denser material as a slab
+  var slab = new THREE.Mesh(
+    new THREE.BoxGeometry(15.5, 5.0, 1.2),
+    new THREE.MeshStandardMaterial({
+      color:(medium === 'glass') ? 0xa8c4d8 : 0x6fb3d8,
+      transparent:true, opacity:0.34, roughness:0.15
+    })
+  );
+  slab.position.set(0, -2.5, 0);
+  drawGroup.add(slab);
+  addLine([V(-7.75, 0), V(7.75, 0)], 0xE8C99A, 0.8);
+
+  addLine([V(0, -4.6), V(0, 4.6)], NORMAL_COL, 0.8, true);
+  label('N', V(0.42, 4.3), '#a8d8f0', 0.75);
+
+  var sgn = fromDense ? -1 : 1;         // which side the light starts on
+  var inFrom = V(-Math.sin(rad(i)) * L, sgn * Math.cos(rad(i)) * L);
+  ray(inFrom, V(0, 0), RAY, 1);
+
+  var sinR = n1 * Math.sin(rad(i)) / n2;
+  var tir = (sinR > 1);
+
+  if(!tir){
+    var r = Math.asin(sinR);
+    var outTo = V(Math.sin(r) * L, -sgn * Math.cos(r) * L);
+    ray(V(0, 0), outTo, RAY, 1);
+  }
+
+  // Some light always bounces back; past the critical angle, all of it does.
+  var refTo = V(Math.sin(rad(i)) * L, sgn * Math.cos(rad(i)) * L);
+  ray(V(0, 0), refTo, tir ? RAY : RAY_DIM, tir ? 1 : 0.4);
+
+  var crit = (n1 > n2) ? deg(Math.asin(n2 / n1)) : null;
+  var val, title, sub;
+  if(tir){
+    val = 'i = ' + Math.round(i) + '°\n' + W.critical + ' ' + Math.round(crit) + '°';
+    title = W.tirT; sub = W.tirSub;
+  } else {
+    val = 'i = ' + Math.round(i) + '°\nr = ' + Math.round(deg(Math.asin(sinR))) + '°';
+    title = W.refrT; sub = fromDense ? W.refrOutSub : W.refrSub;
+  }
+  return { lab:W.angleL, val:val, title:title, sub:sub };
+}
+
+/* ══════════ MODE: LENS ══════════
+   The image sits where the two standard rays actually cross, found by
+   the lens equation. If the maths gives a virtual image, the rays are
+   traced back as dashed lines, exactly as the book does it. */
+function drawLens(){
+  var f = concave ? -3.2 : 3.2;
+  var u = 2.0 + (slider / 100) * 7.0;   // how far the object stands from the lens
+  var h = 1.5;
+
+  addLine([V(-8.4, 0), V(8.4, 0)], 0x8fa8b8, 0.55);
+
+  // Lens body
+  var lens = new THREE.Mesh(
+    new THREE.SphereGeometry(2.6, 26, 20),
+    new THREE.MeshStandardMaterial({
+      color:0xbfe0f0, transparent:true, opacity:0.42, roughness:0.1, metalness:0.05
+    })
+  );
+  lens.scale.set(concave ? 0.10 : 0.22, 1, 0.22);
+  drawGroup.add(lens);
+  addLine([V(0, -2.6), V(0, 2.6)], 0xbfe0f0, 0.75);
+
+  // Focus marks
+  [1, -1].forEach(function(s){
+    var fx = s * Math.abs(f);
+    addLine([V(fx, -0.28), V(fx, 0.28)], 0xa8e6a8, 0.95);
+    label('F', V(fx, -0.78), '#a8e6a8', 0.68);
+    addLine([V(s * Math.abs(f) * 2, -0.24), V(s * Math.abs(f) * 2, 0.24)], 0xa8e6a8, 0.6);
+    label('2F', V(s * Math.abs(f) * 2, -0.78), '#a8e6a8', 0.6);
+  });
+
+  // Object
+  var ox = -u;
+  ray(V(ox, 0), V(ox, h), 0xff8a3d, 1);
+
+  // Where does the image land? 1/v = 1/f - 1/u  (u measured as positive here)
+  var denom = (u - f);
+  var v = (Math.abs(denom) < 0.06) ? null : (u * f) / denom;
+  var hi = (v === null) ? null : -h * v / u;
+
+  // Ray one: in parallel to the axis, then away through F.
+  addLine([V(ox, h), V(0, h)], RAY, 1);
+  addArrow(V(ox / 2, h), V(1, 0, 0), RAY);
+  if(concave){
+    // Spreads out, and seems to come from F on the near side.
+    var dirC = new THREE.Vector3(0 - (-Math.abs(f)), h - 0).normalize();
+    addLine([V(0, h), V(0, h).add(dirC.clone().multiplyScalar(8))], RAY, 1);
+    addLine([V(-Math.abs(f), 0), V(0, h)], GHOST, 0.55, true);
+  } else {
+    var dirV = new THREE.Vector3(Math.abs(f) - 0, 0 - h, 0).normalize();
+    addLine([V(0, h), V(0, h).add(dirV.clone().multiplyScalar(9))], RAY, 1);
+  }
+
+  // Ray two: straight through the middle of the lens, undeviated.
+  var dir2 = new THREE.Vector3(0 - ox, 0 - h, 0).normalize();
+  addLine([V(ox, h), V(0, 0).add(dir2.clone().multiplyScalar(8.6))], RAY, 1);
+  addArrow(V(ox / 2, h / 2), dir2, RAY);
+
+  var lab, val, sub;
+  if(v === null){
+    val = W.noImage; sub = W.lensConvexSub;
+  } else if(Math.abs(v) > 8.6){
+    // Correct, but it lands off the board. Better to say where it went.
+    val = W.farAway;
+    sub = W.lensConvexSub;
+  } else if(v > 0 && !concave){
+    ray(V(v, 0), V(v, hi), 0x8fe6c8, 1);              // real image, upside down
+    val = W.real + '\n' + Math.abs(hi).toFixed(1) + ' tall';
+    sub = W.lensConvexSub;
+  } else {
+    var vx = v;                                        // virtual image, same side
+    addLine([V(vx, 0), V(vx, hi)], 0x8fe6c8, 0.85, true);
+    addLine([V(ox, h), V(vx, hi)], GHOST, 0.4, true);
+    val = W.virtual + '\n' + Math.abs(hi).toFixed(1) + ' tall';
+    sub = concave ? W.lensConcaveSub : W.lensConvexSub;
+  }
+
+  return { lab:W.imageL, val:val,
+           title:concave ? W.lensConcaveT : W.lensConvexT, sub:sub };
+}
+
+/* ── Redraw everything ── */
+function rebuild(){
+  clearDraw();
+  var info = MODE === 'shadow' ? drawShadow()
+           : MODE === 'refraction' ? drawRefraction()
+           : MODE === 'lens' ? drawLens()
+           : drawMirror();
+
+  var nm = $('state-name'), sb = $('state-sub');
+  nm.textContent = info.title; sb.textContent = info.sub;
+  nm.className = (LANG === 'tamil') ? 'tamil' : '';
+  sb.className = (LANG === 'tamil') ? 'tamil' : '';
+
+  $('read-lab').textContent = info.lab;
+  var rv = $('read-val');
+  rv.textContent = info.val;
+  rv.style.whiteSpace = 'pre-line';
+  rv.className = 'v' + (LANG === 'tamil' ? ' tamil' : '');
+
+  $('b-medium').textContent = (medium === 'glass') ? W.glass : W.water;
+  $('b-updown').textContent = fromDense ? W.fromGlass : W.fromAir;
+  $('b-shape').textContent  = concave ? W.concave : W.convex;
+  $('b-updown').classList.toggle('on', fromDense);
+  $('b-shape').classList.toggle('on', concave);
+}
+
+function init(){
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  $('stage').appendChild(renderer.domElement);
+
+  root = new THREE.Group(); scene.add(root);
+  drawGroup = new THREE.Group(); root.add(drawGroup);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+  var key = new THREE.DirectionalLight(0xffffff, 0.75);
+  key.position.set(3, 6, 10); scene.add(key);
+
+  resize();
+  window.addEventListener('resize', resize);
+  wireControls();
+  rebuild();
+  animate();
+}
+
+function resize(){
+  var stage = $('stage');
+  var w = stage.clientWidth || 640, h = stage.clientHeight || 420;
+  camera.aspect = w / h;
+  var needW = 18.5, needH = 11.0;
+  var vFov = camera.fov * Math.PI / 180;
+  var distV = (needH / 2) / Math.tan(vFov / 2);
+  var hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  var distH = (needW / 2) / Math.tan(hFov / 2);
+  camera.position.set(0, 0, Math.max(distV, distH));
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+  root.rotation.y = rotY;
+  root.rotation.x = rotX;
+  renderer.render(scene, camera);
+}
+
+function wireControls(){
+  var isRefr = (MODE === 'refraction'), isLens = (MODE === 'lens');
+  $('b-medium').style.display = isRefr ? '' : 'none';
+  $('b-updown').style.display = isRefr ? '' : 'none';
+  $('b-shape').style.display  = isLens ? '' : 'none';
+  $('sl-sep').style.display   = (isRefr || isLens) ? '' : 'none';
+
+  $('sl-lab').textContent = (MODE === 'shadow') ? W.distanceL
+                          : isLens ? W.objectDist : W.incoming;
+  if(LANG === 'tamil'){
+    ['b-medium','b-updown','b-shape'].forEach(function(id){ $(id).classList.add('tamil'); });
+  }
+
+  $('b-medium').addEventListener('click', function(){
+    medium = (medium === 'water') ? 'glass' : 'water'; rebuild();
+  });
+  $('b-updown').addEventListener('click', function(){ fromDense = !fromDense; rebuild(); });
+  $('b-shape').addEventListener('click', function(){ concave = !concave; rebuild(); });
+  $('sl').addEventListener('input', function(){
+    slider = parseInt(this.value, 10); rebuild();
+  });
+
+  var cv = renderer.domElement;
+  function down(x, y){ dragging = true; lastX = x; lastY = y; }
+  function move(x, y){
+    if(!dragging) return;
+    rotY += (x - lastX) * 0.005;
+    rotX += (y - lastY) * 0.0035;
+    rotY = Math.max(-0.7, Math.min(0.7, rotY));
+    rotX = Math.max(-0.6, Math.min(0.6, rotX));
+    lastX = x; lastY = y;
+  }
+  function up(){ dragging = false; }
+  cv.addEventListener('mousedown', function(e){ down(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', function(e){ move(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', up);
+  cv.addEventListener('touchstart', function(e){
+    if(e.touches[0]) down(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  cv.addEventListener('touchmove', function(e){
+    if(e.touches[0]) move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  window.addEventListener('touchend', up);
+}
+
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(!d || d.kind !== 'light') return;
+  if(typeof d.angle === 'number')   slider = Math.max(0, Math.min(100, d.angle));
+  if(typeof d.concave === 'boolean') concave = d.concave;
+  if(d.medium) medium = String(d.medium);
+  rebuild();
+});
+
+// Opened directly rather than inside a lesson? Give it a board to sit on.
+if(window.self === window.top){
+  document.body.style.background =
+    'radial-gradient(ellipse at center, #1b3d1b 0%, #0e1f0e 75%)';
+}
+
+if(window.THREE) init();
+else $('stage').innerHTML =
+  '<div style="padding:2rem;text-align:center;color:#E8C99A;font-family:Kalam,cursive">'
+  + '3D could not load. Please check the internet connection.</div>';
+</script>
+</body>
+</html>
