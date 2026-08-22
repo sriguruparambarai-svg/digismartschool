@@ -88,6 +88,13 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
   color:var(--chalk-yellow);}
 @keyframes noteIn{to{opacity:1;transform:none;}}
 
+/* 3D model frame */
+#model-wrap{flex:1;min-height:0;display:none;flex-direction:column;}
+#model-wrap.show{display:flex;}
+#model-frame{flex:1;width:100%;border:0;min-height:0;}
+#model-title{font-family:'Caveat',cursive;font-size:clamp(1.5rem,2.6vw,2.2rem);
+  color:var(--chalk-yellow);margin-bottom:.5rem;line-height:1.15;}
+
 /* Notes panel */
 .notes{flex:1;min-width:270px;max-width:420px;min-height:0;background:rgba(0,0,0,.28);
   border:2.5px solid #3b2a12;border-radius:16px;padding:14px;display:flex;flex-direction:column;}
@@ -176,6 +183,11 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
   <div class="main">
     <div class="stage-wrap">
       <div id="big"></div>
+      <div id="model-wrap">
+        <div id="model-title"></div>
+        <iframe id="model-frame" title="3D model"
+                allow="accelerometer; gyroscope" loading="lazy"></iframe>
+      </div>
     </div>
     <div class="notes">
       <h3>On the board</h3>
@@ -223,7 +235,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
    same way the Maths page does.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v1';          // bump to force every lesson to regenerate
+var LESSON_VER = 'v2';          // v2: 3D model engines available to lessons
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -237,6 +249,29 @@ function $(id){ return document.getElementById(id); }
    Science chapter is AI-taught. Fill this in as hand-built Science
    lessons are made, the same way Maths does it. */
 var RICH_MAP = {};   // no hand-built Science lessons yet
+
+/* ── 3D model engines ──
+   Each engine is a standalone page under models/ that takes its
+   settings from the URL. The AI names an engine for a step and gives
+   the settings; it never writes 3D code itself, so a lesson cannot
+   break the model. Unknown engine names are ignored and the step
+   falls back to the written board, so nothing ever shows an error
+   in front of a class. */
+var ENGINES = {
+  particles: 'models/particles.html'
+};
+
+function modelUrlFor(model){
+  if(!model || !model.engine) return null;
+  var base = ENGINES[String(model.engine).toLowerCase()];
+  if(!base) return null;
+  var q = [];
+  if(model.substance) q.push('substance=' + encodeURIComponent(model.substance));
+  if(model.start)     q.push('start='     + encodeURIComponent(model.start));
+  if(model.name)      q.push('name='      + encodeURIComponent(model.name));
+  q.push('lang=' + encodeURIComponent(LANG === 'both' ? 'english' : LANG));
+  return base + '?' + q.join('&');
+}
 
 /* Classes 3-5 are EVS, Classes 6-10 are Science. */
 function subjectFor(cls){
@@ -385,7 +420,20 @@ async function buildLesson(){
     + '  kind   — one of "idea", "key", "ask", "number" (controls the chalk colour)\n'
     + '  say_en — 2 to 4 sentences the teacher speaks aloud\n'
     + '  say_ta — the Tamil version, or "" if not needed\n'
-    + '  note   — one short line for the side notes panel, or ""\n\n'
+    + '  note   — one short line for the side notes panel, or ""\n'
+    + '  model  — OPTIONAL. Include ONLY where a working 3D model genuinely\n'
+    + '           teaches the step better than words. One available engine:\n'
+    + '             {"engine":"particles","substance":"water","start":"solid"}\n'
+    + '           It shows particles held in a lattice, loosening into a liquid,\n'
+    + '           then flying free as a gas, with a heat slider the teacher drags.\n'
+    + '           substance: "water" (labels it Ice/Water/Steam) or "generic".\n'
+    + '           start: "solid", "liquid" or "gas".\n'
+    + '           Use it ONLY for states of matter, melting, boiling, evaporation,\n'
+    + '           particle arrangement, or how a solute spreads through a solvent.\n'
+    + '           Use it at most twice in a lesson, at the moment the class should\n'
+    + '           SEE the idea. Omit "model" entirely on every other step.\n'
+    + '           When a step has a model, keep board lines to 2 short lines: the\n'
+    + '           class should watch the model, not read.\n\n'
     + 'Return ONLY a JSON array. Start with [ and end with ].';
 
   var r = await fetch('/api/ai', {
@@ -418,7 +466,13 @@ async function buildLesson(){
       kind:  String(o.kind || 'idea'),
       say_en:String(o.say_en || ''),
       say_ta:String(o.say_ta || ''),
-      note:  String(o.note || '')
+      note:  String(o.note || ''),
+      model: (o.model && o.model.engine) ? {
+        engine:    String(o.model.engine || ''),
+        substance: String(o.model.substance || ''),
+        start:     String(o.model.start || ''),
+        name:      String(o.model.name || '')
+      } : null
     });
   });
   if(!steps.length) throw new Error('empty lesson');
@@ -502,19 +556,40 @@ async function runStep(i){
   $('step-count').textContent = 'Step ' + (i + 1) + ' / ' + STEPS.length;
 
   var big = $('big');
-  big.innerHTML = '';
-  if(s.title){
-    var t = document.createElement('div');
-    t.className = 'b-title'; t.textContent = s.title;
-    big.appendChild(t);
+  var mw  = $('model-wrap');
+  var url = modelUrlFor(s.model);
+
+  if(url){
+    // A working model earns the whole board. The written lines move to
+    // the notes panel so the class watches the model, not the text.
+    big.style.display = 'none';
+    mw.classList.add('show');
+    $('model-title').textContent = s.title || '';
+    var fr = $('model-frame');
+    if(fr.getAttribute('data-url') !== url){
+      fr.setAttribute('data-url', url);
+      fr.src = url;
+    }
+    (s.board || []).forEach(function(line){ addNote('', line); });
+  } else {
+    mw.classList.remove('show');
+    $('model-frame').removeAttribute('data-url');
+    $('model-frame').src = 'about:blank';
+    big.style.display = '';
+    big.innerHTML = '';
+    if(s.title){
+      var t = document.createElement('div');
+      t.className = 'b-title'; t.textContent = s.title;
+      big.appendChild(t);
+    }
+    (s.board || []).forEach(function(line, n){
+      var d = document.createElement('div');
+      d.className = 'b-line ' + kindClass(s.kind);
+      d.style.animationDelay = (n * 0.13) + 's';
+      d.textContent = line;
+      big.appendChild(d);
+    });
   }
-  (s.board || []).forEach(function(line, n){
-    var d = document.createElement('div');
-    d.className = 'b-line ' + kindClass(s.kind);
-    d.style.animationDelay = (n * 0.13) + 's';
-    d.textContent = line;
-    big.appendChild(d);
-  });
 
   if(i === 0){ $('note-list').innerHTML = ''; addNote('k-title', CHAPTER.chapter_title); }
   if(s.note) addNote(s.kind === 'key' ? 'k-key' : '', s.note);
