@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Magnetism — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --gold:#C9962A; --sandal:#E8C99A;
+  --chalk:#f2efe9; --chalk-yellow:#f5e87a; --chalk-blue:#a8d8f0;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:transparent;font-family:'Nunito',sans-serif;color:#fff;overflow:hidden;}
+#wrap{height:100%;display:flex;flex-direction:column;}
+#stage{flex:1;min-height:0;position:relative;}
+#stage canvas{display:block;width:100%;height:100%;cursor:grab;}
+#stage canvas:active{cursor:grabbing;}
+
+#state-badge{position:absolute;top:12px;left:14px;pointer-events:none;max-width:72%;}
+#state-name{font-family:'Caveat',cursive;font-size:2.2rem;line-height:1;
+  color:var(--chalk-yellow);text-shadow:0 0 14px rgba(0,0,0,.8);}
+#state-sub{font-family:'Kalam',cursive;font-size:.95rem;color:var(--sandal);
+  text-shadow:0 0 10px rgba(0,0,0,.85);margin-top:3px;line-height:1.35;}
+
+#read-badge{position:absolute;top:12px;right:14px;text-align:center;
+  padding:.45rem .85rem;border-radius:12px;background:rgba(0,0,0,.45);
+  border:1.5px solid rgba(232,201,154,.4);pointer-events:none;}
+#read-badge .l{font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--sandal);}
+#read-badge .v{font-family:'Caveat',cursive;font-size:1.9rem;color:var(--chalk-yellow);line-height:1;}
+
+.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+
+#controls{padding:.7rem .9rem;border-top:1.5px dashed rgba(232,201,154,.28);
+  display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;}
+.pbtn{padding:.5rem .95rem;border-radius:10px;cursor:pointer;font-weight:700;font-size:.9rem;
+  background:rgba(255,255,255,.05);border:1.6px solid rgba(232,201,154,.35);
+  color:var(--sandal);font-family:'Nunito',sans-serif;white-space:nowrap;}
+.pbtn:hover{background:rgba(255,255,255,.13);}
+.pbtn.on{background:var(--maroon);border-color:var(--gold);color:#fff;}
+.sep{width:1px;height:26px;background:rgba(232,201,154,.28);margin:0 .2rem;}
+.lab{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--sandal);opacity:.8;}
+#gap-row{flex:1;min-width:170px;display:flex;align-items:center;gap:.6rem;}
+input[type=range]{flex:1;-webkit-appearance:none;appearance:none;height:8px;border-radius:6px;
+  background:linear-gradient(90deg,#8f2626 0%,#C9962A 100%);outline:none;cursor:pointer;}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:22px;height:22px;
+  border-radius:50%;background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+input[type=range]::-moz-range-thumb{width:22px;height:22px;border-radius:50%;
+  background:var(--sandal);border:3px solid var(--maroon);cursor:pointer;}
+
+@media(max-width:640px){
+  #state-name{font-size:1.6rem;}
+  #read-badge .v{font-size:1.4rem;}
+  .pbtn{padding:.42rem .7rem;font-size:.82rem;}
+}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="stage">
+    <div id="state-badge">
+      <div id="state-name"></div>
+      <div id="state-sub"></div>
+    </div>
+    <div id="read-badge">
+      <div class="l" id="read-lab"></div>
+      <div class="v" id="read-val"></div>
+    </div>
+  </div>
+
+  <div id="controls">
+    <span class="pbtn" id="b-flip">Flip</span>
+    <span class="pbtn on" id="b-switch">Switch</span>
+    <span class="pbtn on" id="b-lines">Field lines</span>
+    <span class="pbtn" id="b-compass">Compasses</span>
+    <span class="sep" id="turn-sep"></span>
+    <span class="lab" id="turn-lab">Turns</span>
+    <span class="pbtn" data-turns="5"  id="b-t5">5</span>
+    <span class="pbtn on" data-turns="10" id="b-t10">10</span>
+    <span class="pbtn" data-turns="20" id="b-t20">20</span>
+    <span id="gap-row">
+      <span class="lab" id="gap-lab">Distance</span>
+      <input type="range" id="gap" min="0" max="100" value="60">
+    </span>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   MAGNETISM ENGINE — magnets, fields, and the electromagnet
+
+   The field is the hard idea. A child cannot see it, so every
+   picture of it is somebody's drawing. This engine computes the
+   field properly from the poles and then draws what it finds, so
+   the lines bend the way real lines bend, and the compasses turn
+   because the field at that spot really does point that way.
+
+   Modes:
+     bar           two magnets. Bring them together, flip one, and
+                   watch like poles push away and unlike poles pull.
+     field         one magnet with its field lines, and compasses
+                   that settle along the field wherever they sit.
+     electromagnet a coil round an iron nail with a cell and switch.
+                   Close the switch and a magnet appears from nothing;
+                   open it and the magnet is gone. More turns, stronger.
+
+   Embed with URL settings, all optional:
+     ?mode=bar        bar | field | electromagnet
+     &lang=english    english | tamil
+
+   Covers: Class 6 Exploring Magnets, Class 8 Electricity: Magnetic
+   and Heating Effects, Class 10 Magnetic Effects of Electric Current.
+   ══════════════════════════════════════════════════════════════ */
+
+var P = new URLSearchParams(location.search);
+var MODE = (P.get('mode') || 'bar').toLowerCase();
+var LANG = (P.get('lang') || 'english').toLowerCase();
+if(['bar','field','electromagnet'].indexOf(MODE) < 0) MODE = 'bar';
+
+var WORDS = {
+  english: {
+    flip:'Flip', switchL:'Switch', lines:'Field lines', compasses:'Compasses',
+    turns:'Turns', distance:'Distance', forceL:'Force', magnetL:'Magnet',
+    attract:'Pulling together', repel:'Pushing apart', none:'—',
+    on:'On', off:'Off', weak:'Weak', strong:'Strong', veryStrong:'Very strong',
+    barT:'Two magnets', barAttract:'Unlike poles face each other, so they pull together',
+    barRepel:'Like poles face each other, so they push apart',
+    fieldT:'The field around a magnet',
+    fieldSub:'Lines leave the North pole and curve round into the South pole',
+    emOffT:'Just a nail and a wire',
+    emOffSub:'No current, so no magnet at all',
+    emOnT:'An electromagnet',
+    emOnSub:'Current through the coil turns the iron nail into a magnet'
+  },
+  tamil: {
+    flip:'திருப்பு', switchL:'சுவிட்ச்', lines:'புலக் கோடுகள்', compasses:'திசைகாட்டிகள்',
+    turns:'சுற்றுகள்', distance:'தூரம்', forceL:'விசை', magnetL:'காந்தம்',
+    attract:'ஒன்றை ஒன்று இழுக்கிறது', repel:'ஒன்றை ஒன்று விலக்குகிறது', none:'—',
+    on:'இயங்குகிறது', off:'நின்றுள்ளது', weak:'குறைவாக', strong:'வலுவாக', veryStrong:'மிக வலுவாக',
+    barT:'இரண்டு காந்தங்கள்',
+    barAttract:'எதிர் துருவங்கள் எதிரெதிரே, எனவே இழுக்கின்றன',
+    barRepel:'ஒரே துருவங்கள் எதிரெதிரே, எனவே விலக்குகின்றன',
+    fieldT:'காந்தத்தைச் சுற்றியுள்ள புலம்',
+    fieldSub:'கோடுகள் North துருவத்தில் இருந்து புறப்பட்டு South துருவத்தில் சேர்கின்றன',
+    emOffT:'வெறும் ஆணியும் கம்பியும்',
+    emOffSub:'current இல்லை, எனவே காந்தமும் இல்லை',
+    emOnT:'மின்காந்தம்',
+    emOnSub:'சுருளில் current பாய்ந்து இரும்பு ஆணியைக் காந்தமாக்குகிறது'
+  }
+};
+var W = WORDS[LANG] || WORDS.english;
+
+var N_COL = 0xD64545;   // North, red — the school convention
+var S_COL = 0x3A6FD8;   // South, blue
+
+/* ── State ── */
+var scene, camera, renderer, root;
+var magnets = [];        // { group, poles:[{pos,q}] }
+var lineGroup, compassGroup, clipGroup;
+var coilMesh, nailMesh;
+var flipped = false, closed = true, showLines = true, showCompasses = false;
+var turns = 10, gapPct = 60;
+var strength = 1, shownStrength = 1;
+var rotY = 0, rotX = 0, dragging = false, lastX = 0, lastY = 0;
+
+function $(id){ return document.getElementById(id); }
+function V(x, y, z){ return new THREE.Vector3(x, y, z || 0); }
+
+/* ── The field itself ──
+   Two-pole model: each pole pushes or pulls with an inverse-square
+   strength. This is the model school books teach, and it produces the
+   real pattern — so the lines we draw are computed, not decorated. */
+function fieldAt(p, poles){
+  var B = new THREE.Vector3();
+  var d = new THREE.Vector3();
+  for(var i = 0; i < poles.length; i++){
+    d.subVectors(p, poles[i].pos);
+    var r = d.length();
+    if(r < 0.34) r = 0.34;                 // keep it finite at the pole
+    d.normalize().multiplyScalar(poles[i].q / (r * r));
+    B.add(d);
+  }
+  return B;
+}
+
+/* Walk along the field from a starting point, one small step at a time.
+   Where the field bends, the line bends, because we follow it. */
+function traceLine(start, poles, sense){
+  var pts = [start.clone()];
+  var p = start.clone();
+  var step = 0.16;
+  for(var i = 0; i < 420; i++){
+    var B = fieldAt(p, poles);
+    if(B.lengthSq() < 1e-8) break;
+    B.normalize().multiplyScalar(step * sense);
+    p.add(B);
+    if(Math.abs(p.x) > 11 || Math.abs(p.y) > 7) break;
+    pts.push(p.clone());
+    // Stop once we have arrived at a pole.
+    var done = false;
+    for(var k = 0; k < poles.length; k++){
+      if(p.distanceTo(poles[k].pos) < 0.34) { done = true; break; }
+    }
+    if(done) break;
+  }
+  return pts;
+}
+
+/* ── Labels drawn on a canvas, so no font file is needed ── */
+function poleTexture(letter, bg){
+  var cv = document.createElement('canvas');
+  cv.width = 128; cv.height = 128;
+  var g = cv.getContext('2d');
+  g.fillStyle = '#' + ('000000' + bg.toString(16)).slice(-6);
+  g.fillRect(0, 0, 128, 128);
+  g.fillStyle = '#ffffff';
+  g.font = 'bold 92px Arial, sans-serif';
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(letter, 64, 70);
+  return new THREE.CanvasTexture(cv);
+}
+
+/* ── Build ── */
+function init(){
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  $('stage').appendChild(renderer.domElement);
+
+  root = new THREE.Group();
+  scene.add(root);
+
+  lineGroup = new THREE.Group();    root.add(lineGroup);
+  compassGroup = new THREE.Group(); root.add(compassGroup);
+  clipGroup = new THREE.Group();    root.add(clipGroup);
+
+  if(MODE === 'electromagnet') buildElectromagnet();
+  else if(MODE === 'field')     buildBarMagnet(V(0,0), 0);
+  else { buildBarMagnet(V(-3.4,0), 0); buildBarMagnet(V(3.4,0), 1); }
+
+  if(MODE === 'field') buildCompasses();
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.62));
+  var key = new THREE.DirectionalLight(0xffffff, 0.8);
+  key.position.set(4, 7, 9); scene.add(key);
+  var rim = new THREE.DirectionalLight(0xC9962A, 0.3);
+  rim.position.set(-6, -3, -5); scene.add(rim);
+
+  resize();
+  window.addEventListener('resize', resize);
+  wireControls();
+  rebuild();
+  animate();
+}
+
+function buildBarMagnet(at, idx){
+  var g = new THREE.Group();
+  g.position.copy(at);
+
+  // Two halves, so the poles are obvious before a word is spoken.
+  [[-0.85, S_COL, 'S'], [0.85, N_COL, 'N']].forEach(function(h){
+    var mats = [];
+    for(var i = 0; i < 6; i++){
+      mats.push(new THREE.MeshStandardMaterial({ color:h[1], roughness:0.5, metalness:0.25 }));
+    }
+    // Front face carries the letter.
+    mats[4] = new THREE.MeshStandardMaterial({ map:poleTexture(h[2], h[1]), roughness:0.5 });
+    var box = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.95, 0.62), mats);
+    box.position.x = h[0];
+    g.add(box);
+  });
+
+  root.add(g);
+  magnets.push({ group:g, idx:idx, poles:[] });
+}
+
+function buildElectromagnet(){
+  // Iron nail
+  nailMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.36, 0.36, 5.0, 20),
+    new THREE.MeshStandardMaterial({ color:0x9AA5B1, roughness:0.4, metalness:0.8 })
+  );
+  nailMesh.rotation.z = Math.PI / 2;
+  root.add(nailMesh);
+
+  var head = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.62, 0.62, 0.28, 20),
+    new THREE.MeshStandardMaterial({ color:0x9AA5B1, roughness:0.4, metalness:0.8 })
+  );
+  head.rotation.z = Math.PI / 2;
+  head.position.x = -2.6;
+  root.add(head);
+
+  var tip = new THREE.Mesh(
+    new THREE.ConeGeometry(0.36, 0.8, 18),
+    new THREE.MeshStandardMaterial({ color:0x9AA5B1, roughness:0.4, metalness:0.8 })
+  );
+  tip.rotation.z = -Math.PI / 2;
+  tip.position.x = 2.9;
+  root.add(tip);
+
+  buildCoil();
+
+  // A cell and a switch, drawn simply — the circuit is not the lesson here.
+  var cell = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.34, 0.34, 1.3, 16),
+    new THREE.MeshStandardMaterial({ color:0x6B1A1A, roughness:0.5, metalness:0.25 })
+  );
+  cell.rotation.z = Math.PI / 2;
+  cell.position.set(0, -3.1, 0);
+  root.add(cell);
+
+  // Iron clips that jump to the nail when the magnet wakes up.
+  for(var i = 0; i < 7; i++){
+    var clip = new THREE.Mesh(
+      new THREE.TorusGeometry(0.2, 0.06, 8, 16),
+      new THREE.MeshStandardMaterial({ color:0xB0B6BD, roughness:0.35, metalness:0.85 })
+    );
+    var ang = (i / 7) * Math.PI * 2;
+    clip.userData = {
+      home: V(3.9 + Math.cos(ang) * 0.9, -1.5 + Math.sin(ang) * 0.7),
+      target: V(2.9 + (i - 3) * 0.28, 0.55 + (i % 2) * 0.3)
+    };
+    clip.position.copy(clip.userData.home);
+    clipGroup.add(clip);
+  }
+}
+
+function buildCoil(){
+  if(coilMesh){ root.remove(coilMesh); coilMesh = null; }
+  var pts = [];
+  var span = 4.0, R = 0.56;
+  var steps = turns * 18;
+  for(var i = 0; i <= steps; i++){
+    var t = i / steps;
+    var a = t * turns * Math.PI * 2;
+    pts.push(V(-span/2 + t * span, Math.sin(a) * R, Math.cos(a) * R));
+  }
+  var curve = new THREE.CatmullRomCurve3(pts);
+  coilMesh = new THREE.Mesh(
+    new THREE.TubeGeometry(curve, turns * 20, 0.075, 6, false),
+    new THREE.MeshStandardMaterial({ color:0xC97B3A, roughness:0.38, metalness:0.75 })
+  );
+  root.add(coilMesh);
+}
+
+function buildCompasses(){
+  for(var gx = -7; gx <= 7; gx += 2.3){
+    for(var gy = -4; gy <= 4; gy += 2.0){
+      if(Math.abs(gx) < 2.2 && Math.abs(gy) < 1.1) continue;   // not inside the magnet
+      var c = new THREE.Group();
+      c.position.set(gx, gy, 0.42);
+
+      var disc = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.36, 0.36, 0.07, 18),
+        new THREE.MeshStandardMaterial({ color:0xf2efe9, roughness:0.6 })
+      );
+      disc.rotation.x = Math.PI / 2;
+      c.add(disc);
+
+      var nN = new THREE.Mesh(
+        new THREE.ConeGeometry(0.09, 0.3, 10),
+        new THREE.MeshStandardMaterial({ color:N_COL, roughness:0.4 })
+      );
+      nN.rotation.z = -Math.PI / 2;
+      nN.position.x = 0.15;
+      c.add(nN);
+
+      var nS = new THREE.Mesh(
+        new THREE.ConeGeometry(0.09, 0.3, 10),
+        new THREE.MeshStandardMaterial({ color:S_COL, roughness:0.4 })
+      );
+      nS.rotation.z = Math.PI / 2;
+      nS.position.x = -0.15;
+      c.add(nS);
+
+      compassGroup.add(c);
+    }
+  }
+}
+
+/* ── Where the poles are right now ── */
+function currentPoles(){
+  var poles = [];
+
+  if(MODE === 'electromagnet'){
+    var s = shownStrength;
+    if(s < 0.02) return poles;
+    poles.push({ pos:V(-2.0, 0), q:-2.4 * s });
+    poles.push({ pos:V( 2.0, 0), q: 2.4 * s });
+    return poles;
+  }
+
+  if(MODE === 'field'){
+    poles.push({ pos:V(-0.85, 0), q:-2.2 });
+    poles.push({ pos:V( 0.85, 0), q: 2.2 });
+    return poles;
+  }
+
+  // Two magnets, sitting a chosen distance apart.
+  var d = 1.9 + (gapPct / 100) * 3.4;
+  magnets[0].group.position.x = -d;
+  magnets[1].group.position.x =  d;
+  magnets[1].group.rotation.y = flipped ? Math.PI : 0;
+
+  poles.push({ pos:V(-d - 0.85, 0), q:-2.0 });
+  poles.push({ pos:V(-d + 0.85, 0), q: 2.0 });
+  // Flipping turns the second magnet round, so its poles swap sides.
+  poles.push({ pos:V( d - 0.85, 0), q: flipped ?  2.0 : -2.0 });
+  poles.push({ pos:V( d + 0.85, 0), q: flipped ? -2.0 :  2.0 });
+  return poles;
+}
+
+/* ── Draw the field lines we computed ── */
+function drawLines(){
+  while(lineGroup.children.length){
+    var c = lineGroup.children.pop();
+    if(c.geometry) c.geometry.dispose();
+  }
+  if(!showLines) return;
+
+  var poles = currentPoles();
+  if(!poles.length) return;
+
+  var mat = new THREE.LineBasicMaterial({
+    color:0xf5e87a, transparent:true, opacity:0.72
+  });
+
+  poles.forEach(function(pole){
+    if(pole.q <= 0) return;                       // start at North poles
+    for(var i = 0; i < 12; i++){
+      var a = (i / 12) * Math.PI * 2;
+      var start = V(pole.pos.x + Math.cos(a) * 0.42, pole.pos.y + Math.sin(a) * 0.42);
+      var pts = traceLine(start, poles, 1);
+      if(pts.length < 3) continue;
+      var geo = new THREE.BufferGeometry().setFromPoints(pts);
+      lineGroup.add(new THREE.Line(geo, mat));
+    }
+  });
+}
+
+function rebuild(){
+  drawLines();
+  refreshLabels();
+}
+
+/* ── Labels ── */
+function refreshLabels(){
+  var title = '', sub = '', lab = '', val = '';
+
+  if(MODE === 'electromagnet'){
+    title = closed ? W.emOnT : W.emOffT;
+    sub   = closed ? W.emOnSub : W.emOffSub;
+    lab   = W.magnetL;
+    val   = !closed ? W.off
+          : turns >= 20 ? W.veryStrong
+          : turns >= 10 ? W.strong : W.weak;
+  } else if(MODE === 'field'){
+    title = W.fieldT; sub = W.fieldSub;
+    lab = W.magnetL;  val = W.on;
+  } else {
+    title = W.barT;
+    sub   = flipped ? W.barRepel : W.barAttract;
+    lab   = W.forceL;
+    val   = flipped ? W.repel : W.attract;
+  }
+
+  var nm = $('state-name'), sb = $('state-sub');
+  nm.textContent = title; sb.textContent = sub;
+  nm.className = (LANG === 'tamil') ? 'tamil' : '';
+  sb.className = (LANG === 'tamil') ? 'tamil' : '';
+
+  $('read-lab').textContent = lab;
+  var rv = $('read-val');
+  rv.textContent = val;
+  rv.className = 'v' + (LANG === 'tamil' ? ' tamil' : '');
+
+  $('b-switch').classList.toggle('on', closed);
+  $('b-lines').classList.toggle('on', showLines);
+  $('b-compass').classList.toggle('on', showCompasses);
+  [5,10,20].forEach(function(t){
+    $('b-t' + t).classList.toggle('on', t === turns);
+  });
+}
+
+function resize(){
+  var stage = $('stage');
+  var w = stage.clientWidth || 640, h = stage.clientHeight || 420;
+  camera.aspect = w / h;
+  var needW = 17.5, needH = 10.5;
+  var vFov = camera.fov * Math.PI / 180;
+  var distV = (needH / 2) / Math.tan(vFov / 2);
+  var hFov = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  var distH = (needW / 2) / Math.tan(hFov / 2);
+  camera.position.set(0, 0, Math.max(distV, distH));
+  camera.lookAt(0, 0, 0);
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h, false);
+}
+
+function animate(){
+  requestAnimationFrame(animate);
+
+  var want = (MODE === 'electromagnet') ? (closed ? (turns / 20) : 0) : 1;
+  var before = shownStrength;
+  shownStrength += (want - shownStrength) * 0.08;
+  strength = shownStrength;
+
+  // The electromagnet's field changes as it builds, so redraw while moving.
+  if(MODE === 'electromagnet' && Math.abs(shownStrength - before) > 0.004) drawLines();
+
+  compassGroup.visible = showCompasses;
+  if(showCompasses){
+    var poles = currentPoles();
+    compassGroup.children.forEach(function(c){
+      var B = fieldAt(c.position, poles);
+      if(B.lengthSq() > 1e-9){
+        var want2 = Math.atan2(B.y, B.x);
+        var cur = c.rotation.z;
+        var diff = Math.atan2(Math.sin(want2 - cur), Math.cos(want2 - cur));
+        c.rotation.z = cur + diff * 0.14;      // needles swing round, not snap
+      }
+    });
+  }
+
+  // Clips fly to the nail while the magnet is on, and drop back when off.
+  clipGroup.children.forEach(function(cl){
+    var t = cl.userData.target, hm = cl.userData.home;
+    var goal = (shownStrength > 0.25) ? t : hm;
+    cl.position.lerp(goal, 0.09);
+    cl.rotation.z += shownStrength * 0.04;
+  });
+
+  if(coilMesh) coilMesh.material.emissiveIntensity = 0;
+
+  root.rotation.y = rotY;
+  root.rotation.x = rotX;
+  renderer.render(scene, camera);
+}
+
+/* ── Teacher controls ── */
+function wireControls(){
+  $('b-flip').textContent    = W.flip;
+  $('b-switch').textContent  = W.switchL;
+  $('b-lines').textContent   = W.lines;
+  $('b-compass').textContent = W.compasses;
+  $('turn-lab').textContent  = W.turns;
+  $('gap-lab').textContent   = W.distance;
+  if(LANG === 'tamil'){
+    ['b-flip','b-switch','b-lines','b-compass'].forEach(function(id){
+      $(id).classList.add('tamil');
+    });
+  }
+
+  // Show only what this mode uses.
+  var isBar = (MODE === 'bar'), isEm = (MODE === 'electromagnet'), isField = (MODE === 'field');
+  $('b-flip').style.display    = isBar ? '' : 'none';
+  $('gap-row').style.display   = isBar ? '' : 'none';
+  $('b-switch').style.display  = isEm ? '' : 'none';
+  $('turn-sep').style.display  = isEm ? '' : 'none';
+  $('turn-lab').style.display  = isEm ? '' : 'none';
+  [5,10,20].forEach(function(t){ $('b-t' + t).style.display = isEm ? '' : 'none'; });
+  $('b-compass').style.display = isField ? '' : 'none';
+
+  $('b-flip').addEventListener('click', function(){ flipped = !flipped; rebuild(); });
+  $('b-switch').addEventListener('click', function(){ closed = !closed; refreshLabels(); });
+  $('b-lines').addEventListener('click', function(){ showLines = !showLines; rebuild(); });
+  $('b-compass').addEventListener('click', function(){
+    showCompasses = !showCompasses; refreshLabels();
+  });
+  [5,10,20].forEach(function(t){
+    $('b-t' + t).addEventListener('click', function(){
+      turns = t; buildCoil(); refreshLabels();
+    });
+  });
+  $('gap').addEventListener('input', function(){
+    gapPct = parseInt(this.value, 10); rebuild();
+  });
+
+  var cv = renderer.domElement;
+  function down(x, y){ dragging = true; lastX = x; lastY = y; }
+  function move(x, y){
+    if(!dragging) return;
+    rotY += (x - lastX) * 0.006;
+    rotX += (y - lastY) * 0.004;
+    rotY = Math.max(-0.8, Math.min(0.8, rotY));
+    rotX = Math.max(-0.7, Math.min(0.7, rotX));
+    lastX = x; lastY = y;
+  }
+  function up(){ dragging = false; }
+
+  cv.addEventListener('mousedown', function(e){ down(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', function(e){ move(e.clientX, e.clientY); });
+  window.addEventListener('mouseup', up);
+  cv.addEventListener('touchstart', function(e){
+    if(e.touches[0]) down(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  cv.addEventListener('touchmove', function(e){
+    if(e.touches[0]) move(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive:true });
+  window.addEventListener('touchend', up);
+}
+
+/* Let the parent page drive the model if it wants to. */
+window.addEventListener('message', function(e){
+  var d = e.data;
+  if(!d || d.kind !== 'magnetism') return;
+  if(typeof d.closed === 'boolean')  { closed = d.closed; }
+  if(typeof d.flipped === 'boolean') { flipped = d.flipped; }
+  if(typeof d.turns === 'number')    { turns = d.turns; buildCoil(); }
+  rebuild();
+});
+
+// Opened directly rather than inside a lesson? Give it a board to sit on.
+if(window.self === window.top){
+  document.body.style.background =
+    'radial-gradient(ellipse at center, #1b3d1b 0%, #0e1f0e 75%)';
+}
+
+if(window.THREE) init();
+else $('stage').innerHTML =
+  '<div style="padding:2rem;text-align:center;color:#E8C99A;font-family:Kalam,cursive">'
+  + '3D could not load. Please check the internet connection.</div>';
+</script>
+</body>
+</html>
