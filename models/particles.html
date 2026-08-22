@@ -155,7 +155,7 @@ var COL = COLOURS[SUBSTANCE] || COLOURS.generic;
 var scene, camera, renderer, group, boxMesh;
 var particles = [];          // { mesh, home:Vector3, vel:Vector3 }
 var N_SIDE = 5;              // 5 x 5 x 5 = 125 particles
-var BOX = 5.2;               // half-width of the container
+var BOX = 4.2;               // half-width of the container
 var SPACING = 1.05;
 var RADIUS = 0.42;
 var MIN_DIST = RADIUS * 2;
@@ -168,7 +168,8 @@ function init(){
 
   scene = new THREE.Scene();
   camera = new THREE.PerspectiveCamera(45, 1, 0.1, 200);
-  camera.position.set(0, 2.5, 17);
+  camera.position.set(0, 1.4, 16);
+  camera.lookAt(0, 0, 0);
 
   renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -195,9 +196,12 @@ function init(){
           emissive: COL.particle, emissiveIntensity:0.12
         });
         var m = new THREE.Mesh(geo, mat);
+        // Rest the block on the floor so a child sees it sitting there,
+        // then watches it slump and finally fill the box.
+        var floorY = -BOX + RADIUS + (half * SPACING);
         var home = new THREE.Vector3(
           (x - half) * SPACING,
-          (y - half) * SPACING - (BOX - N_SIDE*SPACING/2) + 0.6,
+          (y - half) * SPACING + floorY,
           (z - half) * SPACING
         );
         m.position.copy(home);
@@ -224,6 +228,18 @@ function resize(){
   var stage = document.getElementById('stage');
   var w = stage.clientWidth || 640, h = stage.clientHeight || 420;
   camera.aspect = w / h;
+
+  // Pull the camera back far enough that the whole box fits, checking
+  // height AND width. A wide projector and a narrow phone need different
+  // distances, and cutting the model in half is not acceptable in class.
+  var need  = BOX * 2 * 1.22;                       // box plus a margin
+  var vFov  = camera.fov * Math.PI / 180;
+  var distV = (need / 2) / Math.tan(vFov / 2);
+  var hFov  = 2 * Math.atan(Math.tan(vFov / 2) * camera.aspect);
+  var distH = (need / 2) / Math.tan(hFov / 2);
+  camera.position.z = Math.max(distV, distH);
+  camera.lookAt(0, 0, 0);
+
   camera.updateProjectionMatrix();
   renderer.setSize(w, h, false);
 }
