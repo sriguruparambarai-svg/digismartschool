@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Model Viewer — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@400;700&family=Noto+Sans+Tamil:wght@400;700&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --gold:#C9962A; --sandal:#E8C99A;
+  --chalk:#f2efe9; --chalk-yellow:#f5e87a; --chalk-blue:#a8d8f0; --chalk-green:#a8e6a8;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:transparent;font-family:'Nunito',sans-serif;color:#fff;overflow:hidden;}
+#wrap{height:100%;display:flex;flex-direction:column;}
+#stage{flex:1;min-height:0;position:relative;}
+#stage canvas{display:block;width:100%;height:100%;cursor:grab;touch-action:none;}
+#stage canvas:active{cursor:grabbing;}
+
+#state-badge{position:absolute;top:12px;left:14px;pointer-events:none;max-width:64%;}
+#state-name{font-family:'Caveat',cursive;font-size:2.2rem;line-height:1;
+  color:var(--chalk-yellow);text-shadow:0 0 14px rgba(0,0,0,.8);}
+#state-sub{font-family:'Kalam',cursive;font-size:.95rem;color:var(--sandal);
+  text-shadow:0 0 10px rgba(0,0,0,.85);margin-top:3px;line-height:1.35;}
+
+#hint{position:absolute;top:12px;right:14px;text-align:center;
+  padding:.45rem .85rem;border-radius:12px;background:rgba(0,0,0,.45);
+  border:1.5px solid rgba(232,201,154,.4);pointer-events:none;}
+#hint .l{font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;color:var(--sandal);}
+#hint .v{font-family:'Caveat',cursive;font-size:1.6rem;color:var(--chalk-yellow);line-height:1.1;}
+
+#credit{position:absolute;left:14px;bottom:8px;font-size:.6rem;line-height:1.3;
+  color:rgba(232,201,154,.55);pointer-events:none;max-width:70%;}
+
+#load{position:absolute;inset:0;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:.9rem;}
+#load .t{font-family:'Caveat',cursive;font-size:1.9rem;color:var(--chalk-yellow);}
+#bar{width:min(280px,62vw);height:7px;border-radius:4px;background:rgba(255,255,255,.12);overflow:hidden;}
+#bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .18s;}
+#load .p{font-size:.8rem;color:var(--sandal);}
+#load.err .t{color:#ff9c9c;font-family:'Nunito',sans-serif;font-size:1.05rem;
+  max-width:80%;text-align:center;line-height:1.45;}
+
+.tamil{font-family:'Noto Sans Tamil','Nunito',sans-serif;}
+
+#controls{padding:.7rem .9rem;border-top:1.5px dashed rgba(232,201,154,.28);
+  display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;}
+.pbtn{padding:.5rem .95rem;border-radius:10px;cursor:pointer;font-weight:700;font-size:.9rem;
+  background:rgba(255,255,255,.05);border:1.6px solid rgba(232,201,154,.35);
+  color:var(--sandal);font-family:'Nunito',sans-serif;white-space:nowrap;}
+.pbtn:hover{background:rgba(255,255,255,.13);}
+.pbtn.on{background:var(--maroon);border-color:var(--gold);color:#fff;}
+.pbtn:focus-visible{outline:2px solid var(--chalk-yellow);outline-offset:2px;}
+.sep{width:1px;height:26px;background:rgba(232,201,154,.28);margin:0 .2rem;}
+.lab{font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--sandal);opacity:.8;}
+
+@media(max-width:640px){
+  #state-name{font-size:1.6rem;}
+  #state-sub{font-size:.85rem;}
+  #hint .v{font-size:1.25rem;}
+  .pbtn{padding:.42rem .7rem;font-size:.82rem;}
+}
+@media(prefers-reduced-motion:reduce){#bar i{transition:none;}}
+</style>
+</head>
+<body>
+
+<div id="wrap">
+  <div id="stage">
+    <div id="state-badge">
+      <div id="state-name"></div>
+      <div id="state-sub"></div>
+    </div>
+    <div id="hint">
+      <div class="l" id="hint-l">Tap a part</div>
+      <div class="v" id="hint-v">7</div>
+    </div>
+    <div id="credit"></div>
+    <div id="load">
+      <div class="t" id="load-t">Loading the model…</div>
+      <div id="bar"><i></i></div>
+      <div class="p" id="load-p">0%</div>
+    </div>
+  </div>
+  <div id="controls"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+<script>
+/* ══════════════════════════════════════════════════════════════
+   MODEL VIEWER — one page, any downloaded 3D model
+
+   Unlike the built engines (circuit, light, magnetism, particles),
+   this page contains no lesson of its own. It loads a real scanned
+   model and lets a child tap its parts.
+
+   The parts are named groups inside the .glb file itself. Nothing
+   about a particular model lives in the code except its entry in
+   MODELS below — to add a model, upload the file to Supabase and
+   add one block here.
+
+   Embed with URL settings, all optional:
+     ?model=skeleton    which entry in MODELS to load
+     &lang=english      english | tamil
+     &part=ribcage      start with one part already highlighted
+     &place=1           placement mode: tap to read coordinates
+                        (used when adding a new model, not in class)
+
+   Covers: Class 6 Science — Body Movements.
+   ══════════════════════════════════════════════════════════════ */
+
+var P      = new URLSearchParams(location.search);
+var MODEL  = (P.get('model') || 'skeleton').toLowerCase();
+var LANG   = (P.get('lang')  || 'english').toLowerCase();
+var PLACE  = P.get('place') === '1';
+var START  = (P.get('part') || '').toLowerCase();
+var TA     = LANG === 'tamil';
+
+var BUCKET = 'https://pzxosqukijwpjdlfdfst.supabase.co/storage/v1/object/public/models-3d/';
+
+/* ── the model list. Add a new model by adding a block here. ── */
+var MODELS = {
+  skeleton: {
+    file: 'class6/skeleton-class6.glb',
+    title:  { en:'The Human Skeleton', ta:'மனித எலும்புக்கூடு' },
+    sub:    { en:'Tap any part to see what it is called and what it does.',
+              ta:'எந்த ஒரு பகுதியையும் தொடுங்கள் — அதன் பெயரும் வேலையும் தெரியும்.' },
+    credit: 'Human Skeleton by My Segmenter, NIH 3D (3DPX-016838), CC BY 4.0',
+    parts: [
+      { id:'skull',
+        en:'Skull',            ta:'மண்டை ஓடு',
+        enNote:'A hard case around the brain. Its bones are locked together — only the lower jaw can move.',
+        taNote:'Brain-ஐ சுற்றி இருக்கும் கடினமான கூடு. இதன் எலும்புகள் ஒன்றாக இணைந்துள்ளன — கீழ் தாடை மட்டுமே அசையும்.' },
+      { id:'spine',
+        en:'Backbone',         ta:'முதுகெலும்பு',
+        enNote:'Not one bone but a stack of many small ones. That is why you can bend and twist.',
+        taNote:'இது ஒரே எலும்பு அல்ல — பல சிறிய எலும்புகள் அடுக்கி வைத்தது போல். அதனால்தான் நாம் குனியவும் திரும்பவும் முடிகிறது.' },
+      { id:'ribcage',
+        en:'Ribcage',          ta:'விலா எலும்புக் கூடு',
+        enNote:'Curved bones joined to the backbone. They guard the heart and lungs, and lift when you breathe in.',
+        taNote:'முதுகெலும்புடன் இணைந்த வளைந்த எலும்புகள். Heart மற்றும் lungs-ஐ காக்கின்றன; மூச்சு இழுக்கும்போது மேலே உயரும்.' },
+      { id:'shoulder',
+        en:'Shoulder bones',   ta:'தோள் எலும்புகள்',
+        enNote:'The shoulder blade and collar bone. They hold the ball-and-socket joint that lets your arm circle right round.',
+        taNote:'தோள்பட்டை மற்றும் காறை எலும்பு. கை முழுவதுமாக சுற்ற உதவும் ball-and-socket joint இங்குதான் இருக்கிறது.' },
+      { id:'arms',
+        en:'Arm and hand bones', ta:'கை எலும்புகள்',
+        enNote:'One bone above the elbow, two below it, then 27 small bones in each hand. The elbow is a hinge — it bends one way only.',
+        taNote:'முழங்கைக்கு மேலே ஒரு எலும்பு, கீழே இரண்டு. ஒவ்வொரு கையிலும் 27 சிறிய எலும்புகள். முழங்கை ஒரு hinge joint — ஒரு பக்கம் மட்டுமே மடங்கும்.' },
+      { id:'hips',
+        en:'Hip bones',        ta:'இடுப்பு எலும்புகள்',
+        enNote:'A strong bowl that carries the weight of the upper body and meets the thigh bone in a ball-and-socket joint.',
+        taNote:'மேல் உடலின் எடையை தாங்கும் வலிமையான கிண்ணம். தொடை எலும்புடன் ball-and-socket joint-ஆக இணைகிறது.' },
+      { id:'legs',
+        en:'Leg and foot bones', ta:'கால் எலும்புகள்',
+        enNote:'The thigh bone is the longest bone in the body. The knee is a hinge, like the elbow.',
+        taNote:'தொடை எலும்பு உடலின் மிக நீளமான எலும்பு. முழங்கால் ஒரு hinge joint — முழங்கை போலவே.' }
+    ]
+  }
+};
+
+var DEF = MODELS[MODEL] || MODELS.skeleton;
+
+/* ── colours ── */
+var BONE_COL   = new THREE.Color('#e5dac9');
+var DIM_COL    = new THREE.Color('#6d6558');
+var PICK_COL   = new THREE.Color('#C9962A');
+
+/* ── elements ── */
+var stage  = document.getElementById('stage');
+var elName = document.getElementById('state-name');
+var elSub  = document.getElementById('state-sub');
+var elHintL= document.getElementById('hint-l');
+var elHintV= document.getElementById('hint-v');
+var elCred = document.getElementById('credit');
+var elLoad = document.getElementById('load');
+var elLoadT= document.getElementById('load-t');
+var elLoadP= document.getElementById('load-p');
+var elBar  = document.querySelector('#bar i');
+var elCtl  = document.getElementById('controls');
+
+function tamilify(el){ if(TA) el.classList.add('tamil'); else el.classList.remove('tamil'); }
+
+/* ── three.js scene ── */
+var scene, camera, renderer, root, raycaster, pointer;
+var meshes = {};        // part id -> THREE.Mesh
+var selected = null;
+var W = 1, H = 1;
+
+function init(){
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(38, 1, 0.01, 100);
+  renderer = new THREE.WebGLRenderer({ antialias:true, alpha:true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  stage.appendChild(renderer.domElement);
+
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a30, 0.85));
+  var key = new THREE.DirectionalLight(0xffffff, 0.85);
+  key.position.set(1.4, 2.2, 2.4); scene.add(key);
+  var fill = new THREE.DirectionalLight(0xffe9c9, 0.35);
+  fill.position.set(-2, 0.6, -1.5); scene.add(fill);
+
+  root = new THREE.Group(); scene.add(root);
+  raycaster = new THREE.Raycaster();
+  pointer = new THREE.Vector2();
+
+  resize();
+  window.addEventListener('resize', resize);
+}
+
+function resize(){
+  W = stage.clientWidth || 1; H = stage.clientHeight || 1;
+  renderer.setSize(W, H, false);
+  camera.aspect = W / H;
+  camera.updateProjectionMatrix();
+  frame();
+}
+
+/* ── frame the model so it fits any screen shape ── */
+var modelBox = null;
+function frame(){
+  if(!modelBox) return;
+  var size = new THREE.Vector3(), centre = new THREE.Vector3();
+  modelBox.getSize(size); modelBox.getCenter(centre);
+  var fovV = camera.fov * Math.PI / 180;
+  var fovH = 2 * Math.atan(Math.tan(fovV / 2) * camera.aspect);
+  var dV = (size.y / 2) / Math.tan(fovV / 2);
+  var dH = (size.x / 2) / Math.tan(fovH / 2);
+  var dist = Math.max(dV, dH) * 1.22 + size.z / 2;
+  camera.position.set(0, 0, dist);
+  camera.lookAt(0, 0, 0);
+  root.position.set(-centre.x, -centre.y, -centre.z);
+}
+
+/* ── drag to rotate (face-on by default) ── */
+var rotY = 0, rotX = 0, dragging = false, lastX = 0, lastY = 0, moved = 0;
+function bindDrag(){
+  var c = renderer.domElement;
+  c.addEventListener('pointerdown', function(e){
+    dragging = true; moved = 0; lastX = e.clientX; lastY = e.clientY;
+    c.setPointerCapture(e.pointerId);
+  });
+  c.addEventListener('pointermove', function(e){
+    if(!dragging) return;
+    var dx = e.clientX - lastX, dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    moved += Math.abs(dx) + Math.abs(dy);
+    rotY += dx * 0.008;
+    rotX = Math.max(-1.2, Math.min(1.2, rotX + dy * 0.006));
+  });
+  c.addEventListener('pointerup', function(e){
+    dragging = false;
+    if(moved < 6) pick(e);          // a tap, not a drag
+  });
+  c.addEventListener('pointercancel', function(){ dragging = false; });
+}
+
+/* ── tapping a part ── */
+function pick(e){
+  var r = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((e.clientX - r.left) / r.width) * 2 - 1;
+  pointer.y = -((e.clientY - r.top) / r.height) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  var list = [];
+  for(var k in meshes) list.push(meshes[k]);
+  var hit = raycaster.intersectObjects(list, false);
+  if(!hit.length){ select(null); return; }
+
+  if(PLACE){
+    var p = hit[0].point.clone();
+    root.worldToLocal(p);
+    elName.textContent = hit[0].object.name;
+    elSub.textContent = 'x ' + p.x.toFixed(3) + '   y ' + p.y.toFixed(3) + '   z ' + p.z.toFixed(3);
+    return;
+  }
+  select(hit[0].object.name);
+}
+
+function partById(id){
+  for(var i = 0; i < DEF.parts.length; i++) if(DEF.parts[i].id === id) return DEF.parts[i];
+  return null;
+}
+
+function select(id){
+  selected = id;
+  for(var k in meshes){
+    var m = meshes[k].material;
+    if(!id)            m.color.copy(BONE_COL);
+    else if(k === id)  m.color.copy(PICK_COL);
+    else               m.color.copy(DIM_COL);
+  }
+  var chips = elCtl.querySelectorAll('.pbtn');
+  for(var i = 0; i < chips.length; i++)
+    chips[i].classList.toggle('on', chips[i].dataset.part === (id || 'all'));
+
+  var p = id ? partById(id) : null;
+  if(p){
+    elName.textContent = TA ? p.ta : p.en;
+    elSub.textContent  = TA ? p.taNote : p.enNote;
+  } else {
+    elName.textContent = TA ? DEF.title.ta : DEF.title.en;
+    elSub.textContent  = TA ? DEF.sub.ta   : DEF.sub.en;
+  }
+  tamilify(elName); tamilify(elSub);
+}
+
+/* ── the chips along the bottom ── */
+function buildControls(){
+  elCtl.innerHTML = '';
+  var all = document.createElement('span');
+  all.className = 'pbtn on'; all.dataset.part = 'all';
+  all.textContent = TA ? 'முழுவதும்' : 'Whole body';
+  if(TA) all.classList.add('tamil');
+  all.addEventListener('click', function(){ select(null); });
+  elCtl.appendChild(all);
+  var sep = document.createElement('span'); sep.className = 'sep'; elCtl.appendChild(sep);
+
+  DEF.parts.forEach(function(p){
+    if(!meshes[p.id]) return;                 // model has no such group
+    var b = document.createElement('span');
+    b.className = 'pbtn'; b.dataset.part = p.id;
+    b.textContent = TA ? p.ta : p.en;
+    if(TA) b.classList.add('tamil');
+    b.setAttribute('tabindex', '0');
+    b.addEventListener('click', function(){ select(p.id); });
+    b.addEventListener('keydown', function(ev){
+      if(ev.key === 'Enter' || ev.key === ' '){ ev.preventDefault(); select(p.id); }
+    });
+    elCtl.appendChild(b);
+  });
+}
+
+/* ── loading ── */
+function showError(msg){
+  elLoad.classList.add('err');
+  elLoadT.textContent = msg;
+  elLoadT.className = 't';
+  document.getElementById('bar').style.display = 'none';
+  elLoadP.style.display = 'none';
+}
+
+function load(){
+  var url = BUCKET + DEF.file;
+  elLoadT.textContent = TA ? 'மாதிரி ஏற்றப்படுகிறது…' : 'Loading the model…';
+  tamilify(elLoadT);
+
+  new THREE.GLTFLoader().load(url,
+    function(gltf){
+      gltf.scene.traverse(function(o){
+        if(!o.isMesh) return;
+        o.material = new THREE.MeshStandardMaterial({
+          color: BONE_COL.clone(), roughness: 0.72, metalness: 0.0,
+          flatShading: false
+        });
+        meshes[o.name] = o;
+      });
+      if(!Object.keys(meshes).length){
+        showError(TA ? 'இந்த கோப்பில் மாதிரி எதுவும் இல்லை.'
+                     : 'That file loaded but contains no model.');
+        return;
+      }
+      root.add(gltf.scene);
+      modelBox = new THREE.Box3().setFromObject(gltf.scene);
+      frame();
+      buildControls();
+      elCred.textContent = DEF.credit || '';
+      elHintL.textContent = TA ? 'பகுதிகள்' : 'Parts';
+      elHintV.textContent = Object.keys(meshes).length;
+      if(TA) elHintL.classList.add('tamil');
+      elLoad.style.display = 'none';
+      select(START && partById(START) ? START : null);
+      if(PLACE){
+        elName.textContent = 'Placement mode';
+        elSub.textContent  = 'Tap the model to read a point.';
+      }
+    },
+    function(p){
+      if(!p.lengthComputable) return;
+      var pc = Math.round(p.loaded / p.total * 100);
+      elBar.style.width = pc + '%';
+      elLoadP.textContent = pc + '%';
+    },
+    function(){
+      showError(TA ? 'மாதிரியை ஏற்ற முடியவில்லை. இணைப்பை சரிபார்க்கவும்.'
+                   : 'Could not load the model. Check the file is uploaded and the bucket is public.');
+    }
+  );
+}
+
+/* ── run ── */
+function tick(){
+  requestAnimationFrame(tick);
+  root.rotation.y = rotY;
+  root.rotation.x = rotX;
+  renderer.render(scene, camera);
+}
+
+if(!window.THREE || !THREE.GLTFLoader){
+  showError('3D library did not load. Check the internet connection.');
+} else {
+  init();
+  bindDrag();
+  select(null);
+  load();
+  tick();
+}
+</script>
+</body>
+</html>
