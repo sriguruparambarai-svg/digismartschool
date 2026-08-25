@@ -160,6 +160,51 @@ html,body{
 }
 .gen-btn:hover{transform:translateY(-2px);box-shadow:0 8px 28px rgba(107,26,26,.5);}
 .gen-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.prep-btn{
+  width:100%;padding:13px;margin-top:10px;
+  background:transparent;color:var(--maroon);
+  border:2px solid var(--maroon);border-radius:12px;
+  font-family:'Lexend',sans-serif;font-size:.9rem;font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;gap:9px;
+  transition:all .2s;
+}
+.prep-btn:hover{background:var(--maroon);color:var(--sandal);transform:translateY(-2px);}
+.prep-btn:disabled{opacity:.5;cursor:not-allowed;transform:none;}
+.prep-hint{
+  text-align:center;font-size:.72rem;margin-top:8px;
+  color:rgba(107,26,26,.65);line-height:1.5;
+}
+.fresh-row{
+  display:flex;align-items:center;justify-content:center;gap:8px;
+  margin-top:12px;font-size:.75rem;color:rgba(107,26,26,.75);cursor:pointer;
+}
+.fresh-row input{width:15px;height:15px;accent-color:var(--maroon);cursor:pointer;}
+.prep-done{
+  display:none;position:fixed;inset:0;z-index:60;
+  background:linear-gradient(150deg,#1a0805,#0d0604);
+  flex-direction:column;align-items:center;justify-content:center;
+  text-align:center;padding:30px;
+}
+.prep-done.show{display:flex;}
+.pd-tick{font-size:3.4rem;margin-bottom:14px;}
+.pd-title{
+  font-family:'Lexend',sans-serif;font-size:1.45rem;font-weight:800;
+  color:var(--gold);margin-bottom:10px;
+}
+.pd-sub{
+  font-size:.88rem;color:rgba(232,201,154,.8);
+  max-width:440px;line-height:1.65;margin-bottom:26px;
+}
+.pd-name{color:var(--sandal);font-weight:700;}
+.pd-btns{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;}
+.pd-b{
+  padding:13px 26px;border-radius:11px;cursor:pointer;
+  font-family:'Lexend',sans-serif;font-size:.88rem;font-weight:700;
+  border:2px solid var(--gold);background:transparent;color:var(--gold);
+  transition:all .2s;
+}
+.pd-b:hover{transform:translateY(-2px);}
+.pd-b.solid{background:var(--gold);color:#2a1206;}
 .err-bar{
   display:none;background:rgba(139,26,26,.1);
   border:1.5px solid rgba(139,26,26,.4);border-radius:9px;
@@ -762,6 +807,17 @@ input[type=range]{
   <div class="scene-gen-list" id="scene-gen-list"></div>
 </div>
 
+<!-- PREPARED CONFIRMATION (Prepare Story flow) -->
+<div class="prep-done" id="prep-done">
+  <div class="pd-tick">✅</div>
+  <div class="pd-title" id="pd-title">Story is ready</div>
+  <div class="pd-sub" id="pd-sub"></div>
+  <div class="pd-btns">
+    <button class="pd-b solid" onclick="runPrepared()">▶ Play it now</button>
+    <button class="pd-b" onclick="closePrepared()">← Prepare another</button>
+  </div>
+</div>
+
 <!-- SETUP -->
 <div class="setup show" id="setup">
   <div class="setup-card">
@@ -803,6 +859,18 @@ input[type=range]{
   <button class="gen-btn" id="gen-btn" onclick="generateStory()">
     📖 Open the Storybook
   </button>
+
+  <button class="prep-btn" id="prep-btn" onclick="prepareStory()">
+    ⚡ Prepare Story for Class
+  </button>
+  <div class="prep-hint" id="prep-hint">
+    Prepare it now (takes about a minute). In class it opens instantly.
+  </div>
+
+  <label class="fresh-row" for="fresh-chk">
+    <input type="checkbox" id="fresh-chk"/>
+    <span id="fresh-lbl">Write a brand-new story (ignore the saved one)</span>
+  </label>
 </div>
 
 <!-- STORYBOOK STAGE -->
@@ -899,6 +967,14 @@ var ptimer=null,hlInterval=null,dlgTimer=null;
 // Two background layers for cross-fade (A/B swap)
 var activeBg='a'; // 'a' or 'b'
 
+// Story cache + Prepare Story state
+var STORY_VER='v1';       // bump this to force every saved story to be rewritten
+var srcText='';           // lesson text the teacher pasted, kept for the cache key
+var charSheet='';         // fixed character description, keeps faces consistent
+var forceFresh=false;     // true when the teacher ticks "brand-new story"
+var prepareOnly=false;    // true when Prepare Story was used instead of Play
+var lastFromCache=false;  // did this story come from the cache?
+
 // ═══════════════════════════════════════════════════════
 // POLLINATIONS — free AI image generation
 // Format: https://image.pollinations.ai/prompt/[PROMPT]?w=1280&h=720&nologo=true
@@ -923,6 +999,73 @@ function loadImage(url){
 }
 
 // ═══════════════════════════════════════════════════════
+// OPENAI PICTURES (api/gen-image.js) — drawn once, saved, reused free
+// ═══════════════════════════════════════════════════════
+// Falls back to the Pollinations URL above if OpenAI is unavailable, so a
+// class can never be left staring at a blank screen.
+async function genSceneImage(scenePrompt){
+  var q=String(scenePrompt||'').trim();
+  if(q.length<3)q='A gentle Indian village scene';
+  try{
+    var r=await fetch('/api/gen-image',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({query:q,context:charSheet})
+    });
+    var j=await r.json();
+    if(j&&j.images&&j.images[0]&&j.images[0].url)return j.images[0].url;
+  }catch(e){}
+  try{return buildImageUrl(q);}catch(e){return null;}
+}
+
+// ═══════════════════════════════════════════════════════
+// STORY CACHE (api/story-cache.js) — same lesson never costs twice
+// ═══════════════════════════════════════════════════════
+function cacheIdent(){
+  return {
+    title:storyTitle,
+    cls:storyClass,
+    type:storyType,
+    lang:storyLang,
+    text:srcText,
+    ver:STORY_VER
+  };
+}
+
+async function cacheGetStory(){
+  try{
+    var body=cacheIdent();body.action='get';
+    var r=await fetch('/api/story-cache',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+    var j=await r.json();
+    if(j&&j.found&&j.scenes&&j.scenes.length)return j;
+  }catch(e){}
+  return null;
+}
+
+async function cacheSaveStory(){
+  try{
+    var imgs=[];
+    for(var i=0;i<scenes.length;i++)imgs.push(bgCache[i]||null);
+    var body=cacheIdent();
+    body.action='save';
+    body.storyTitle=storyTitle;
+    body.moral=moral;
+    body.charSheet=charSheet;
+    body.scenes=scenes;
+    body.images=imgs;
+    await fetch('/api/story-cache',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(body)
+    });
+  }catch(e){}
+}
+
+// ═══════════════════════════════════════════════════════
 // UI HELPERS
 // ═══════════════════════════════════════════════════════
 function selType(el){
@@ -939,11 +1082,23 @@ function setLang(lang,el){
   if(lang==='ta'){
     box.placeholder='இங்கே தமிழ் கதை அல்லது கவிதையை ஒட்டவும் — அல்லது கீழே தலைப்பை மட்டும் கொடுத்தால் AI கதை எழுதும்!';
     btn.innerHTML='📖 கதை புத்தகத்தை திறக்கவும்';
+    var pb=document.getElementById('prep-btn');
+    if(pb)pb.innerHTML='⚡ வகுப்பிற்கு கதையை தயாரிக்கவும்';
+    var ph=document.getElementById('prep-hint');
+    if(ph)ph.textContent='இப்போதே தயாரிக்கவும் — வகுப்பில் உடனடியாகத் திறக்கும்.';
+    var fl=document.getElementById('fresh-lbl');
+    if(fl)fl.textContent='புதிய கதை எழுதவும் (சேமித்ததை பயன்படுத்தாதே)';
     document.getElementById('meta-title').placeholder='கதை தலைப்பு (எ.கா. மூன்று கேள்விகள்)';
     document.getElementById('meta-class').placeholder='வகுப்பு (எ.கா. 7ஆம் வகுப்பு)';
   } else {
     box.placeholder='Paste story or poem here — or just enter a title below and AI writes it!';
     btn.innerHTML='📖 Open the Storybook';
+    var pbe=document.getElementById('prep-btn');
+    if(pbe)pbe.innerHTML='⚡ Prepare Story for Class';
+    var phe=document.getElementById('prep-hint');
+    if(phe)phe.textContent='Prepare it now (takes about a minute). In class it opens instantly.';
+    var fle=document.getElementById('fresh-lbl');
+    if(fle)fle.textContent='Write a brand-new story (ignore the saved one)';
     document.getElementById('meta-title').placeholder='Story Title (e.g. The Three Questions)';
     document.getElementById('meta-class').placeholder='Class (e.g. Class 7)';
   }
@@ -974,6 +1129,9 @@ function restartSetup(){
   document.getElementById('err-bar').classList.remove('show');
   document.getElementById('prog-bar').style.width='0%';
   document.getElementById('gen-btn').disabled=false;
+  var pbr=document.getElementById('prep-btn');if(pbr)pbr.disabled=false;
+  var pdr=document.getElementById('prep-done');if(pdr)pdr.classList.remove('show');
+  prepareOnly=false;forceFresh=false;lastFromCache=false;charSheet='';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -984,7 +1142,11 @@ async function generateStory(){
   storyClass=document.getElementById('meta-class').value.trim()||'';
   storyType=selT;
   var text=document.getElementById('story-input').value.trim();
+  srcText=text;
+  var fchk=document.getElementById('fresh-chk');
+  forceFresh=!!(fchk&&fchk.checked);
   document.getElementById('gen-btn').disabled=true;
+  var pbg=document.getElementById('prep-btn');if(pbg)pbg.disabled=true;
   document.getElementById('err-bar').classList.remove('show');
   document.getElementById('setup').classList.remove('show');
 
@@ -995,6 +1157,25 @@ async function generateStory(){
   );
 
   try{
+    // ── Has this exact story been made before? ──
+    if(!forceFresh){
+      var hit=await cacheGetStory();
+      if(hit){
+        scenes=hit.scenes||[];
+        moral=hit.moral||'';
+        storyTitle=hit.title||storyTitle;
+        charSheet=hit.charSheet||'';
+        bgCache={};
+        (hit.images||[]).forEach(function(u,i){bgCache[i]=u||null;});
+        lastFromCache=true;
+        document.getElementById('gen-btn').disabled=false;
+        var pbc=document.getElementById('prep-btn');if(pbc)pbc.disabled=false;
+        if(prepareOnly){showPrepared(true);return;}
+        hideLoad();buildStage();return;
+      }
+    }
+    lastFromCache=false;
+
     var resp=await fetch('/api/ai',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
@@ -1011,16 +1192,21 @@ async function generateStory(){
     scenes=result.scenes||[];
     moral=(storyLang==='ta'&&result.moral_ta)?result.moral_ta:(result.moral||'');
     storyTitle=result.title||storyTitle;
+    charSheet=String(result.character_sheet||'').substring(0,200);
     if(!scenes.length)throw new Error('No scenes returned. Please try again.');
 
     // Step 2 — generate all background images
-    await generateAllBackgrounds();
+    // (generateAllBackgrounds below is the original Pollinations version,
+    //  kept intact as a reference and emergency fallback.)
+    await generateAllBackgroundsAI();
 
   }catch(e){
     hideLoad();
     document.getElementById('setup').classList.add('show');
     showErr('Error: '+e.message);
     document.getElementById('gen-btn').disabled=false;
+    var pbe2=document.getElementById('prep-btn');if(pbe2)pbe2.disabled=false;
+    prepareOnly=false;
   }
 }
 
@@ -1072,6 +1258,110 @@ async function generateAllBackgrounds(){
 }
 
 // ═══════════════════════════════════════════════════════
+// STEP 2 (AI) — PAINT WITH OPENAI, 3 AT A TIME, THEN SAVE TO CACHE
+// ═══════════════════════════════════════════════════════
+async function generateAllBackgroundsAI(){
+  var gl=document.getElementById('scene-gen-list');
+  gl.innerHTML='';
+  scenes.forEach(function(sc,i){
+    var row=document.createElement('div');
+    row.className='sg-row';row.id='sgrow-'+i;
+    row.innerHTML='<span class="sg-icon">\ud83c\udfa8</span>'
+      +'<span class="sg-name">Scene '+(i+1)+': '+escH(sc.name||'')+'</span>'
+      +'<span class="sg-status sg-wait" id="sgst-'+i+'">\u23f3 Waiting</span>';
+    gl.appendChild(row);
+  });
+
+  document.getElementById('l-title').textContent='Painting scenes\u2026';
+  document.getElementById('l-sub').textContent='The AI artist is drawing each scene. About a minute the first time \u2014 instant after that.';
+
+  var doneCount=0;
+  var total=scenes.length;
+
+  function markStart(i){
+    var row=document.getElementById('sgrow-'+i);
+    var st=document.getElementById('sgst-'+i);
+    if(row)row.classList.add('active');
+    if(st){st.className='sg-status sg-active';st.textContent='\ud83c\udfa8 Painting\u2026';}
+  }
+  function markDone(i,ok){
+    var row=document.getElementById('sgrow-'+i);
+    var st=document.getElementById('sgst-'+i);
+    if(row){row.classList.remove('active');row.classList.add('done');}
+    if(st){
+      if(ok){st.className='sg-status sg-done';st.textContent='\u2705 Ready';}
+      else{st.className='sg-status';st.textContent='\u26a0\ufe0f Fallback';}
+    }
+    doneCount++;
+    document.getElementById('prog-bar').style.width=(doneCount/total*100)+'%';
+  }
+
+  // Three at a time keeps the wait short without hammering the image API.
+  var BATCH=3;
+  for(var s=0;s<total;s+=BATCH){
+    var batch=[];
+    for(var k=s;k<Math.min(s+BATCH,total);k++){
+      batch.push((function(idx){
+        markStart(idx);
+        return genSceneImage(scenes[idx].bg_prompt||scenes[idx].name||'Indian landscape')
+          .then(function(url){bgCache[idx]=url||null;markDone(idx,!!url);})
+          .catch(function(){bgCache[idx]=null;markDone(idx,false);});
+      })(k));
+    }
+    await Promise.all(batch);
+  }
+
+  hideLoad();
+
+  // Save the finished story so nobody ever pays for this lesson again.
+  await cacheSaveStory();
+
+  if(prepareOnly){showPrepared(false);return;}
+  buildStage();
+}
+
+// ═══════════════════════════════════════════════════════
+// PREPARE STORY — build it before the period, play it instantly in class
+// ═══════════════════════════════════════════════════════
+function prepareStory(){
+  prepareOnly=true;
+  generateStory();
+}
+
+function showPrepared(wasAlreadyReady){
+  hideLoad();
+  var isTamil=(storyLang==='ta');
+  var t=document.getElementById('pd-title');
+  var s=document.getElementById('pd-sub');
+  if(t)t.textContent=wasAlreadyReady
+    ?(isTamil?'\u0b95\u0ba4\u0bc8 \u0b8f\u0bb1\u0bcd\u0b95\u0ba9\u0bb5\u0bc7 \u0ba4\u0baf\u0bbe\u0bb0\u0bcd':'Already prepared')
+    :(isTamil?'\u0b95\u0ba4\u0bc8 \u0ba4\u0baf\u0bbe\u0bb0\u0bcd':'Story is ready');
+  if(s)s.innerHTML='<span class="pd-name">'+escH(storyTitle)+'</span>'
+    +(storyClass?' \u2022 '+escH(storyClass):'')
+    +'<br/><br/>'
+    +(isTamil
+      ?'\u0b9a\u0bc7\u0bae\u0bbf\u0b95\u0bcd\u0b95\u0baa\u0bcd\u0baa\u0b9f\u0bcd\u0b9f\u0ba4\u0bc1. \u0bb5\u0b95\u0bc1\u0baa\u0bcd\u0baa\u0bbf\u0bb2\u0bcd \u0b87\u0ba4\u0bc7 \u0ba4\u0bb2\u0bc8\u0baa\u0bcd\u0baa\u0bc8\u0ba4\u0bcd \u0ba4\u0bc7\u0bb0\u0bcd\u0ba8\u0bcd\u0ba4\u0bc6\u0b9f\u0bc1\u0ba4\u0bcd\u0ba4\u0bbe\u0bb2\u0bcd \u0b89\u0b9f\u0ba9\u0b9f\u0bbf\u0baf\u0bbe\u0b95\u0ba4\u0bcd \u0ba4\u0bbf\u0bb1\u0b95\u0bcd\u0b95\u0bc1\u0bae\u0bcd.'
+      :'Saved. In class, open Cartoon Story with the same title and it will start straight away \u2014 no waiting, no extra cost.');
+  var pd=document.getElementById('prep-done');
+  if(pd)pd.classList.add('show');
+  prepareOnly=false;
+  document.getElementById('gen-btn').disabled=false;
+  var pb2=document.getElementById('prep-btn');if(pb2)pb2.disabled=false;
+}
+
+function runPrepared(){
+  var pd=document.getElementById('prep-done');
+  if(pd)pd.classList.remove('show');
+  buildStage();
+}
+
+function closePrepared(){
+  var pd=document.getElementById('prep-done');
+  if(pd)pd.classList.remove('show');
+  restartSetup();
+}
+
+// ═══════════════════════════════════════════════════════
 // SCENE PROMPT FOR CLAUDE
 // ═══════════════════════════════════════════════════════
 function buildScenePrompt(text,type,title,cls){
@@ -1107,9 +1397,10 @@ function buildScenePrompt(text,type,title,cls){
 
   return 'Create a cinematic storybook scene breakdown.\nTITLE: '+title+'\nCLASS: '+(cls||'Class 5')+'\nTYPE: '+type+'\nLANGUAGE: '+(isTamil?'Tamil — ALL narration, dialogue, moral, keywords, questions MUST be in Tamil script (தமிழ்). bg_prompt must stay in English for image generation.':'English')+'\n\n'+ts
     +'Return ONLY this JSON:\n'
-    +'{"title":"...","type":"...","moral_ta":"'+(isTamil?'நீதி வாக்கியம் in Tamil':'')+'","moral":"one sentence in English for fallback","scenes":[\n'
+    +'{"title":"...","type":"...","character_sheet":"IN ENGLISH, max 180 characters. Fixed look of the 2 MAIN characters only, so the artist draws the same person in every scene. Format: Name: age, clothing colour, hair. Example: Ravi: 8-year-old Indian boy, blue shirt, short curly hair. Amma: woman, green saree, hair in a bun.","moral_ta":"'+(isTamil?'நீதி வாக்கியம் in Tamil':'')+'","moral":"one sentence in English for fallback","scenes":[\n'
     +'{\n"num":1,\n"name":"short evocative scene name '+(isTamil?'in Tamil':'')+'",\n'+bgInstruction+',\n"emotion":"happy|sad|excited|scared|surprised|angry|calm|mysterious",\n"emoji":"one emoji",\n"characters":["name1","name2"],\n'+narrInstruction+',\n'+dlgInstruction+',\n"speaker":"character name",\n'+kwInstruction+',\n'+qInstruction+',\n"stanza":"'+(isTamil?'poem stanza in Tamil if poem else empty':'poem stanza if poem else empty string')+'"\n}]}\n'
-    +'Rules: 4-6 scenes, high literary quality, bg_prompt always in English, ONLY JSON.';
+    +'Rules: 4-6 scenes, high literary quality, bg_prompt always in English, ONLY JSON. '
+    +'Every bg_prompt must describe the SAME characters using the exact wording of character_sheet, so their faces and clothes never change between scenes.';
 }
 
 // ═══════════════════════════════════════════════════════
@@ -2109,7 +2400,8 @@ window.addEventListener('load',function(){
         if(langEl)setLang(d.lang,langEl);
       }
       document.getElementById('setup').classList.remove('show');
-      generateStory();
+      if(d.prepare){prepareStory();}
+      else{generateStory();}
     }
   }
 });
