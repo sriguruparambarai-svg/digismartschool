@@ -386,6 +386,17 @@
     transform-origin:top left;
   }
   .blankpg{background:#fff}
+  .copytag{
+    display:inline-block;
+    border:1px solid #000;
+    border-radius:4px;
+    padding:1px 8px;
+    margin-top:5px;
+    font-size:11.5px;
+    font-weight:600;
+    letter-spacing:.2px;
+  }
+  .paper.colour .copytag{border-color:var(--maroon);color:var(--maroon)}
   @media print{
     .sheet.twoup{zoom:1}
     .lsheet{
@@ -903,6 +914,23 @@ Draw your school bag</textarea>
         <option value="half">Half A4 &mdash; two per page</option>
       </select>
       <p class="hint">Half A4 turns the page sideways and puts two worksheets side by side, like two columns. Cut down the dashed line in the middle. Letters come out about three-quarters of their normal size.</p>
+    </div>
+
+    <div class="grp" id="halfOpts" style="display:none">
+      <label>The two halves</label>
+      <select id="halfMode">
+        <option value="diff" selected>Two different pages</option>
+        <option value="same">Same worksheet twice</option>
+      </select>
+      <p class="hint">Same worksheet twice: cut down the middle and give one to each child, or use one for class work and one for home work.</p>
+
+      <div id="tagBox" style="display:none">
+        <label style="margin-top:10px">Tag on the left copy</label>
+        <input id="tagL" type="text" value="Class work" placeholder="leave empty for none">
+        <label style="margin-top:8px">Tag on the right copy</label>
+        <input id="tagR" type="text" value="Home work" placeholder="leave empty for none">
+        <p class="hint">Printed as a small box next to the class name. Clear both boxes if you want two plain copies.</p>
+      </div>
     </div>
 
     <label class="chk"><input type="checkbox" id="bothSides"> Printing on both sides</label>
@@ -1880,6 +1908,24 @@ Draw your school bag</textarea>
     return d;
   }
 
+  function tagPaper(p, text){
+    if(!text || !p){ return; }
+    if(p.className.split(" ").indexOf("blankpg") >= 0){ return; }
+    var t = document.createElement("div");
+    t.className = "copytag";
+    t.textContent = text;
+    var m = p.querySelector(".meta");
+    if(m){ m.appendChild(t); }
+    else { p.insertBefore(t, p.firstChild); }
+  }
+
+  function syncHalfUI(){
+    var isHalf = ($("pgSize") ? val("pgSize")==="half" : false);
+    var isSame = ($("halfMode") ? val("halfMode")==="same" : false);
+    if($("halfOpts")){ $("halfOpts").style.display = isHalf ? "" : "none"; }
+    if($("tagBox")){ $("tagBox").style.display = (isHalf && isSame) ? "" : "none"; }
+  }
+
   function regroup(){
     var sheet = $("sheet");
     if(!sheet){ return; }
@@ -1890,7 +1936,7 @@ Draw your school bag</textarea>
     setPaperOrientation(twoUp);
     sheet.className = twoUp ? "sheet twoup" : "sheet";
 
-    var stale = sheet.querySelectorAll(".blankpg"), s2;
+    var stale = sheet.querySelectorAll(".blankpg,.copytag"), s2;
     for(s2=0;s2<stale.length;s2++){
       if(stale[s2].parentNode){ stale[s2].parentNode.removeChild(stale[s2]); }
     }
@@ -1903,8 +1949,10 @@ Draw your school bag</textarea>
     }
     if(!papers.length){ return; }
 
+    var dup = twoUp && ($("halfMode") ? val("halfMode")==="same" : false);
+
     if(both){
-      var block = twoUp ? 4 : 2;
+      var block = twoUp ? (dup ? 2 : 4) : 2;
       while(papers.length % block !== 0){ papers.push(blankPaper()); }
     }
 
@@ -1913,6 +1961,19 @@ Draw your school bag</textarea>
         if(!papers[i].parentNode){ sheet.appendChild(papers[i]); }
       }
       return;
+    }
+
+    if(dup){
+      var doubled = [], orig, copy;
+      for(i=0;i<papers.length;i++){
+        orig = papers[i];
+        copy = orig.cloneNode(true);
+        tagPaper(orig, val("tagL"));
+        tagPaper(copy, val("tagR"));
+        doubled.push(orig);
+        doubled.push(copy);
+      }
+      papers = doubled;
     }
 
     var frag = document.createDocumentFragment();
@@ -1934,11 +1995,14 @@ Draw your school bag</textarea>
   }
 
   (function(){
-    var extra = ["pgSize","bothSides"], q, e2;
+    var extra = ["pgSize","bothSides","halfMode","tagL","tagR"], q, e2;
     for(q=0;q<extra.length;q++){
       e2 = $(extra[q]);
-      if(e2){ e2.addEventListener("change", render); }
+      if(!e2){ continue; }
+      e2.addEventListener("change", function(){ syncHalfUI(); render(); });
+      e2.addEventListener("input",  function(){ syncHalfUI(); render(); });
     }
+    syncHalfUI();
   })();
 
   /* ---------- wiring ---------- */
