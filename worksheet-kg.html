@@ -922,17 +922,18 @@ Draw your school bag</textarea>
         <option value="same">Same worksheet twice</option>
       </select>
       <p class="hint">Same worksheet twice: cut down the middle and give one to each child, or use one for class work and one for home work.</p>
-
-      <div id="tagBox" style="display:none">
-        <label style="margin-top:10px">Tag on the left copy</label>
-        <input id="tagL" type="text" value="Class work" placeholder="leave empty for none">
-        <label style="margin-top:8px">Tag on the right copy</label>
-        <input id="tagR" type="text" value="Home work" placeholder="leave empty for none">
-        <p class="hint">Printed as a small box next to the class name. Clear both boxes if you want two plain copies.</p>
-      </div>
     </div>
 
-    <p class="hint">Printing on both sides? Tick <b>Print on both sides</b> in the printer window. Nothing to set here — the printer handles it.</p>
+    <label class="chk"><input type="checkbox" id="backSide"> Print the same worksheet on the back</label>
+    <p class="hint">A printer only prints the back when there is something on it. This puts a second copy there. Then tick <b>Print on both sides</b> in the printer window.</p>
+
+    <div class="grp" id="tagBox" style="display:none">
+      <label id="lblL">Tag on the left copy</label>
+      <input id="tagL" type="text" value="Class work" placeholder="leave empty for none">
+      <label id="lblR" style="margin-top:8px">Tag on the right copy</label>
+      <input id="tagR" type="text" value="Home work" placeholder="leave empty for none">
+      <p class="hint">Printed as a small box next to the class name. Clear both boxes if you want plain copies.</p>
+    </div>
 
     <p class="hint" style="margin-top:14px">Tip: in the print window set Margins to <b>None</b> and turn off "Headers and footers" for an exact fit.</p>
   </div>
@@ -1902,6 +1903,7 @@ Draw your school bag</textarea>
 
   function tagPaper(p, text){
     if(!text || !p){ return; }
+    if(p.className.split(" ").indexOf("fillpg") >= 0){ return; }
     var t = document.createElement("div");
     t.className = "copytag";
     t.textContent = text;
@@ -1913,8 +1915,13 @@ Draw your school bag</textarea>
   function syncHalfUI(){
     var isHalf = ($("pgSize") ? val("pgSize")==="half" : false);
     var isSame = ($("halfMode") ? val("halfMode")==="same" : false);
+    var onBack = ($("backSide") ? $("backSide").checked : false);
     if($("halfOpts")){ $("halfOpts").style.display = isHalf ? "" : "none"; }
-    if($("tagBox")){ $("tagBox").style.display = (isHalf && isSame) ? "" : "none"; }
+    if($("tagBox")){
+      $("tagBox").style.display = (onBack || (isHalf && isSame)) ? "" : "none";
+    }
+    if($("lblL")){ $("lblL").textContent = onBack ? "Tag on the front" : "Tag on the left copy"; }
+    if($("lblR")){ $("lblR").textContent = onBack ? "Tag on the back"  : "Tag on the right copy"; }
   }
 
   function regroup(){
@@ -1939,21 +1946,50 @@ Draw your school bag</textarea>
     }
     if(!papers.length){ return; }
 
-    var dup = twoUp && ($("halfMode") ? val("halfMode")==="same" : false);
+    var dup  = twoUp && ($("halfMode") ? val("halfMode")==="same" : false);
+    var back = ($("backSide") ? $("backSide").checked : false);
 
-    if(!twoUp){ return; }
-
+    /* left / right copies on the same sheet */
     if(dup){
-      var doubled = [], orig, copy;
-      for(i=0;i<papers.length;i++){
-        orig = papers[i];
-        copy = orig.cloneNode(true);
-        tagPaper(orig, val("tagL"));
-        tagPaper(copy, val("tagR"));
-        doubled.push(orig);
-        doubled.push(copy);
+      var doubled = [], j;
+      for(j=0;j<papers.length;j++){
+        doubled.push(papers[j]);
+        doubled.push(papers[j].cloneNode(true));
       }
       papers = doubled;
+    }
+
+    /* the back copies must start a new sheet, not fill the spare half */
+    if(twoUp && back && (papers.length % 2 === 1)){
+      var filler = document.createElement("div");
+      filler.className = "paper fillpg";
+      papers.push(filler);
+    }
+
+    /* a second copy that lands on the back of the sheet */
+    var frontCount = papers.length;
+    if(back){
+      var backs = [], k;
+      for(k=0;k<frontCount;k++){ backs.push(papers[k].cloneNode(true)); }
+      papers = papers.concat(backs);
+    }
+
+    /* tags go on last, after every copy exists */
+    if(back){
+      for(i=0;i<papers.length;i++){
+        tagPaper(papers[i], (i < frontCount) ? val("tagL") : val("tagR"));
+      }
+    } else if(dup){
+      for(i=0;i<papers.length;i++){
+        tagPaper(papers[i], (i % 2 === 0) ? val("tagL") : val("tagR"));
+      }
+    }
+
+    if(!twoUp){
+      for(i=0;i<papers.length;i++){
+        if(!papers[i].parentNode){ sheet.appendChild(papers[i]); }
+      }
+      return;
     }
 
     var frag = document.createDocumentFragment();
@@ -1975,7 +2011,7 @@ Draw your school bag</textarea>
   }
 
   (function(){
-    var extra = ["pgSize","halfMode","tagL","tagR"], q, e2;
+    var extra = ["pgSize","halfMode","backSide","tagL","tagR"], q, e2;
     for(q=0;q<extra.length;q++){
       e2 = $(extra[q]);
       if(!e2){ continue; }
