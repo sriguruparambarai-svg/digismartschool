@@ -148,6 +148,9 @@
   }
   .paper .shead:first-of-type{margin-top:4px}
   .paper.colour .shead{color:var(--maroon)}
+  .mixmath{margin:2px 0 6px}
+  .mixmath .cq{margin-bottom:10px}
+  .mixmath .mrow{margin-bottom:8px}
 
   /* ---------- paper ---------- */
   .sheet{zoom:.78}
@@ -467,6 +470,9 @@
       <div class="tabgrp">Language</div>
       <button class="tab on" data-t="sec">Letters &amp; words<small>Build a sheet from sections &mdash; Tamil, English, Hindi, numbers</small></button>
 
+      <div class="tabgrp">Home work</div>
+      <button class="tab" data-t="mix">Mixed home work<small>English, Tamil and Maths on one sheet</small></button>
+
       <div class="tabgrp">Maths</div>
       <button class="tab" data-t="mseq">Write the numbers<small>1 to 50, two times, across the lines</small></button>
       <button class="tab" data-t="count">Count and write<small>Count the pictures, write the number</small></button>
@@ -545,6 +551,24 @@
       <div id="secList"></div>
       <button class="btn sec-add" id="secAdd" type="button">+ Add a section</button>
       <p class="hint">Each section prints with its own heading, one after the other. Long sets wrap onto more lines automatically.</p>
+    </div>
+
+    <!-- mixed home work -->
+    <div data-panel="mix" style="display:none">
+      <div class="grp">
+        <label>Quick start</label>
+        <select id="mixPreset">
+          <option value="" selected>&mdash; load a ready-made home work &mdash;</option>
+          <option value="hwUKG">UKG &mdash; English, Tamil and Maths</option>
+          <option value="hwLKG">LKG &mdash; small letters, மெய், count and write</option>
+          <option value="hwMaths">Maths only &mdash; numbers, missing, before &amp; after</option>
+        </select>
+        <p class="hint">Loads a set of sections. Change anything after loading.</p>
+      </div>
+
+      <div id="mixList"></div>
+      <button class="btn sec-add" id="mixAdd" type="button">+ Add a section</button>
+      <p class="hint">Mix writing and maths sections on one sheet. Use <b>New numbers</b> at the top for a fresh set of maths questions.</p>
     </div>
 
     <!-- counting -->
@@ -953,14 +977,21 @@ Draw your school bag</textarea>
     tabs[i].addEventListener("click", function(){
       for(var j=0;j<tabs.length;j++){ tabs[j].className="tab"; }
       this.className="tab on";
+      var prev = mode;
       mode = this.getAttribute("data-t");
+      if(prev!==mode){
+        if(prev==="sec"){ LANG.captureHdr(); LANG.save(); }
+        if(prev==="mix"){ MIX.captureHdr(); MIX.save(); }
+        if(mode==="sec"){ LANG.applyHdr(); }
+        if(mode==="mix"){ MIX.applyHdr(); }
+      }
       var panels = document.querySelectorAll("[data-panel]");
       for(var k=0;k<panels.length;k++){
         panels[k].style.display = (panels[k].getAttribute("data-panel")===mode) ? "" : "none";
       }
       var onlyWrite = document.querySelectorAll("[data-only=write]");
       for(var m=0;m<onlyWrite.length;m++){
-        onlyWrite[m].style.display = (mode==="sec"||mode==="mseq"||mode==="nname") ? "" : "none";
+        onlyWrite[m].style.display = (mode==="sec"||mode==="mix"||mode==="mseq"||mode==="nname") ? "" : "none";
       }
       var onlyMaths = document.querySelectorAll("[data-only=maths]");
       for(var q=0;q<onlyMaths.length;q++){
@@ -976,7 +1007,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix");
     b.style.display = uses ? "" : "none";
   }
 
@@ -1131,8 +1162,6 @@ Draw your school bag</textarea>
   }
 
   /* ---------- sections ---------- */
-  var SEC_KEY = "glm_ws_sections_v2";
-  var secs = [];
 
   var SET_LABELS = [
     ["tVowel","Tamil — உயிர் எழுத்து (அ ஆ இ…)"],
@@ -1187,9 +1216,13 @@ Draw your school bag</textarea>
   }
   function newSec(o){
     var d = {heading:"", kind:"copy", set:"tVowel", base:"all", content:"", layout:"col",
-             copyLines:2, rows:2, trace:3, times:5, wtrace:2, blank:4, rule:"auto"};
+             copyLines:2, rows:2, trace:3, times:5, wtrace:2, blank:4, rule:"auto",
+             mFrom:1, mTo:20, mTimes:1, mTraced:1, mPer:10, mGap:40, mType:"mixed",
+             mQty:5, mMax:20, mOp:"add", mShape:"mixed", mWhich:"big",
+             mLang:"en", mSet:"1-10", mFmt:"trace", seed:0};
     for(var k in o){ if(o.hasOwnProperty(k)){ d[k]=o[k]; } }
     if(!d.content && d.set!=="custom"){ d.content = setContent(d.set, d.base); }
+    if(!d.seed){ d.seed = 1 + Math.floor(Math.random()*1e9); }
     return d;
   }
 
@@ -1237,34 +1270,107 @@ Draw your school bag</textarea>
       secs:[ {heading:"1 to 20", kind:"trace", set:"n20", rows:2, trace:3} ]}
   };
 
-  function loadPreset(key){
-    var p = PRESETS[key];
-    if(!p){ return; }
-    secs = [];
-    for(var i=0;i<p.secs.length;i++){ secs.push(newSec(p.secs[i])); }
-    if($("title")){ $("title").value = p.title; }
-    if($("subj")){ $("subj").value = p.subj; }
-    if($("instr")){ $("instr").value = p.instr; }
-    saveSecs(); drawSecList(); render();
-  }
+  var MIX_PRESETS = {
+    hwUKG:{ title:"Home work", subj:"All subjects",
+      instr:"Do each part neatly. Ask an adult to sign when you finish.",
+      secs:[
+        {heading:"English — capital letters", kind:"trace", layout:"row", set:"capsA", rows:1, trace:0},
+        {heading:"தமிழ் — உயிர் எழுத்து", kind:"copy", set:"tVowel", copyLines:1},
+        {heading:"Maths — write the numbers", kind:"mseq", mFrom:1, mTo:10, mTimes:2, mTraced:1},
+        {heading:"Maths — fill the missing numbers", kind:"mnum", mFrom:1, mTo:20, mPer:10, mGap:40}
+      ]},
+    hwLKG:{ title:"Home work", subj:"All subjects",
+      instr:"Do each part neatly. Ask an adult to sign when you finish.",
+      secs:[
+        {heading:"English — small letters", kind:"trace", layout:"row", set:"smallA", rows:1, trace:1},
+        {heading:"தமிழ் — மெய் எழுத்து", kind:"copy", set:"tCons", copyLines:1},
+        {heading:"Maths — count and write", kind:"count", mQty:4, mMax:6, mShape:"mixed"}
+      ]},
+    hwMaths:{ title:"Maths home work", subj:"Maths",
+      instr:"Read each part carefully and write the answers.",
+      secs:[
+        {heading:"Write the numbers", kind:"mseq", mFrom:1, mTo:30, mTimes:2, mTraced:1},
+        {heading:"Missing numbers", kind:"mnum", mFrom:1, mTo:30, mPer:10, mGap:50},
+        {heading:"Before, after, between", kind:"mbaf", mType:"mixed", mQty:5, mMax:20}
+      ]}
+  };
 
-  function saveSecs(){
-    try{ localStorage.setItem(SEC_KEY, JSON.stringify(secs)); }catch(e){}
+  /* a section list is bound to a panel: the Letters & words tab and the Mixed home work tab each have one */
+  function SecList(cfg){
+    this.cfg = cfg;          /* {listId, addId, presetId, key, presets, mixed, defaultPreset}
+                                mixed:true allows maths sections */
+    this.secs = [];
   }
-  function loadSecs(){
+  SecList.prototype.captureHdr = function(){
+    this.hdr = {title:val("title"), subj:val("subj"), instr:val("instr")};
+  };
+  SecList.prototype.applyHdr = function(){
+    if(!this.hdr){ return; }
+    if($("title")){ $("title").value = this.hdr.title; }
+    if($("subj")){ $("subj").value = this.hdr.subj; }
+    if($("instr")){ $("instr").value = this.hdr.instr; }
+  };
+  SecList.prototype.save = function(){
     try{
-      var raw = localStorage.getItem(SEC_KEY);
+      localStorage.setItem(this.cfg.key, JSON.stringify(this.secs));
+      if(this.hdr){ localStorage.setItem(this.cfg.key+"_hdr", JSON.stringify(this.hdr)); }
+    }catch(e){}
+  };
+  SecList.prototype.load = function(){
+    try{
+      var hr = localStorage.getItem(this.cfg.key+"_hdr");
+      if(hr){ this.hdr = JSON.parse(hr); }
+      var raw = localStorage.getItem(this.cfg.key);
       if(raw){
         var arr = JSON.parse(raw);
         if(arr && arr.length){
-          secs = [];
-          for(var i=0;i<arr.length;i++){ secs.push(newSec(arr[i])); }
+          this.secs = [];
+          for(var i=0;i<arr.length;i++){ this.secs.push(newSec(arr[i])); }
           return true;
         }
       }
     }catch(e){}
     return false;
-  }
+  };
+  SecList.prototype.loadPreset = function(key, quiet){
+    var p = this.cfg.presets[key];
+    if(!p){ return; }
+    this.secs = [];
+    for(var i=0;i<p.secs.length;i++){ this.secs.push(newSec(p.secs[i])); }
+    this.hdr = {title:p.title, subj:p.subj, instr:p.instr};
+    if(!quiet){ this.applyHdr(); }
+    this.save(); this.draw();
+    if(!quiet){ render(); }
+  };
+  SecList.prototype.draw = function(){
+    var box = $(this.cfg.listId);
+    if(!box){ return; }
+    var h = "";
+    for(var i=0;i<this.secs.length;i++){ h += secCard(this.secs[i], i, this.secs.length, this.cfg.mixed); }
+    box.innerHTML = h;
+  };
+  SecList.prototype.reseed = function(){
+    for(var i=0;i<this.secs.length;i++){ this.secs[i].seed = 1 + Math.floor(Math.random()*1e9); }
+    this.save();
+  };
+  SecList.prototype.build = function(fsOv){
+    var fs = fsOv || num("size",36);
+    var blocks = [];
+    for(var i=0;i<this.secs.length;i++){
+      var sc = this.secs[i];
+      var hb = headingBlock(sc.heading);
+      if(hb){ blocks.push(hb); }
+      var part;
+      if(MATH_KINDS.indexOf(sc.kind)>=0){ part = buildMathSec(sc, fs); }
+      else if(sc.kind==="trace"){ part = buildTrace(sc, fs); }
+      else if(sc.kind==="words"){ part = buildWordsSec(sc, fs); }
+      else if(sc.kind==="blank"){ part = buildBlank(sc, fs); }
+      else { part = buildCopy(sc, fs); }
+      blocks = blocks.concat(part);
+      if(i<this.secs.length-1){ blocks.push({h:12, html:'<div style="height:12px"></div>'}); }
+    }
+    return blocks;
+  };
 
   function opts(list, cur){
     var h = "";
@@ -1288,7 +1394,27 @@ Draw your school bag</textarea>
     return out;
   }
 
-  function secCard(sc, i, n){
+  var MATH_KINDS = ["mseq","mnum","mbaf","mpic","mcmp","count","nname"];
+  var WRITE_KINDS = [["copy","Copy the row — model row, then empty lines"],
+                     ["trace","Trace each letter — model, grey copies, then blank"],
+                     ["words","Write each word — a few times across the line"],
+                     ["blank","Empty lines only"]];
+  var MATH_KIND_LABELS = [["mseq","Write the numbers"],
+                          ["mnum","Missing numbers"],
+                          ["mbaf","Before, after, between"],
+                          ["mpic","Picture add & subtract"],
+                          ["mcmp","Compare numbers"],
+                          ["count","Count and write"],
+                          ["nname","Number names"]];
+
+  function numField(label, f, v, min, max){
+    return '<div><label>'+label+'</label><input type="number" data-f="'+f+'" value="'+v+'" min="'+min+'" max="'+max+'"></div>';
+  }
+  function selField(label, f, list, cur){
+    return '<div><label>'+label+'</label><select data-f="'+f+'">'+opts(list, cur)+'</select></div>';
+  }
+
+  function secCard(sc, i, n, mixed){
     var h = '<div class="sec" data-i="'+i+'">';
     h += '<div class="sec-top"><span class="sec-n">SECTION '+(i+1)+'</span><span class="sec-acts">'+
          '<button type="button" data-a="up" title="Move up"'+(i===0?' disabled':'')+'>&uarr;</button>'+
@@ -1298,11 +1424,48 @@ Draw your school bag</textarea>
          '</span></div>';
     h += '<div class="grp"><label>Heading on the sheet</label>'+
          '<input type="text" data-f="heading" value="'+esc(sc.heading)+'" placeholder="leave empty for none"></div>';
-    h += '<div class="grp"><label>What the child does</label><select data-f="kind">'+
-         opts([["copy","Copy the row — model row, then empty lines"],
-               ["trace","Trace each letter — every letter gets its own row"],
-               ["words","Write each word — a few times across the line"],
-               ["blank","Empty lines only"]], sc.kind)+'</select></div>';
+
+    h += '<div class="grp"><label>What the child does</label><select data-f="kind">';
+    if(mixed){
+      h += '<optgroup label="Writing">'+opts(WRITE_KINDS, sc.kind)+'</optgroup>'+
+           '<optgroup label="Maths">'+opts(MATH_KIND_LABELS, sc.kind)+'</optgroup>';
+    } else {
+      h += opts(WRITE_KINDS, sc.kind);
+    }
+    h += '</select></div>';
+
+    var isMath = MATH_KINDS.indexOf(sc.kind)>=0;
+
+    if(isMath){
+      if(sc.kind==="mseq"){
+        h += '<div class="row2 grp">'+numField("From","mFrom",sc.mFrom,0,500)+numField("To","mTo",sc.mTo,1,999)+'</div>';
+        h += '<div class="row2 grp">'+numField("Rows","mTimes",sc.mTimes,1,6)+numField("Of which grey (to trace)","mTraced",sc.mTraced,0,6)+'</div>';
+      } else if(sc.kind==="mnum"){
+        h += '<div class="row2 grp">'+numField("From","mFrom",sc.mFrom,0,500)+numField("To","mTo",sc.mTo,1,999)+'</div>';
+        h += '<div class="row2 grp">'+numField("Boxes per row","mPer",sc.mPer,5,15)+
+             selField("Blank boxes","mGap",[["30","A few (30%)"],["40","Some (40%)"],["50","Half (50%)"],["70","Most (70%)"]], String(sc.mGap))+'</div>';
+      } else if(sc.kind==="mbaf"){
+        h += '<div class="grp">'+selField("Type","mType",[["before","Before only"],["after","After only"],["between","Between only"],["mixed","Mixed"]], sc.mType).replace(/^<div>|<\/div>$/g,"")+'</div>';
+        h += '<div class="row2 grp">'+numField("How many","mQty",sc.mQty,1,20)+numField("Numbers up to","mMax",sc.mMax,3,200)+'</div>';
+      } else if(sc.kind==="mpic"){
+        h += '<div class="row2 grp">'+selField("Operation","mOp",[["add","Addition"],["sub","Subtraction"],["mix","Both"]], sc.mOp)+
+             selField("Pictures","mShape",[["circle","Circles"],["star","Stars"],["apple","Apples"],["ball","Balls"],["mixed","Mixed"]], sc.mShape)+'</div>';
+        h += '<div class="row2 grp">'+numField("How many","mQty",sc.mQty,1,12)+numField("Numbers up to","mMax",sc.mMax,2,20)+'</div>';
+      } else if(sc.kind==="mcmp"){
+        h += '<div class="grp">'+selField("Circle the","mWhich",[["big","Bigger number"],["small","Smaller number"]], sc.mWhich).replace(/^<div>|<\/div>$/g,"")+'</div>';
+        h += '<div class="row2 grp">'+numField("How many","mQty",sc.mQty,1,24)+numField("Numbers up to","mMax",sc.mMax,2,200)+'</div>';
+      } else if(sc.kind==="count"){
+        h += '<div class="row2 grp">'+numField("How many","mQty",sc.mQty,1,12)+numField("Count up to","mMax",sc.mMax,2,15)+'</div>';
+        h += '<div class="grp">'+selField("Pictures","mShape",[["circle","Circles"],["star","Stars"],["apple","Apples"],["ball","Balls"],["mixed","Mixed"]], sc.mShape).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      } else if(sc.kind==="nname"){
+        h += '<div class="row2 grp">'+selField("Language","mLang",[["en","English"],["ta","Tamil"],["hi","Hindi"]], sc.mLang)+
+             selField("Numbers","mSet",[["1-10","1 to 10"],["1-20","1 to 20"],["11-20","11 to 20"],["tens","Tens — 10 to 100"]], sc.mSet)+'</div>';
+        h += '<div class="grp">'+selField("Format","mFmt",[["trace","Trace the name, then write it"],["writename","Write the name"],["writenum","Write the number"],["match","Match the following"]], sc.mFmt).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      }
+      h += '</div>';
+      return h;
+    }
+
     if(sc.kind!=="blank"){
       h += '<div class="grp"><label>Letter set</label><select data-f="set">'+opts(SET_LABELS, sc.set)+'</select></div>';
       if(sc.set==="tUyirmei" || sc.set==="hBara"){
@@ -1319,21 +1482,12 @@ Draw your school bag</textarea>
            opts([["col","Column — one letter per line, copies across"],
                  ["row","Row — letters across the line, copies below"]], sc.layout)+'</select></div>';
       if(sc.layout==="row"){
-        h += '<div class="row2 grp"><div><label>Lines below each row</label>'+
-             '<input type="number" data-f="rows" value="'+sc.rows+'" min="0" max="8"></div>'+
-             '<div><label>Of which, traced</label>'+
-             '<input type="number" data-f="trace" value="'+sc.trace+'" min="0" max="8"></div></div>';
+        h += '<div class="row2 grp">'+numField("Lines below each row","rows",sc.rows,0,8)+numField("Of which, traced","trace",sc.trace,0,8)+'</div>';
       } else {
-        h += '<div class="row2 grp"><div><label>Rows each</label>'+
-             '<input type="number" data-f="rows" value="'+sc.rows+'" min="1" max="6"></div>'+
-             '<div><label>Traced per row</label>'+
-             '<input type="number" data-f="trace" value="'+sc.trace+'" min="0" max="12"></div></div>';
+        h += '<div class="row2 grp">'+numField("Rows each","rows",sc.rows,1,6)+numField("Traced per row","trace",sc.trace,0,12)+'</div>';
       }
     } else if(sc.kind==="words"){
-      h += '<div class="row2 grp"><div><label>Times each</label>'+
-           '<input type="number" data-f="times" value="'+sc.times+'" min="1" max="12"></div>'+
-           '<div><label>Of which, traced</label>'+
-           '<input type="number" data-f="wtrace" value="'+sc.wtrace+'" min="0" max="12"></div></div>';
+      h += '<div class="row2 grp">'+numField("Times each","times",sc.times,1,12)+numField("Of which, traced","wtrace",sc.wtrace,0,12)+'</div>';
     } else {
       h += '<div class="grp"><label>Number of lines</label>'+
            '<input type="number" data-f="blank" value="'+sc.blank+'" min="1" max="30"></div>';
@@ -1346,18 +1500,13 @@ Draw your school bag</textarea>
     return h;
   }
 
-  function drawSecList(){
-    var box = $("secList");
-    if(!box){ return; }
-    var h = "";
-    for(var i=0;i<secs.length;i++){ h += secCard(secs[i], i, secs.length); }
-    box.innerHTML = h;
-  }
-
   function readNum(v, d){ var n = parseInt(v,10); return isNaN(n) ? d : n; }
 
-  (function(){
-    var box = $("secList");
+  var NUM_FIELDS = "copyLines rows trace times wtrace blank mFrom mTo mTimes mTraced mPer mGap mQty mMax".split(" ");
+  var REDRAW_FIELDS = "kind set base layout".split(" ");
+
+  function bindSecList(L){
+    var box = $(L.cfg.listId);
     if(!box){ return; }
     function secIndex(el){
       while(el && el!==box){
@@ -1370,23 +1519,21 @@ Draw your school bag</textarea>
       var el = e.target, f = el.getAttribute ? el.getAttribute("data-f") : null;
       if(!f){ return; }
       var i = secIndex(el); if(i<0){ return; }
-      var sc = secs[i];
-      if(f==="copyLines"||f==="rows"||f==="trace"||f==="times"||f==="wtrace"||f==="blank"){
-        sc[f] = readNum(el.value, sc[f]);
-      } else {
-        sc[f] = el.value;
-      }
+      var sc = L.secs[i];
+      if(NUM_FIELDS.indexOf(f)>=0){ sc[f] = readNum(el.value, sc[f]); }
+      else { sc[f] = el.value; }
       if(f==="content"){ sc.set = "custom"; }
       if(f==="set"){
         if(sc.set==="tUyirmei"||sc.set==="hBara"){ sc.base = "all"; }
         if(sc.set!=="custom"){ sc.content = setContent(sc.set, sc.base); }
       }
       if(f==="base"){ sc.content = setContent(sc.set, sc.base); }
-      if(f==="kind" && sc.kind==="words" && sc.set!=="custom"){
-        sc.set = "custom";
+      if(f==="kind"){
+        if(sc.kind==="words" && sc.set!=="custom"){ sc.set = "custom"; }
+        if(MATH_KINDS.indexOf(sc.kind)>=0){ sc.seed = 1 + Math.floor(Math.random()*1e9); }
       }
-      saveSecs();
-      if(redraw){ drawSecList(); }
+      L.save();
+      if(redraw){ L.draw(); }
       else if(f==="content"){
         /* keep the dropdown honest without losing the cursor */
         var sel = box.querySelectorAll('[data-i="'+i+'"] [data-f="set"]');
@@ -1396,13 +1543,15 @@ Draw your school bag</textarea>
     }
     box.addEventListener("input", function(e){
       var f = e.target.getAttribute ? e.target.getAttribute("data-f") : null;
-      if(f==="kind"||f==="set"||f==="base"||f==="rule"||f==="layout"){ return; }
+      if(!f){ return; }
+      if(e.target.tagName==="SELECT"){ return; }
       onField(e, false);
     });
     box.addEventListener("change", function(e){
       var f = e.target.getAttribute ? e.target.getAttribute("data-f") : null;
-      if(f==="kind"||f==="set"||f==="base"||f==="layout"){ onField(e, true); }
-      else if(f==="rule"){ onField(e, false); }
+      if(!f){ return; }
+      if(e.target.tagName!=="SELECT"){ return; }
+      onField(e, REDRAW_FIELDS.indexOf(f)>=0);
     });
     box.addEventListener("click", function(e){
       var b = e.target;
@@ -1410,34 +1559,105 @@ Draw your school bag</textarea>
       if(!b || b===box){ return; }
       var a = b.getAttribute("data-a"), i = secIndex(b);
       if(i<0){ return; }
-      if(a==="up" && i>0){ var t=secs[i-1]; secs[i-1]=secs[i]; secs[i]=t; }
-      else if(a==="down" && i<secs.length-1){ var t2=secs[i+1]; secs[i+1]=secs[i]; secs[i]=t2; }
-      else if(a==="dup"){ secs.splice(i+1, 0, newSec(JSON.parse(JSON.stringify(secs[i])))); }
-      else if(a==="del" && secs.length>1){ secs.splice(i,1); }
-      saveSecs(); drawSecList(); render();
+      var S = L.secs;
+      if(a==="up" && i>0){ var t=S[i-1]; S[i-1]=S[i]; S[i]=t; }
+      else if(a==="down" && i<S.length-1){ var t2=S[i+1]; S[i+1]=S[i]; S[i]=t2; }
+      else if(a==="dup"){ var c = JSON.parse(JSON.stringify(S[i])); c.seed = 0; S.splice(i+1, 0, newSec(c)); }
+      else if(a==="del" && S.length>1){ S.splice(i,1); }
+      L.save(); L.draw(); render();
     });
-    var add = $("secAdd");
+    var add = $(L.cfg.addId);
     if(add){
       add.addEventListener("click", function(){
-        var last = secs[secs.length-1];
+        var last = L.secs[L.secs.length-1];
         var nxt = newSec({kind:"copy", set:"tVowel", copyLines:2, rule:"auto"});
-        if(last && (TAMIL.test(last.content) || DEVA.test(last.content))){
+        if(last && last.content && (TAMIL.test(last.content) || DEVA.test(last.content))){
           nxt.set = TAMIL.test(last.content) ? "tCons" : "hCons";
           nxt.content = setContent(nxt.set, "all");
+        } else if(last && last.set==="capsA"){
+          nxt.set = "smallA"; nxt.content = setContent("smallA");
         }
-        secs.push(nxt);
-        saveSecs(); drawSecList(); render();
+        L.secs.push(nxt);
+        L.save(); L.draw(); render();
         var cards = box.querySelectorAll(".sec");
         if(cards.length){ cards[cards.length-1].scrollIntoView({block:"nearest"}); }
       });
     }
-    var pre = $("secPreset");
+    var pre = $(L.cfg.presetId);
     if(pre){
       pre.addEventListener("change", function(){
-        if(this.value){ loadPreset(this.value); this.value=""; }
+        if(this.value){ L.loadPreset(this.value); this.value=""; }
       });
     }
-  })();
+  }
+
+  var LANG = new SecList({listId:"secList", addId:"secAdd", presetId:"secPreset",
+                          key:"glm_ws_sections_v2", presets:PRESETS, mixed:false, defaultPreset:"tamil3"});
+  var MIX  = new SecList({listId:"mixList", addId:"mixAdd", presetId:"mixPreset",
+                          key:"glm_ws_mix_v1", presets:MIX_PRESETS, mixed:true, defaultPreset:"hwUKG"});
+
+  /* ---------- maths sections: reuse the maths builders without touching their tabs ---------- */
+  function seeded(seed){
+    var a = (seed>>>0) || 1;
+    return function(){
+      a += 0x6D2B79F5;
+      var t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  var measureEl = null;
+  function measureH(html){
+    if(!measureEl){
+      measureEl = document.createElement("div");
+      measureEl.style.cssText = "position:absolute;left:-9999px;top:0;width:704px;min-height:0;padding:0;margin:0;box-shadow:none;visibility:hidden";
+      document.body.appendChild(measureEl);
+    }
+    measureEl.className = "paper" + ($("colour").checked ? " colour" : "");
+    measureEl.innerHTML = html;
+    var h = measureEl.offsetHeight;
+    measureEl.innerHTML = "";
+    return h + 8;
+  }
+  function mathGlobals(sc){
+    var g = {};
+    if(sc.kind==="mseq"){ g.sFrom=sc.mFrom; g.sTo=sc.mTo; g.sTimes=sc.mTimes; g.sTrace=sc.mTraced; }
+    else if(sc.kind==="mnum"){ g.nFrom=sc.mFrom; g.nTo=sc.mTo; g.nPer=sc.mPer; g.nGap=sc.mGap; }
+    else if(sc.kind==="mbaf"){ g.bType=sc.mType; g.bQty=sc.mQty; g.bMax=sc.mMax; }
+    else if(sc.kind==="mpic"){ g.pOp=sc.mOp; g.pQty=sc.mQty; g.pMax=sc.mMax; g.pShape=sc.mShape; }
+    else if(sc.kind==="mcmp"){ g.kWhich=sc.mWhich; g.kQty=sc.mQty; g.kMax=sc.mMax; }
+    else if(sc.kind==="count"){ g.cQty=sc.mQty; g.cMax=sc.mMax; g.cShape=sc.mShape; }
+    else if(sc.kind==="nname"){ g.wnLang=sc.mLang; g.wnSet=sc.mSet; g.wnFmt=sc.mFmt; }
+    return g;
+  }
+  function buildMathSec(sc, fs){
+    var g = mathGlobals(sc), saved = {}, id;
+    for(id in g){ if(g.hasOwnProperty(id) && $(id)){ saved[id] = $(id).value; $(id).value = String(g[id]); } }
+    var keep = {mnum:mnum, mbaf:mbaf, mpic:mpic, mcmp:mcmp, counts:counts, nn:nnOrder};
+    var realRandom = Math.random;
+    Math.random = seeded(sc.seed);
+    var blocks = [];
+    try{
+      if(sc.kind==="mseq"){
+        blocks = buildSeq(fs);
+      } else if(sc.kind==="nname" && (sc.mFmt==="trace" || sc.mFmt==="writename")){
+        makeNname();
+        blocks = buildNnameBlocks(fs);
+      } else {
+        var html;
+        if(sc.kind==="count"){ makeCounts(); html = buildCount(false); }
+        else { makeMaths(sc.kind); html = buildMaths(sc.kind, false); }
+        html = '<div class="mixmath">'+html+'</div>';
+        blocks = [{h:measureH(html), html:html}];
+      }
+    } finally {
+      Math.random = realRandom;
+      mnum = keep.mnum; mbaf = keep.mbaf; mpic = keep.mpic; mcmp = keep.mcmp; counts = keep.counts; nnOrder = keep.nn;
+      for(id in saved){ if(saved.hasOwnProperty(id)){ $(id).value = saved[id]; } }
+    }
+    return blocks;
+  }
 
   function rulingFor(sc, text){
     if(sc.rule && sc.rule!=="auto"){ return sc.rule; }
@@ -1447,7 +1667,8 @@ Draw your school bag</textarea>
 
   function headingBlock(text){
     if(!text){ return null; }
-    return {h:42, html:'<div class="shead" style="font-family:'+fontFor(text)+'">'+esc(text)+'</div>'};
+    var fam = (TAMIL.test(text)||DEVA.test(text)) ? fontFor(text) : FONTS.andika;
+    return {h:42, html:'<div class="shead" style="font-family:'+fam+'">'+esc(text)+'</div>'};
   }
 
   /* letters across the line: model row, then traced rows, then empty rows */
@@ -1603,23 +1824,8 @@ Draw your school bag</textarea>
     return blocks;
   }
 
-  function buildSections(fsOv){
-    var fs = fsOv || num("size",36);
-    var blocks = [];
-    for(var i=0;i<secs.length;i++){
-      var sc = secs[i];
-      var hb = headingBlock(sc.heading);
-      if(hb){ blocks.push(hb); }
-      var part;
-      if(sc.kind==="trace"){ part = buildTrace(sc, fs); }
-      else if(sc.kind==="words"){ part = buildWordsSec(sc, fs); }
-      else if(sc.kind==="blank"){ part = buildBlank(sc, fs); }
-      else { part = buildCopy(sc, fs); }
-      blocks = blocks.concat(part);
-      if(i<secs.length-1){ blocks.push({h:10, html:'<div style="height:10px"></div>'}); }
-    }
-    return blocks;
-  }
+  function buildSections(fsOv){ return LANG.build(fsOv); }
+  function buildMix(fsOv){ return MIX.build(fsOv); }
 
   /* ---------- counting ---------- */
   var SHAPES = {
@@ -2208,13 +2414,16 @@ Draw your school bag</textarea>
   }
 
   function render(){
+    if(mode==="sec"){ LANG.captureHdr(); LANG.save(); }
+    if(mode==="mix"){ MIX.captureHdr(); MIX.save(); }
     var colour = $("colour").checked ? " colour" : "";
     var body;
 
     var nnRuled = (mode==="nname" && (val("wnFmt")==="trace" || val("wnFmt")==="writename"));
 
-    if(mode==="sec" || mode==="mseq" || nnRuled){
+    if(mode==="sec" || mode==="mix" || mode==="mseq" || nnRuled){
       var mk = (mode==="sec") ? buildSections
+             : (mode==="mix") ? buildMix
              : (mode==="mseq" ? buildSeq : buildNnameBlocks);
       var blocks = mk();
       if($("fitOne").checked && blocks.length && total(blocks) > PAGE_CAP){
@@ -2428,6 +2637,7 @@ Draw your school bag</textarea>
   }
 
   $("shuffle").addEventListener("click", function(){
+    if(mode==="mix"){ MIX.reseed(); render(); return; }
     makeCounts();
     makeGrid();
     makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
@@ -2441,11 +2651,16 @@ Draw your school bag</textarea>
   makeCounts();
   makeGrid();
   makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
-  if(!loadSecs()){
-    var p0 = PRESETS.tamil3;
-    for(var s0=0;s0<p0.secs.length;s0++){ secs.push(newSec(p0.secs[s0])); }
+  bindSecList(LANG); bindSecList(MIX);
+  if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
+  else { LANG.draw(); }
+  if(!MIX.load()){
+    var mp = MIX_PRESETS.hwUKG;
+    for(var s0=0;s0<mp.secs.length;s0++){ MIX.secs.push(newSec(mp.secs[s0])); }
+    MIX.hdr = {title:mp.title, subj:mp.subj, instr:mp.instr};
   }
-  drawSecList();
+  MIX.draw();
+  LANG.applyHdr();
   syncShuffle();
   (function(){
     var om = document.querySelectorAll("[data-only=maths]");
