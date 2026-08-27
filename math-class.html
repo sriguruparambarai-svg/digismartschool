@@ -1404,6 +1404,7 @@ async function solveAndTeach(){
       + '      "roughAddends": "ONLY for place-value sums of 2-6 numbers: comma list of the expanded values, e.g. 400,60,8 or 300,0,5. Empty otherwise. When set, the stacked column working is drawn and narrated by place names automatically.",\n'
       + '      "roughCustom": "only used if roughType is custom",\n'
       + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
+      + '      ,\"marks\": [ OPTIONAL - usually absent. See MARKER PEN section below ]\n'
       + '    }\n'
       + '  ],\n'
       + '  "figures": [ OPTIONAL - line geometry, triangles, circles, coordinate graphs, solids. See FIGURES section below ],\n'
@@ -1413,6 +1414,18 @@ async function solveAndTeach(){
       + '  "practiceQuestion": "ONE practice question of the SAME pattern with DIFFERENT numbers, for students to solve on their own (e.g. after sum 1 to 20, give sum 1 to 30). Similar difficulty, never harder. Empty string if no natural variant exists (e.g. proofs).",\n'
       + '  "practiceAnswer": "final answer ONLY of the practice question, no steps (e.g. Sum = 465). Empty if practiceQuestion is empty."\n'
       + '}\n\n'
+      + '════════ MARKER PEN (use RARELY) ════════\n'
+      + 'A step may carry a "marks" array so the teacher draws on the board with a marker, the way a real teacher points while explaining. MOST STEPS MUST HAVE NO MARKS AT ALL. Use one only where the mark itself teaches something a student could otherwise miss.\n'
+      + 'Use a mark ONLY for these four situations:\n'
+      + '  - something CANCELS on both sides  -> {"type":"strike","target":"(x²+1)"}  (every copy of that text on the line is struck, which is exactly right for cancelling)\n'
+      + '  - a term MOVES to the other side or a factor multiplies into a bracket -> {"type":"arrow","target":"3","to":"(2x - 11)"}\n'
+      + '  - one term is the SUBJECT of this step and must be picked out -> {"type":"underline","target":"y - z"}\n'
+      + '  - a whole group must be seen as ONE thing before the next move -> {"type":"circle","target":"2x - 11"}\n'
+      + 'MARKER RULES:\n'
+      + '  - At most ONE mark per step, and at most 3 marks in the WHOLE solution. A board covered in marks teaches nothing.\n'
+      + '  - "target" (and "to") must be copied EXACTLY, character for character, from THIS step’s own "main" text. If it is not an exact substring of main, the mark is dropped.\n'
+      + '  - Never mark a step just because you can. If in doubt, leave marks out.\n'
+      + '  - Never mark the final answer step.\n\n'
       + '════════ ROUGH WORK TYPES ════════\n'
       + '  - "none": no rough work needed\n'
       + '  - "add":  simple addition (roughA + roughB = roughResult)\n'
@@ -1658,6 +1671,7 @@ function showClassroom(){
   // Reset everything
   $('formula-block').classList.remove('show');
   $('steps-list').innerHTML = '';
+  try { mkClear(); } catch(e){}
   $('final-answer').classList.remove('show');
   $('verification').classList.remove('show');
   resetYourTurn();
@@ -1934,6 +1948,9 @@ var MR_SYM = [
   ['\u221e','\\infty '], ['\u2032',"'"]
 ];
 
+var MR_OPTS = { throwOnError: true, displayMode: false, strict: false,
+                trust: function(ctx){ return ctx.command === '\\htmlClass'; } };
+
 var MR_FUNCS = 'sin|cos|tan|cot|sec|cosec|csc|sinh|cosh|tanh|log|ln|lim|max|min|gcd|lcm';
 
 // Superscript characters (x²) become real exponents.
@@ -2038,9 +2055,56 @@ function mrRoots(s){
 }
 
 // Main converter. Plain classroom maths in, LaTeX out.
-function mathToLatex(src){
+// slots (optional) = [{slot:'0', text:'(x\u00b2+1)'}] — every occurrence of
+// each piece is wrapped in a class so the marker layer can measure it.
+function mathToLatex(src, slots){
   var s = String(src == null ? '' : src);
   if(!s.trim()) return '';
+  if(slots && slots.length){
+    var tagged = mrTagged(s, slots);
+    if(tagged) return tagged;
+    // fall through to a plain conversion; the mark falls back to the whole line
+  }
+  return mrConvert(s);
+}
+
+// Split the source around the pieces to be tagged, convert each part on its
+// own, and wrap the tagged parts. Returns null if nothing could be located.
+function mrTagged(s, slots){
+  var hits = [];
+  for(var i = 0; i < slots.length; i++){
+    var t = String(slots[i].text || '').trim();
+    if(!t) continue;
+    var from = 0, at;
+    while((at = s.indexOf(t, from)) >= 0){
+      hits.push({ start: at, end: at + t.length, slot: slots[i].slot });
+      from = at + t.length;
+      if(hits.length > 12) break;
+    }
+  }
+  if(!hits.length) return null;
+  hits.sort(function(a, b){ return a.start - b.start; });
+  var keep = [], lastEnd = -1;
+  for(var j = 0; j < hits.length; j++){
+    if(hits[j].start >= lastEnd){ keep.push(hits[j]); lastEnd = hits[j].end; }
+  }
+  var out = '', pos = 0;
+  for(var k = 0; k < keep.length; k++){
+    var h = keep[k];
+    if(h.start > pos) out += mrConvert(s.substring(pos, h.start));
+    var inner = mrConvert(s.substring(h.start, h.end));
+    if(!inner) return null;
+    out += '\\htmlClass{mk-t' + h.slot + '}{' + inner + '}';
+    pos = h.end;
+  }
+  if(pos < s.length) out += mrConvert(s.substring(pos));
+  return out;
+}
+
+// The conversion itself, on a whole string or on one piece of one.
+function mrConvert(src){
+  var s = String(src == null ? '' : src);
+  if(!s.trim()) return s.length ? '\\;' : '';
   s = mrNormSup(s);
   s = s.replace(new RegExp('\\b(' + MR_FUNCS + ')\\b', 'gi'), function(m){ return '\\' + m.toLowerCase() + ' '; });
   s = mrRoots(s);
@@ -2068,19 +2132,23 @@ function needsPrintMath(text){
 // Render one line as real maths, revealed left to right like writing.
 // Resolves when the reveal finishes. Returns false if it could not render,
 // so the caller can fall back to the original chalk writer.
-function katexWrite(el, text, charDelayMs){
+function katexWrite(el, text, charDelayMs, slots){
   if(!el) return null;
   if(typeof katex === 'undefined' || !katex.render) return null;
   var raw = String(text || '');
   if(!raw.trim()) return null;
   var tex;
-  try { tex = mathToLatex(raw); } catch(e){ return null; }
+  try { tex = mathToLatex(raw, slots); } catch(e){ tex = null; }
+  if(!tex && slots){ try { tex = mathToLatex(raw); } catch(e){ tex = null; } }
   if(!tex) return null;
   var inner = document.createElement('span');
   try {
-    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+    katex.render(tex, inner, MR_OPTS);
   } catch(e){
-    return null;
+    // A tagged render can fail if a target straddles a fraction; retry plain.
+    if(slots){
+      try { katex.render(mathToLatex(raw), inner, MR_OPTS); } catch(e2){ return null; }
+    } else { return null; }
   }
   if(!inner.querySelector('.katex')) return null;
   el.innerHTML = '';
@@ -2092,19 +2160,22 @@ function katexWrite(el, text, charDelayMs){
 }
 
 // Same, but with no animation — used when jumping straight to a step.
-function katexSet(el, text){
+function katexSet(el, text, slots){
   if(!el) return false;
   if(typeof katex === 'undefined' || !katex.render) return false;
   var raw = String(text || '');
   if(!raw.trim()){ el.innerHTML = ''; return true; }
   var tex;
-  try { tex = mathToLatex(raw); } catch(e){ return false; }
+  try { tex = mathToLatex(raw, slots); } catch(e){ tex = null; }
+  if(!tex && slots){ try { tex = mathToLatex(raw); } catch(e){ tex = null; } }
   if(!tex) return false;
   var inner = document.createElement('span');
   try {
-    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+    katex.render(tex, inner, MR_OPTS);
   } catch(e){
-    return false;
+    if(slots){
+      try { katex.render(mathToLatex(raw), inner, MR_OPTS); } catch(e2){ return false; }
+    } else { return false; }
   }
   if(!inner.querySelector('.katex')) return false;
   inner.className = 'mr-line';
@@ -2112,6 +2183,241 @@ function katexSet(el, text){
   el.appendChild(inner);
   return true;
 }
+
+// ═══════════════════════════════════════════
+// MARKER LAYER  (added — nothing above is changed)
+// Draws a teacher's marker on top of the board: strike through what
+// cancels, underline the term being discussed, circle a group, arc an
+// arrow from one piece to another. Marks are sparse by design — the
+// lesson only asks for one where it genuinely helps.
+// Everything here fails soft: if a target cannot be found or measured,
+// the mark is skipped and the lesson carries on.
+// ═══════════════════════════════════════════
+var MK_COLOR = '#FF7A5C';
+var MK_SEQ = 0;
+
+function mkBoard(){ return document.querySelector('.board-main'); }
+
+function mkLayer(){
+  var board = mkBoard();
+  if(!board) return null;
+  var svg = board.querySelector('.mk-layer');
+  if(!svg){
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'mk-layer');
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;pointer-events:none;z-index:5;overflow:visible;';
+    board.appendChild(svg);
+  }
+  var h = Math.max(board.scrollHeight, board.clientHeight);
+  svg.setAttribute('height', h);
+  svg.style.height = h + 'px';
+  return svg;
+}
+
+function mkClear(){
+  var board = mkBoard();
+  if(!board) return;
+  var svg = board.querySelector('.mk-layer');
+  if(svg) svg.innerHTML = '';
+}
+
+// Position of an element in the board's own scrolling coordinate space.
+function mkBox(el){
+  var board = mkBoard();
+  if(!board || !el) return null;
+  var r = el.getBoundingClientRect();
+  if(!r || (!r.width && !r.height)) return null;
+  var b = board.getBoundingClientRect();
+  return {
+    x: r.left - b.left - board.clientLeft + board.scrollLeft,
+    y: r.top  - b.top  - board.clientTop  + board.scrollTop,
+    w: r.width,
+    h: r.height
+  };
+}
+
+// Small repeatable wobble so the marker does not look machine-drawn.
+function mkJit(seed, amt){
+  var s = Math.sin(seed * 12.9898) * 43758.5453;
+  return ((s - Math.floor(s)) - 0.5) * 2 * (amt || 2);
+}
+
+function mkPath(d, width, dashDelay){
+  var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  p.setAttribute('d', d);
+  p.setAttribute('fill', 'none');
+  p.setAttribute('stroke', MK_COLOR);
+  p.setAttribute('stroke-width', width || 2.6);
+  p.setAttribute('stroke-linecap', 'round');
+  p.setAttribute('stroke-linejoin', 'round');
+  p.setAttribute('opacity', '0.92');
+  return p;
+}
+
+// Animate the stroke so it looks drawn rather than pasted.
+function mkDraw(svg, p, animate, ms){
+  svg.appendChild(p);
+  if(!animate) return;
+  var len;
+  try { len = p.getTotalLength(); } catch(e){ return; }
+  if(!len || !isFinite(len)) return;
+  p.style.strokeDasharray = len;
+  p.style.strokeDashoffset = len;
+  p.style.transition = 'stroke-dashoffset ' + (ms || 520) + 'ms ease-out';
+  requestAnimationFrame(function(){
+    requestAnimationFrame(function(){ p.style.strokeDashoffset = '0'; });
+  });
+}
+
+function mkStrike(svg, b, seed, animate){
+  var y = b.y + b.h * 0.56;
+  var d = 'M ' + (b.x - 3) + ' ' + (y + mkJit(seed, 1.5)) +
+          ' Q ' + (b.x + b.w * 0.5) + ' ' + (y + mkJit(seed + 1, 2.5)) +
+          ' ' + (b.x + b.w + 3) + ' ' + (y + mkJit(seed + 2, 1.5));
+  mkDraw(svg, mkPath(d, 2.6), animate, 380);
+}
+
+function mkUnderline(svg, b, seed, animate){
+  var y = b.y + b.h + 3;
+  var d = 'M ' + (b.x - 2) + ' ' + (y + mkJit(seed, 1.2)) +
+          ' Q ' + (b.x + b.w * 0.5) + ' ' + (y + 2 + mkJit(seed + 1, 1.6)) +
+          ' ' + (b.x + b.w + 2) + ' ' + (y + mkJit(seed + 2, 1.2));
+  mkDraw(svg, mkPath(d, 2.4), animate, 420);
+}
+
+function mkCircle(svg, b, seed, animate){
+  var padX = Math.max(7, b.w * 0.07), padY = Math.max(5, b.h * 0.16);
+  var cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+  var rx = b.w / 2 + padX, ry = b.h / 2 + padY;
+  // An overshooting loop, the way a hand draws a circle round something.
+  var d = 'M ' + (cx + rx * 0.35) + ' ' + (cy - ry) +
+          ' C ' + (cx - rx * 0.7) + ' ' + (cy - ry * 1.15) + ' ' + (cx - rx * 1.15) + ' ' + (cy - ry * 0.4) +
+          ' ' + (cx - rx) + ' ' + cy +
+          ' C ' + (cx - rx * 0.95) + ' ' + (cy + ry * 0.9) + ' ' + (cx - rx * 0.2) + ' ' + (cy + ry * 1.1) +
+          ' ' + cx + ' ' + (cy + ry) +
+          ' C ' + (cx + rx * 0.8) + ' ' + (cy + ry * 1.05) + ' ' + (cx + rx * 1.1) + ' ' + (cy + ry * 0.4) +
+          ' ' + (cx + rx) + ' ' + cy +
+          ' C ' + (cx + rx * 0.95) + ' ' + (cy - ry * 0.75) + ' ' + (cx + rx * 0.6) + ' ' + (cy - ry * 1.05) +
+          ' ' + (cx + rx * 0.05) + ' ' + (cy - ry * 0.96);
+  mkDraw(svg, mkPath(d, 2.4), animate, 700);
+}
+
+function mkBoxMark(svg, b, seed, animate){
+  var x = b.x - 6, y = b.y - 4, w = b.w + 12, h = b.h + 8;
+  var d = 'M ' + x + ' ' + y + ' L ' + (x + w) + ' ' + (y + mkJit(seed, 1.5)) +
+          ' L ' + (x + w + mkJit(seed + 1, 1.5)) + ' ' + (y + h) +
+          ' L ' + x + ' ' + (y + h + mkJit(seed + 2, 1.5)) + ' Z';
+  mkDraw(svg, mkPath(d, 2.3), animate, 600);
+}
+
+// A curved arrow from one piece of the line to another, as when a factor
+// outside a bracket has to multiply everything inside it.
+function mkArrow(svg, from, to, seed, animate){
+  var x1 = from.x + from.w / 2, y1 = from.y - 3;
+  var x2 = to.x + to.w / 2,     y2 = to.y - 3;
+  var lift = Math.max(22, Math.abs(x2 - x1) * 0.32);
+  var mx = (x1 + x2) / 2, my = Math.min(y1, y2) - lift;
+  var d = 'M ' + x1 + ' ' + y1 + ' Q ' + mx + ' ' + my + ' ' + x2 + ' ' + y2;
+  var p = mkPath(d, 2.3);
+  mkDraw(svg, p, animate, 560);
+  // Arrow head, angled along the final approach.
+  var ang = Math.atan2(y2 - my, x2 - mx);
+  var hl = 9;
+  var hd = 'M ' + (x2 - hl * Math.cos(ang - 0.42)) + ' ' + (y2 - hl * Math.sin(ang - 0.42)) +
+           ' L ' + x2 + ' ' + y2 +
+           ' L ' + (x2 - hl * Math.cos(ang + 0.42)) + ' ' + (y2 - hl * Math.sin(ang + 0.42));
+  var head = mkPath(hd, 2.3);
+  if(animate){
+    head.style.opacity = '0';
+    head.style.transition = 'opacity 180ms ease-out';
+    svg.appendChild(head);
+    setTimeout(function(){ head.style.opacity = '0.92'; }, 520);
+  } else {
+    svg.appendChild(head);
+  }
+}
+
+// Find the elements a mark refers to inside one step's content.
+// KaTeX emits a hidden MathML copy alongside the visible one, and that copy
+// carries the same classes, so we search only inside the visible tree.
+function mkTargets(stepIdx, slot){
+  var host = document.getElementById('step-content-' + stepIdx);
+  if(!host) return [];
+  var vis = host.querySelector('.katex-html') || host;
+  var tagged = vis.querySelectorAll('.mk-t' + slot);
+  if(tagged && tagged.length) return Array.prototype.slice.call(tagged);
+  var line = host.querySelector('.mr-line') || host;
+  return line ? [line] : [];
+}
+
+// Draw every mark a step asks for. Silent no-op when there are none.
+function applyStepMarks(stepIdx, step, animate){
+  if(!step) return;
+  var marks = step.marks;
+  if(!marks && step.mark) marks = [step.mark];
+  if(!marks || !marks.length) return;
+  var svg = mkLayer();
+  if(!svg) return;
+  for(var i = 0; i < marks.length && i < 3; i++){
+    var m = marks[i];
+    if(!m || !m.type) continue;
+    var type = String(m.type).toLowerCase();
+    var seed = ++MK_SEQ;
+    try {
+      if(type === 'arrow'){
+        var fromEls = mkTargets(stepIdx, i);
+        var toEls = mkTargets(stepIdx, 'to' + i);
+        if(!fromEls.length || !toEls.length) continue;
+        var fb = mkBox(fromEls[0]), tb = mkBox(toEls[0]);
+        if(!fb || !tb) continue;
+        mkArrow(svg, fb, tb, seed, animate);
+        continue;
+      }
+      var els = mkTargets(stepIdx, i);
+      for(var k = 0; k < els.length; k++){
+        var b = mkBox(els[k]);
+        if(!b) continue;
+        if(type === 'strike')          mkStrike(svg, b, seed + k, animate);
+        else if(type === 'underline')  mkUnderline(svg, b, seed + k, animate);
+        else if(type === 'circle')     mkCircle(svg, b, seed + k, animate);
+        else if(type === 'box')        mkBoxMark(svg, b, seed + k, animate);
+      }
+    } catch(e){ /* a mark is never worth breaking a lesson for */ }
+  }
+}
+
+// Collect the text pieces a step's marks want tagged, in slot order.
+function mkSlots(step){
+  var marks = step && (step.marks || (step.mark ? [step.mark] : null));
+  if(!marks || !marks.length) return null;
+  var slots = [];
+  for(var i = 0; i < marks.length && i < 3; i++){
+    var m = marks[i];
+    if(!m) continue;
+    if(m.target) slots.push({ slot: String(i), text: String(m.target) });
+    if(String(m.type || '').toLowerCase() === 'arrow' && m.to){
+      slots.push({ slot: 'to' + i, text: String(m.to) });
+    }
+  }
+  return slots.length ? slots : null;
+}
+
+// A window resize moves every measured box, so redraw what is on the board.
+// Uses the globals the lesson already keeps; guarded so it can never throw.
+var MK_RESIZE_T = null;
+window.addEventListener('resize', function(){
+  if(MK_RESIZE_T) clearTimeout(MK_RESIZE_T);
+  MK_RESIZE_T = setTimeout(function(){
+    try {
+      if(typeof SOLUTION === 'undefined' || !SOLUTION || !SOLUTION.steps) return;
+      if(typeof STEP_IDX === 'undefined') return;
+      mkClear();
+      for(var i = 0; i <= STEP_IDX && i < SOLUTION.steps.length; i++){
+        applyStepMarks(i, SOLUTION.steps[i], false);
+      }
+    } catch(e){}
+  }, 220);
+});
 
 
 // ═══════════════════════════════════════════
@@ -2687,7 +2993,7 @@ async function showStep(idx){
       // goes wrong we fall through to chalkWrite, so a step is never lost.
       var wrote = null;
       if(needsPrintMath(step.main)){
-        try { wrote = katexWrite(contentEl, step.main || '', 90); } catch(e){ wrote = null; }
+        try { wrote = katexWrite(contentEl, step.main || '', 90, mkSlots(step)); } catch(e){ wrote = null; }
       }
       if(wrote){
         await wrote;
@@ -2702,6 +3008,9 @@ async function showStep(idx){
   if(!IS_PLAYING) return;
 
   // ── PHASE 3: Teacher speaks the line just written ──
+  // The marker goes on while the line is being read aloud, the way a teacher
+  // points and talks at the same time. Sparse by design — most steps have none.
+  try { applyStepMarks(idx, step, true); } catch(e){}
   var spoken = step.readScript || step.teacherScript || step.explanation || step.main;
   await speakStep(spoken);
   if(!IS_PLAYING) return;
@@ -3423,6 +3732,7 @@ function showStepInstant(idx){
   }
   // Reset rough work
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
+  try { mkClear(); } catch(e){}
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
     var contentEl = $('step-content-' + i);
@@ -3431,11 +3741,12 @@ function showStepInstant(idx){
       if(contentEl && SOLUTION.steps[i]){
         if(hasMatrixNotation(SOLUTION.steps[i].main)){
           renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
-        } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || ''))){
+        } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || '', mkSlots(SOLUTION.steps[i])))){
           contentEl.textContent = SOLUTION.steps[i].main || '';
         }
         var wEl = $('step-why-' + i);
         if(wEl) wEl.classList.add('show');
+        try { applyStepMarks(i, SOLUTION.steps[i], false); } catch(e){}
       }
       // Add corresponding rough work using new structured format
       var s = SOLUTION.steps[i];

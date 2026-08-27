@@ -540,6 +540,9 @@ var MR_SYM = [
   ['\u221e','\\infty '], ['\u2032',"'"]
 ];
 
+var MR_OPTS = { throwOnError: true, displayMode: false, strict: false,
+                trust: function(ctx){ return ctx.command === '\\htmlClass'; } };
+
 var MR_FUNCS = 'sin|cos|tan|cot|sec|cosec|csc|sinh|cosh|tanh|log|ln|lim|max|min|gcd|lcm';
 
 // Superscript characters (x²) become real exponents.
@@ -644,9 +647,56 @@ function mrRoots(s){
 }
 
 // Main converter. Plain classroom maths in, LaTeX out.
-function mathToLatex(src){
+// slots (optional) = [{slot:'0', text:'(x\u00b2+1)'}] — every occurrence of
+// each piece is wrapped in a class so the marker layer can measure it.
+function mathToLatex(src, slots){
   var s = String(src == null ? '' : src);
   if(!s.trim()) return '';
+  if(slots && slots.length){
+    var tagged = mrTagged(s, slots);
+    if(tagged) return tagged;
+    // fall through to a plain conversion; the mark falls back to the whole line
+  }
+  return mrConvert(s);
+}
+
+// Split the source around the pieces to be tagged, convert each part on its
+// own, and wrap the tagged parts. Returns null if nothing could be located.
+function mrTagged(s, slots){
+  var hits = [];
+  for(var i = 0; i < slots.length; i++){
+    var t = String(slots[i].text || '').trim();
+    if(!t) continue;
+    var from = 0, at;
+    while((at = s.indexOf(t, from)) >= 0){
+      hits.push({ start: at, end: at + t.length, slot: slots[i].slot });
+      from = at + t.length;
+      if(hits.length > 12) break;
+    }
+  }
+  if(!hits.length) return null;
+  hits.sort(function(a, b){ return a.start - b.start; });
+  var keep = [], lastEnd = -1;
+  for(var j = 0; j < hits.length; j++){
+    if(hits[j].start >= lastEnd){ keep.push(hits[j]); lastEnd = hits[j].end; }
+  }
+  var out = '', pos = 0;
+  for(var k = 0; k < keep.length; k++){
+    var h = keep[k];
+    if(h.start > pos) out += mrConvert(s.substring(pos, h.start));
+    var inner = mrConvert(s.substring(h.start, h.end));
+    if(!inner) return null;
+    out += '\\htmlClass{mk-t' + h.slot + '}{' + inner + '}';
+    pos = h.end;
+  }
+  if(pos < s.length) out += mrConvert(s.substring(pos));
+  return out;
+}
+
+// The conversion itself, on a whole string or on one piece of one.
+function mrConvert(src){
+  var s = String(src == null ? '' : src);
+  if(!s.trim()) return s.length ? '\\;' : '';
   s = mrNormSup(s);
   s = s.replace(new RegExp('\\b(' + MR_FUNCS + ')\\b', 'gi'), function(m){ return '\\' + m.toLowerCase() + ' '; });
   s = mrRoots(s);
@@ -674,19 +724,23 @@ function needsPrintMath(text){
 // Render one line as real maths, revealed left to right like writing.
 // Resolves when the reveal finishes. Returns false if it could not render,
 // so the caller can fall back to the original chalk writer.
-function katexWrite(el, text, charDelayMs){
+function katexWrite(el, text, charDelayMs, slots){
   if(!el) return null;
   if(typeof katex === 'undefined' || !katex.render) return null;
   var raw = String(text || '');
   if(!raw.trim()) return null;
   var tex;
-  try { tex = mathToLatex(raw); } catch(e){ return null; }
+  try { tex = mathToLatex(raw, slots); } catch(e){ tex = null; }
+  if(!tex && slots){ try { tex = mathToLatex(raw); } catch(e){ tex = null; } }
   if(!tex) return null;
   var inner = document.createElement('span');
   try {
-    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+    katex.render(tex, inner, MR_OPTS);
   } catch(e){
-    return null;
+    // A tagged render can fail if a target straddles a fraction; retry plain.
+    if(slots){
+      try { katex.render(mathToLatex(raw), inner, MR_OPTS); } catch(e2){ return null; }
+    } else { return null; }
   }
   if(!inner.querySelector('.katex')) return null;
   el.innerHTML = '';
@@ -698,19 +752,22 @@ function katexWrite(el, text, charDelayMs){
 }
 
 // Same, but with no animation — used when jumping straight to a step.
-function katexSet(el, text){
+function katexSet(el, text, slots){
   if(!el) return false;
   if(typeof katex === 'undefined' || !katex.render) return false;
   var raw = String(text || '');
   if(!raw.trim()){ el.innerHTML = ''; return true; }
   var tex;
-  try { tex = mathToLatex(raw); } catch(e){ return false; }
+  try { tex = mathToLatex(raw, slots); } catch(e){ tex = null; }
+  if(!tex && slots){ try { tex = mathToLatex(raw); } catch(e){ tex = null; } }
   if(!tex) return false;
   var inner = document.createElement('span');
   try {
-    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+    katex.render(tex, inner, MR_OPTS);
   } catch(e){
-    return false;
+    if(slots){
+      try { katex.render(mathToLatex(raw), inner, MR_OPTS); } catch(e2){ return false; }
+    } else { return false; }
   }
   if(!inner.querySelector('.katex')) return false;
   inner.className = 'mr-line';
