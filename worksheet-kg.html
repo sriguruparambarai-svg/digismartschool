@@ -528,10 +528,12 @@
         <label>Quick start</label>
         <select id="secPreset">
           <option value="" selected>&mdash; load a ready-made sheet &mdash;</option>
-          <option value="tamil3">Tamil &mdash; உயிர், மெய், உயிர்மெய் (copy 2 times)</option>
+          <option value="tamil3">Tamil &mdash; உயிர், மெய், உயிர்மெய் &mdash; copy 2 times</option>
           <option value="tamilUM">Tamil &mdash; full உயிர்மெய் table</option>
-          <option value="tamilTrace">Tamil &mdash; trace உயிர் எழுத்து</option>
-          <option value="engCaps">English &mdash; trace capitals A to Z</option>
+          <option value="tamilTrace">Tamil &mdash; trace உயிர் எழுத்து, one letter per line</option>
+          <option value="tamilRow">Tamil &mdash; trace உயிர், மெய், உயிர்மெய் across the line</option>
+          <option value="engCaps">English &mdash; trace A to Z, one letter per line</option>
+          <option value="engCapsRow">English &mdash; trace A to Z across the line</option>
           <option value="engSmall">English &mdash; trace small letters a to z</option>
           <option value="engWords">English &mdash; 'a' word family</option>
           <option value="hindi2">Hindi &mdash; स्वर and व्यंजन</option>
@@ -1022,6 +1024,9 @@ Draw your school bag</textarea>
     SETS.n100 = span(1,100);
   })();
   var T_BASE = "க ங ச ஞ ட ண த ந ப ம ய ர ல வ ழ ள ற ன".split(" ");
+  SETS.tUmA = T_BASE.join(" ");
+  var T_VOWEL = "அ ஆ இ ஈ உ ஊ எ ஏ ஐ ஒ ஓ ஔ".split(" ");
+  var H_VOWEL = "अ आ इ ई उ ऊ ए ऐ ओ औ अं अः".split(" ");
   var T_SIGN = ["","ா","ி","ீ","ு","ூ","ெ","ே","ை","ொ","ோ","ௌ"];
   var H_BASE = SETS.hCons.split(" ");
   var H_SIGN = ["","ा","ि","ी","ु","ू","े","ै","ो","ौ","ं","ः"];
@@ -1126,18 +1131,19 @@ Draw your school bag</textarea>
   }
 
   /* ---------- sections ---------- */
-  var SEC_KEY = "glm_ws_sections";
+  var SEC_KEY = "glm_ws_sections_v2";
   var secs = [];
 
   var SET_LABELS = [
-    ["tVowel","Tamil — உயிர் எழுத்து"],
-    ["tCons","Tamil — மெய் எழுத்து"],
-    ["tUyirmei","Tamil — உயிர்மெய்"],
+    ["tVowel","Tamil — உயிர் எழுத்து (அ ஆ இ…)"],
+    ["tCons","Tamil — மெய் எழுத்து (க் ங் ச்…)"],
+    ["tUmA","Tamil — உயிர்மெய் எழுத்து (க ங ச ஞ…)"],
+    ["tUyirmei","Tamil — உயிர்மெய் table (க கா கி…)"],
     ["capsA","English — capitals"],
     ["smallA","English — small letters"],
     ["hVowel","Hindi — स्वर"],
     ["hCons","Hindi — व्यंजन"],
-    ["hBara","Hindi — बारहखड़ी"],
+    ["hBara","Hindi — बारहखड़ी table (क का कि…)"],
     ["hNum","Hindi — numbers"],
     ["n10","Numbers 1 to 10"],
     ["n20","Numbers 1 to 20"],
@@ -1160,6 +1166,12 @@ Draw your school bag</textarea>
         for(var i=0;i<bases.length;i++){ rows.push(rowOf(bases[i], signs)); }
         return rows.join("\n");
       }
+      if(base.indexOf("v:")===0){
+        /* one vowel sign across every consonant: கா ஙா சா ஞா … */
+        var vi = parseInt(base.slice(2),10), out = [];
+        for(var j=0;j<bases.length;j++){ out.push(bases[j]+(signs[vi]||"")); }
+        return out.join(" ");
+      }
       return rowOf(base, signs);
     }
     if(SETS[set]){
@@ -1174,7 +1186,7 @@ Draw your school bag</textarea>
     return "";
   }
   function newSec(o){
-    var d = {heading:"", kind:"copy", set:"tVowel", base:"all", content:"",
+    var d = {heading:"", kind:"copy", set:"tVowel", base:"all", content:"", layout:"col",
              copyLines:2, rows:2, trace:3, times:5, wtrace:2, blank:4, rule:"auto"};
     for(var k in o){ if(o.hasOwnProperty(k)){ d[k]=o[k]; } }
     if(!d.content && d.set!=="custom"){ d.content = setContent(d.set, d.base); }
@@ -1187,17 +1199,27 @@ Draw your school bag</textarea>
       secs:[
         {heading:"உயிர் எழுத்து", kind:"copy", set:"tVowel", copyLines:2},
         {heading:"மெய் எழுத்து", kind:"copy", set:"tCons", copyLines:2},
-        {heading:"உயிர்மெய் எழுத்து — க வரிசை", kind:"copy", set:"tUyirmei", base:"க", copyLines:2}
+        {heading:"உயிர்மெய் எழுத்து", kind:"copy", set:"tUmA", copyLines:2}
       ]},
     tamilUM:{ title:"உயிர்மெய் எழுத்துக்கள்", subj:"Tamil",
       instr:"Write each row one time.",
       secs:[ {heading:"உயிர்மெய் எழுத்து", kind:"copy", set:"tUyirmei", base:"all", copyLines:1} ]},
     tamilTrace:{ title:"உயிர் எழுத்து", subj:"Tamil",
       instr:"Trace the grey letters, then write the same letter in the empty boxes.",
-      secs:[ {heading:"உயிர் எழுத்து", kind:"trace", set:"tVowel", rows:2, trace:3} ]},
+      secs:[ {heading:"உயிர் எழுத்து", kind:"trace", layout:"col", set:"tVowel", rows:2, trace:3} ]},
+    tamilRow:{ title:"தமிழ் எழுத்துக்கள்", subj:"Tamil",
+      instr:"Trace the grey row, then write the row on your own.",
+      secs:[
+        {heading:"உயிர் எழுத்து", kind:"trace", layout:"row", set:"tVowel", rows:2, trace:1},
+        {heading:"மெய் எழுத்து", kind:"trace", layout:"row", set:"tCons", rows:2, trace:1},
+        {heading:"உயிர்மெய் எழுத்து", kind:"trace", layout:"row", set:"tUmA", rows:2, trace:1}
+      ]},
     engCaps:{ title:"Capital letters", subj:"English",
       instr:"Trace the grey letters, then write them on your own.",
-      secs:[ {heading:"A to Z", kind:"trace", set:"capsA", rows:2, trace:3} ]},
+      secs:[ {heading:"A to Z", kind:"trace", layout:"col", set:"capsA", rows:2, trace:3} ]},
+    engCapsRow:{ title:"Capital letters", subj:"English",
+      instr:"Trace the grey row, then write A to Z on your own.",
+      secs:[ {heading:"A to Z", kind:"trace", layout:"row", set:"capsA", rows:3, trace:1} ]},
     engSmall:{ title:"Small letters", subj:"English",
       instr:"Trace the grey letters, then write them on your own.",
       secs:[ {heading:"a to z", kind:"trace", set:"smallA", rows:2, trace:3} ]},
@@ -1253,9 +1275,16 @@ Draw your school bag</textarea>
     return h;
   }
   function baseList(set){
-    var b = (set==="tUyirmei") ? T_BASE : H_BASE;
-    var out = [["all","All rows"]];
-    for(var i=0;i<b.length;i++){ out.push([b[i], b[i]+" row"]); }
+    var tam = (set==="tUyirmei");
+    var b = tam ? T_BASE : H_BASE, sg = tam ? T_SIGN : H_SIGN, vw = tam ? T_VOWEL : H_VOWEL;
+    var out = [["all","All rows — the whole table"]];
+    var i;
+    for(i=0;i<b.length;i++){
+      out.push([b[i], b[i]+" row — "+b[i]+" "+b[i]+sg[1]+" "+b[i]+sg[2]+" …"]);
+    }
+    for(i=1;i<sg.length;i++){
+      out.push(["v:"+i, vw[i]+" row — "+b[0]+sg[i]+" "+b[1]+sg[i]+" "+b[2]+sg[i]+" …"]);
+    }
     return out;
   }
 
@@ -1286,10 +1315,20 @@ Draw your school bag</textarea>
       h += '<div class="grp"><label>Empty lines below each row</label>'+
            '<input type="number" data-f="copyLines" value="'+sc.copyLines+'" min="0" max="8"></div>';
     } else if(sc.kind==="trace"){
-      h += '<div class="row2 grp"><div><label>Rows each</label>'+
-           '<input type="number" data-f="rows" value="'+sc.rows+'" min="1" max="6"></div>'+
-           '<div><label>Traced per row</label>'+
-           '<input type="number" data-f="trace" value="'+sc.trace+'" min="0" max="12"></div></div>';
+      h += '<div class="grp"><label>Direction</label><select data-f="layout">'+
+           opts([["col","Column — one letter per line, copies across"],
+                 ["row","Row — letters across the line, copies below"]], sc.layout)+'</select></div>';
+      if(sc.layout==="row"){
+        h += '<div class="row2 grp"><div><label>Lines below each row</label>'+
+             '<input type="number" data-f="rows" value="'+sc.rows+'" min="0" max="8"></div>'+
+             '<div><label>Of which, traced</label>'+
+             '<input type="number" data-f="trace" value="'+sc.trace+'" min="0" max="8"></div></div>';
+      } else {
+        h += '<div class="row2 grp"><div><label>Rows each</label>'+
+             '<input type="number" data-f="rows" value="'+sc.rows+'" min="1" max="6"></div>'+
+             '<div><label>Traced per row</label>'+
+             '<input type="number" data-f="trace" value="'+sc.trace+'" min="0" max="12"></div></div>';
+      }
     } else if(sc.kind==="words"){
       h += '<div class="row2 grp"><div><label>Times each</label>'+
            '<input type="number" data-f="times" value="'+sc.times+'" min="1" max="12"></div>'+
@@ -1357,12 +1396,12 @@ Draw your school bag</textarea>
     }
     box.addEventListener("input", function(e){
       var f = e.target.getAttribute ? e.target.getAttribute("data-f") : null;
-      if(f==="kind"||f==="set"||f==="base"||f==="rule"){ return; }
+      if(f==="kind"||f==="set"||f==="base"||f==="rule"||f==="layout"){ return; }
       onField(e, false);
     });
     box.addEventListener("change", function(e){
       var f = e.target.getAttribute ? e.target.getAttribute("data-f") : null;
-      if(f==="kind"||f==="set"||f==="base"){ onField(e, true); }
+      if(f==="kind"||f==="set"||f==="base"||f==="layout"){ onField(e, true); }
       else if(f==="rule"){ onField(e, false); }
     });
     box.addEventListener("click", function(e){
@@ -1411,8 +1450,9 @@ Draw your school bag</textarea>
     return {h:42, html:'<div class="shead" style="font-family:'+fontFor(text)+'">'+esc(text)+'</div>'};
   }
 
-  /* copy the row: model line(s), each followed by empty lines */
-  function buildCopy(sc, fs){
+  /* letters across the line: model row, then traced rows, then empty rows */
+  function buildCopy(sc, fs){ return buildRows(sc, fs, 0, sc.copyLines); }
+  function buildRows(sc, fs, tracedLines, blankLines){
     var blocks = [];
     var ruling = rulingFor(sc, sc.content);
     var sh = stripH(fs, ruling)+16;
@@ -1431,19 +1471,23 @@ Draw your school bag</textarea>
         gap = Math.max(Math.round(fs*0.22), Math.floor((LINE_W - sum)/toks.length));
       }
       /* still too wide: shrink the row a little before breaking it across lines */
-      if(sum + gap*toks.length > LINE_W){
-        var f = LINE_W / (sum + gap*toks.length);
-        if(f >= 0.72){
+      var need = sum + gap*toks.length;
+      if(need > LINE_W){
+        var f = LINE_W / need;
+        /* a short row (like a 12-letter uyirmei row) shrinks; a long one (A to Z) splits evenly */
+        if(f >= 0.72 && toks.length <= 14){
           rfs = Math.floor(fs*f);
           for(t=0;t<toks.length;t++){ widths[t] = Math.floor(widths[t]*f); }
           gap = Math.floor(gap*f);
         }
       }
-      /* wrap this row into lines that fit */
+      /* wrap this row into evenly filled lines */
+      var nLines = Math.max(1, Math.ceil((sum + gap*toks.length) / LINE_W));
+      var perLine = Math.ceil(toks.length / nLines);
       var lines = [], cur = [], used = 0;
       for(t=0;t<toks.length;t++){
         var w = widths[t] + gap;
-        if(used + w > LINE_W && cur.length){ lines.push(cur); cur=[]; used=0; }
+        if(cur.length && (used + w > LINE_W || cur.length >= perLine)){ lines.push(cur); cur=[]; used=0; }
         cur.push({t:toks[t], w:w}); used += w;
       }
       if(cur.length){ lines.push(cur); }
@@ -1453,13 +1497,19 @@ Draw your school bag</textarea>
         /* spread across the line, but never absurdly far apart */
         var extra = Math.min(Math.floor((LINE_W - tot)/ln.length), Math.round(fs*0.9));
         if(extra<0){ extra = 0; }
-        var cell = "", fam = fontFor(ln[0].t);
-        for(k=0;k<ln.length;k++){
-          cell += '<span class="it-model" style="width:'+(ln[k].w+extra)+'px'+
-                  (rfs!==fs ? ';font-size:'+rfs+'px' : '')+'">'+esc(ln[k].t)+'</span>';
+        var fam = fontFor(ln[0].t);
+        var tcls = (val("tstyle")==="hollow") ? "it-hollow" : "it-trace";
+        function rowHtml(cls){
+          var c = "";
+          for(var kk=0;kk<ln.length;kk++){
+            c += '<span class="'+cls+'" style="width:'+(ln[kk].w+extra)+'px'+
+                 (rfs!==fs ? ';font-size:'+rfs+'px' : '')+'">'+esc(ln[kk].t)+'</span>';
+          }
+          return c;
         }
-        blocks.push({h:sh, html:strip(cell, fs, fam, ruling)});
-        for(var e=0;e<sc.copyLines;e++){ blocks.push({h:sh, html:strip("", fs, fam, ruling)}); }
+        blocks.push({h:sh, html:strip(rowHtml("it-model"), fs, fam, ruling)});
+        for(var e=0;e<tracedLines;e++){ blocks.push({h:sh, html:strip(rowHtml(tcls), fs, fam, ruling)}); }
+        for(var e2=0;e2<blankLines;e2++){ blocks.push({h:sh, html:strip("", fs, fam, ruling)}); }
       }
     }
     return blocks;
@@ -1467,6 +1517,10 @@ Draw your school bag</textarea>
 
   /* trace each letter: every letter gets its own rows of slots */
   function buildTrace(sc, fs){
+    if(sc.layout==="row"){
+      var tr = Math.min(sc.trace, sc.rows);
+      return buildRows(sc, fs, tr, sc.rows - tr);
+    }
     var raw = sc.content.replace(/^\s+|\s+$/g,"");
     var lst = raw ? raw.split(/\s+/) : [];
     var rows = sc.rows, trace = sc.trace;
