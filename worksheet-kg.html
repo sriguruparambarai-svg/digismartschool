@@ -206,6 +206,43 @@
   .paper .shead:first-of-type{margin-top:4px}
   .paper.colour .shead{color:var(--maroon)}
   .mixmath{margin:2px 0 6px}
+
+  /* ---------- tier 1 kinds ---------- */
+  .t1row{
+    display:flex;align-items:center;gap:12px;
+    padding:9px 4px;border-bottom:1px dashed #bbb;font-size:25px;
+  }
+  .t1row .no{font-size:15px;width:26px;color:#333;flex:0 0 26px}
+  .t1row .ctarget{
+    border:2px solid #000;border-radius:6px;padding:0 12px;min-width:44px;
+    text-align:center;margin-right:10px;font-weight:600;
+  }
+  .paper.colour .t1row .ctarget{border-color:var(--maroon)}
+  .t1row .cl{display:inline-block;min-width:42px;text-align:center}
+  .sbox{
+    display:inline-flex;align-items:center;justify-content:center;
+    width:46px;height:44px;border:2px solid #000;border-radius:5px;
+    font-size:22px;font-weight:600;margin:0 3px;vertical-align:middle;
+  }
+  .paper.colour .sbox{border-color:var(--maroon)}
+  .t1row .arrow{font-size:22px;color:#444;margin:0 6px}
+  .t1row .nums span{display:inline-block;min-width:46px;text-align:center}
+  .vw{display:grid;grid-template-columns:repeat(3,1fr);gap:10px 18px;margin:4px 0}
+  .vwi{
+    display:flex;align-items:center;justify-content:center;gap:6px;
+    font-size:30px;padding:10px 4px;border:1px solid #999;border-radius:7px;
+    letter-spacing:2px;
+  }
+  .vwi .sbox{width:40px;height:44px}
+  .bs{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:4px}
+  .bsc{
+    display:flex;align-items:center;justify-content:space-around;
+    border:1px solid #888;border-radius:7px;padding:14px 10px;font-size:30px;
+  }
+  .bsc span{padding:2px 10px}
+  .pstrip{position:relative;margin-bottom:16px}
+  .pstrip .ln{position:absolute;left:0;right:0;border-top:1px solid #444}
+  .pstrip svg{display:block}
   .mixmath .cq{margin-bottom:10px}
   .mixmath .mrow{margin-bottom:8px}
 
@@ -514,7 +551,7 @@
     <p>Ready-to-print practice sheets for LKG &amp; UKG</p>
   </div>
   <div class="acts">
-    <button class="btn" id="shuffle">New numbers</button>
+    <button class="btn" id="shuffle">New numbers / shuffle</button>
     <button class="btn solid" id="printBtn">Print / Save PDF</button>
   </div>
 </div>
@@ -611,6 +648,10 @@
           <option value="engSmall">English &mdash; trace small letters a to z</option>
           <option value="engWords">English &mdash; 'a' word family</option>
           <option value="hindi2">Hindi &mdash; स्वर and व्यंजन</option>
+          <option value="prewrite">Pre-writing &mdash; lines, zigzag, waves, loops</option>
+          <option value="engRecog">English &mdash; missing letters, match, circle the letter</option>
+          <option value="tamilRecog">Tamil &mdash; missing letters, odd one out, letter &amp; word</option>
+          <option value="phonics">English &mdash; missing vowel, word family</option>
           <option value="num20">Numbers &mdash; 1 to 20</option>
         </select>
       </div>
@@ -628,6 +669,7 @@
           <option value="hwUKG">UKG &mdash; English, Tamil and Maths</option>
           <option value="hwLKG">LKG &mdash; small letters, மெய், count and write</option>
           <option value="hwMaths">Maths only &mdash; numbers, missing, before &amp; after</option>
+          <option value="hwMaths2">Maths only &mdash; order, biggest, patterns, tens frames, coins</option>
         </select>
       </div>
 
@@ -1108,7 +1150,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec");
     b.style.display = uses ? "" : "none";
   }
 
@@ -1320,9 +1362,20 @@ Draw your school bag</textarea>
              copyLines:2, rows:2, trace:3, times:5, wtrace:2, blank:4, rule:"auto",
              mFrom:1, mTo:20, mTimes:1, mTraced:1, mPer:10, mGap:40, mType:"mixed",
              mQty:5, mMax:20, mOp:"add", mShape:"mixed", mWhich:"big",
-             mLang:"en", mSet:"1-10", mFmt:"trace", seed:0, open:true};
+             mLang:"en", mSet:"1-10", mFmt:"trace", seed:0, open:true,
+             pat:"standing", pRows:2, pTrace:1,
+             gapPct:40, lPer:0,
+             mtType:"capsmall", mtQty:5, mtLang:"en",
+             cMode:"find", cRows:4, cPer:8,
+             lwTimes:2, vHide:"mid", vPer:3,
+             oQty:4, oCount:4, oMax:20, oDir:"asc",
+             bsQty:4, bsMax:20, bsWhich:"big",
+             npQty:4, npMax:30,
+             tQty:4, tMax:10, tMode:"fill",
+             cnQty:3, cnMax:4, cnSet:"1,2,5"};
     for(var k in o){ if(o.hasOwnProperty(k)){ d[k]=o[k]; } }
     if(!d.content && d.set!=="custom"){ d.content = setContent(d.set, d.base); }
+    if(!d.content && d.set==="custom"){ d.content = defaultContent(d.kind); }
     if(!d.seed){ d.seed = 1 + Math.floor(Math.random()*1e9); }
     return d;
   }
@@ -1366,6 +1419,33 @@ Draw your school bag</textarea>
         {heading:"स्वर", kind:"copy", set:"hVowel", copyLines:2},
         {heading:"व्यंजन", kind:"copy", set:"hCons", copyLines:2}
       ]},
+    prewrite:{ title:"Pre-writing practice", subj:"English",
+      instr:"Start at the dot. Trace the grey pattern, then draw it on your own.",
+      secs:[
+        {heading:"Standing lines", kind:"pattern", pat:"standing", pRows:2, pTrace:1},
+        {heading:"Sleeping lines", kind:"pattern", pat:"sleeping", pRows:2, pTrace:1},
+        {heading:"Zig-zag", kind:"pattern", pat:"zigzag", pRows:2, pTrace:1}
+      ]},
+    engRecog:{ title:"Letter practice", subj:"English",
+      instr:"Read each part carefully. Ask your teacher if you are not sure.",
+      secs:[
+        {heading:"Fill in the missing letters", kind:"missing", set:"capsA", gapPct:40, lPer:9},
+        {heading:"Match the capital letter to the small letter", kind:"match", mtType:"capsmall", mtQty:5},
+        {heading:"Circle the letter", kind:"circle", cMode:"find", set:"smallA", cRows:3, cPer:8}
+      ]},
+    tamilRecog:{ title:"தமிழ் எழுத்துப் பயிற்சி", subj:"Tamil",
+      instr:"கவனமாகப் பார்த்துச் செய்யவும்.",
+      secs:[
+        {heading:"விடுபட்ட எழுத்தை எழுதுக", kind:"missing", set:"tVowel", gapPct:40, lPer:7},
+        {heading:"வேறுபட்ட எழுத்தை வட்டமிடுக", kind:"circle", cMode:"odd", set:"tVowel", cRows:4, cPer:6},
+        {heading:"எழுத்தும் சொல்லும்", kind:"letterword", set:"custom", lwTimes:2}
+      ]},
+    phonics:{ title:"Phonics", subj:"English",
+      instr:"Say the word aloud. Write the missing letter in the box.",
+      secs:[
+        {heading:"Write the missing vowel", kind:"vowel", set:"custom", vHide:"mid", vPer:3},
+        {heading:"The 'at' family", kind:"words", set:"custom", content:"cat\nbat\nhat\nmat", times:3, wtrace:1}
+      ]},
     num20:{ title:"Numbers 1 to 20", subj:"Maths",
       instr:"Trace the grey numbers, then write them on your own.",
       secs:[ {heading:"1 to 20", kind:"trace", set:"n20", rows:2, trace:3} ]}
@@ -1386,6 +1466,15 @@ Draw your school bag</textarea>
         {heading:"English — small letters", kind:"trace", layout:"row", set:"smallA", rows:1, trace:1},
         {heading:"தமிழ் — மெய் எழுத்து", kind:"copy", set:"tCons", copyLines:1},
         {heading:"Maths — count and write", kind:"count", mQty:4, mMax:6, mShape:"mixed"}
+      ]},
+    hwMaths2:{ title:"Maths home work", subj:"Maths",
+      instr:"Read each part carefully and write the answers.",
+      secs:[
+        {heading:"Write in ascending order", kind:"order", oQty:3, oCount:4, oMax:20, oDir:"asc"},
+        {heading:"Circle the biggest number", kind:"bigsmall", bsQty:4, bsMax:20, bsWhich:"big"},
+        {heading:"Complete the pattern", kind:"numpat", npQty:3, npMax:30},
+        {heading:"Count the dots, write the number", kind:"tens", tQty:2, tMax:10, tMode:"fill"},
+        {heading:"Add the coins", kind:"coins", cnQty:2, cnMax:3, cnSet:"1,2,5"}
       ]},
     hwMaths:{ title:"Maths home work", subj:"Maths",
       instr:"Read each part carefully and write the answers.",
@@ -1462,7 +1551,8 @@ Draw your school bag</textarea>
       var hb = headingBlock(sc.heading);
       if(hb){ blocks.push(hb); }
       var part;
-      if(MATH_KINDS.indexOf(sc.kind)>=0){ part = buildMathSec(sc, fs); }
+      if(T1_BUILDERS[sc.kind]){ part = T1_BUILDERS[sc.kind](sc, fs); }
+      else if(MATH_KINDS.indexOf(sc.kind)>=0){ part = buildMathSec(sc, fs); }
       else if(sc.kind==="trace"){ part = buildTrace(sc, fs); }
       else if(sc.kind==="words"){ part = buildWordsSec(sc, fs); }
       else if(sc.kind==="blank"){ part = buildBlank(sc, fs); }
@@ -1499,7 +1589,25 @@ Draw your school bag</textarea>
   var WRITE_KINDS = [["copy","Copy the row — model row, then empty lines"],
                      ["trace","Trace each letter — model, grey copies, then blank"],
                      ["words","Write each word — a few times across the line"],
+                     ["letterword","Letter and word — அ அணில், A apple"],
+                     ["pattern","Pre-writing pattern — lines, zigzag, waves, loops"],
                      ["blank","Empty lines only"]];
+  var REC_KINDS = [["missing","Missing letters — fill the empty boxes"],
+                   ["match","Match the following"],
+                   ["circle","Circle the letter / odd one out"],
+                   ["vowel","Missing vowel — b_t, c_p"]];
+  var MATH2_KINDS = [["order","Ascending / descending order"],
+                     ["bigsmall","Circle the biggest / smallest"],
+                     ["numpat","Number patterns — 2 4 6 _"],
+                     ["tens","Tens frames — count the dots"],
+                     ["coins","Coins — add the money"]];
+  function inList(list, k){ for(var i=0;i<list.length;i++){ if(list[i][0]===k){ return true; } } return false; }
+  function defaultContent(kind){
+    if(kind==="letterword"){ return "அ அணில்\nஆ ஆடு\nஇ இலை\nஈ ஈ\nஉ உரல்\nஊ ஊஞ்சல்\nஎ எலி\nஏ ஏணி\nஐ ஐந்து\nஒ ஒட்டகம்\nஓ ஓணான்\nஔ ஔவை"; }
+    if(kind==="vowel"){ return "cat\nbat\nhat\npen\nhen\nten\npig\nbig\ndig\ndog\nlog\nhot\nsun\nbun\ncup"; }
+    if(kind==="match"){ return "A = a\nB = b\nC = c\nD = d\nE = e"; }
+    return "";
+  }
   var MATH_KIND_LABELS = [["mseq","Write the numbers"],
                           ["mnum","Missing numbers"],
                           ["mbaf","Before, after, between"],
@@ -1516,7 +1624,7 @@ Draw your school bag</textarea>
   }
 
   function kindLabel(k){
-    var all = WRITE_KINDS.concat(MATH_KIND_LABELS);
+    var all = WRITE_KINDS.concat(REC_KINDS, MATH_KIND_LABELS, MATH2_KINDS);
     for(var i=0;i<all.length;i++){ if(all[i][0]===k){ return all[i][1].split(" — ")[0]; } }
     return k;
   }
@@ -1527,7 +1635,8 @@ Draw your school bag</textarea>
   function secSummary(sc){
     var main = sc.heading || kindLabel(sc.kind);
     var sub = sc.heading ? kindLabel(sc.kind) : "";
-    if(MATH_KINDS.indexOf(sc.kind)<0 && sc.kind!=="blank" && sc.set!=="custom"){ sub += (sub?" · ":"") + setLabel(sc.set); }
+    var usesSet = ["copy","trace","words","missing","circle"].indexOf(sc.kind)>=0 || (sc.kind==="match" && sc.mtType==="same");
+    if(usesSet && sc.set!=="custom"){ sub += (sub?" · ":"") + setLabel(sc.set); }
     return esc(main) + (sub ? '<small>'+esc(sub)+'</small>' : '');
   }
   function secCard(sc, i, n, mixed){
@@ -1543,13 +1652,15 @@ Draw your school bag</textarea>
          '<input type="text" data-f="heading" value="'+esc(sc.heading)+'" placeholder="leave empty for none"></div>';
 
     h += '<div class="grp"><label>What the child does</label><select data-f="kind">';
+    h += '<optgroup label="Writing">'+opts(WRITE_KINDS, sc.kind)+'</optgroup>'+
+         '<optgroup label="Recognition">'+opts(REC_KINDS, sc.kind)+'</optgroup>';
     if(mixed){
-      h += '<optgroup label="Writing">'+opts(WRITE_KINDS, sc.kind)+'</optgroup>'+
-           '<optgroup label="Maths">'+opts(MATH_KIND_LABELS, sc.kind)+'</optgroup>';
-    } else {
-      h += opts(WRITE_KINDS, sc.kind);
+      h += '<optgroup label="Maths">'+opts(MATH_KIND_LABELS.concat(MATH2_KINDS), sc.kind)+'</optgroup>';
     }
     h += '</select></div>';
+
+    var t1 = tier1Fields(sc);
+    if(t1!==null){ h += t1 + '</div></div>'; return h; }
 
     var isMath = MATH_KINDS.indexOf(sc.kind)>=0;
 
@@ -1619,8 +1730,420 @@ Draw your school bag</textarea>
 
   function readNum(v, d){ var n = parseInt(v,10); return isNaN(n) ? d : n; }
 
-  var NUM_FIELDS = "copyLines rows trace times wtrace blank mFrom mTo mTimes mTraced mPer mGap mQty mMax".split(" ");
-  var REDRAW_FIELDS = "kind set base layout".split(" ");
+  var NUM_FIELDS = ("copyLines rows trace times wtrace blank mFrom mTo mTimes mTraced mPer mGap mQty mMax "+
+                    "pRows pTrace gapPct lPer mtQty cRows cPer lwTimes vPer oQty oCount oMax bsQty bsMax npQty npMax tQty tMax cnQty cnMax").split(" ");
+  var REDRAW_FIELDS = "kind set base layout mtType cMode tMode".split(" ");
+
+  var PAT_LABELS = [["standing","Standing lines |||"],["sleeping","Sleeping lines ———"],["slantR","Slanting lines ///"],
+                    ["slantL","Slanting lines \\\\\\"],["zigzag","Zig-zag /\\/\\"],["wave","Waves ~~~"],
+                    ["hill","Hills ∩∩∩"],["cup","Cups ∪∪∪"],["loop","Loops eee"],["circle","Circles ooo"]];
+
+  /* the letter-set picker plus content box, shared by several kinds */
+  function setFields(sc, lbl){
+    var h = '<div class="grp"><label>Letter set</label><select data-f="set">'+opts(SET_LABELS, sc.set)+'</select></div>';
+    if(sc.set==="tUyirmei" || sc.set==="hBara"){
+      h += '<div class="grp"><label>Which row</label><select data-f="base">'+opts(baseList(sc.set), sc.base)+'</select></div>';
+    }
+    h += '<div class="grp"><label>'+lbl+'</label><textarea data-f="content">'+esc(sc.content)+'</textarea></div>';
+    return h;
+  }
+  function rulingField(sc){
+    return '<div class="grp"><label>Ruling for this section</label><select data-f="rule">'+
+      opts([["auto","Auto — two-line for Tamil & Hindi, sheet setting for the rest"],
+            ["4","Four-line"],["3","Three-line"],["2","Two-line"],["1","Single line"]], sc.rule)+'</select></div>';
+  }
+
+  function tier1Fields(sc){
+    var k = sc.kind, h = "";
+    if(k==="pattern"){
+      h += '<div class="grp">'+selField("Pattern","pat",PAT_LABELS,sc.pat).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      h += '<div class="row2 grp">'+numField("Rows","pRows",sc.pRows,1,8)+numField("Of which grey (to trace)","pTrace",sc.pTrace,0,8)+'</div>';
+      return h;
+    }
+    if(k==="missing"){
+      h += setFields(sc, "Letters in order (new line = new row)");
+      h += '<div class="row2 grp">'+selField("Blank boxes","gapPct",[["30","A few (30%)"],["40","Some (40%)"],["50","Half (50%)"],["70","Most (70%)"]],String(sc.gapPct))+
+           numField("Boxes per row (0 = auto)","lPer",sc.lPer,0,15)+'</div>';
+      return h;
+    }
+    if(k==="match"){
+      h += '<div class="grp">'+selField("Match","mtType",[["capsmall","Capital letter ↔ small letter"],["numname","Number ↔ number name"],
+            ["numdots","Number ↔ dots"],["same","Same letter (from a letter set)"],["custom","My own pairs"]],sc.mtType).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      if(sc.mtType==="numname"){
+        h += '<div class="grp">'+selField("Language","mtLang",[["en","English"],["ta","Tamil"],["hi","Hindi"]],sc.mtLang).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      }
+      if(sc.mtType==="same"){
+        h += '<div class="grp"><label>Letter set</label><select data-f="set">'+opts(SET_LABELS.filter(function(x){return x[0]!=="custom";}), sc.set)+'</select></div>';
+      }
+      if(sc.mtType==="custom"){
+        h += '<div class="grp"><label>Pairs — one per line, left = right</label><textarea data-f="content">'+esc(sc.content||defaultContent("match"))+'</textarea></div>';
+      } else {
+        h += '<div class="grp">'+numField("How many pairs","mtQty",sc.mtQty,3,10).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      }
+      return h;
+    }
+    if(k==="circle"){
+      h += '<div class="grp">'+selField("Task","cMode",[["find","Circle every … in the row"],["odd","Circle the odd one out"]],sc.cMode).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      h += '<div class="grp"><label>Letters come from</label><select data-f="set">'+opts(SET_LABELS.filter(function(x){return x[0]!=="custom";}), sc.set)+'</select></div>';
+      h += '<div class="row2 grp">'+numField("Rows","cRows",sc.cRows,1,10)+numField("Letters per row","cPer",sc.cPer,4,12)+'</div>';
+      return h;
+    }
+    if(k==="letterword"){
+      h += '<div class="grp"><label>Letter and word — one pair per line</label><textarea data-f="content">'+esc(sc.content||defaultContent("letterword"))+'</textarea></div>';
+      h += '<div class="grp">'+numField("Times to write the word","lwTimes",sc.lwTimes,1,4).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      h += rulingField(sc);
+      return h;
+    }
+    if(k==="vowel"){
+      h += '<div class="grp"><label>Words — one per line</label><textarea data-f="content">'+esc(sc.content||defaultContent("vowel"))+'</textarea></div>';
+      h += '<div class="row2 grp">'+selField("Hide the","vHide",[["mid","Middle vowel"],["first","First letter"],["last","Last letter"]],sc.vHide)+
+           numField("Words per row","vPer",sc.vPer,2,4)+'</div>';
+      return h;
+    }
+    if(k==="order"){
+      h += '<div class="row2 grp">'+selField("Order","oDir",[["asc","Ascending (small to big)"],["desc","Descending (big to small)"],["mixed","Mixed"]],sc.oDir)+
+           numField("How many","oQty",sc.oQty,1,8)+'</div>';
+      h += '<div class="row2 grp">'+numField("Numbers in each","oCount",sc.oCount,3,5)+numField("Numbers up to","oMax",sc.oMax,5,100)+'</div>';
+      return h;
+    }
+    if(k==="bigsmall"){
+      h += '<div class="row2 grp">'+selField("Circle the","bsWhich",[["big","Biggest"],["small","Smallest"]],sc.bsWhich)+numField("How many","bsQty",sc.bsQty,1,10)+'</div>';
+      h += '<div class="grp">'+numField("Numbers up to","bsMax",sc.bsMax,5,100).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      return h;
+    }
+    if(k==="numpat"){
+      h += '<div class="row2 grp">'+numField("How many","npQty",sc.npQty,1,8)+numField("Numbers up to","npMax",sc.npMax,10,100)+'</div>';
+      return h;
+    }
+    if(k==="tens"){
+      h += '<div class="row2 grp">'+selField("Task","tMode",[["fill","Count the dots, write the number"],["draw","Read the number, draw the dots"]],sc.tMode)+
+           selField("Up to","tMax",[["10","10 (one frame)"],["20","20 (two frames)"]],String(sc.tMax))+'</div>';
+      h += '<div class="grp">'+numField("How many","tQty",sc.tQty,1,8).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      return h;
+    }
+    if(k==="coins"){
+      h += '<div class="row2 grp">'+selField("Coins used","cnSet",[["1,2","₹1 ₹2"],["1,2,5","₹1 ₹2 ₹5"],["1,2,5,10","₹1 ₹2 ₹5 ₹10"]],sc.cnSet)+
+           numField("Coins per row","cnMax",sc.cnMax,2,6)+'</div>';
+      h += '<div class="grp">'+numField("How many","cnQty",sc.cnQty,1,8).replace(/^<div>|<\/div>$/g,"")+'</div>';
+      return h;
+    }
+    return null;
+  }
+
+  /* ---------- tier 1 renderers (all return blocks) ---------- */
+  function shuffleWith(arr, rand){
+    var a = arr.slice();
+    for(var i=a.length-1;i>0;i--){ var j=Math.floor(rand()*(i+1)); var t=a[i]; a[i]=a[j]; a[j]=t; }
+    return a;
+  }
+  function tokensOf(sc){
+    var out = [], rows = String(sc.content||"").split("\n");
+    for(var r=0;r<rows.length;r++){
+      var t = rows[r].replace(/^\s+|\s+$/g,"").split(/\s+/);
+      for(var i=0;i<t.length;i++){ if(t[i]){ out.push(t[i]); } }
+    }
+    return out;
+  }
+  function famStyle(text){ return ' style="font-family:'+fontFor(text)+'"'; }
+  function blk(html){ return {h:measureH(html), html:html}; }
+
+  /* pre-writing pattern strips */
+  function patPath(kind, W, H){
+    var y0 = 4, y1 = H-4, mid = H/2, d = "", x;
+    var per = Math.round(H*0.9);
+    if(kind==="standing"){ for(x=per/2;x<W;x+=per){ d += "M"+x+","+y0+"L"+x+","+y1; } }
+    else if(kind==="sleeping"){ for(x=6;x<W-per*0.7;x+=per*1.35){ d += "M"+x+","+mid+"L"+(x+per*0.9)+","+mid; } }
+    else if(kind==="slantR"){ for(x=6;x<W;x+=per){ d += "M"+x+","+y1+"L"+(x+per*0.7)+","+y0; } }
+    else if(kind==="slantL"){ for(x=6;x<W;x+=per){ d += "M"+x+","+y0+"L"+(x+per*0.7)+","+y1; } }
+    else if(kind==="zigzag"){ d = "M4,"+y1; var up=true; for(x=4+per*0.6;x<W;x+=per*0.6){ d += "L"+x+","+(up?y0:y1); up=!up; } }
+    else if(kind==="wave"){ d = "M4,"+mid; for(x=4;x<W;x+=per){ d += "Q"+(x+per/4)+","+y0+" "+(x+per/2)+","+mid+"Q"+(x+per*3/4)+","+y1+" "+(x+per)+","+mid; } }
+    else if(kind==="hill"){ d = "M4,"+y1; for(x=4;x<W;x+=per){ d += "A"+(per/2)+","+(H/2-4)+" 0 0 1 "+(x+per)+","+y1; } }
+    else if(kind==="cup"){ d = "M4,"+y0; for(x=4;x<W;x+=per){ d += "A"+(per/2)+","+(H/2-4)+" 0 0 0 "+(x+per)+","+y0; } }
+    else if(kind==="loop"){
+      /* a trochoid: rolling loops like cursive e's */
+      var a = per*0.16, b = H/2-6, pts = [], t;
+      for(t=0; ; t+=0.18){
+        var px = 8 + a*t - b*Math.sin(t), py = mid - b*Math.cos(t);
+        if(px > W-4){ break; }
+        pts.push(px.toFixed(1)+","+py.toFixed(1));
+      }
+      d = "M"+pts.join("L");
+    }
+    else { for(x=per/2+2;x<W;x+=per){ d += "M"+(x-(per/2-4))+","+mid+"A"+(per/2-4)+","+(H/2-4)+" 0 1 1 "+(x+(per/2-4))+","+mid+"A"+(per/2-4)+","+(H/2-4)+" 0 1 1 "+(x-(per/2-4))+","+mid; } }
+    return d;
+  }
+  function buildPattern(sc, fs){
+    var H = 56, W = LINE_W, blocks = [];
+    var d = patPath(sc.pat, W, H);
+    var ink = $("colour").checked ? "#6B1A1A" : "#000";
+    function row(kind){
+      var path = "";
+      if(kind==="model"){ path = '<path d="'+d+'" fill="none" stroke="'+ink+'" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>'; }
+      else if(kind==="trace"){ path = '<path d="'+d+'" fill="none" stroke="#b5b5b5" stroke-width="2.2" stroke-dasharray="7 5" stroke-linecap="round" stroke-linejoin="round"/>'; }
+      var dot = (kind!=="blank") ? '<circle cx="4" cy="'+(sc.pat==="zigzag"||sc.pat==="hill" ? H-4 : (sc.pat==="cup" ? 4 : (sc.pat==="loop" ? 6 : H/2)))+'" r="3" fill="'+ink+'"/>' : "";
+      return '<div class="pstrip" style="height:'+H+'px"><div class="ln" style="top:0"></div><div class="ln" style="top:100%"></div>'+
+             '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'">'+path+dot+'</svg></div>';
+    }
+    blocks.push({h:H+16, html:row("model")});
+    for(var r=0;r<sc.pRows;r++){ blocks.push({h:H+16, html:row(r<sc.pTrace ? "trace" : "blank")}); }
+    return blocks;
+  }
+
+  /* missing letters in a sequence */
+  function buildMissing(sc, fs){
+    var rand = seeded(sc.seed), blocks = [];
+    var rows = String(sc.content||"").split("\n");
+    for(var r=0;r<rows.length;r++){
+      var t = rows[r].replace(/^\s+|\s+$/g,"").split(/\s+/);
+      if(!t[0]){ continue; }
+      var per = sc.lPer>0 ? sc.lPer : Math.min(10, t.length);
+      var pct = sc.gapPct/100;
+      var cells = [], i;
+      for(i=0;i<t.length;i++){ cells.push({v:t[i], hide:false}); }
+      /* hide exactly the chosen share, never the first letter */
+      var nHide = Math.max(1, Math.round((t.length-1)*pct));
+      var idx = []; for(i=1;i<t.length;i++){ idx.push(i); }
+      idx = shuffleWith(idx, rand).slice(0, nHide);
+      for(i=0;i<idx.length;i++){ cells[idx[i]].hide = true; }
+      for(var c=0;c<cells.length;c+=per){
+        var chunk = cells.slice(c, c+per), out = "";
+        for(i=0;i<chunk.length;i++){
+          out += '<div class="ncell"'+famStyle(chunk[i].v)+'>'+(chunk[i].hide?"":esc(chunk[i].v))+'</div>';
+        }
+        var html = '<div class="ngrid" style="grid-template-columns:repeat('+per+',1fr);margin-bottom:7px">'+out+'</div>';
+        blocks.push(blk(html));
+      }
+    }
+    return blocks;
+  }
+
+  /* match the following (text) */
+  function dotsHtml(n){
+    var d = "";
+    for(var i=0;i<n;i++){ d += '<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:#000;margin:2px 3px"></span>'; }
+    return '<span style="display:inline-block;max-width:150px;line-height:1">'+d+'</span>';
+  }
+  function buildMatch(sc, fs){
+    var rand = seeded(sc.seed), pairs = [], i;
+    var t = sc.mtType, q = Math.max(3, Math.min(10, sc.mtQty));
+    if(t==="capsmall"){
+      var caps = shuffleWith(SETS.capsA.split(" "), rand).slice(0,q).sort();
+      for(i=0;i<caps.length;i++){ pairs.push([caps[i], caps[i].toLowerCase()]); }
+    } else if(t==="numname"){
+      var nums = shuffleWith([1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20], rand).slice(0,q).sort(function(a,b){return a-b;});
+      for(i=0;i<nums.length;i++){ pairs.push([String(nums[i]), numName(nums[i], sc.mtLang)]); }
+    } else if(t==="numdots"){
+      var n2 = shuffleWith([1,2,3,4,5,6,7,8,9,10], rand).slice(0,q).sort(function(a,b){return a-b;});
+      for(i=0;i<n2.length;i++){ pairs.push([String(n2[i]), dotsHtml(n2[i]), true]); }
+    } else if(t==="same"){
+      var pool = (SETS[sc.set] || setContent(sc.set, "all")).split(/\s+/);
+      var pick = shuffleWith(pool, rand).slice(0,q);
+      for(i=0;i<pick.length;i++){ pairs.push([pick[i], pick[i]]); }
+    } else {
+      var lines = String(sc.content||"").split("\n");
+      for(i=0;i<lines.length;i++){
+        var m = lines[i].split("=");
+        if(m.length>=2 && m[0].trim() && m[1].trim()){ pairs.push([m[0].trim(), m.slice(1).join("=").trim()]); }
+      }
+    }
+    if(!pairs.length){ return [blk('<p style="color:#999">Add some pairs.</p>')]; }
+    var order = shuffleWith(pairs, rand);
+    /* never leave everything already aligned */
+    var same = true; for(i=0;i<pairs.length;i++){ if(order[i]!==pairs[i]){ same=false; break; } }
+    if(same && pairs.length>1){ order.push(order.shift()); }
+    var L="", R="";
+    for(i=0;i<pairs.length;i++){
+      L += '<div class="mtitem l"><span class="tx"'+famStyle(pairs[i][0])+'>'+esc(pairs[i][0])+'</span><span class="mtdot"></span></div>';
+      var rv = order[i][2] ? order[i][1] : '<span'+famStyle(order[i][1])+'>'+esc(order[i][1])+'</span>';
+      R += '<div class="mtitem r"><span class="mtdot"></span><span class="tx">'+rv+'</span></div>';
+    }
+    return [blk('<div class="mt" style="margin-top:4px"><div class="mtcol">'+L+'</div><div class="mtcol">'+R+'</div></div>')];
+  }
+
+  /* circle the letter / odd one out */
+  function buildCircle(sc, fs){
+    var rand = seeded(sc.seed), blocks = [];
+    var pool = (SETS[sc.set] || setContent(sc.set, "all")).split(/\s+/).filter(Boolean);
+    if(pool.length<2){ return [blk('<p style="color:#999">Choose a letter set.</p>')]; }
+    for(var r=0;r<sc.cRows;r++){
+      var target = pool[Math.floor(rand()*pool.length)], row = [], i, html;
+      if(sc.cMode==="find"){
+        var hits = 2 + Math.floor(rand()*2);
+        for(i=0;i<sc.cPer;i++){
+          var o = pool[Math.floor(rand()*pool.length)];
+          while(o===target){ o = pool[Math.floor(rand()*pool.length)]; }
+          row.push(o);
+        }
+        var spots = shuffleWith(row.map(function(_,k){return k;}), rand).slice(0,hits);
+        for(i=0;i<spots.length;i++){ row[spots[i]] = target; }
+        html = '<div class="t1row"><div class="no">'+(r+1)+'.</div><span class="ctarget"'+famStyle(target)+'>'+esc(target)+'</span>';
+      } else {
+        var odd = pool[Math.floor(rand()*pool.length)];
+        while(odd===target){ odd = pool[Math.floor(rand()*pool.length)]; }
+        for(i=0;i<sc.cPer;i++){ row.push(target); }
+        row[Math.floor(rand()*sc.cPer)] = odd;
+        html = '<div class="t1row"><div class="no">'+(r+1)+'.</div>';
+      }
+      for(i=0;i<row.length;i++){ html += '<span class="cl"'+famStyle(row[i])+'>'+esc(row[i])+'</span>'; }
+      html += '</div>';
+      blocks.push(blk(html));
+    }
+    return blocks;
+  }
+
+  /* letter and word: big letter, word model, then write the word */
+  function buildLetterWord(sc, fs){
+    var blocks = [], lines = String(sc.content||"").split("\n");
+    var ruling = rulingFor(sc, sc.content);
+    var sh = stripH(fs, ruling)+16;
+    for(var i=0;i<lines.length;i++){
+      var t = lines[i].replace(/^\s+|\s+$/g,"").split(/\s+/);
+      if(t.length<2){ continue; }
+      var letter = t[0], word = t.slice(1).join(" ");
+      var fam = fontFor(word);
+      var lw = Math.round(measure(letter, fs*1.15, fam)) + 26;
+      var ww = Math.round(measure(word, fs, fam)) + 26;
+      var cell = '<span class="it-model" style="width:'+lw+'px;font-size:'+Math.round(fs*1.15)+'px;font-weight:700">'+esc(letter)+'</span>';
+      cell += '<span class="it-model" style="width:'+ww+'px">'+esc(word)+'</span>';
+      var kinds = ["trace"]; for(var k=1;k<sc.lwTimes;k++){ kinds.push("blank"); }
+      var used = lw + ww;
+      for(k=0;k<kinds.length && used + ww <= LINE_W; k++){ cell += slot(word, kinds[k], fs, ww); used += ww; }
+      blocks.push({h:sh, html:strip(cell, fs, fam, ruling)});
+    }
+    return blocks;
+  }
+
+  /* missing vowel / first / last letter */
+  function buildVowel(sc, fs){
+    var blocks = [], words = tokensOf(sc), per = Math.max(2, Math.min(4, sc.vPer));
+    for(var i=0;i<words.length;i+=per){
+      var chunk = words.slice(i, i+per), out = "";
+      for(var j=0;j<chunk.length;j++){
+        var w = chunk[j], idx = 0;
+        if(sc.vHide==="last"){ idx = w.length-1; }
+        else if(sc.vHide==="mid"){
+          idx = -1;
+          for(var c=1;c<w.length-1;c++){ if("aeiou".indexOf(w[c].toLowerCase())>=0){ idx=c; break; } }
+          if(idx<0){ idx = Math.floor(w.length/2); }
+        }
+        var html = "";
+        for(c=0;c<w.length;c++){ html += (c===idx) ? '<span class="sbox"></span>' : '<span style="font-family:var(--hf)">'+esc(w[c])+'</span>'; }
+        out += '<div class="vwi">'+html+'</div>';
+      }
+      blocks.push(blk('<div class="vw" style="grid-template-columns:repeat('+per+',1fr)">'+out+'</div>'));
+    }
+    return blocks;
+  }
+
+  /* ascending / descending */
+  function buildOrder(sc, fs){
+    var rand = seeded(sc.seed), blocks = [];
+    for(var r=0;r<sc.oQty;r++){
+      var set = [], tries = 0;
+      while(set.length<sc.oCount && tries<200){ var v = 1+Math.floor(rand()*sc.oMax); tries++; if(set.indexOf(v)<0){ set.push(v); } }
+      var dir = (sc.oDir==="mixed") ? (rand()<0.5?"asc":"desc") : sc.oDir;
+      var html = '<div class="t1row"><div class="no">'+(r+1)+'.</div><span class="nums">';
+      for(var i=0;i<set.length;i++){ html += '<span>'+set[i]+'</span>'; }
+      html += '</span><span class="arrow" title="'+dir+'">'+(dir==="asc" ? "&#8593;" : "&#8595;")+'</span>';
+      for(i=0;i<set.length;i++){ html += '<span class="sbox"></span>'; }
+      html += '</div>';
+      blocks.push(blk(html));
+    }
+    return blocks;
+  }
+
+  /* biggest / smallest of three */
+  function buildBigSmall(sc, fs){
+    var rand = seeded(sc.seed), cards = "", blocks = [];
+    for(var r=0;r<sc.bsQty;r++){
+      var set = [];
+      while(set.length<3){ var v = 1+Math.floor(rand()*sc.bsMax); if(set.indexOf(v)<0){ set.push(v); } }
+      cards += '<div class="bsc"><span>'+set[0]+'</span><span>'+set[1]+'</span><span>'+set[2]+'</span></div>';
+      if(cards && (r%2===1 || r===sc.bsQty-1)){ blocks.push(blk('<div class="bs">'+cards+'</div>')); cards=""; }
+    }
+    return blocks;
+  }
+
+  /* number patterns */
+  function buildNumPat(sc, fs){
+    var rand = seeded(sc.seed), blocks = [];
+    var steps = [1,2,2,5,10,-1,-2];
+    for(var r=0;r<sc.npQty;r++){
+      var st = steps[Math.floor(rand()*steps.length)];
+      var span = st*5, start;
+      if(st>0){
+        var top = Math.max(1, sc.npMax - span);
+        start = 1 + Math.floor(rand()*top);
+        if(st===5 || st===10){ start = Math.max(st, Math.round(start/st)*st); }
+        else if(st===2 && rand()<0.6){ start = start%2===0 ? start : start+1; }
+      } else {
+        start = Math.max(6, Math.min(sc.npMax, 6 + Math.floor(rand()*(sc.npMax-5))));
+        if(st===-2 && rand()<0.6){ start = start%2===0 ? start : start+1; }
+      }
+      var html = '<div class="t1row"><div class="no">'+(r+1)+'.</div><span class="nums">';
+      for(var i=0;i<3;i++){ html += '<span>'+(start+st*i)+'</span>'; }
+      html += '</span>';
+      for(i=3;i<6;i++){ html += '<span class="sbox"></span>'; }
+      html += '</div>';
+      blocks.push(blk(html));
+    }
+    return blocks;
+  }
+
+  /* tens frames */
+  function frameSvg(n, cap, filled){
+    var cols = 5, rows = 2, c = 30, W = cols*c+2, H = rows*c+2, g = "";
+    for(var i=0;i<cap;i++){
+      var x = 1+(i%cols)*c, y = 1+Math.floor(i/cols)*c;
+      g += '<rect x="'+x+'" y="'+y+'" width="'+c+'" height="'+c+'" fill="none" stroke="#000" stroke-width="1.5"/>';
+      if(filled && i<n){ g += '<circle cx="'+(x+c/2)+'" cy="'+(y+c/2)+'" r="'+(c*0.3)+'" fill="#000"/>'; }
+    }
+    return '<svg width="'+W+'" height="'+H+'" viewBox="0 0 '+W+' '+H+'" style="display:inline-block;vertical-align:middle">'+g+'</svg>';
+  }
+  function buildTens(sc, fs){
+    var rand = seeded(sc.seed), blocks = [], max = parseInt(sc.tMax,10)||10;
+    for(var r=0;r<sc.tQty;r++){
+      var n = 1+Math.floor(rand()*max), html = '<div class="t1row"><div class="no">'+(r+1)+'.</div>';
+      var fill = (sc.tMode==="fill");
+      if(max>10){
+        html += frameSvg(Math.min(10,n), 10, fill) + '<span style="width:8px"></span>' + frameSvg(Math.max(0,n-10), 10, fill);
+      } else {
+        html += frameSvg(n, 10, fill);
+      }
+      html += fill ? '<span class="arrow">=</span><span class="sbox" style="width:66px"></span>'
+                   : '<span class="arrow">&larr;</span><span style="font-size:30px;font-weight:600">'+n+'</span>';
+      html += '</div>';
+      blocks.push(blk(html));
+    }
+    return blocks;
+  }
+
+  /* coins */
+  function coinSvg(v){
+    var r = 24;
+    return '<svg width="'+(r*2+2)+'" height="'+(r*2+2)+'" viewBox="0 0 '+(r*2+2)+' '+(r*2+2)+'" style="display:inline-block;vertical-align:middle;margin:0 2px">'+
+      '<circle cx="'+(r+1)+'" cy="'+(r+1)+'" r="'+r+'" fill="none" stroke="#000" stroke-width="2"/>'+
+      '<circle cx="'+(r+1)+'" cy="'+(r+1)+'" r="'+(r-5)+'" fill="none" stroke="#000" stroke-width="1" stroke-dasharray="2 2"/>'+
+      '<text x="'+(r+1)+'" y="'+(r+8)+'" font-size="18" font-weight="700" text-anchor="middle" font-family="Segoe UI,Arial,sans-serif">&#8377;'+v+'</text></svg>';
+  }
+  function buildCoins(sc, fs){
+    var rand = seeded(sc.seed), blocks = [];
+    var den = String(sc.cnSet||"1,2,5").split(",").map(function(x){ return parseInt(x,10); });
+    for(var r=0;r<sc.cnQty;r++){
+      var n = 2 + Math.floor(rand()*Math.max(1, sc.cnMax-1)), html = '<div class="t1row"><div class="no">'+(r+1)+'.</div><span>';
+      for(var i=0;i<n;i++){
+        html += coinSvg(den[Math.floor(rand()*den.length)]);
+        if(i<n-1){ html += '<span style="font-size:22px;margin:0 2px">+</span>'; }
+      }
+      html += '</span><span class="arrow">=</span><span class="sbox" style="width:76px;font-size:18px">&#8377;</span></div>';
+      blocks.push(blk(html));
+    }
+    return blocks;
+  }
+
+  var T1_BUILDERS = {pattern:buildPattern, missing:buildMissing, match:buildMatch, circle:buildCircle,
+                     letterword:buildLetterWord, vowel:buildVowel, order:buildOrder, bigsmall:buildBigSmall,
+                     numpat:buildNumPat, tens:buildTens, coins:buildCoins};
 
   function bindSecList(L){
     var box = $(L.cfg.listId);
@@ -1646,7 +2169,8 @@ Draw your school bag</textarea>
       }
       if(f==="base"){ sc.content = setContent(sc.set, sc.base); }
       if(f==="kind"){
-        if(sc.kind==="words" && sc.set!=="custom"){ sc.set = "custom"; }
+        if((sc.kind==="words"||sc.kind==="letterword"||sc.kind==="vowel") && sc.set!=="custom"){ sc.set = "custom"; sc.content = defaultContent(sc.kind); }
+        if((sc.kind==="missing"||sc.kind==="circle") && sc.set==="custom"){ sc.set = "capsA"; sc.content = setContent("capsA"); }
         if(MATH_KINDS.indexOf(sc.kind)>=0){ sc.seed = 1 + Math.floor(Math.random()*1e9); }
       }
       L.save();
@@ -1746,9 +2270,11 @@ Draw your school bag</textarea>
     }
     measureEl.className = "paper" + ($("colour").checked ? " colour" : "");
     measureEl.innerHTML = html;
-    var h = measureEl.offsetHeight;
+    var h = measureEl.offsetHeight, mb = 0;
+    var kid = measureEl.firstElementChild;
+    if(kid){ mb = parseFloat(window.getComputedStyle(kid).marginBottom) || 0; }
     measureEl.innerHTML = "";
-    return h + 8;
+    return Math.ceil(h + mb);
   }
   function mathGlobals(sc){
     var g = {};
@@ -1798,7 +2324,7 @@ Draw your school bag</textarea>
   function headingBlock(text){
     if(!text){ return null; }
     var fam = (TAMIL.test(text)||DEVA.test(text)) ? fontFor(text) : FONTS.andika;
-    return {h:42, html:'<div class="shead" style="font-family:'+fam+'">'+esc(text)+'</div>'};
+    return {h:42, keep:true, html:'<div class="shead" style="font-family:'+fam+'">'+esc(text)+'</div>'};
   }
 
   /* letters across the line: model row, then traced rows, then empty rows */
@@ -2508,7 +3034,7 @@ Draw your school bag</textarea>
   }
 
   /* ---------- render ---------- */
-  var PAGE_CAP = 780;
+  var PAGE_CAP = 796;
 
   function total(blocks){
     var t=0;
@@ -2522,7 +3048,10 @@ Draw your school bag</textarea>
     var pages = [], cur = "", used = 0, i;
 
     for(i=0;i<blocks.length;i++){
-      if(used + blocks[i].h > PAGE_CAP && cur){
+      var need = blocks[i].h;
+      /* a heading stays with the block that follows it */
+      if(blocks[i].keep && blocks[i+1]){ need += blocks[i+1].h; }
+      if(used + need > PAGE_CAP && cur){
         pages.push(cur); cur = ""; used = 0;
       }
       cur += blocks[i].html;
@@ -2770,6 +3299,7 @@ Draw your school bag</textarea>
 
   $("shuffle").addEventListener("click", function(){
     if(mode==="mix"){ MIX.reseed(); render(); return; }
+    if(mode==="sec"){ LANG.reseed(); render(); return; }
     makeCounts();
     makeGrid();
     makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
