@@ -845,6 +845,26 @@ html,body{
 @media (prefers-reduced-motion: reduce){
   .mr-reveal{ animation:none; }
 }
+/* The pointer a teacher moves along the line while reading it aloud. */
+.mk-ptr{
+  position:absolute;
+  pointer-events:none;
+  z-index:6;
+  border-radius:6px;
+  background:rgba(245,232,122,.15);
+  box-shadow:0 0 0 1.5px rgba(245,232,122,.42);
+  opacity:0;
+  transition:left .26s cubic-bezier(.4,0,.2,1),top .26s cubic-bezier(.4,0,.2,1),
+             width .26s cubic-bezier(.4,0,.2,1),height .26s,opacity .18s;
+}
+.mk-ptr.on{ opacity:1; }
+.mk-ptr::after{
+  content:'';position:absolute;left:50%;bottom:-9px;transform:translateX(-50%);
+  border-left:7px solid transparent;border-right:7px solid transparent;
+  border-bottom:8px solid #F5E87A;
+}
+@media (prefers-reduced-motion: reduce){ .mk-ptr{ transition:opacity .18s; } }
+
 /* The one sentence a teacher writes before a new stage of the solution.
    Only appears when the lesson marks that step as a new idea. */
 .step-why{
@@ -1247,6 +1267,7 @@ async function solveAndTeach(){
         + '  - For 2 × 7 = 14: say "2 into 7 equals 14" (NEVER "fourteen twos are seven")\n'
         + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7"\n'
         + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n\n'
+      + '  - A negative number is spoken as minus five, NEVER negative five. Never drop the minus sign.\\n\\n'
         + 'CRITICAL BRACKET RULE:\n'
         + '  - NEVER write "open bracket" or "close bracket" as words\n'
         + '  - For n(n+1): write "n into n plus 1"\n'
@@ -1286,6 +1307,7 @@ async function solveAndTeach(){
         + '  - For 2 × 7 = 14: say "2 into 7 equals 14" (NEVER "fourteen twos are seven")\n'
         + '  - For 14 ÷ 2 = 7: say "14 divided by 2 equals 7"\n'
         + '  - Always FIRST NUMBER, then OPERATION, then SECOND NUMBER, then result\n\n'
+      + '  - A negative number is spoken as minus five, NEVER negative five. Never drop the minus sign.\\n\\n'
         + 'CRITICAL BRACKET RULE:\n'
         + '  - NEVER write "open bracket" or "close bracket" as words\n'
         + '  - For n(n+1): write "n into n plus 1"\n'
@@ -1506,7 +1528,9 @@ async function solveAndTeach(){
       + '10. Final answer must be SHORT.\n'
       + '11. Every script sounds like a teacher talking at the board — short, plain, spoken. No praise words, no textbook phrasing.\n'
       + '12. ANGLES: write the ° symbol in main text, but in every SPOKEN script say the English word "degrees" after the number (e.g. "134 degrees"), never the bare number.\n'
-      + '13. Every step script must state WHY — name the rule or property being used, not only the arithmetic. Geometry example: "co-interior angles sum to 180 degrees, so the lines are parallel".';
+      + '13. Every step script must state WHY — name the rule or property being used, not only the arithmetic. Geometry example: "co-interior angles sum to 180 degrees, so the lines are parallel".\n'
+      + '14. NEVER change the FORM of an expression and use the new form in the SAME step. Factorising, expanding, applying an identity, splitting a fraction or rewriting a denominator is ALWAYS its own separate step, on its own line, with its own script naming the identity or rule used. Worked example - to cancel (x2+1) out of x4-1 you MUST first give a step that shows x4-1 = (x2+1)(x2-1) and says it comes from a squared minus b squared. Only the NEXT step may cancel. A student must never see a new form appear on the board without having been shown where it came from.\n'
+      + '15. Before writing the JSON, read your own steps in order and ask: could a student who does not already know the answer get from each line to the next? Wherever the honest answer is no, insert the missing step. More small steps is always better than one clever step.';
 
     var resp = await fetch('/api/ai', {
       method: 'POST',
@@ -1671,7 +1695,7 @@ function showClassroom(){
   // Reset everything
   $('formula-block').classList.remove('show');
   $('steps-list').innerHTML = '';
-  try { mkClear(); } catch(e){}
+  try { mkClear(); ptrHide(); } catch(e){}
   $('final-answer').classList.remove('show');
   $('verification').classList.remove('show');
   resetYourTurn();
@@ -2083,7 +2107,14 @@ function mrTagged(s, slots){
     }
   }
   if(!hits.length) return null;
-  hits.sort(function(a, b){ return a.start - b.start; });
+  // Marks matter more than pointer segments, so on an overlap the mark wins.
+  hits.sort(function(a, b){
+    if(a.start !== b.start) return a.start - b.start;
+    var as = a.slot.charAt(0) === 's' ? 1 : 0;
+    var bs = b.slot.charAt(0) === 's' ? 1 : 0;
+    if(as !== bs) return as - bs;
+    return (b.end - b.start) - (a.end - a.start);
+  });
   var keep = [], lastEnd = -1;
   for(var j = 0; j < hits.length; j++){
     if(hits[j].start >= lastEnd){ keep.push(hits[j]); lastEnd = hits[j].end; }
@@ -2419,6 +2450,143 @@ window.addEventListener('resize', function(){
   }, 220);
 });
 
+// ═══════════════════════════════════════════
+// POINTER  (added — nothing above is changed)
+// A teacher points at each piece of the line as it is read aloud. The
+// pointer is driven by the actual position of the voice clip, so it moves
+// with the words rather than on a fixed timer. Lines that have no natural
+// pieces get no pointer at all.
+// ═══════════════════════════════════════════
+var PTR_RAF = null;
+
+// Split on a character, ignoring anything inside brackets, so that
+// "A(1,-1), B(-4, 6)" splits into points and not into stray numbers.
+function ptrSplit(s, ch){
+  var out = [], cur = '', d = 0;
+  for(var i = 0; i < s.length; i++){
+    var c = s.charAt(i);
+    if(c === '(' || c === '[') d++;
+    else if(c === ')' || c === ']') d--;
+    if(c === ch && d === 0){ out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// The pieces of a line a teacher would point at, in reading order.
+function ptrSegments(main){
+  var s = String(main || '').trim();
+  if(!s) return null;
+  var parts = [];
+  if(s.indexOf(',') > 0){
+    parts = ptrSplit(s, ',');
+  } else if((s.match(/=/g) || []).length === 1){
+    var i = s.indexOf('=');
+    parts = [s.substring(0, i), s.substring(i + 1)];
+  }
+  parts = parts.map(function(p){ return p.trim(); })
+               .filter(function(p){ return p.length > 0; });
+  if(parts.length < 2) return null;
+  if(parts.length > 8) parts = parts.slice(0, 8);
+  return parts;
+}
+
+// Ask the renderer to tag each piece so the pointer can measure it.
+function ptrSlots(step){
+  if(!step) return null;
+  var segs = ptrSegments(step.main);
+  if(!segs) return null;
+  var out = [];
+  for(var i = 0; i < segs.length; i++) out.push({ slot: 's' + i, text: segs[i] });
+  return out;
+}
+
+function ptrEl(){
+  var board = mkBoard();
+  if(!board) return null;
+  var el = board.querySelector('.mk-ptr');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'mk-ptr';
+    board.appendChild(el);
+  }
+  return el;
+}
+
+function ptrHide(){
+  if(PTR_RAF){ cancelAnimationFrame(PTR_RAF); PTR_RAF = null; }
+  var board = mkBoard();
+  if(!board) return;
+  var el = board.querySelector('.mk-ptr');
+  if(el) el.classList.remove('on');
+}
+
+function ptrMoveTo(el, box){
+  if(!el || !box) return;
+  el.style.left   = (box.x - 5) + 'px';
+  el.style.top    = (box.y - 3) + 'px';
+  el.style.width  = (box.w + 10) + 'px';
+  el.style.height = (box.h + 6) + 'px';
+  el.classList.add('on');
+}
+
+// Follow the voice across the line. Pieces that take longer to say get
+// proportionally more of the clip, which tracks the speech far better
+// than dividing the time equally.
+function ptrRun(stepIdx, step){
+  ptrHide();
+  if(!step) return;
+  var segs = ptrSegments(step.main);
+  if(!segs) return;
+  var host = document.getElementById('step-content-' + stepIdx);
+  if(!host) return;
+  var vis = host.querySelector('.katex-html') || host;
+
+  var boxes = [], weights = [], total = 0;
+  for(var i = 0; i < segs.length; i++){
+    var t = vis.querySelector('.mk-ts' + i);
+    var b = t ? mkBox(t) : null;
+    if(!b) continue;
+    boxes.push(b);
+    var w = Math.max(1, segs[i].replace(/\s+/g, '').length);
+    weights.push(w);
+    total += w;
+  }
+  if(boxes.length < 2 || !total) return;
+
+  var bounds = [], acc = 0;
+  for(var k = 0; k < weights.length; k++){ acc += weights[k]; bounds.push(acc / total); }
+
+  var el = ptrEl();
+  if(!el) return;
+  var last = -1;
+  var started = Date.now();
+
+  function tick(){
+    PTR_RAF = null;
+    var a = (typeof CURRENT_AUDIO !== 'undefined') ? CURRENT_AUDIO : null;
+    var p;
+    if(a && isFinite(a.duration) && a.duration > 0){
+      p = a.currentTime / a.duration;
+    } else if(a){
+      p = -1;                                  // clip still loading, wait
+    } else if(Date.now() - started < 900){
+      p = -1;                                  // clip has not started yet
+    } else {
+      ptrHide(); return;                       // speech finished or never came
+    }
+    if(p >= 0){
+      if(p >= 1){ ptrHide(); return; }
+      var idx = 0;
+      while(idx < bounds.length - 1 && p > bounds[idx]) idx++;
+      if(idx !== last){ ptrMoveTo(el, boxes[idx]); last = idx; }
+    }
+    PTR_RAF = requestAnimationFrame(tick);
+  }
+  PTR_RAF = requestAnimationFrame(tick);
+}
+
 
 // ═══════════════════════════════════════════
 // MATH-TO-SPEECH — convert math expressions to spoken words (Indian classroom style)
@@ -2577,6 +2745,18 @@ function mathToSpeech(text){
   t = t.replace(/(\d[a-zA-Z]?)\s+-\s+(\d)/g, '$1 minus $2');
   //   "x - y", "a - b" (single letter with SPACES both sides)
   t = t.replace(/\b([a-zA-Z])\s+-\s+([a-zA-Z])\b/g, '$1 minus $2');
+  // ── Minus signs the narrow patterns above do not reach (added) ──
+  // Without these a leading minus was being deleted by the catch-all below,
+  // so "x = -5" was spoken as "x equals 5" and C(-3,-5) as "C into 3, 5".
+  // A minus that OPENS a value: "= -1", "(-3", ", -5", ": -2", or line start.
+  t = t.replace(/(^|[=(\[,:]\s*)-\s*(?=[\dA-Za-z.])/g, '$1 minus ');
+  // A minus BETWEEN two terms, e.g. "5x - y", "2ab - 3c", "x squared - 1".
+  // At least one space is required so that spelled-out number names such as
+  // "sixty-eight" are never turned into "sixty minus eight".
+  t = t.replace(/([\dA-Za-z)\]])\s+-\s*(?=[\dA-Za-z(\[])/g, '$1 minus ');
+  t = t.replace(/([\dA-Za-z)\]])\s*-\s+(?=[\dA-Za-z(\[])/g, '$1 minus ');
+  // Indian classrooms say "minus", not "negative".
+  t = t.replace(/\bnegative\b/gi, 'minus');
   // Any remaining hyphens (Tamil word connectors, English-Tamil joins) — remove
   t = t.replace(/-/g, ' ');
 
@@ -2993,7 +3173,7 @@ async function showStep(idx){
       // goes wrong we fall through to chalkWrite, so a step is never lost.
       var wrote = null;
       if(needsPrintMath(step.main)){
-        try { wrote = katexWrite(contentEl, step.main || '', 90, mkSlots(step)); } catch(e){ wrote = null; }
+        try { wrote = katexWrite(contentEl, step.main || '', 90, (mkSlots(step) || []).concat(ptrSlots(step) || [])); } catch(e){ wrote = null; }
       }
       if(wrote){
         await wrote;
@@ -3012,7 +3192,12 @@ async function showStep(idx){
   // points and talks at the same time. Sparse by design — most steps have none.
   try { applyStepMarks(idx, step, true); } catch(e){}
   var spoken = step.readScript || step.teacherScript || step.explanation || step.main;
-  await speakStep(spoken);
+  // The pointer travels along the line in time with the voice, so a student
+  // can see which piece is being spoken instead of having to guess.
+  var spokenPromise = speakStep(spoken);
+  try { ptrRun(idx, step); } catch(e){}
+  await spokenPromise;
+  try { ptrHide(); } catch(e){}
   if(!IS_PLAYING) return;
   // (whyScript already spoken during PHASE 2, while the chalk was writing.)
 }
@@ -3732,7 +3917,7 @@ function showStepInstant(idx){
   }
   // Reset rough work
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
-  try { mkClear(); } catch(e){}
+  try { mkClear(); ptrHide(); } catch(e){}
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
     var contentEl = $('step-content-' + i);
@@ -3741,7 +3926,7 @@ function showStepInstant(idx){
       if(contentEl && SOLUTION.steps[i]){
         if(hasMatrixNotation(SOLUTION.steps[i].main)){
           renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
-        } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || '', mkSlots(SOLUTION.steps[i])))){
+        } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || '', (mkSlots(SOLUTION.steps[i]) || []).concat(ptrSlots(SOLUTION.steps[i]) || [])))){
           contentEl.textContent = SOLUTION.steps[i].main || '';
         }
         var wEl = $('step-why-' + i);
