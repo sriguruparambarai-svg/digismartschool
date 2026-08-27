@@ -816,7 +816,60 @@ html,body{
   .toolbar{padding:10px 14px;gap:6px;}
   .step-indicator{font-size:.78rem;}
 }
+
+/* ═══ PRINT MATHS + TURNING-POINT LINE (added) ═══ */
+/* Maths is drawn in a print face, not the chalk cursive, so stacked
+   fractions and exponents stay sharp on a classroom projector. */
+.mr-line{
+  display:inline-block;
+  font-size:1.5rem;
+  line-height:1.35;
+  color:inherit;
+}
+.mr-line .katex{
+  color:inherit;
+  font-size:1em;
+  text-shadow:0 0 8px rgba(255,255,255,.10);
+}
+.mr-line .katex .frac-line{
+  border-bottom-width:.055em;
+  min-height:.055em;
+}
+@keyframes mr-reveal{
+  from{ clip-path:inset(0 100% 0 0); }
+  to  { clip-path:inset(0 0 0 0); }
+}
+.mr-reveal{
+  animation:mr-reveal var(--mr-dur,1200ms) steps(48,end) forwards;
+}
+@media (prefers-reduced-motion: reduce){
+  .mr-reveal{ animation:none; }
+}
+/* The one sentence a teacher writes before a new stage of the solution.
+   Only appears when the lesson marks that step as a new idea. */
+.step-why{
+  font-family:'Nunito',sans-serif;
+  font-size:1.12rem;
+  font-weight:700;
+  color:var(--chalk-yellow);
+  letter-spacing:.01em;
+  line-height:1.45;
+  margin:16px 0 8px 62px;
+  padding-left:12px;
+  border-left:3px solid rgba(245,232,122,.55);
+  opacity:0;
+  transform:translateY(6px);
+  transition:opacity .45s ease,transform .45s ease;
+}
+.step-why.show{ opacity:.96; transform:translateY(0); }
+.step-why:empty{ display:none; }
+@media (max-width:820px){
+  .mr-line{font-size:1.25rem;}
+  .step-why{font-size:1rem;margin-left:0;}
+}
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -1031,7 +1084,8 @@ try{ if(localStorage.getItem('dss_math_lang') === 'en') TEACH_LANG = 'en'; }catc
 // Saved classes are keyed by question + class + language. Bumping this tag makes
 // every question regenerate ONCE with the new teaching rules, instead of replaying
 // an old saved class. Bump v2 -> v3 -> v4 whenever the teaching prompt changes.
-var SOLUTION_VER = 'v10';  // v10: junior 3D shapes - cube/cuboid + face shading + counts
+var SOLUTION_VER = 'v11';  // v11: conversational narration + whyScript written on the board
+// v10: junior 3D shapes - cube/cuboid + face shading + counts
 function solutionLangKey(){ return TEACH_LANG + '-' + SOLUTION_VER; }
 
 // Waits for intro voice to finish before speaking a row narration
@@ -1198,26 +1252,35 @@ async function solveAndTeach(){
         + '  - For n(n+1): write "n into n plus 1"\n'
         + '  - For 40(41): write "40 into 41"';
     } else {
-      // Pure English — VERY SHORT intellectual professor (1 sentence per step)
-      systemPrompt = 'You are an intellectual math tutor. Extremely direct and concise. '
-        + '1 sentence per script field. NO filler words, NO "children", NO "correct?", NO "excellent". '
-        + 'Just state the mathematical reasoning cleanly. You return ONLY valid JSON.';
+      // Pure English — a teacher talking through the working at the board.
+      // Plain classroom English for English-medium village students: short
+      // sentences, spoken not written, pointing at what is on the board.
+      systemPrompt = 'You are a maths teacher standing at the blackboard, talking a class through '
+        + 'the working step by step. Speak the way a teacher speaks aloud, not the way a textbook is written. '
+        + 'Short plain sentences. Point at what is on the board. Never praise, never pad. You return ONLY valid JSON.';
 
-      styleGuide = 'TEACHING STYLE (bare minimum intellectual English):\n\n'
-        + 'Reference examples (notice how SHORT each script is):\n\n'
-        + '1. INTRO: "Find the sum of first 40 natural numbers using the standard formula."\n\n'
-        + '2. FORMULA: "The formula is S sub n equals n into n plus 1 by 2."\n\n'
-        + '3. STEP: "Here, n equals 40."\n\n'
-        + '4. STEP WITH ROUGH: "Substitute into the formula."\n\n'
-        + '5. ROUGH EXPLAIN: "40 plus 1 gives 41."\n\n'
-        + '6. ANOTHER ROUGH: "40 into 41 gives 1640."\n\n'
-        + '7. ANSWER: "The sum equals 820."\n\n'
+      styleGuide = 'TEACHING STYLE (a teacher talking at the board):\n\n'
+        + 'Say what is happening to the numbers, in the order it happens. Point at the line.\n\n'
+        + 'Reference examples (notice the spoken, pointing tone):\n\n'
+        + '1. INTRO: \"We have to find the sum of the first 40 natural numbers.\"\n\n'
+        + '2. FORMULA: \"For this we use S sub n equals n into n plus 1 by 2.\"\n\n'
+        + '3. STEP: \"Here n is 40, so 40 goes in place of n.\"\n\n'
+        + '4. STEP WITH ROUGH: \"Now put 40 into the formula.\"\n\n'
+        + '5. ROUGH EXPLAIN: \"40 plus 1 is 41.\"\n\n'
+        + '6. ANOTHER ROUGH: \"40 into 41 gives 1640.\"\n\n'
+        + '7. ANSWER: \"So the sum is 820.\"\n\n'
+        + 'More examples of the tone we want:\n'
+        + '  \"If this x goes to the other side it becomes minus x.\"\n'
+        + '  \"Now this 3 has to multiply everything inside the bracket.\"\n'
+        + '  \"These two cancel, so only x squared is left.\"\n'
+        + '  \"Take the common factor outside.\"\n\n'
         + 'STRICT RULES:\n'
-        + '- 1 SENTENCE per script field. Maximum 2 for intro.\n'
-        + '- NO "children", "kids", "correct?", "understand?", "very good", "excellent", "let us", "now"\n'
-        + '- Direct sharp intellectual tone\n'
-        + '- State the operation and result cleanly\n'
-        + '- Precise math language: substitute, evaluate, simplify, apply\n'
+        + '- 1 short sentence per script field, 2 at most. Never a paragraph.\n'
+        + '- Simple everyday English. These are English-medium students in a village school.\n'
+        + '- Words like \"now\", \"so\", \"this\", \"here\", \"we\" are GOOD - that is how a teacher talks.\n'
+        + '- NO praise or filler: \"very good\", \"excellent\", \"well done\", \"children\", \"kids\", \"understand?\"\n'
+        + '- NO textbook phrasing: never \"we shall now proceed to\", \"it can be observed that\", \"thus we obtain\".\n'
+        + '- Name the move in plain words: goes to the other side, cancel, take common, multiply out, put in place of.\n'
         + '- Read the problem ONCE at intro. Then formula. Then steps.\n\n'
         + 'CRITICAL WORD ORDER for multiplication/division:\n'
         + '  - For 2 × 7 = 14: say "2 into 7 equals 14" (NEVER "fourteen twos are seven")\n'
@@ -1331,7 +1394,7 @@ async function solveAndTeach(){
       + '    {\n'
       + '      "main": "ONE atomic math line for blackboard — ONE move only, obeying the STEP RULES above (short, NO English sentences)",\n'
       + '      "readScript": "ONE short sentence reading aloud the line just written, in words. e.g. for S20 = 20(20+1)/2: Substitute 20 in place of n. NOTHING more.",\n'
-      + '      "whyScript": "USUALLY AN EMPTY STRING. Fill ONLY when this step introduces a NEW idea \u2014 see VOICE RULES. One short sentence.",\n'
+      + '      "whyScript": "USUALLY AN EMPTY STRING. Fill ONLY when this step introduces a NEW idea \u2014 see VOICE RULES. One short sentence. It is ALSO WRITTEN ON THE BOARD above the step, so keep it under 70 characters and write it as a short heading for the stage that follows.",\n'
       + '      "roughLabel": "short label for rough work e.g. Multiplying 40 × 41 (empty if no rough)",\n'
       + '      "roughScript": "1-3 sentence intellectual explanation of the rough calculation.",\n'
       + '      "roughType": "one of: none, add, sub, mul, div, custom",\n'
@@ -1428,7 +1491,7 @@ async function solveAndTeach(){
       + '8. Fractions in main: 40/2, 1640/2, n(n+1)/2\n'
       + '9. 4 to 8 steps FOR EACH PART of the question. A question with parts (a), (b), (c), (d), (e) gets 4 to 8 steps for EVERY part — never shorten the later parts to keep a total low, and never let part (a) be detailed while (b) onwards are compressed. Pattern and sequence questions obeying RULE 4 will need MORE than 8 steps per part, and that is correct.\n'
       + '10. Final answer must be SHORT.\n'
-      + '11. Every script sounds like an intellectual professor — precise, focused, no emotional words.\n'
+      + '11. Every script sounds like a teacher talking at the board — short, plain, spoken. No praise words, no textbook phrasing.\n'
       + '12. ANGLES: write the ° symbol in main text, but in every SPOKEN script say the English word "degrees" after the number (e.g. "134 degrees"), never the bare number.\n'
       + '13. Every step script must state WHY — name the rule or property being used, not only the arithmetic. Geometry example: "co-interior angles sum to 180 degrees, so the lines are parallel".';
 
@@ -1609,6 +1672,13 @@ function showClassroom(){
     div.innerHTML =
       '<div class="step-num">' + (i + 1) + '.</div>' +
       '<div class="step-content" id="step-content-' + i + '"></div>';
+    // The turning-point sentence sits above its step as its own line.
+    // It stays empty for ordinary steps, and an empty one is not displayed.
+    var whyDiv = document.createElement('div');
+    whyDiv.className = 'step-why';
+    whyDiv.id = 'step-why-' + i;
+    whyDiv.textContent = (s && s.whyScript && String(s.whyScript).trim()) ? String(s.whyScript).trim() : '';
+    $('steps-list').appendChild(whyDiv);
     $('steps-list').appendChild(div);
   });
 
@@ -1836,6 +1906,213 @@ function chalkWrite(el, text, charDelayMs){
     setTimeout(resolve, totalTime);
   });
 }
+
+// ═══════════════════════════════════════════
+// PRINT MATHS RENDERER  (added — nothing above is changed)
+// Converts the plain-text maths we already generate into properly drawn
+// maths: stacked fractions, square roots that stretch, real exponents.
+// The AI still writes plain text ("40/2"), so every other part of this
+// file — speech, rough work, matrices, figures — is untouched, and
+// lessons already sitting in the cache render correctly straight away.
+// If KaTeX is unavailable or a line cannot be parsed, we silently fall
+// back to the original chalk writer.
+// ═══════════════════════════════════════════
+var MR_SUP = { '\u00b2':'2','\u00b3':'3','\u00b9':'1','\u2070':'0','\u2074':'4',
+               '\u2075':'5','\u2076':'6','\u2077':'7','\u2078':'8','\u2079':'9' };
+
+var MR_SYM = [
+  ['\u00d7','\\times '], ['\u00f7','\\div '], ['\u2212','-'],
+  ['\u03c0','\\pi '], ['\u00b0','^{\\circ}'],
+  ['\u2264','\\leq '], ['\u2265','\\geq '], ['\u2260','\\neq '],
+  ['\u2248','\\approx '], ['\u2261','\\equiv '], ['\u00b1','\\pm '],
+  ['\u2234','\\therefore '], ['\u2235','\\because '],
+  ['\u21d2','\\Rightarrow '], ['\u2192','\\to '], ['\u21d4','\\Leftrightarrow '],
+  ['\u2220','\\angle '], ['\u2225','\\parallel '], ['\u22a5','\\perp '],
+  ['\u0394','\\triangle '], ['\u03b8','\\theta '], ['\u03b1','\\alpha '],
+  ['\u03b2','\\beta '], ['\u03b3','\\gamma '], ['\u03bb','\\lambda '],
+  ['\u03bc','\\mu '], ['\u03c3','\\sigma '], ['\u03a3','\\Sigma '],
+  ['\u221e','\\infty '], ['\u2032',"'"]
+];
+
+var MR_FUNCS = 'sin|cos|tan|cot|sec|cosec|csc|sinh|cosh|tanh|log|ln|lim|max|min|gcd|lcm';
+
+// Superscript characters (x²) become real exponents.
+function mrNormSup(s){
+  return s.replace(/[\u00b2\u00b3\u00b9\u2070\u2074-\u2079]+/g, function(run){
+    var out = '';
+    for(var i = 0; i < run.length; i++) out += (MR_SUP[run.charAt(i)] || '');
+    return out ? ('^{' + out + '}') : '';
+  });
+}
+
+// Walk backwards from a slash to find the whole numerator.
+// Absorbs bracket groups, exponent groups and identifier characters,
+// and stops at + - = space etc. so "x + 1/x" gives 1, not "x + 1".
+function mrLeft(s, i){
+  var j = i - 1, absorbed = false, d, k;
+  while(j >= 0 && s.charAt(j) === ' ') j--;
+  var end = j + 1;
+  while(j >= 0){
+    var c = s.charAt(j);
+    if(c === ')'){
+      d = 1; j--;
+      while(j >= 0 && d > 0){ k = s.charAt(j); if(k === ')') d++; else if(k === '(') d--; j--; }
+      absorbed = true; continue;
+    }
+    if(c === '}'){
+      d = 1; j--;
+      while(j >= 0 && d > 0){ k = s.charAt(j); if(k === '}') d++; else if(k === '{') d--; j--; }
+      if(j >= 0 && s.charAt(j) === '^') j--;
+      absorbed = true; continue;
+    }
+    if(/[A-Za-z0-9._]/.test(c)){ j--; absorbed = true; continue; }
+    break;
+  }
+  return absorbed ? { start: j + 1, end: end } : null;
+}
+
+// Walk forwards from a slash to find the whole denominator.
+function mrRight(s, i){
+  var j = i + 1, absorbed = false, d, k;
+  while(j < s.length && s.charAt(j) === ' ') j++;
+  var start = j;
+  while(j < s.length){
+    var c = s.charAt(j);
+    if(c === '('){
+      d = 1; j++;
+      while(j < s.length && d > 0){ k = s.charAt(j); if(k === '(') d++; else if(k === ')') d--; j++; }
+      absorbed = true; continue;
+    }
+    if(c === '^' && s.charAt(j + 1) === '{'){
+      j += 2; d = 1;
+      while(j < s.length && d > 0){ k = s.charAt(j); if(k === '{') d++; else if(k === '}') d--; j++; }
+      absorbed = true; continue;
+    }
+    if(/[A-Za-z0-9._]/.test(c)){ j++; absorbed = true; continue; }
+    break;
+  }
+  return absorbed ? { start: start, end: j } : null;
+}
+
+// Strip one layer of outer brackets: "(x+1)" -> "x+1"
+function mrUnwrap(t){
+  t = t.trim();
+  if(t.length > 1 && t.charAt(0) === '(' && t.charAt(t.length - 1) === ')'){
+    var d = 0;
+    for(var i = 0; i < t.length; i++){
+      if(t.charAt(i) === '(') d++;
+      else if(t.charAt(i) === ')'){ d--; if(d === 0 && i < t.length - 1) return t; }
+    }
+    return t.substring(1, t.length - 1);
+  }
+  return t;
+}
+
+// Every a/b becomes a stacked fraction, innermost handled by repetition.
+function mrFractions(s){
+  var guard = 0;
+  while(guard++ < 24){
+    var i = s.indexOf('/');
+    if(i < 0) break;
+    var L = mrLeft(s, i), R = mrRight(s, i);
+    if(!L || !R){ s = s.substring(0, i) + '\\,\\text{/}\\,' + s.substring(i + 1); continue; }
+    var num = mrUnwrap(s.substring(L.start, L.end));
+    var den = mrUnwrap(s.substring(R.start, R.end));
+    s = s.substring(0, L.start) + '\\frac{' + num + '}{' + den + '}' + s.substring(R.end);
+  }
+  return s;
+}
+
+// Square roots: √16, √(x+1), √x
+function mrRoots(s){
+  var guard = 0;
+  while(guard++ < 12){
+    var i = s.indexOf('\u221a');
+    if(i < 0) break;
+    var R = mrRight(s, i);
+    if(!R){ s = s.substring(0, i) + '\\surd ' + s.substring(i + 1); continue; }
+    var body = mrUnwrap(s.substring(R.start, R.end));
+    s = s.substring(0, i) + '\\sqrt{' + body + '}' + s.substring(R.end);
+  }
+  return s;
+}
+
+// Main converter. Plain classroom maths in, LaTeX out.
+function mathToLatex(src){
+  var s = String(src == null ? '' : src);
+  if(!s.trim()) return '';
+  s = mrNormSup(s);
+  s = s.replace(new RegExp('\\b(' + MR_FUNCS + ')\\b', 'gi'), function(m){ return '\\' + m.toLowerCase() + ' '; });
+  s = mrRoots(s);
+  s = mrFractions(s);
+  for(var i = 0; i < MR_SYM.length; i++){
+    s = s.split(MR_SYM[i][0]).join(MR_SYM[i][1]);
+  }
+  // English words on the board (e.g. "Sum = 820") must stay upright,
+  // not be read as a product of italic letters.
+  s = s.replace(/(\\[a-zA-Z]+)|([A-Za-z]{2,}(?:[ \-][A-Za-z]+)*)/g, function(m, cmd, word, offset){
+    if(cmd) return m;
+    var gap = (offset > 0 && s.charAt(offset - 1) === ' ') ? '\\,' : '';
+    return gap + '\\text{' + word + '}';
+  });
+  s = s.replace(/[%&#$]/g, function(c){ return '\\' + c; });
+  return s;
+}
+
+// True when a line has something worth drawing properly.
+function needsPrintMath(text){
+  var t = String(text || '');
+  return /[\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t);
+}
+
+// Render one line as real maths, revealed left to right like writing.
+// Resolves when the reveal finishes. Returns false if it could not render,
+// so the caller can fall back to the original chalk writer.
+function katexWrite(el, text, charDelayMs){
+  if(!el) return null;
+  if(typeof katex === 'undefined' || !katex.render) return null;
+  var raw = String(text || '');
+  if(!raw.trim()) return null;
+  var tex;
+  try { tex = mathToLatex(raw); } catch(e){ return null; }
+  if(!tex) return null;
+  var inner = document.createElement('span');
+  try {
+    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+  } catch(e){
+    return null;
+  }
+  if(!inner.querySelector('.katex')) return null;
+  el.innerHTML = '';
+  inner.className = 'mr-line mr-reveal';
+  var ms = Math.max(700, Math.min(4200, raw.length * (charDelayMs || 90) * 0.55));
+  inner.style.setProperty('--mr-dur', ms + 'ms');
+  el.appendChild(inner);
+  return new Promise(function(resolve){ setTimeout(resolve, ms + 60); });
+}
+
+// Same, but with no animation — used when jumping straight to a step.
+function katexSet(el, text){
+  if(!el) return false;
+  if(typeof katex === 'undefined' || !katex.render) return false;
+  var raw = String(text || '');
+  if(!raw.trim()){ el.innerHTML = ''; return true; }
+  var tex;
+  try { tex = mathToLatex(raw); } catch(e){ return false; }
+  if(!tex) return false;
+  var inner = document.createElement('span');
+  try {
+    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+  } catch(e){
+    return false;
+  }
+  if(!inner.querySelector('.katex')) return false;
+  inner.className = 'mr-line';
+  el.innerHTML = '';
+  el.appendChild(inner);
+  return true;
+}
+
 
 // ═══════════════════════════════════════════
 // MATH-TO-SPEECH — convert math expressions to spoken words (Indian classroom style)
@@ -2395,6 +2672,9 @@ async function showStep(idx){
   // illustration of what is being said. readScript still comes after (PHASE 3),
   // because it reads aloud a line that must already be on the board.
   var whyText = (step.whyScript && String(step.whyScript).trim()) ? step.whyScript : '';
+  // Show the sentence on the board at the same moment it is spoken.
+  var whyEl = $('step-why-' + idx);
+  if(whyEl && whyText) whyEl.classList.add('show');
   var whyPromise = whyText ? speakStep(whyText) : null;
   if(contentEl){
     if(hasMatrixNotation(step.main)){
@@ -2402,8 +2682,19 @@ async function showStep(idx){
       contentEl.classList.add('mx-fade');
       await sleep(650);
     } else {
-      var writePromise = chalkWrite(contentEl, step.main || '', 90);
-      await writePromise;
+      // Draw as real maths where it helps (fractions, roots, powers);
+      // otherwise keep the original chalk writing. If anything at all
+      // goes wrong we fall through to chalkWrite, so a step is never lost.
+      var wrote = null;
+      if(needsPrintMath(step.main)){
+        try { wrote = katexWrite(contentEl, step.main || '', 90); } catch(e){ wrote = null; }
+      }
+      if(wrote){
+        await wrote;
+      } else {
+        var writePromise = chalkWrite(contentEl, step.main || '', 90);
+        await writePromise;
+      }
     }
   }
   // Let the spoken reason finish before the line is read aloud (no overlap).
@@ -3140,9 +3431,11 @@ function showStepInstant(idx){
       if(contentEl && SOLUTION.steps[i]){
         if(hasMatrixNotation(SOLUTION.steps[i].main)){
           renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
-        } else {
+        } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || ''))){
           contentEl.textContent = SOLUTION.steps[i].main || '';
         }
+        var wEl = $('step-why-' + i);
+        if(wEl) wEl.classList.add('show');
       }
       // Add corresponding rough work using new structured format
       var s = SOLUTION.steps[i];
@@ -3158,6 +3451,8 @@ function showStepInstant(idx){
     } else {
       el.classList.remove('show');
       if(contentEl) contentEl.textContent = '';
+      var wHide = $('step-why-' + i);
+      if(wHide) wHide.classList.remove('show');
     }
   });
   var stepEl = $('step-' + idx);

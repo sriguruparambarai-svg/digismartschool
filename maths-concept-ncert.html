@@ -126,7 +126,15 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
   .stage-wrap{padding:14px;}
   .topbar h2{font-size:1.25rem;}
 }
+
+/* ═══ PRINT MATHS ON THE CONCEPT BOARD (added) ═══ */
+.mr-line{ display:inline-block; line-height:1.35; color:inherit; }
+.mr-line .katex{ color:inherit; font-size:1.05em; }
+.mr-line .katex .frac-line{ border-bottom-width:.055em; min-height:.055em; }
+.b-line .mr-line{ font-size:1em; }
 </style>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
+<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
 </head>
 <body>
 
@@ -505,6 +513,212 @@ function rebuildNotes(upto){
   nl.scrollTop = nl.scrollHeight;
 }
 
+// ═══════════════════════════════════════════
+// PRINT MATHS RENDERER  (added — nothing above is changed)
+// Converts the plain-text maths we already generate into properly drawn
+// maths: stacked fractions, square roots that stretch, real exponents.
+// The AI still writes plain text ("40/2"), so every other part of this
+// file — speech, rough work, matrices, figures — is untouched, and
+// lessons already sitting in the cache render correctly straight away.
+// If KaTeX is unavailable or a line cannot be parsed, we silently fall
+// back to the original chalk writer.
+// ═══════════════════════════════════════════
+var MR_SUP = { '\u00b2':'2','\u00b3':'3','\u00b9':'1','\u2070':'0','\u2074':'4',
+               '\u2075':'5','\u2076':'6','\u2077':'7','\u2078':'8','\u2079':'9' };
+
+var MR_SYM = [
+  ['\u00d7','\\times '], ['\u00f7','\\div '], ['\u2212','-'],
+  ['\u03c0','\\pi '], ['\u00b0','^{\\circ}'],
+  ['\u2264','\\leq '], ['\u2265','\\geq '], ['\u2260','\\neq '],
+  ['\u2248','\\approx '], ['\u2261','\\equiv '], ['\u00b1','\\pm '],
+  ['\u2234','\\therefore '], ['\u2235','\\because '],
+  ['\u21d2','\\Rightarrow '], ['\u2192','\\to '], ['\u21d4','\\Leftrightarrow '],
+  ['\u2220','\\angle '], ['\u2225','\\parallel '], ['\u22a5','\\perp '],
+  ['\u0394','\\triangle '], ['\u03b8','\\theta '], ['\u03b1','\\alpha '],
+  ['\u03b2','\\beta '], ['\u03b3','\\gamma '], ['\u03bb','\\lambda '],
+  ['\u03bc','\\mu '], ['\u03c3','\\sigma '], ['\u03a3','\\Sigma '],
+  ['\u221e','\\infty '], ['\u2032',"'"]
+];
+
+var MR_FUNCS = 'sin|cos|tan|cot|sec|cosec|csc|sinh|cosh|tanh|log|ln|lim|max|min|gcd|lcm';
+
+// Superscript characters (x²) become real exponents.
+function mrNormSup(s){
+  return s.replace(/[\u00b2\u00b3\u00b9\u2070\u2074-\u2079]+/g, function(run){
+    var out = '';
+    for(var i = 0; i < run.length; i++) out += (MR_SUP[run.charAt(i)] || '');
+    return out ? ('^{' + out + '}') : '';
+  });
+}
+
+// Walk backwards from a slash to find the whole numerator.
+// Absorbs bracket groups, exponent groups and identifier characters,
+// and stops at + - = space etc. so "x + 1/x" gives 1, not "x + 1".
+function mrLeft(s, i){
+  var j = i - 1, absorbed = false, d, k;
+  while(j >= 0 && s.charAt(j) === ' ') j--;
+  var end = j + 1;
+  while(j >= 0){
+    var c = s.charAt(j);
+    if(c === ')'){
+      d = 1; j--;
+      while(j >= 0 && d > 0){ k = s.charAt(j); if(k === ')') d++; else if(k === '(') d--; j--; }
+      absorbed = true; continue;
+    }
+    if(c === '}'){
+      d = 1; j--;
+      while(j >= 0 && d > 0){ k = s.charAt(j); if(k === '}') d++; else if(k === '{') d--; j--; }
+      if(j >= 0 && s.charAt(j) === '^') j--;
+      absorbed = true; continue;
+    }
+    if(/[A-Za-z0-9._]/.test(c)){ j--; absorbed = true; continue; }
+    break;
+  }
+  return absorbed ? { start: j + 1, end: end } : null;
+}
+
+// Walk forwards from a slash to find the whole denominator.
+function mrRight(s, i){
+  var j = i + 1, absorbed = false, d, k;
+  while(j < s.length && s.charAt(j) === ' ') j++;
+  var start = j;
+  while(j < s.length){
+    var c = s.charAt(j);
+    if(c === '('){
+      d = 1; j++;
+      while(j < s.length && d > 0){ k = s.charAt(j); if(k === '(') d++; else if(k === ')') d--; j++; }
+      absorbed = true; continue;
+    }
+    if(c === '^' && s.charAt(j + 1) === '{'){
+      j += 2; d = 1;
+      while(j < s.length && d > 0){ k = s.charAt(j); if(k === '{') d++; else if(k === '}') d--; j++; }
+      absorbed = true; continue;
+    }
+    if(/[A-Za-z0-9._]/.test(c)){ j++; absorbed = true; continue; }
+    break;
+  }
+  return absorbed ? { start: start, end: j } : null;
+}
+
+// Strip one layer of outer brackets: "(x+1)" -> "x+1"
+function mrUnwrap(t){
+  t = t.trim();
+  if(t.length > 1 && t.charAt(0) === '(' && t.charAt(t.length - 1) === ')'){
+    var d = 0;
+    for(var i = 0; i < t.length; i++){
+      if(t.charAt(i) === '(') d++;
+      else if(t.charAt(i) === ')'){ d--; if(d === 0 && i < t.length - 1) return t; }
+    }
+    return t.substring(1, t.length - 1);
+  }
+  return t;
+}
+
+// Every a/b becomes a stacked fraction, innermost handled by repetition.
+function mrFractions(s){
+  var guard = 0;
+  while(guard++ < 24){
+    var i = s.indexOf('/');
+    if(i < 0) break;
+    var L = mrLeft(s, i), R = mrRight(s, i);
+    if(!L || !R){ s = s.substring(0, i) + '\\,\\text{/}\\,' + s.substring(i + 1); continue; }
+    var num = mrUnwrap(s.substring(L.start, L.end));
+    var den = mrUnwrap(s.substring(R.start, R.end));
+    s = s.substring(0, L.start) + '\\frac{' + num + '}{' + den + '}' + s.substring(R.end);
+  }
+  return s;
+}
+
+// Square roots: √16, √(x+1), √x
+function mrRoots(s){
+  var guard = 0;
+  while(guard++ < 12){
+    var i = s.indexOf('\u221a');
+    if(i < 0) break;
+    var R = mrRight(s, i);
+    if(!R){ s = s.substring(0, i) + '\\surd ' + s.substring(i + 1); continue; }
+    var body = mrUnwrap(s.substring(R.start, R.end));
+    s = s.substring(0, i) + '\\sqrt{' + body + '}' + s.substring(R.end);
+  }
+  return s;
+}
+
+// Main converter. Plain classroom maths in, LaTeX out.
+function mathToLatex(src){
+  var s = String(src == null ? '' : src);
+  if(!s.trim()) return '';
+  s = mrNormSup(s);
+  s = s.replace(new RegExp('\\b(' + MR_FUNCS + ')\\b', 'gi'), function(m){ return '\\' + m.toLowerCase() + ' '; });
+  s = mrRoots(s);
+  s = mrFractions(s);
+  for(var i = 0; i < MR_SYM.length; i++){
+    s = s.split(MR_SYM[i][0]).join(MR_SYM[i][1]);
+  }
+  // English words on the board (e.g. "Sum = 820") must stay upright,
+  // not be read as a product of italic letters.
+  s = s.replace(/(\\[a-zA-Z]+)|([A-Za-z]{2,}(?:[ \-][A-Za-z]+)*)/g, function(m, cmd, word, offset){
+    if(cmd) return m;
+    var gap = (offset > 0 && s.charAt(offset - 1) === ' ') ? '\\,' : '';
+    return gap + '\\text{' + word + '}';
+  });
+  s = s.replace(/[%&#$]/g, function(c){ return '\\' + c; });
+  return s;
+}
+
+// True when a line has something worth drawing properly.
+function needsPrintMath(text){
+  var t = String(text || '');
+  return /[\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t);
+}
+
+// Render one line as real maths, revealed left to right like writing.
+// Resolves when the reveal finishes. Returns false if it could not render,
+// so the caller can fall back to the original chalk writer.
+function katexWrite(el, text, charDelayMs){
+  if(!el) return null;
+  if(typeof katex === 'undefined' || !katex.render) return null;
+  var raw = String(text || '');
+  if(!raw.trim()) return null;
+  var tex;
+  try { tex = mathToLatex(raw); } catch(e){ return null; }
+  if(!tex) return null;
+  var inner = document.createElement('span');
+  try {
+    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+  } catch(e){
+    return null;
+  }
+  if(!inner.querySelector('.katex')) return null;
+  el.innerHTML = '';
+  inner.className = 'mr-line mr-reveal';
+  var ms = Math.max(700, Math.min(4200, raw.length * (charDelayMs || 90) * 0.55));
+  inner.style.setProperty('--mr-dur', ms + 'ms');
+  el.appendChild(inner);
+  return new Promise(function(resolve){ setTimeout(resolve, ms + 60); });
+}
+
+// Same, but with no animation — used when jumping straight to a step.
+function katexSet(el, text){
+  if(!el) return false;
+  if(typeof katex === 'undefined' || !katex.render) return false;
+  var raw = String(text || '');
+  if(!raw.trim()){ el.innerHTML = ''; return true; }
+  var tex;
+  try { tex = mathToLatex(raw); } catch(e){ return false; }
+  if(!tex) return false;
+  var inner = document.createElement('span');
+  try {
+    katex.render(tex, inner, { throwOnError: true, displayMode: false, strict: false });
+  } catch(e){
+    return false;
+  }
+  if(!inner.querySelector('.katex')) return false;
+  inner.className = 'mr-line';
+  el.innerHTML = '';
+  el.appendChild(inner);
+  return true;
+}
+
 async function runStep(i){
   if(i < 0 || i >= STEPS.length) return;
   IDX = i;
@@ -524,7 +738,13 @@ async function runStep(i){
     var d = document.createElement('div');
     d.className = 'b-line ' + kindClass(s.kind);
     d.style.animationDelay = (n * 0.13) + 's';
-    d.textContent = line;
+    // Lines with fractions, roots or powers are drawn as real maths.
+    // Anything else, or any failure, keeps the original plain text.
+    var drawn = false;
+    if(needsPrintMath(line)){
+      try { drawn = katexSet(d, line); } catch(e){ drawn = false; }
+    }
+    if(!drawn) d.textContent = line;
     big.appendChild(d);
   });
 
