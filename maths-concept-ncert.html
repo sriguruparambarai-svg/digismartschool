@@ -619,12 +619,15 @@ function mrUnwrap(t){
 
 // Every a/b becomes a stacked fraction, innermost handled by repetition.
 function mrFractions(s){
-  var guard = 0;
+  var guard = 0, from = 0;
   while(guard++ < 24){
-    var i = s.indexOf('/');
+    var i = s.indexOf('/', from);
     if(i < 0) break;
     var L = mrLeft(s, i), R = mrRight(s, i);
-    if(!L || !R){ s = s.substring(0, i) + '\\,\\text{/}\\,' + s.substring(i + 1); continue; }
+    // A slash we cannot turn into a fraction is left exactly as it is and
+    // skipped over. Rewriting it here used to leave a slash behind, which the
+    // next pass found again and wrapped once more, 24 times deep.
+    if(!L || !R){ from = i + 1; continue; }
     var num = mrUnwrap(s.substring(L.start, L.end));
     var den = mrUnwrap(s.substring(R.start, R.end));
     s = s.substring(0, L.start) + '\\frac{' + num + '}{' + den + '}' + s.substring(R.end);
@@ -652,12 +655,22 @@ function mrRoots(s){
 function mathToLatex(src, slots){
   var s = String(src == null ? '' : src);
   if(!s.trim()) return '';
+  var plain = mrConvert(s);
   if(slots && slots.length){
     var tagged = mrTagged(s, slots);
-    if(tagged) return tagged;
-    // fall through to a plain conversion; the mark falls back to the whole line
+    // Tagging splits the line at the target, which can cut a fraction or a
+    // root in half. If the tagged version has lost any, throw it away and
+    // render plainly; the mark then falls back to the whole line.
+    if(tagged && mrCount(tagged, '\\frac') >= mrCount(plain, '\\frac')
+              && mrCount(tagged, '\\sqrt') >= mrCount(plain, '\\sqrt')){
+      return tagged;
+    }
   }
-  return mrConvert(s);
+  return plain;
+}
+
+function mrCount(s, needle){
+  return String(s).split(needle).length - 1;
 }
 
 // Split the source around the pieces to be tagged, convert each part on its
