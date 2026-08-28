@@ -113,7 +113,7 @@ module.exports = async function(req2, res) {
       const { access_token } = r.data;
 
       if (email === 'sriguruparambarai@gmail.com') {
-        return res.json({ success: true, role: 'super_admin', user: { name: 'Kayal - Super Admin', email }, token: access_token, session_token: makeSessionToken('', 'super_admin') });
+        return res.json({ success: true, role: 'super_admin', user: { name: 'Super Admin', email }, token: access_token, session_token: makeSessionToken('', 'super_admin') });
       }
 
       const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
