@@ -1269,9 +1269,29 @@ Draw your school bag</textarea>
   }
 
   /* ---------- ruled strip ---------- */
+  /* How far below the letters the invisible text box ends, measured in em.
+     Handwriting fonts leave different amounts of empty space under the
+     letters, so we ask the browser instead of using a fixed guess. */
+  function baseDrop(fs, fam){
+    var f = fam || FONTS[val("font")] || FONTS.edu;
+    var drop = 0.2;
+    try{
+      mc.font = fs+"px "+f;
+      var m = mc.measureText("Hxgy");
+      var a = m.fontBoundingBoxAscent, d = m.fontBoundingBoxDescent;
+      if(a && d && isFinite(a) && isFinite(d)){
+        drop = 0.5 + (d - a) / (2 * fs);
+      }
+    }catch(e){ drop = 0.2; }
+    if(!isFinite(drop) || drop < 0){ drop = 0; }
+    if(drop > 0.4){ drop = 0.4; }
+    return Math.round(drop*1000)/1000;
+  }
+
   function strip(itemsHtml, fs, fam, ruling){
     var lines = ruling || val("lines");
     var h, inner="", base;
+    var drop = baseDrop(fs, fam) + "em";
 
     if(lines==="4"){
       h = Math.round(fs*2.05);
@@ -1279,7 +1299,7 @@ Draw your school bag</textarea>
               '<div class="ln" style="top:33.333%"></div>'+
               '<div class="ln" style="top:66.666%"></div>'+
               '<div class="ln" style="top:100%"></div>';
-      base = 'bottom:calc(33.333% - 0.2em)';
+      base = 'bottom:calc(33.333% - '+drop+')';
     } else if(lines==="2"){
       h = Math.round(fs*1.6);
       var gapB = Math.round(fs*0.34);
@@ -1288,17 +1308,17 @@ Draw your school bag</textarea>
       if(topY < 2){ topY = 2; }
       inner = '<div class="ln" style="top:'+topY+'px"></div>'+
               '<div class="ln" style="top:'+(h-gapB)+'px"></div>';
-      base = 'bottom:calc('+gapB+'px - 0.2em)';
+      base = 'bottom:calc('+gapB+'px - '+drop+')';
     } else if(lines==="3"){
       h = Math.round(fs*1.7);
       inner = '<div class="ln" style="top:0"></div>'+
               '<div class="ln d" style="top:50%"></div>'+
               '<div class="ln" style="top:100%"></div>';
-      base = 'bottom:calc(0% - 0.2em)';
+      base = 'bottom:calc(0% - '+drop+')';
     } else {
       h = Math.round(fs*1.6);
       inner = '<div class="ln" style="top:100%"></div>';
-      base = 'bottom:calc(0% - 0.2em)';
+      base = 'bottom:calc(0% - '+drop+')';
     }
 
     return '<div class="strip" style="height:'+h+'px">'+inner+
