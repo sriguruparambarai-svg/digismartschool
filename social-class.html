@@ -1788,6 +1788,9 @@ async function scInit(){
         var cstep = await scCausesStep();
         if (cstep) STEPS.splice(scCausesIndex(), 0, cstep);
       }catch(ce){ /* lesson is still fine without it */ }
+    if (!STEPS.some(function(s){ return s.type === 'map'; })){
+      try{ scInsertMap(await scMapStep()); }catch(me){ /* fine without it */ }
+    }
     try{
       var recalls = await scRecallSteps();
       if (recalls.length) scInsertRecall(recalls);
@@ -1946,6 +1949,78 @@ function scInsertRecall(items){
     if (step && step.type === 'recall') STEPS.splice(p.at, 0, step);
   });
   return placed.length;
+}
+
+
+/* -- MAP STEP (second pass) --
+   Asked for inside the main plan prompt the map lost out to photo steps every
+   time, the same way the causes step did. Asked on its own it comes back.
+   Uses the finished step list rather than the whole lesson, so it costs far
+   less than a full re-read. Runs only when the plan has no map already. */
+async function scMapStep(){
+  var material = STEPS.map(function(s, i){
+    return (i + 1) + '. ' + (s.title || '') + ' \u2014 ' + (s.speech || '').substring(0, 200);
+  }).join('\n').substring(0, 6000);
+  var sys = 'You add ONE map step to a lesson that has already been planned.\n' +
+    'Return ONLY a JSON object. No prose, no markdown, no code fences.\n' +
+    '{"afterTitle":"exact title of the step this follows","title":"short heading",' +
+    '"speech":"2 to 3 sentences a teacher would say","regions":["key"],' +
+    '"markers":[{"name":"Berlin","lat":52.52,"lng":13.40,"group":"optional side name"}]}\n' +
+    'RULES:\n' +
+    '- "afterTitle" must be copied EXACTLY from one of the numbered titles below.\n' +
+    '- "regions" may ONLY use these keys, 0 to 3 of them: ' + Object.keys(SC_REGIONS).join(', ') + '.\n' +
+    '  triple_alliance, triple_entente, balkans_1914 and ottoman_empire_1914 are Europe in 1914.\n' +
+    '  Use triple_alliance together with triple_entente to show the two sides of the First World War.\n' +
+    '- "markers" are 0 to 6 real places with TRUE latitude and longitude, anywhere on Earth.\n' +
+    '  Give markers a "group" when the lesson splits them into sides.\n' +
+    '- Place the map where the lesson first deals with those places, never as the last step.\n' +
+    '- If this lesson has nothing to put on a map, return exactly {"none":true}';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 700,
+      messages:[{ role:'user', content:'LESSON STEPS:\n' + material }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return null;
+  var t = String(raw).trim().replace(/```json|```/g,'').trim();
+  var s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if (s === -1 || e <= s) return null;
+  var obj;
+  try{ obj = JSON.parse(t.substring(s, e + 1)); }catch(err){ return null; }
+  if (!obj || obj.none) return null;
+  obj.type = 'map';
+  var step = scNormaliseStep(obj);
+  // scNormaliseStep drops it to a concept card when no region or marker
+  // survived, and a concept card is not worth an extra call.
+  if (!step || step.type !== 'map') return null;
+  step._afterTitle = String(obj.afterTitle || '');
+  return step;
+}
+
+function scInsertMap(step){
+  if (!step) return false;
+  var want = String(step._afterTitle || '').trim().toLowerCase();
+  delete step._afterTitle;
+  var at = -1;
+  for (var i = 0; i < STEPS.length; i++){
+    if ((STEPS[i].title || '').trim().toLowerCase() === want){ at = i + 1; break; }
+  }
+  if (at < 1 || at > STEPS.length - 1) at = Math.min(Math.max(2, Math.round(STEPS.length * 0.3)), STEPS.length - 1);
+  // Never right beside a recall step - a pause then a map then a pause reads as
+  // stop-start. Step forward until both neighbours are ordinary steps.
+  var guard = 0;
+  while (guard++ < 4 &&
+         ((STEPS[at] && STEPS[at].type === 'recall') ||
+          (STEPS[at - 1] && STEPS[at - 1].type === 'recall'))){
+    at = at + 1;
+  }
+  if (at > STEPS.length - 1) at = STEPS.length - 1;
+  if (at < 1) at = 1;
+  STEPS.splice(at, 0, step);
+  return true;
 }
 
 async function scGeneratePlan(){
