@@ -1436,9 +1436,16 @@ async function mbLoadBooks(){
 // Same detector the Super Admin panel uses on Samacheer books. Teachers can
 // edit their own school's books, because private publishers vary far more in
 // how they print headings, so detection needs correcting more often.
+// Private books live in school_books, whose ids are not in textbook_library,
+// so they cannot use textbook_chapters (its book_id has a foreign key there).
+// They get their own table, scoped by school_id.
+var MB_CH_TABLE='school_book_chapters';
 async function mbChDB(method, body, params){
+  if(body && !body.school_id && method.toUpperCase()==='POST'){
+    body.school_id=getSchoolIdForBooks()||'';
+  }
   var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({action:'tbl_'+method.toLowerCase(),table:'textbook_chapters',body:body,params:params})});
+    body:JSON.stringify({action:'tbl_'+method.toLowerCase(),table:MB_CH_TABLE,body:body,params:params})});
   var d=await r.json();
   if(d && d.error) throw new Error(d.error);
   return d;
@@ -1546,7 +1553,6 @@ async function mbChSave(bookId, btn, pdfUrl){
         await mbChDB('PATCH', payload, 'id=eq.'+out[k].rid);
       }else{
         payload.book_id=bookId;
-        payload.syllabus_type='private';
         await mbChDB('POST', payload, null);
       }
     }
@@ -1600,8 +1606,7 @@ async function mbDetectChapters(bookId, source, btn, quiet){
         chapter_title:chapters[i].title,
         page_from:chapters[i].pageFrom,
         page_to:chapters[i].pageTo,
-        extracted_text:(chapters[i].text||'').substring(0,20000),
-        syllabus_type:'private'
+        extracted_text:(chapters[i].text||'').substring(0,20000)
       }, null);
     }
     if(quiet) return chapters.length;
@@ -1724,7 +1729,7 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
   document.getElementById('mb-popup-subject').value='';
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
-  mbLoadChapters(bookId);
+  mbLoadChapters(bookId,'private');
 }
 
 // ── IndexedDB helpers for PDF caching ──
@@ -2132,7 +2137,7 @@ async function mbGoTeach(){
 // behaves exactly as it did before.
 var _mbChapters = [];
 
-async function mbLoadChapters(bookId){
+async function mbLoadChapters(bookId, source){
   var wrap = document.getElementById('mb-popup-chwrap');
   var sel  = document.getElementById('mb-popup-chapter');
   if(!wrap || !sel) return;
@@ -2142,7 +2147,8 @@ async function mbLoadChapters(bookId){
   if(!bookId) return;
   try{
     var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',
+      body:JSON.stringify({action:'tbl_get',
+        table:(source==='private'?'school_book_chapters':'textbook_chapters'),
         params:'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=chapter_number,chapter_title,page_from,page_to'})});
     var d = await r.json();
     var chs = Array.isArray(d) ? d : (d.chapters || []);
@@ -2219,7 +2225,7 @@ function samSelectBook(book){
   if(subEl)subEl.value=samSub;
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
-  mbLoadChapters(book.id);
+  mbLoadChapters(book.id,'samacheer');
 }
 
 // Load books on page load
