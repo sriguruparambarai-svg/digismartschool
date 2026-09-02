@@ -1595,6 +1595,26 @@ function mbMakePdfKey(subj,cls){
   return ('pdf_'+subj+'_'+cls).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
 }
 
+// The page-by-page class reads every page of the chosen range, so its text
+// must not be trimmed. A flat 15,000-character cap used to cut a 15-page unit
+// off around page 7, leaving every later page with nothing to teach.
+// Store the whole thing, stepping down only if sessionStorage refuses it.
+function mbStoreLesson(writeFn, fullText){
+  var caps=[400000,200000,100000,50000,15000];
+  for(var i=0;i<caps.length;i++){
+    try{
+      writeFn(fullText.substring(0,caps[i]));
+      return caps[i];
+    }catch(e){
+      // Quota exceeded - drop the older keys and retry with a smaller slice
+      try{ sessionStorage.removeItem('tm_activated'); }catch(e2){}
+      try{ sessionStorage.removeItem('science_autostart'); }catch(e2){}
+      try{ sessionStorage.removeItem('tm_lesson'); }catch(e2){}
+    }
+  }
+  return 0;
+}
+
 // ── Extract text from PDF pages with [Page N] markers ──
 async function mbExtractPagesText(pdfDoc,pageFrom,pageTo){
   var allText=[];
@@ -1819,20 +1839,25 @@ async function mbGoTeach(){
     }
 
     // Step 5: Save everything to sessionStorage
-    sessionStorage.setItem('tm_activated',JSON.stringify({
-      subject:subject, cls:b.cls, topic:topic,
-      lessonText:lessonText.substring(0,15000),
-      lang:'en', autostart:false,
-      pageFrom:from, pageTo:to,
-      bookId:b.bookId, pdfUrl:b.pdfUrl,
-      pdfKey:pdfKey
-    }));
-    sessionStorage.setItem('science_autostart',JSON.stringify({
-      chapter:topic, cls:b.cls, subject:subject,
-      lessonText:lessonText.substring(0,15000),
-      pdfKey:pdfKey
-    }));
-    sessionStorage.setItem('tm_lesson',lessonText.substring(0,15000));
+    var storedChars = mbStoreLesson(function(txt){
+      sessionStorage.setItem('tm_activated',JSON.stringify({
+        subject:subject, cls:b.cls, topic:topic,
+        lessonText:txt,
+        lang:'en', autostart:false,
+        pageFrom:from, pageTo:to,
+        bookId:b.bookId, pdfUrl:b.pdfUrl,
+        pdfKey:pdfKey
+      }));
+      sessionStorage.setItem('science_autostart',JSON.stringify({
+        chapter:topic, cls:b.cls, subject:subject,
+        lessonText:txt,
+        pdfKey:pdfKey
+      }));
+      sessionStorage.setItem('tm_lesson',txt);
+    }, lessonText);
+    if(storedChars && storedChars < lessonText.length){
+      console.warn('[TeachBot] Lesson text trimmed to '+storedChars+' of '+lessonText.length+' characters (browser storage limit).');
+    }
 
     // Update banner on Teach tab
     var banner=document.getElementById('active-lesson-banner');
@@ -2396,18 +2421,20 @@ function imgUseChapter(id){
   var lessonText=String(c.extracted_text||'');
 
   try{
-    sessionStorage.setItem('tm_activated',JSON.stringify({
-      subject:c.subject, cls:c.class_name, topic:topic,
-      lessonText:lessonText.substring(0,15000),
-      lang:'en', autostart:false,
-      pageFrom:1, pageTo:(c.page_count||1),
-      bookId:c.id
-    }));
-    sessionStorage.setItem('tm_lesson',lessonText.substring(0,15000));
-    sessionStorage.setItem('science_autostart',JSON.stringify({
-      chapter:topic, cls:c.class_name, subject:c.subject,
-      lessonText:lessonText.substring(0,15000)
-    }));
+    mbStoreLesson(function(txt){
+      sessionStorage.setItem('tm_activated',JSON.stringify({
+        subject:c.subject, cls:c.class_name, topic:topic,
+        lessonText:txt,
+        lang:'en', autostart:false,
+        pageFrom:1, pageTo:(c.page_count||1),
+        bookId:c.id
+      }));
+      sessionStorage.setItem('tm_lesson',txt);
+      sessionStorage.setItem('science_autostart',JSON.stringify({
+        chapter:topic, cls:c.class_name, subject:c.subject,
+        lessonText:txt
+      }));
+    }, lessonText);
   }catch(e){}
 
   // Update Teach-tab banner
