@@ -194,6 +194,20 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 
 .sc-map-note{position:absolute;right:14px;top:14px;z-index:500;background:rgba(20,10,6,0.8);border:1px solid rgba(201,168,76,0.45);border-radius:8px;padding:5px 10px;font-size:clamp(0.62rem,0.9vw,0.72rem);color:var(--sandal);letter-spacing:0.02em;}
 
+/* map drill - the class points first, the teacher reveals */
+.sc-drill-grid{display:grid;grid-template-columns:1fr 290px;gap:14px;width:100%;max-width:1100px;align-items:stretch;}
+.sc-drill-map-frame{position:relative;border-radius:14px;overflow:hidden;border:1.5px solid rgba(201,168,76,0.5);box-shadow:0 10px 26px rgba(0,0,0,0.45);min-height:60vh;}
+#sc-drill-map{position:absolute;inset:0;}
+.sc-drill-side{display:flex;flex-direction:column;gap:8px;}
+.sc-drill-head{font-family:'Cinzel',serif;font-size:clamp(0.8rem,1.3vw,0.98rem);color:var(--gold-light);text-align:center;padding-bottom:8px;border-bottom:1.5px solid rgba(201,168,76,0.4);}
+.sc-drill-tip{font-size:clamp(0.66rem,1vw,0.76rem);color:var(--sandal);text-align:center;line-height:1.5;margin-bottom:2px;}
+.sc-drill-btn{display:block;width:100%;text-align:left;background:linear-gradient(160deg,rgba(201,168,76,0.16),rgba(30,20,8,0.6));color:var(--gold-light);border:1.5px solid rgba(201,168,76,0.5);border-radius:11px;padding:11px 14px;font-family:'Nunito',sans-serif;font-weight:800;font-size:clamp(0.8rem,1.25vw,0.95rem);cursor:pointer;transition:all 0.15s;}
+.sc-drill-btn:hover{filter:brightness(1.12);}
+.sc-drill-btn.done{background:linear-gradient(160deg,rgba(107,26,26,0.45),rgba(30,12,8,0.7));cursor:default;}
+.sc-drill-btn .hint{display:block;font-weight:400;font-size:clamp(0.68rem,1vw,0.78rem);color:var(--sandal);line-height:1.45;margin-top:5px;}
+.sc-drill-done{margin-top:auto;text-align:center;font-family:'Cinzel',serif;font-size:clamp(0.75rem,1.15vw,0.9rem);color:var(--gold);padding-top:8px;}
+@media(max-width:900px){.sc-drill-grid{grid-template-columns:1fr;}.sc-drill-map-frame{min-height:44vh;}}
+
 .sc-map-legend{position:absolute;left:14px;bottom:14px;z-index:500;background:rgba(20,10,6,0.82);border:1.5px solid rgba(201,168,76,0.55);border-radius:10px;padding:9px 12px;box-shadow:0 8px 22px rgba(0,0,0,0.45);}
 .sc-map-legend-row{display:flex;align-items:center;gap:8px;font-size:clamp(0.68rem,1vw,0.8rem);color:var(--gold-light);line-height:1.7;white-space:nowrap;}
 .sc-map-legend-row .sw{width:13px;height:13px;border-radius:50%;border:1.5px solid #FFD86A;flex-shrink:0;}
@@ -450,7 +464,7 @@ var SC_DIAGRAMS = ['heart','plant','plant_anatomy','photosynthesis','food_chain'
 function scNormaliseStep(s){
   if (!s || !s.type) return null;
   var type = String(s.type).toLowerCase();
-  if (['title','photo','timeline','concept','map','globe','structure','cycle','compare','causes','recall','stat','diagram','model3d'].indexOf(type) === -1) type = 'concept';
+  if (['title','photo','timeline','concept','map','globe','structure','cycle','compare','causes','recall','mapdrill','stat','diagram','model3d'].indexOf(type) === -1) type = 'concept';
   var out = {
     type: type,
     title: String(s.title || '').substring(0, 140),
@@ -538,6 +552,15 @@ function scNormaliseStep(s){
     out.question = String(s.question || s.speech || '').substring(0, 180);
     out.answer   = String(s.answer || '').substring(0, 140);
     if (!out.question || !out.answer) out.type = 'concept';
+  }
+  if (type === 'mapdrill'){
+    out.places = (Array.isArray(s.places) ? s.places : []).slice(0, 6).map(function(p){
+      return { name: String((p && p.name) || '').substring(0, 40),
+               lat: parseFloat(p && p.lat), lng: parseFloat(p && p.lng),
+               hint: String((p && p.hint) || '').substring(0, 130) };
+    }).filter(function(p){ return p.name && isFinite(p.lat) && isFinite(p.lng) &&
+               p.lat >= -85 && p.lat <= 85 && p.lng >= -180 && p.lng <= 180; });
+    if (out.places.length < 2) out.type = 'concept';
   }
   if (out.type === 'concept'){
     out.points = (Array.isArray(s.points) ? s.points : []).slice(0, 4).map(function(p){ return String(p).substring(0, 400); });
@@ -627,6 +650,7 @@ function scRender(idx){
   else if (step.type === 'model3d') renderModel3d(inner, step);
   else if (step.type === 'causes') renderCauses(inner, step);
   else if (step.type === 'recall') renderRecall(inner, step);
+  else if (step.type === 'mapdrill') renderMapDrill(inner, step);
   else renderConcept(inner, step);
 
   scSpeak(step.speech || step.title);
@@ -733,6 +757,65 @@ function renderRecall(inner, step){
   btn.textContent = 'Show answer';
   ans.textContent = step.answer;
   btn.onclick = function(){ ans.style.display = 'block'; btn.style.display = 'none'; };
+}
+
+function renderMapDrill(inner, step){
+  if (typeof L === 'undefined'){ renderConcept(inner, step); return; }
+  if (scMap){ try{ scMap.remove(); }catch(e){} scMap = null; }
+  inner.innerHTML =
+    '<div class="sc-drill-grid">' +
+      '<div class="sc-drill-map-frame"><div id="sc-drill-map"></div></div>' +
+      '<div class="sc-drill-side">' +
+        '<div class="sc-drill-head"></div>' +
+        '<div class="sc-drill-tip"></div>' +
+        '<div class="sc-drill-list"></div>' +
+        '<div class="sc-drill-done"></div>' +
+      '</div>' +
+    '</div>';
+  inner.querySelector('.sc-drill-head').textContent = step.title;
+  inner.querySelector('.sc-drill-tip').textContent =
+    'Read a name aloud. Let the class point to it first, then tap to mark it.';
+
+  var myIdx = CUR;
+  scMap = L.map('sc-drill-map', { zoomControl:false, attributionControl:true });
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 10, attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(scMap);
+  var bounds = step.places.map(function(p){ return [p.lat, p.lng]; });
+  scMap.fitBounds(bounds, { padding:[60,60] });
+
+  var list = inner.querySelector('.sc-drill-list');
+  var doneEl = inner.querySelector('.sc-drill-done');
+  var revealed = 0;
+  step.places.forEach(function(p){
+    var btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'sc-drill-btn';
+    btn.textContent = p.name;
+    btn.onclick = function(){
+      if (btn.classList.contains('done')) return;
+      if (CUR !== myIdx || !scMap) return;
+      btn.classList.add('done');
+      if (p.hint){
+        var h = document.createElement('span');
+        h.className = 'hint';
+        h.textContent = p.hint;
+        btn.appendChild(h);
+      }
+      try{
+        L.circleMarker([p.lat, p.lng], { radius:8, color:'#FFD86A', weight:2.5,
+            fillColor:'#6B1A1A', fillOpacity:1 })
+          .addTo(scMap)
+          .bindTooltip(p.name, { permanent:true, direction:'top', offset:[0,-9], className:'sc-marker-label' })
+          .openTooltip();
+      }catch(e){}
+      revealed++;
+      if (revealed === step.places.length){
+        doneEl.textContent = 'All ' + revealed + ' places marked \u2014 this is how the answer should look.';
+      }
+    };
+    list.appendChild(btn);
+  });
 }
 
 function renderConcept(inner, step){
@@ -1558,7 +1641,7 @@ function scScheduleAdvance(sec){
   clearTimeout(scAdvanceTimer);
   // A recall step waits for the class to answer out loud. Only the teacher
   // moves it on - auto-advancing here would defeat the whole point.
-  if (STEPS[CUR] && STEPS[CUR].type === 'recall') return;
+  if (STEPS[CUR] && (STEPS[CUR].type === 'recall' || STEPS[CUR].type === 'mapdrill')) return;
   scAdvanceTimer = setTimeout(function(){
     if (isPaused) return;
     if (CUR < STEPS.length - 1) scRender(CUR + 1);
@@ -1750,7 +1833,7 @@ async function scExplainTamil(){
 }
 
 /* ── SIDEBAR ── */
-var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D', structure:'\uD83D\uDDC2\uFE0F', cycle:'\uD83D\uDD04', compare:'\u2696\uFE0F', causes:'\uD83E\uDDE9', recall:'\u2753', stat:'\uD83D\uDCCA', diagram:'\uD83D\uDD2C' };
+var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D', structure:'\uD83D\uDDC2\uFE0F', cycle:'\uD83D\uDD04', compare:'\u2696\uFE0F', causes:'\uD83E\uDDE9', recall:'\u2753', mapdrill:'\uD83D\uDCCD', stat:'\uD83D\uDCCA', diagram:'\uD83D\uDD2C' };
 function scBuildSidebar(){
   var list = document.getElementById('step-list');
   list.innerHTML = '';
@@ -2025,11 +2108,70 @@ async function scEnrichPlan(){
     scPrepMsg('Drawing the map\u2026');
     try{ scInsertMap(await scMapStep()); }catch(me){ /* fine without it */ }
   }
+  if (!STEPS.some(function(s){ return s.type === 'mapdrill'; })){
+    scPrepMsg('Setting up the map practice\u2026');
+    try{ scInsertMapDrill(await scMapDrillStep()); }catch(de){ /* fine without it */ }
+  }
   scPrepMsg('Adding quick checks\u2026');
   try{
     var recalls = await scRecallSteps();
     if (recalls.length) scInsertRecall(recalls);
   }catch(re){ /* lesson is still fine without them */ }
+}
+
+
+/* -- MAP DRILL (second pass) --
+   Samacheer sets a compulsory map question, and marking places is the one part
+   of it a class cannot pick up by watching. This gives them the names with no
+   markers, so they point first and the teacher reveals each one. Built from the
+   finished plan and cached with it, so it costs nothing after the first run. */
+async function scMapDrillStep(){
+  var material = STEPS.map(function(s, i){
+    return (i + 1) + '. ' + (s.title || '') + ' \u2014 ' + (s.speech || '').substring(0, 180);
+  }).join('\n').substring(0, 5000);
+  var sys = 'You build ONE map-marking exercise for a school class.\n' +
+    'Return ONLY a JSON object. No prose, no markdown, no code fences.\n' +
+    '{"title":"short heading","speech":"2 sentences a teacher would say",' +
+    '"places":[{"name":"Germany","lat":51.20,"lng":10.40,"hint":"central Europe, east of France"}]}\n' +
+    'RULES:\n' +
+    '- 3 to 6 places that this lesson actually deals with. Countries, cities, rivers, regions.\n' +
+    '- TRUE latitude and longitude for each, anywhere on Earth.\n' +
+    '- "hint" is one short line on how to find it on a blank map, using neighbours or directions. Under 110 characters.\n' +
+    '- Choose the places a school exam would ask a student to mark.\n' +
+    '- If this lesson has no places worth marking, return exactly {"none":true}';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 700,
+      messages:[{ role:'user', content:'LESSON STEPS:\n' + material }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return null;
+  var t = String(raw).trim().replace(/```json|```/g,'').trim();
+  var s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if (s === -1 || e <= s) return null;
+  var obj;
+  try{ obj = JSON.parse(t.substring(s, e + 1)); }catch(err){ return null; }
+  if (!obj || obj.none) return null;
+  obj.type = 'mapdrill';
+  var step = scNormaliseStep(obj);
+  return (step && step.type === 'mapdrill') ? step : null;
+}
+
+/* Sits straight after the map, so the class sees the places named and then
+   marks them itself. With no map step it goes near the end, before the wrap-up. */
+function scInsertMapDrill(step){
+  if (!step) return false;
+  var at = -1;
+  for (var i = 0; i < STEPS.length; i++){
+    if (STEPS[i].type === 'map'){ at = i + 1; break; }
+  }
+  if (at < 1) at = Math.max(1, STEPS.length - 1);
+  if (at > STEPS.length) at = STEPS.length;
+  STEPS.splice(at, 0, step);
+  return true;
 }
 
 async function scGeneratePlan(){
