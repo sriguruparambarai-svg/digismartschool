@@ -1645,6 +1645,14 @@ async function scInit(){
   }
   try{
     STEPS = await scGeneratePlan();
+    if (!STEPS.some(function(s){ return s.type === 'causes'; })){
+      var cmsg = document.getElementById('sc-loading-msg');
+      if (cmsg) cmsg.textContent = 'Working out why it happened\u2026';
+      try{
+        var cstep = await scCausesStep();
+        if (cstep) STEPS.splice(scCausesIndex(), 0, cstep);
+      }catch(ce){ /* lesson is still fine without it */ }
+    }
     scBuildSidebar();
     // Warm EVERY photo in parallel while the teacher is still on this screen.
     // The first photo we wait for; the rest keep downloading in the background.
@@ -1686,6 +1694,54 @@ async function scPlanKey(){
 }
 
 /* Cached-first plan: prepared lesson loads instantly, else generate + save */
+
+/* -- CAUSES STEP (second pass) --
+   The main plan prompt has to balance twenty rules at once, and the causes step
+   consistently lost that competition. Asked on its own, with nothing else
+   competing for attention, it comes back reliably. Runs only when the main plan
+   arrived without a causes step, so most lessons cost nothing extra. */
+async function scCausesStep(){
+  var sys = 'You read one school lesson and work out WHY the main event or change happened.\n' +
+    'Return ONLY a JSON object. No prose, no markdown, no code fences.\n' +
+    '{"type":"causes","title":"short heading","speech":"2 to 3 sentences a teacher would say aloud",' +
+    '"longTerm":["short cause","short cause"],' +
+    '"trigger":{"name":"the single event that finally set it off","detail":"one short line"},' +
+    '"result":"what followed, one short line"}\n' +
+    'RULES:\n' +
+    '- "longTerm" is 2 to 5 pressures that built up over years. Each under 12 words.\n' +
+    '- "trigger" is the ONE event that set it off, not a slow cause.\n' +
+    '- Take everything ONLY from the lesson text below. Never add causes from your own knowledge.\n' +
+    '- If the lesson explains no cause at all, return exactly {"none":true}';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 700,
+      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return null;
+  var t = String(raw).trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  var s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if (s === -1 || e <= s) return null;
+  var obj;
+  try{ obj = JSON.parse(t.substring(s, e + 1)); }catch(err){ return null; }
+  if (!obj || obj.none) return null;
+  obj.type = 'causes';
+  var step = scNormaliseStep(obj);
+  return (step && step.type === 'causes') ? step : null;
+}
+
+/* Causes belong before the consequences, not after them. */
+function scCausesIndex(){
+  var after = /outcome|aftermath|result|consequence|treaty|effect|end of the|after the war|peace/i;
+  for (var i = 1; i < STEPS.length; i++){
+    if (after.test(STEPS[i].title || '')) return i;
+  }
+  return Math.min(Math.max(2, Math.round(STEPS.length * 0.45)), STEPS.length);
+}
+
 async function scGeneratePlan(){
   var key = null;
   try{
