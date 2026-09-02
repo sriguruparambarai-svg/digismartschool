@@ -1083,6 +1083,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 </style>
 <!-- PDF.js for client-side text extraction (fallback when server extraction fails) -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="js/chapter-detect.js"></script>
 <!-- Supabase for class-wise lesson storage -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
@@ -1417,9 +1418,203 @@ async function mbLoadBooks(){
         +'<div style="font-size:0.72rem;color:#888;margin-top:2px;">'+escHTP(b.class_name)+' · Term '+escHTP(String(b.term))+'</div>'
         +'</div>'
         +'<button onclick="mbStartLesson(\''+b.id+'\',\''+escHTP(b.book_name)+'\',\''+escHTP(b.class_name)+'\',\''+escHTP(b.pdf_url||'')+'\')" style="padding:7px 14px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:8px;font-family:Nunito,sans-serif;font-size:0.78rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;">▶ Use Book</button>';
+      var chBtn=document.createElement('button');
+      chBtn.textContent='\uD83D\uDCD1 Chapters';
+      chBtn.style.cssText='padding:7px 12px;background:#fff;color:var(--maroon);border:1.5px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-size:0.76rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-right:6px;';
+      chBtn.onclick=(function(id,url){return function(){ mbToggleChapters(id,url,this); };})(b.id,b.pdf_url||'');
+      card.insertBefore(chBtn, card.lastElementChild);
       list.appendChild(card);
+      var wrap=document.createElement('div');
+      wrap.id='mb-chwrap-'+b.id;
+      wrap.style.cssText='display:none;padding:10px 14px;margin:-8px 0 10px;border:1.5px solid #e8dfc8;border-top:none;border-radius:0 0 10px 10px;background:#fffdf7;';
+      list.appendChild(wrap);
     });
   }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Error: '+e.message+'</div>';}
+}
+
+// \u2500\u2500 CHAPTERS FOR PRIVATE / CBSE BOOKS \u2500\u2500
+// Same detector the Super Admin panel uses on Samacheer books. Teachers can
+// edit their own school's books, because private publishers vary far more in
+// how they print headings, so detection needs correcting more often.
+async function mbChDB(method, body, params){
+  var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({action:'tbl_'+method.toLowerCase(),table:'textbook_chapters',body:body,params:params})});
+  var d=await r.json();
+  if(d && d.error) throw new Error(d.error);
+  return d;
+}
+
+async function mbToggleChapters(bookId, pdfUrl, btn){
+  var el=document.getElementById('mb-chwrap-'+bookId);
+  if(!el) return;
+  if(el.style.display==='block'){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.innerHTML='<div style="font-size:0.76rem;color:#888;">Loading\u2026</div>';
+  try{
+    var rows=await mbChDB('GET',null,'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    mbChRender(bookId, rows||[], pdfUrl);
+  }catch(e){ el.innerHTML='<div style="font-size:0.76rem;color:#c0392b;">Error: '+e.message+'</div>'; }
+}
+
+function mbChRender(bookId, data, pdfUrl){
+  var el=document.getElementById('mb-chwrap-'+bookId);
+  el.innerHTML='';
+  var hint=document.createElement('div');
+  hint.style.cssText='font-size:0.68rem;color:#888;margin-bottom:6px;line-height:1.5;';
+  hint.textContent=data.length? 'No. / Title / From page / To page \u2014 correct anything wrong, then Save.'
+                              : 'No chapters yet. Click Detect Chapters to read them from the book.';
+  el.appendChild(hint);
+  var box=document.createElement('div'); box.id='mb-chbox-'+bookId; el.appendChild(box);
+  window._mbChOrig=window._mbChOrig||{};
+  window._mbChOrig[bookId]=data.map(function(c){return c.id;}).filter(Boolean);
+  data.forEach(function(ch){ mbChAddRow(bookId, ch); });
+  var bar=document.createElement('div');
+  bar.style.cssText='display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;';
+  function mkBtn(label){
+    var b=document.createElement('button');
+    b.textContent=label;
+    b.style.cssText='padding:5px 10px;background:linear-gradient(135deg,var(--maroon),var(--maroon-mid));color:var(--gold-light);border:none;border-radius:7px;font-family:Nunito,sans-serif;font-size:0.72rem;font-weight:800;cursor:pointer;';
+    return b;
+  }
+  var det=mkBtn('\uD83D\uDD0D Detect Chapters');
+  det.onclick=function(){ mbDetectChapters(bookId, pdfUrl, this); };
+  bar.appendChild(det);
+  var add=mkBtn('+ Add');
+  add.onclick=function(){ mbChAddRow(bookId, {}); };
+  bar.appendChild(add);
+  var sv=mkBtn('Save');
+  sv.onclick=function(){ mbChSave(bookId, this, pdfUrl); };
+  bar.appendChild(sv);
+  var msg=document.createElement('span');
+  msg.id='mb-chmsg-'+bookId;
+  msg.style.cssText='font-size:0.7rem;font-weight:700;';
+  bar.appendChild(msg);
+  el.appendChild(bar);
+}
+
+function mbChAddRow(bookId, ch){
+  var box=document.getElementById('mb-chbox-'+bookId);
+  if(!box) return;
+  var row=document.createElement('div');
+  row.className='mb-chrow';
+  row.setAttribute('data-rowid', ch.id||'');
+  row.style.cssText='display:grid;grid-template-columns:40px 1fr 50px 50px 22px;gap:4px;margin-bottom:4px;align-items:center;';
+  function mk(v,ph,f){
+    var i=document.createElement('input');
+    i.value=(v===0||v)?v:'';
+    i.placeholder=ph;
+    i.setAttribute('data-f',f);
+    i.style.cssText='padding:5px 6px;font-size:0.72rem;border:1px solid #ddd;border-radius:5px;font-family:inherit;min-width:0;width:100%;box-sizing:border-box;';
+    return i;
+  }
+  row.appendChild(mk(ch.chapter_number,'No','num'));
+  row.appendChild(mk(ch.chapter_title,'Chapter title','title'));
+  row.appendChild(mk(ch.page_from,'From','from'));
+  row.appendChild(mk(ch.page_to,'To','to'));
+  var x=document.createElement('button');
+  x.textContent='\u00d7';
+  x.style.cssText='padding:2px 0;background:#c0392b;color:#fff;border:none;border-radius:5px;font-size:0.78rem;line-height:1;cursor:pointer;';
+  x.onclick=function(){ row.remove(); };
+  row.appendChild(x);
+  box.appendChild(row);
+}
+
+async function mbChSave(bookId, btn, pdfUrl){
+  var msg=document.getElementById('mb-chmsg-'+bookId);
+  var box=document.getElementById('mb-chbox-'+bookId);
+  if(!box||!msg) return;
+  var rows=box.querySelectorAll('.mb-chrow');
+  var out=[], keep=[];
+  for(var i=0;i<rows.length;i++){
+    var ins=rows[i].querySelectorAll('input'), o={};
+    for(var j=0;j<ins.length;j++) o[ins[j].getAttribute('data-f')]=ins[j].value.trim();
+    if(!o.title && !o.from && !o.to) continue;
+    var pf=parseInt(o.from,10), pt=parseInt(o.to,10);
+    if(!pf||!pt){ msg.style.color='#c0392b'; msg.textContent='Row '+(i+1)+': From and To pages are needed.'; return; }
+    if(pt<pf){ msg.style.color='#c0392b'; msg.textContent='Row '+(i+1)+': To page is before From page.'; return; }
+    var rid=rows[i].getAttribute('data-rowid')||'';
+    if(rid) keep.push(rid);
+    out.push({rid:rid, chapter_number:parseInt(o.num,10)||(out.length+1), chapter_title:o.title||'Untitled', page_from:pf, page_to:pt});
+  }
+  if(!out.length){ msg.style.color='#c0392b'; msg.textContent='Nothing to save.'; return; }
+  btn.disabled=true; msg.style.color='#888'; msg.textContent='Saving\u2026';
+  try{
+    for(var k=0;k<out.length;k++){
+      var payload={chapter_number:out[k].chapter_number, chapter_title:out[k].chapter_title,
+                   page_from:out[k].page_from, page_to:out[k].page_to};
+      if(out[k].rid){
+        await mbChDB('PATCH', payload, 'id=eq.'+out[k].rid);
+      }else{
+        payload.book_id=bookId;
+        payload.syllabus_type='private';
+        await mbChDB('POST', payload, null);
+      }
+    }
+    var orig=(window._mbChOrig&&window._mbChOrig[bookId])||[];
+    for(var d=0;d<orig.length;d++){
+      if(keep.indexOf(orig[d])===-1) await mbChDB('DELETE', null, 'id=eq.'+orig[d]);
+    }
+    var fresh=await mbChDB('GET',null,'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    mbChRender(bookId, fresh||[], pdfUrl);
+    var m2=document.getElementById('mb-chmsg-'+bookId);
+    if(m2){ m2.style.color='#1a5c2a'; m2.textContent='Saved.'; }
+  }catch(e){
+    msg.style.color='#c0392b'; msg.textContent='Error: '+e.message;
+  }finally{ btn.disabled=false; }
+}
+
+// Accepts either a File (straight after upload) or a URL (existing book).
+async function mbPdfDocFrom(source){
+  var ab;
+  if(typeof source==='string'){
+    if(!source) throw new Error('This book has no stored PDF.');
+    var r=await fetch(source);
+    if(!r.ok) throw new Error('Could not download the book PDF ('+r.status+')');
+    ab=await r.arrayBuffer();
+  }else{
+    ab=await source.arrayBuffer();
+  }
+  if(typeof pdfjsLib==='undefined') throw new Error('PDF reader not ready. Reload the page and try again.');
+  pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  return await pdfjsLib.getDocument({data:ab}).promise;
+}
+
+async function mbDetectChapters(bookId, source, btn, quiet){
+  var msg=document.getElementById('mb-chmsg-'+bookId);
+  function say(t){ if(msg){ msg.style.color='#888'; msg.textContent=t; } }
+  if(btn) btn.disabled=true;
+  try{
+    say('Reading book\u2026');
+    var doc=await mbPdfDocFrom(source);
+    var raw=await mbExtractPagesText(doc,1,doc.numPages);
+    if(!raw||raw.length<100) throw new Error('No readable text in this PDF.');
+    say('Detecting chapters\u2026');
+    var chapters=await tblBuildChapters(raw, say);
+    if(!chapters.length) throw new Error('No chapters could be detected.');
+    say('Saving '+chapters.length+' chapters\u2026');
+    await mbChDB('DELETE', null, 'book_id=eq.'+encodeURIComponent(bookId));
+    for(var i=0;i<chapters.length;i++){
+      await mbChDB('POST', {
+        book_id:bookId,
+        chapter_number:chapters[i].number||(i+1),
+        chapter_title:chapters[i].title,
+        page_from:chapters[i].pageFrom,
+        page_to:chapters[i].pageTo,
+        extracted_text:(chapters[i].text||'').substring(0,20000),
+        syllabus_type:'private'
+      }, null);
+    }
+    if(quiet) return chapters.length;
+    var fresh=await mbChDB('GET',null,'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    mbChRender(bookId, fresh||[], (typeof source==='string'?source:''));
+    var m2=document.getElementById('mb-chmsg-'+bookId);
+    if(m2){ m2.style.color='#1a5c2a'; m2.textContent='Found '+chapters.length+' chapters. Check them, then Save if you edit.'; }
+    return chapters.length;
+  }catch(e){
+    if(!quiet && msg){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
+    if(quiet) throw e;
+    return 0;
+  }finally{ if(btn) btn.disabled=false; }
 }
 
 async function mbUploadBook(){
@@ -1493,6 +1688,18 @@ async function mbUploadBook(){
     });
     var result=await saveRes.json();
     if(result.error){throw new Error(result.error);}
+
+    // Detect chapters straight away so teachers get the dropdown without
+    // any extra step. The PDF is already here, so this costs no download.
+    var newId=(result.book&&result.book.id)?result.book.id:'';
+    if(newId){
+      statusEl.style.color='var(--maroon)';
+      statusEl.textContent='\uD83D\uDCD1 Reading chapters\u2026';
+      try{
+        var nCh=await mbDetectChapters(newId, file, null, true);
+        statusEl.textContent='\uD83D\uDCD1 Found '+nCh+' chapters\u2026';
+      }catch(ce){ /* chapters are optional - the book still works */ }
+    }
 
     statusEl.style.color='#1a5c2a';
     statusEl.textContent='✅ Book uploaded! All teachers in your school can now use it.';
