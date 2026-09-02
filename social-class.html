@@ -192,6 +192,8 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 .sc-recall-btn:hover{filter:brightness(1.08);}
 .sc-recall-a{max-width:820px;margin:20px auto 0;background:linear-gradient(160deg,rgba(107,26,26,0.42),rgba(30,12,8,0.68));border:1.5px solid rgba(201,168,76,0.55);border-radius:14px;padding:16px 20px;text-align:center;font-size:clamp(0.92rem,1.7vw,1.2rem);color:var(--gold-light);line-height:1.5;animation:scFadeUp 0.45s ease both;box-shadow:0 10px 26px rgba(0,0,0,0.4);}
 
+.sc-map-note{position:absolute;right:14px;top:14px;z-index:500;background:rgba(20,10,6,0.8);border:1px solid rgba(201,168,76,0.45);border-radius:8px;padding:5px 10px;font-size:clamp(0.62rem,0.9vw,0.72rem);color:var(--sandal);letter-spacing:0.02em;}
+
 .sc-map-legend{position:absolute;left:14px;bottom:14px;z-index:500;background:rgba(20,10,6,0.82);border:1.5px solid rgba(201,168,76,0.55);border-radius:10px;padding:9px 12px;box-shadow:0 8px 22px rgba(0,0,0,0.45);}
 .sc-map-legend-row{display:flex;align-items:center;gap:8px;font-size:clamp(0.68rem,1vw,0.8rem);color:var(--gold-light);line-height:1.7;white-space:nowrap;}
 .sc-map-legend-row .sw{width:13px;height:13px;border-radius:50%;border:1.5px solid #FFD86A;flex-shrink:0;}
@@ -353,7 +355,8 @@ function scPlanPrompt(){
     '- Use "map" whenever the lesson deals with the EXTENT of an empire/kingdom, invasions, capitals, ' +
     'battles or geography of places. "regions" may ONLY use these keys (0 to 2 of them, in the order they should appear): ' +
     'delhi_sultanate, vijayanagara, mughal_empire, maurya_empire, gupta_empire, chola_empire, bahmani_sultanate, ' +
-    'maratha_empire, british_india, pandya_kingdom, pallava_kingdom, tamil_nadu. ' +
+    'maratha_empire, british_india, pandya_kingdom, pallava_kingdom, tamil_nadu, ' +
+    'triple_alliance, triple_entente, balkans_1914, ottoman_empire_1914 (these last four are Europe in 1914 - use them for First World War lessons, and you may combine triple_alliance with triple_entente in one step to show the two sides). ' +
     '"markers" are 1 to 4 real cities/sites with true latitude and longitude (e.g. Delhi 28.61,77.21; Hampi 15.34,76.47; ' +
     'Madurai 9.93,78.12; Thanjavur 10.79,79.14). Prefer a map step for at least one empire-extent moment in history lessons.\n' +
     '- WORLD HISTORY: a map step is NOT only for India. For world lessons (world wars, colonies, revolutions, world organisations) leave "regions" empty and use "markers" alone, anywhere on Earth, with true coordinates - London 51.51,-0.13; Berlin 52.52,13.40; Paris 48.86,2.35; Rome 41.90,12.50; Athens 37.98,23.73; Vienna 48.21,16.37; Sarajevo 43.86,18.41; Moscow 55.75,37.62. Give each marker a "group" when the lesson divides them into sides, for example "Triple Alliance" and "Triple Entente"; each group is drawn in its own colour with a legend. 2 to 6 markers. A world lesson that names countries SHOULD have one map step.\n' +
@@ -463,7 +466,7 @@ function scNormaliseStep(s){
     if (SC_DIAGRAMS.indexOf(out.diagram) === -1) out.type = 'concept';
   }
   if (type === 'map'){
-    out.regions = (Array.isArray(s.regions) ? s.regions : []).slice(0, 2)
+    out.regions = (Array.isArray(s.regions) ? s.regions : []).slice(0, 3)
       .map(function(r){ return String(r).toLowerCase().trim(); })
       .filter(function(r){ return !!SC_REGIONS[r]; });
     out.markers = (Array.isArray(s.markers) ? s.markers : []).slice(0, 6).map(function(m){
@@ -794,6 +797,56 @@ var SC_REGIONS = {
   tamil_nadu:      { name:'Tamil Nadu', color:'#FFD86A', ring:[[13.5,80.3],[12.7,80.2],[11.5,79.8],[10.3,79.9],[9.2,78.9],[8.1,77.5],[8.3,77.1],[9.5,76.9],[10.4,76.8],[11.3,76.4],[12.2,77],[12.8,77.6],[13.4,78.6],[13.5,80.3]] }
 };
 
+/* ── EUROPE 1914 ──
+   Simplified teaching outlines, not survey borders. A bloc spans several
+   countries, so these carry "rings" (a list of shapes) where the Indian
+   empires carry a single "ring"; the renderer accepts either.
+   The map labels them as simplified so nobody reads them as exact. */
+var SC_EUROPE_1914 = {
+  triple_alliance: { name:'Triple Alliance', color:'#B3312C', simplified:true, rings:[
+    /* German Empire */
+    [[55.0,8.4],[54.5,11.0],[54.4,13.8],[54.7,19.6],[55.3,21.0],[54.3,22.8],[53.0,23.0],
+     [52.0,19.5],[50.9,18.6],[50.6,15.0],[50.2,12.2],[49.3,12.5],[48.6,13.8],[47.6,10.2],
+     [47.6,7.6],[49.0,6.4],[50.2,6.2],[51.5,6.0],[52.5,7.0],[53.5,7.0],[53.7,8.5],[55.0,8.4]],
+    /* Austria-Hungary */
+    [[50.9,14.3],[50.4,18.5],[49.9,22.6],[50.4,25.9],[47.9,26.5],[46.2,25.0],[44.6,22.5],
+     [44.8,19.1],[44.9,16.2],[42.6,18.5],[43.5,16.4],[45.3,13.6],[46.5,12.3],[46.9,10.4],
+     [47.6,10.2],[48.6,13.8],[49.5,12.4],[50.2,12.2],[50.9,14.3]],
+    /* Italy */
+    [[46.5,10.5],[46.5,12.4],[45.7,13.6],[44.9,12.5],[43.6,13.5],[42.0,14.7],[41.4,16.5],
+     [40.5,18.4],[39.8,18.5],[38.9,16.7],[38.0,15.7],[38.8,16.1],[39.9,15.8],[40.8,14.2],
+     [41.9,12.3],[43.5,10.3],[44.4,8.4],[44.1,7.5],[45.1,6.7],[45.9,7.0],[46.4,8.6],[46.5,10.5]]
+  ]},
+  triple_entente: { name:'Triple Entente', color:'#2E5E8E', simplified:true, rings:[
+    /* Great Britain */
+    [[58.6,-3.0],[57.5,-1.8],[56.0,-2.5],[55.0,-1.4],[54.0,-0.2],[53.0,0.3],[51.4,1.4],
+     [50.6,-1.3],[50.1,-5.7],[51.6,-5.2],[53.3,-4.7],[54.6,-3.6],[55.9,-5.2],[57.5,-5.8],
+     [58.6,-5.0],[58.6,-3.0]],
+    /* Ireland */
+    [[55.3,-7.3],[54.3,-5.5],[53.3,-6.0],[52.2,-6.4],[51.5,-9.5],[52.9,-9.9],[54.3,-10.0],
+     [55.2,-8.3],[55.3,-7.3]],
+    /* France (Alsace-Lorraine was German in 1914) */
+    [[51.0,2.5],[49.5,5.9],[47.5,6.9],[46.3,6.1],[44.3,7.0],[43.5,7.5],[43.3,4.8],[42.5,3.2],
+     [42.7,0.7],[43.4,-1.8],[46.2,-1.2],[47.5,-2.5],[48.7,-4.7],[48.6,-1.6],[49.7,0.2],
+     [50.9,1.6],[51.0,2.5]],
+    /* Russian Empire, western part only */
+    [[60.0,27.5],[59.5,31.0],[57.0,38.0],[54.0,40.5],[50.5,40.0],[47.5,39.5],[45.3,36.6],
+     [45.0,33.5],[46.5,30.5],[45.3,29.6],[48.0,26.5],[50.5,23.5],[52.0,19.5],[54.0,19.8],
+     [56.0,21.0],[58.0,24.5],[60.0,27.5]]
+  ]},
+  balkans_1914: { name:'The Balkans', color:'#C9A84C', simplified:true, rings:[
+    [[46.2,20.8],[46.0,22.7],[45.0,24.5],[43.7,25.5],[43.4,27.9],[42.0,27.9],[40.9,26.0],
+     [40.4,23.0],[39.6,20.0],[41.0,19.4],[42.6,18.5],[44.8,19.1],[45.5,19.6],[46.2,20.8]]
+  ]},
+  ottoman_empire_1914: { name:'Ottoman Empire', color:'#3F7A46', simplified:true, rings:[
+    [[41.2,28.0],[41.9,32.0],[41.0,38.0],[39.5,44.0],[37.2,44.5],[35.0,42.0],[33.5,36.5],
+     [31.5,35.0],[29.5,35.0],[29.5,39.0],[31.0,44.0],[32.5,44.5],[36.8,38.5],[36.5,34.5],
+     [36.8,30.5],[38.5,26.5],[40.5,26.0],[41.2,28.0]]
+  ]}
+};
+for (var _ek in SC_EUROPE_1914){ if (SC_EUROPE_1914.hasOwnProperty(_ek)) SC_REGIONS[_ek] = SC_EUROPE_1914[_ek]; }
+
+
 var scMap = null;
 
 function renderMap(inner, step){
@@ -804,16 +857,30 @@ function renderMap(inner, step){
     '<div class="sc-map-title"><div class="t"></div></div></div>';
   inner.querySelector('.sc-map-title .t').textContent = step.title;
 
+  /* Hand-drawn outlines are approximations. Say so on screen rather than let a
+     class read them as exact borders. */
+  var anySimplified = (step.regions || []).some(function(k){
+    return SC_REGIONS[k] && SC_REGIONS[k].simplified;
+  });
+  if (anySimplified){
+    var note = document.createElement('div');
+    note.className = 'sc-map-note';
+    note.textContent = 'Outlines simplified for teaching';
+    inner.querySelector('.sc-map-frame').appendChild(note);
+  }
+
   var myIdx = CUR;
   scMap = L.map('sc-map', { zoomControl:false, attributionControl:true });
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 10, attribution: '&copy; OpenStreetMap contributors'
   }).addTo(scMap);
 
+  /* A region is one shape ("ring") or several ("rings" - a bloc of countries). */
+  var scRings = function(r){ return r.rings ? r.rings : [r.ring]; };
   var bounds = [];
   (step.regions || []).forEach(function(k){
     var r = SC_REGIONS[k];
-    if (r) r.ring.forEach(function(p){ bounds.push(p); });
+    if (r) scRings(r).forEach(function(ring){ ring.forEach(function(p){ bounds.push(p); }); });
   });
   (step.markers || []).forEach(function(m){ bounds.push([m.lat, m.lng]); });
   if (bounds.length === 0) bounds = [[8,68],[34,92]];
@@ -825,7 +892,7 @@ function renderMap(inner, step){
     if (!r) return;
     setTimeout(function(){
       if (CUR !== myIdx || !scMap) return;
-      var poly = L.polygon(r.ring, {
+      var poly = L.polygon(r.rings ? r.rings : r.ring, {
         color: r.color, weight: 3, fillColor: r.color, fillOpacity: 0.06,
         className: 'sc-region-glow'
       }).addTo(scMap);
