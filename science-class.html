@@ -1609,18 +1609,6 @@ async function scInit(){
   }
   try{
     STEPS = await scGeneratePlan();
-    if (!STEPS.some(function(s){ return s.type === 'causes'; })){
-      var cmsg = document.getElementById('sc-loading-msg');
-      if (cmsg) cmsg.textContent = 'Working out why it happened\u2026';
-      try{
-        var cstep = await scCausesStep();
-        if (cstep) STEPS.splice(scCausesIndex(), 0, cstep);
-      }catch(ce){ /* lesson is still fine without it */ }
-    try{
-      var recalls = await scRecallSteps();
-      if (recalls.length) scInsertRecall(recalls);
-    }catch(re){ /* lesson is still fine without them */ }
-    }
     scBuildSidebar();
     // Warm EVERY photo in parallel while the teacher is still on this screen.
     // The first photo we wait for; the rest keep downloading in the background.
@@ -1656,7 +1644,8 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var data = 'v2|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+    LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
     .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
@@ -1777,6 +1766,24 @@ function scInsertRecall(items){
   return placed.length;
 }
 
+
+/* The causes and recall passes finish the lesson off. They run once, on the way
+   into the cache, so a lesson taught before loads whole and never pays again. */
+async function scEnrichPlan(){
+  if (!STEPS.some(function(s){ return s.type === 'causes'; })){
+    scPrepMsg('Working out why it happened\u2026');
+    try{
+      var cstep = await scCausesStep();
+      if (cstep) STEPS.splice(scCausesIndex(), 0, cstep);
+    }catch(ce){ /* lesson is still fine without it */ }
+  }
+  scPrepMsg('Adding quick checks\u2026');
+  try{
+    var recalls = await scRecallSteps();
+    if (recalls.length) scInsertRecall(recalls);
+  }catch(re){ /* lesson is still fine without them */ }
+}
+
 async function scGeneratePlan(){
   var key = null;
   try{
@@ -1790,6 +1797,10 @@ async function scGeneratePlan(){
     }
   }catch(e){}
   var steps = await scGeneratePlanFresh();
+  // Finish the lesson BEFORE saving, so the cached copy is the complete one.
+  STEPS = steps;
+  try{ await scEnrichPlan(); }catch(en){}
+  steps = STEPS;
   if (key && steps && steps.length){
     try{
       fetch('/api/lesson-plan', {
@@ -1894,7 +1905,8 @@ function scQuizStyles(){
 }
 
 async function scQuizKey(){
-  var data = 'quiz1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var data = 'quiz2|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+    LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
     .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
