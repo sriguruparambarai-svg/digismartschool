@@ -1062,17 +1062,127 @@ async function tblToggleCh(id) {
   if (el.style.display === 'block') { el.style.display = 'none'; return; }
   el.style.display = 'block'; el.innerHTML = 'Loading...';
   try {
-    var data = await tblDB('textbook_chapters', 'GET', null, 'book_id=eq.' + id + '&order=chapter_number&select=chapter_number,chapter_title,page_from,page_to');
-    if (!data||!data.length) { el.textContent = 'No chapters.'; return; }
-    var list = document.createElement('div'); list.className = 'tbl-ch-list';
-    data.forEach(function(ch) {
-      var row = document.createElement('div'); row.className = 'tbl-ch-row';
-      var l = document.createElement('span'); l.textContent = 'Ch.' + ch.chapter_number + ' - ' + (ch.chapter_title||''); row.appendChild(l);
-      var r = document.createElement('span'); r.style.color = '#888'; r.textContent = 'p.' + ch.page_from + '-' + ch.page_to; row.appendChild(r);
-      list.appendChild(row);
-    });
-    el.innerHTML = ''; el.appendChild(list);
+    var data = await tblDB('textbook_chapters', 'GET', null, 'book_id=eq.' + id + '&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    tblChRender(id, data || []);
   } catch(e) { el.textContent = 'Error: ' + e.message; }
+}
+
+// Editable chapter list.
+// Chapter number is editable on purpose: when a book has been split into parts,
+// detection numbers each part from 1, but the teacher needs the number printed
+// in the physical book. Existing rows are updated in place, so the extracted
+// lesson text attached to each chapter is never lost.
+function tblChRender(id, data) {
+  var el = document.getElementById('tbl-ch-' + id);
+  el.innerHTML = '';
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:.68rem;color:#888;margin-bottom:6px;line-height:1.5;';
+  hint.textContent = 'No. / Title / From page / To page \u2014 set the number to match the printed book, then Save.';
+  el.appendChild(hint);
+  var box = document.createElement('div');
+  box.id = 'tbl-chbox-' + id;
+  el.appendChild(box);
+  window._tblChOrig = window._tblChOrig || {};
+  window._tblChOrig[id] = data.map(function(c) { return c.id; }).filter(Boolean);
+  if (!data.length) tblChAddRow(id, {});
+  else data.forEach(function(ch) { tblChAddRow(id, ch); });
+  var bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;';
+  var addB = document.createElement('button');
+  addB.className = 'btn bp bsm'; addB.textContent = '+ Add';
+  addB.addEventListener('click', function() { tblChAddRow(id, {}); });
+  bar.appendChild(addB);
+  var saveB = document.createElement('button');
+  saveB.className = 'btn bp bsm'; saveB.textContent = 'Save Chapters';
+  saveB.addEventListener('click', function() { tblChSave(id, this); });
+  bar.appendChild(saveB);
+  var msg = document.createElement('span');
+  msg.id = 'tbl-chmsg-' + id;
+  msg.style.cssText = 'font-size:.7rem;font-weight:700;';
+  bar.appendChild(msg);
+  el.appendChild(bar);
+}
+
+function tblChAddRow(id, ch) {
+  var box = document.getElementById('tbl-chbox-' + id);
+  if (!box) return;
+  var row = document.createElement('div');
+  row.className = 'tbl-chedit-row';
+  row.setAttribute('data-rowid', ch.id || '');
+  row.style.cssText = 'display:grid;grid-template-columns:42px 1fr 52px 52px 24px;gap:4px;margin-bottom:4px;align-items:center;';
+  function mk(val, ph, field) {
+    var i = document.createElement('input');
+    i.value = (val === 0 || val) ? val : '';
+    i.placeholder = ph;
+    i.setAttribute('data-f', field);
+    i.style.cssText = 'padding:5px 6px;font-size:.72rem;border:1px solid #ddd;border-radius:5px;font-family:inherit;min-width:0;width:100%;box-sizing:border-box;';
+    return i;
+  }
+  row.appendChild(mk(ch.chapter_number, 'No', 'num'));
+  row.appendChild(mk(ch.chapter_title, 'Chapter title', 'title'));
+  row.appendChild(mk(ch.page_from, 'From', 'from'));
+  row.appendChild(mk(ch.page_to, 'To', 'to'));
+  var x = document.createElement('button');
+  x.className = 'btn br bsm';
+  x.textContent = '\u00d7';
+  x.style.cssText = 'padding:2px 0;font-size:.8rem;line-height:1;';
+  x.addEventListener('click', function() { row.remove(); });
+  row.appendChild(x);
+  box.appendChild(row);
+}
+
+async function tblChSave(id, btn) {
+  var msg = document.getElementById('tbl-chmsg-' + id);
+  var box = document.getElementById('tbl-chbox-' + id);
+  if (!box || !msg) return;
+  var rows = box.querySelectorAll('.tbl-chedit-row');
+  var out = [], keptIds = [];
+  for (var i = 0; i < rows.length; i++) {
+    var ins = rows[i].querySelectorAll('input');
+    var o = {};
+    for (var j = 0; j < ins.length; j++) o[ins[j].getAttribute('data-f')] = ins[j].value.trim();
+    if (!o.title && !o.from && !o.to) continue;
+    var pf = parseInt(o.from, 10), pt = parseInt(o.to, 10);
+    if (!pf || !pt) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': From and To pages are needed.'; return; }
+    if (pt < pf) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': To page is before From page.'; return; }
+    var rid = rows[i].getAttribute('data-rowid') || '';
+    if (rid) keptIds.push(rid);
+    out.push({ rid: rid, chapter_number: parseInt(o.num, 10) || (out.length + 1),
+               chapter_title: o.title || 'Untitled', page_from: pf, page_to: pt });
+  }
+  if (!out.length) { msg.style.color = '#c0392b'; msg.textContent = 'Nothing to save.'; return; }
+  btn.disabled = true; msg.style.color = '#888'; msg.textContent = 'Saving...';
+  try {
+    var book = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=class_name,subject,medium&limit=1');
+    var bk = (book && book[0]) || {};
+    for (var k = 0; k < out.length; k++) {
+      var payload = { chapter_number: out[k].chapter_number, chapter_title: out[k].chapter_title,
+                      page_from: out[k].page_from, page_to: out[k].page_to };
+      if (out[k].rid) {
+        await tblDB('textbook_chapters', 'PATCH', payload, 'id=eq.' + out[k].rid);
+      } else {
+        payload.book_id = id;
+        payload.syllabus_type = 'samacheer';
+        payload.class_name = bk.class_name || '';
+        payload.subject = bk.subject || '';
+        payload.medium = bk.medium || '';
+        await tblDB('textbook_chapters', 'POST', payload);
+      }
+    }
+    var orig = (window._tblChOrig && window._tblChOrig[id]) || [];
+    for (var d = 0; d < orig.length; d++) {
+      if (keptIds.indexOf(orig[d]) === -1) {
+        await tblDB('textbook_chapters', 'DELETE', null, 'id=eq.' + orig[d]);
+      }
+    }
+    msg.style.color = '#1a5c2a'; msg.textContent = 'Saved ' + out.length + ' chapters.';
+    var fresh = await tblDB('textbook_chapters', 'GET', null, 'book_id=eq.' + id + '&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    tblChRender(id, fresh || []);
+    var m2 = document.getElementById('tbl-chmsg-' + id);
+    if (m2) { m2.style.color = '#1a5c2a'; m2.textContent = 'Saved.'; }
+  } catch(e) {
+    msg.style.color = '#c0392b'; msg.textContent = 'Error: ' + e.message;
+  } finally { btn.disabled = false; }
 }
 
 async function tblDelete(id, title) {

@@ -1517,6 +1517,7 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
   document.getElementById('mb-popup-subject').value='';
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
+  mbLoadChapters(bookId);
 }
 
 // ── IndexedDB helpers for PDF caching ──
@@ -1892,6 +1893,54 @@ async function mbGoTeach(){
   }
 }
 
+// ── CHAPTER PICKER ──
+// Fills Start/End page from the chapters detected when the book was uploaded,
+// so a teacher never has to open the PDF and count pages.
+// If a book has no chapters yet, the dropdown stays hidden and the popup
+// behaves exactly as it did before.
+var _mbChapters = [];
+
+async function mbLoadChapters(bookId){
+  var wrap = document.getElementById('mb-popup-chwrap');
+  var sel  = document.getElementById('mb-popup-chapter');
+  if(!wrap || !sel) return;
+  _mbChapters = [];
+  sel.innerHTML = '<option value="">Select chapter</option>';
+  wrap.style.display = 'none';
+  if(!bookId) return;
+  try{
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_chapters',
+        params:'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=chapter_number,chapter_title,page_from,page_to'})});
+    var d = await r.json();
+    var chs = Array.isArray(d) ? d : (d.chapters || []);
+    chs = chs.filter(function(c){ return c && c.page_from && c.page_to; });
+    if(!chs.length) return;
+    _mbChapters = chs;
+    chs.forEach(function(ch,i){
+      var o = document.createElement('option');
+      o.value = String(i);
+      var t = (ch.chapter_title || '').trim() || 'Untitled';
+      o.textContent = 'Ch.' + (ch.chapter_number || (i+1)) + ' \u2014 ' + t + '  (p.' + ch.page_from + '-' + ch.page_to + ')';
+      sel.appendChild(o);
+    });
+    wrap.style.display = 'block';
+  }catch(e){ /* chapters optional - manual page entry still works */ }
+}
+
+function mbApplyChapter(){
+  var sel = document.getElementById('mb-popup-chapter');
+  if(!sel || sel.value === '') return;
+  var ch = _mbChapters[parseInt(sel.value,10)];
+  if(!ch) return;
+  var f = document.getElementById('mb-popup-from');
+  var t = document.getElementById('mb-popup-to');
+  var l = document.getElementById('mb-popup-lesson');
+  if(f) f.value = ch.page_from;
+  if(t) t.value = ch.page_to;
+  if(l && !l.value.trim() && ch.chapter_title) l.value = ch.chapter_title;
+}
+
 // ── SAMACHEER SECTION ──
 async function samLoadBooks(cls,sub){
   var box=document.getElementById('sam-books-list');
@@ -1938,6 +1987,7 @@ function samSelectBook(book){
   if(subEl)subEl.value=samSub;
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
+  mbLoadChapters(book.id);
 }
 
 // Load books on page load
@@ -2111,6 +2161,12 @@ function injectMyBooksSection(){
       <div style="margin-bottom:10px;">
         <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Lesson / Topic Name <span style="font-weight:400;color:#aaa;">(optional)</span></span>
         <input id="mb-popup-lesson" placeholder="e.g. Nervous System, Chapter 3" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
+      </div>
+      <div id="mb-popup-chwrap" style="display:none;margin-bottom:10px;">
+        <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Chapter <span style="font-weight:400;color:#aaa;">(fills the pages for you)</span></span>
+        <select id="mb-popup-chapter" onchange="mbApplyChapter()" style="width:100%;padding:10px 11px;font-size:0.9rem;border:2px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-weight:700;outline:none;background:white;">
+          <option value="">Select chapter</option>
+        </select>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
         <div>
