@@ -173,6 +173,13 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 .sc-cause-result{margin-top:18px;background:linear-gradient(160deg,rgba(107,26,26,0.35),rgba(30,12,8,0.65));border:1.5px solid rgba(201,168,76,0.5);border-radius:14px;padding:15px 18px;text-align:center;font-size:clamp(0.82rem,1.35vw,1rem);color:var(--gold-light);line-height:1.5;opacity:0;animation:scFadeUp 0.6s ease 0.9s forwards;box-shadow:0 10px 26px rgba(0,0,0,0.4);}
 @media(max-width:820px){.sc-cause-grid{grid-template-columns:1fr;}.sc-cause-arrow{padding:10px 0;}.sc-cause-arrow span{transform:rotate(90deg);}}
 
+/* recall - a pause to answer, mid lesson */
+.sc-recall-tag{font-family:'Cinzel',serif;font-size:clamp(0.72rem,1.1vw,0.85rem);letter-spacing:0.12em;text-transform:uppercase;color:var(--gold);text-align:center;margin-bottom:16px;opacity:0;animation:scFadeUp 0.5s ease 0.1s forwards;}
+.sc-recall-q{font-family:'Cinzel',serif;font-size:clamp(1.15rem,2.6vw,2rem);color:var(--gold-light);text-align:center;line-height:1.45;max-width:900px;margin:0 auto 26px;text-shadow:0 0 22px rgba(255,216,106,0.25);opacity:0;animation:scFadeUp 0.6s ease 0.25s forwards;}
+.sc-recall-btn{display:block;margin:0 auto;background:linear-gradient(135deg,rgba(201,168,76,0.9),rgba(201,168,76,0.65));color:#2a1505;border:none;border-radius:11px;padding:11px 26px;font-family:'Nunito',sans-serif;font-weight:800;font-size:clamp(0.82rem,1.3vw,0.95rem);cursor:pointer;box-shadow:0 8px 22px rgba(0,0,0,0.4);opacity:0;animation:scFadeUp 0.5s ease 0.5s forwards;}
+.sc-recall-btn:hover{filter:brightness(1.08);}
+.sc-recall-a{max-width:820px;margin:20px auto 0;background:linear-gradient(160deg,rgba(107,26,26,0.42),rgba(30,12,8,0.68));border:1.5px solid rgba(201,168,76,0.55);border-radius:14px;padding:16px 20px;text-align:center;font-size:clamp(0.92rem,1.7vw,1.2rem);color:var(--gold-light);line-height:1.5;animation:scFadeUp 0.45s ease both;box-shadow:0 10px 26px rgba(0,0,0,0.4);}
+
 /* stat — big figure cards */
 .sc-stat-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px;}
 .sc-stat-card{background:linear-gradient(160deg,rgba(107,26,26,0.4),rgba(30,12,8,0.7));border:1.5px solid rgba(201,168,76,0.5);border-radius:16px;padding:22px 16px;text-align:center;opacity:0;animation:scFadeUp 0.55s ease forwards;box-shadow:0 10px 26px rgba(0,0,0,0.4);}
@@ -399,7 +406,7 @@ function scParseJSON(raw){
 function scNormaliseStep(s){
   if (!s || !s.type) return null;
   var type = String(s.type).toLowerCase();
-  if (['title','photo','timeline','concept','map','globe','structure','cycle','compare','causes','stat','model3d'].indexOf(type) === -1) type = 'concept';
+  if (['title','photo','timeline','concept','map','globe','structure','cycle','compare','causes','recall','stat','model3d'].indexOf(type) === -1) type = 'concept';
   var out = {
     type: type,
     title: String(s.title || '').substring(0, 140),
@@ -476,6 +483,11 @@ function scNormaliseStep(s){
     // Needs both halves to make its point; otherwise it is just a list.
     if (out.longTerm.length < 2 || !out.trigger.name) out.type = 'concept';
   }
+  if (type === 'recall'){
+    out.question = String(s.question || s.speech || '').substring(0, 180);
+    out.answer   = String(s.answer || '').substring(0, 140);
+    if (!out.question || !out.answer) out.type = 'concept';
+  }
   if (out.type === 'concept'){
     out.points = (Array.isArray(s.points) ? s.points : []).slice(0, 4).map(function(p){ return String(p).substring(0, 160); });
     if (out.points.length === 0) out.points = [out.speech.substring(0, 150)];
@@ -547,6 +559,7 @@ function scRender(idx){
   else if (step.type === 'compare') renderCompare(inner, step);
   else if (step.type === 'stat') renderStat(inner, step);
   else if (step.type === 'causes') renderCauses(inner, step);
+  else if (step.type === 'recall') renderRecall(inner, step);
   else renderConcept(inner, step);
 
   scSpeak(step.speech || step.title);
@@ -637,6 +650,23 @@ function renderCauses(inner, step){
   inner.querySelector('.spk-detail').textContent = step.trigger.detail || '';
   var res = inner.querySelector('.sc-cause-result');
   if (step.result) res.textContent = step.result; else res.style.display = 'none';
+}
+
+function renderRecall(inner, step){
+  inner.innerHTML =
+    '<div class="sc-info-wrap">' +
+      '<div class="sc-recall-tag"></div>' +
+      '<div class="sc-recall-q"></div>' +
+      '<button class="sc-recall-btn" type="button"></button>' +
+      '<div class="sc-recall-a" style="display:none;"></div>' +
+    '</div>';
+  inner.querySelector('.sc-recall-tag').textContent = 'Quick check \u2014 answer together';
+  inner.querySelector('.sc-recall-q').textContent = step.question;
+  var btn = inner.querySelector('.sc-recall-btn');
+  var ans = inner.querySelector('.sc-recall-a');
+  btn.textContent = 'Show answer';
+  ans.textContent = step.answer;
+  btn.onclick = function(){ ans.style.display = 'block'; btn.style.display = 'none'; };
 }
 
 function renderConcept(inner, step){
@@ -1353,6 +1383,9 @@ function scRate(){ return parseFloat(document.getElementById('speed-sel').value)
 
 function scScheduleAdvance(sec){
   clearTimeout(scAdvanceTimer);
+  // A recall step waits for the class to answer out loud. Only the teacher
+  // moves it on - auto-advancing here would defeat the whole point.
+  if (STEPS[CUR] && STEPS[CUR].type === 'recall') return;
   scAdvanceTimer = setTimeout(function(){
     if (isPaused) return;
     if (CUR < STEPS.length - 1) scRender(CUR + 1);
@@ -1544,7 +1577,7 @@ async function scExplainTamil(){
 }
 
 /* ── SIDEBAR ── */
-var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D', model3d:'\uD83E\uDDB4', structure:'\uD83D\uDDC2\uFE0F', cycle:'\uD83D\uDD04', compare:'\u2696\uFE0F', causes:'\uD83E\uDDE9', stat:'\uD83D\uDCCA' };
+var STEP_ICONS = { title:'\uD83C\uDFDB\uFE0F', photo:'\uD83D\uDCF7', timeline:'\uD83D\uDCC5', concept:'\uD83D\uDCA1', map:'\uD83D\uDDFA\uFE0F', globe:'\uD83C\uDF0D', model3d:'\uD83E\uDDB4', structure:'\uD83D\uDDC2\uFE0F', cycle:'\uD83D\uDD04', compare:'\u2696\uFE0F', causes:'\uD83E\uDDE9', recall:'\u2753', stat:'\uD83D\uDCCA' };
 function scBuildSidebar(){
   var list = document.getElementById('step-list');
   list.innerHTML = '';
@@ -1582,6 +1615,10 @@ async function scInit(){
         var cstep = await scCausesStep();
         if (cstep) STEPS.splice(scCausesIndex(), 0, cstep);
       }catch(ce){ /* lesson is still fine without it */ }
+    try{
+      var recalls = await scRecallSteps();
+      if (recalls.length) scInsertRecall(recalls);
+    }catch(re){ /* lesson is still fine without them */ }
     }
     scBuildSidebar();
     // Warm EVERY photo in parallel while the teacher is still on this screen.
@@ -1671,6 +1708,72 @@ function scCausesIndex(){
     if (after.test(STEPS[i].title || '')) return i;
   }
   return Math.min(Math.max(2, Math.round(STEPS.length * 0.45)), STEPS.length);
+}
+
+
+/* -- MID-LESSON RECALL (second pass) --
+   Pulling a fact back out of memory fixes it far better than seeing it again,
+   and it works best spread through the lesson rather than saved for the end.
+   Built after the plan exists so each question can be tied to a step the class
+   has already been taught, never to one still ahead of them. */
+async function scRecallSteps(){
+  var material = STEPS.map(function(s, i){
+    return (i + 1) + '. ' + (s.title || '') + ' \u2014 ' + (s.speech || '').substring(0, 240);
+  }).join('\n').substring(0, 7000);
+  var sys = 'You add short recall checks to a lesson that has already been planned.\n' +
+    'Return ONLY a JSON array. No prose, no markdown, no code fences.\n' +
+    '[{"afterTitle":"exact title of the step this follows","question":"...","answer":"..."}]\n' +
+    'RULES:\n' +
+    '- Exactly 2 or 3 items, spread across the lesson, never two in a row.\n' +
+    '- "afterTitle" must be copied EXACTLY from one of the numbered step titles below.\n' +
+    '- Never use the first step, and never the last two steps.\n' +
+    '- The question must be answerable from a step at or BEFORE that title. Never ask about something later.\n' +
+    '- Answers must be short enough to call out in chorus: a name, a year, a word, a short phrase.\n' +
+    '- Question under 110 characters. Answer under 60 characters.';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 600,
+      messages:[{ role:'user', content:'LESSON STEPS:\n' + material }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return [];
+  var t = String(raw).trim().replace(/```json|```/g,'').trim();
+  var s = t.indexOf('['), e = t.lastIndexOf(']');
+  if (s === -1 || e <= s) return [];
+  var arr;
+  try{ arr = JSON.parse(t.substring(s, e + 1)); }catch(err){ return []; }
+  return Array.isArray(arr) ? arr.slice(0, 3) : [];
+}
+
+/* Insert from the back so earlier positions stay valid as the list grows. */
+function scInsertRecall(items){
+  var placed = [];
+  items.forEach(function(it){
+    if (!it || !it.afterTitle || !it.question || !it.answer) return;
+    var want = String(it.afterTitle).trim().toLowerCase();
+    for (var i = 0; i < STEPS.length; i++){
+      if ((STEPS[i].title || '').trim().toLowerCase() === want){
+        // Never at the very start, and never so late it becomes the end quiz.
+        if (i >= 1 && i <= STEPS.length - 2) placed.push({ at: i + 1, item: it });
+        break;
+      }
+    }
+  });
+  placed.sort(function(a, b){ return b.at - a.at; });
+  var last = -99;
+  placed = placed.filter(function(p){
+    if (Math.abs(p.at - last) < 2) return false;   // never two checks back to back
+    last = p.at; return true;
+  });
+  placed.forEach(function(p){
+    var step = scNormaliseStep({ type:'recall', title:'Quick check',
+      speech: p.item.question, question: p.item.question, answer: p.item.answer });
+    if (step && step.type === 'recall') STEPS.splice(p.at, 0, step);
+  });
+  return placed.length;
 }
 
 async function scGeneratePlan(){
