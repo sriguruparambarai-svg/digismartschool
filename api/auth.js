@@ -535,6 +535,16 @@ module.exports = async function(req2, res) {
       return res.json({ error: 'Save failed: ' + msg });
     }
 
+    if (action === 'tbl_patch') {
+      const table = body.table || 'textbook_library';
+      const params = body.params ? '?' + body.params : '';
+      if (!params) return res.json({ error: 'Update filter required' });
+      const r = await req('PATCH', '/rest/v1/' + table + params, body.body || {});
+      if (r.status === 200 || r.status === 204) return res.json({ success: true, data: r.data });
+      const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
+      return res.json({ error: 'Update failed: ' + msg });
+    }
+
     if (action === 'tbl_delete') {
       const table = body.table || 'textbook_library';
       const params = body.params ? '?' + body.params : '';
