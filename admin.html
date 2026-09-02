@@ -892,7 +892,7 @@ async function tblUpload() {
     var raw = await tblExtractPdf(tblFile);
     if (!raw || raw.length < 100) throw new Error('Could not extract text. Use a text-based PDF.');
     tblProg('Detecting chapters...', 35);
-    var chapters = tblDetectChapters(raw);
+    var chapters = await tblBuildChapters(raw, function(t){ tblProg(t, 40); });
     tblProg('Uploading PDF to cloud storage...', 50);
     var bookId = 'tbl_' + Date.now();
     // Upload the actual PDF to Supabase Storage (same pattern as My Books)
@@ -980,41 +980,199 @@ async function tblExtractPdf(file) {
   return text.trim();
 }
 
-function tblDetectChapters(raw) {
-  var chapters = [];
-  var pageNums = [];
-  var m, re = /\[Page (\d+)\]/g;
-  while ((m = re.exec(raw)) !== null) pageNums.push(parseInt(m[1]));
-  var pageTexts = raw.split(/\[Page \d+\]/).slice(1);
-  var blocks = pageTexts.map(function(t, i) { return {page: pageNums[i] || i+1, text: t.trim()}; });
-  var cur = null;
-  blocks.forEach(function(pb, i) {
-    var first = pb.text.split('\n').slice(0,4).join(' ').replace(/\s+/g,' ').trim();
-    first = first.replace(/^\d+\s+\d+\s+/,'').replace(/^\d+\s+/,'').trim();
-    var isStart = /^(Unit|Chapter|UNIT|CHAPTER)\s+\d+/i.test(first)
-      || (/^\d+\s+[A-Z][a-z]/.test(first) && first.length < 60 && i > 5)
-      || (/^[A-Z][A-Z\s]{8,}$/.test(first) && first.length < 70 && i > 5);
-    if (isStart && cur) {
-      cur.pageTo = pb.page - 1;
-      cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom && p.page <= cur.pageTo; }).map(function(p) { return p.text; }).join('\n\n');
-      if (cur.text.trim().length > 50) chapters.push(cur);
-    }
-    if (isStart) cur = {title: first.replace(/^(Unit|Chapter)\s+\d+\s*/i,'').trim()||first, pageFrom: pb.page, pageTo: pb.page};
+// Samacheer prints unit headings as "Unit - 10", "Unit-10", "UNIT \u2013 10".
+// The old pattern required the number to follow "Unit" immediately, so the
+// hyphen made every unit invisible and books fell back to 15-page chunks
+// named "Section 1..9". This pattern allows the separator.
+var TBL_HEAD = /\b(?:Unit|UNIT|Chapter|CHAPTER|Lesson|LESSON)\s*[-\u2010\u2011\u2012\u2013\u2014:.]?\s*(\d{1,2})\b/;
+
+function tblPageBlocks(raw) {
+  var pageNums = [], m, re = /\[Page (\d+)\]/g;
+  while ((m = re.exec(raw)) !== null) pageNums.push(parseInt(m[1], 10));
+  var texts = raw.split(/\[Page \d+\]/).slice(1);
+  return texts.map(function(t, i) {
+    return { page: pageNums[i] || (i + 1), text: (t || '').replace(/\s+/g, ' ').trim() };
   });
-  if (cur && blocks.length) {
-    cur.pageTo = blocks[blocks.length-1].page;
-    cur.text = blocks.filter(function(p) { return p.page >= cur.pageFrom; }).map(function(p) { return p.text; }).join('\n\n');
-    if (cur.text.trim().length > 50) chapters.push(cur);
+}
+
+// Pull the unit name out of the words that follow the heading, stopping at
+// the boxes Samacheer always puts next ("Learning Objectives", "Introduction").
+function tblHeadTitle(headText) {
+  var after = headText.replace(TBL_HEAD, '');
+  after = after.replace(/^\s*(?:Unit|UNIT|Chapter|CHAPTER|Lesson|LESSON)?\s*[-\u2010-\u2014:.]?\s*/, '');
+  var cut = after.search(/Learning\s*Objectives|Introduction|To\s+acquaint|Objectives|Let\s+us|We\s+will/i);
+  if (cut > 2) after = after.slice(0, cut);
+  after = after.replace(/[^A-Za-z0-9 ,'&()\-\u0B80-\u0BFF]/g, ' ').replace(/\s+/g, ' ').trim();
+  after = after.replace(/^[\d\s.\-]+/, '').trim();
+  if (after.length > 70) after = after.slice(0, 70).trim();
+  return after;
+}
+
+function tblDetectChapters(raw) {
+  var blocks = tblPageBlocks(raw);
+  if (!blocks.length) return [];
+  var starts = [], expect = 1;
+  var gre = new RegExp(TBL_HEAD.source, 'g');
+  for (var i = 0; i < blocks.length; i++) {
+    var head = blocks[i].text.slice(0, 320);
+    // A contents page mentions many units at once - never a real unit start.
+    gre.lastIndex = 0;
+    var hits = blocks[i].text.match(gre) || [];
+    if (hits.length > 2) continue;
+    var mm = head.match(TBL_HEAD);
+    if (!mm) continue;
+    // A real unit banner leads the page. "as we saw in Unit 3" sits mid
+    // sentence, so anything far into the page is a back-reference.
+    if (mm.index > 100) continue;
+    var num = parseInt(mm[1], 10);
+    // Units run in strict order. Anything out of sequence is a reference.
+    if (num !== expect) continue;
+    var title = tblHeadTitle(head);
+    starts.push({ num: num, page: blocks[i].page, idx: i, title: title || ('Unit ' + num) });
+    expect = num + 1;
   }
-  if (!chapters.length && blocks.length) {
-    var sz = 15;
-    for (var s = 0; s < blocks.length; s += sz) {
-      var chunk = blocks.slice(s, s+sz);
-      chapters.push({title: 'Section '+(Math.floor(s/sz)+1), pageFrom: chunk[0].page, pageTo: chunk[chunk.length-1].page, text: chunk.map(function(b){return b.text;}).join('\n\n')});
+  return tblStartsToChapters(starts, blocks);
+}
+
+function tblStartsToChapters(starts, blocks) {
+  var out = [];
+  for (var s = 0; s < starts.length; s++) {
+    var from = starts[s].page;
+    var to = (s + 1 < starts.length) ? (starts[s + 1].page - 1) : blocks[blocks.length - 1].page;
+    if (to < from) to = from;
+    var text = blocks.filter(function(b) { return b.page >= from && b.page <= to; })
+                     .map(function(b) { return b.text; }).join('\n\n');
+    out.push({ number: starts[s].num, title: starts[s].title, pageFrom: from, pageTo: to, text: text });
+  }
+  return out;
+}
+
+// Only runs when the pattern finds nothing. One Claude call per book, and the
+// result is stored as chapter rows, so it never runs again for that book.
+async function tblAiChapters(raw) {
+  var blocks = tblPageBlocks(raw);
+  if (!blocks.length) return [];
+  var digest = blocks.map(function(b) {
+    return '[p' + b.page + '] ' + b.text.slice(0, 260);
+  }).join('\n');
+  if (digest.length > 90000) digest = digest.slice(0, 90000);
+  var sys = 'You find chapter and unit starts in a school textbook. '
+    + 'You are given the first few lines of every page, tagged with its page number. '
+    + 'Return ONLY a JSON array, no prose and no code fences. '
+    + 'Each item: {"n": <chapter number printed in the book>, "title": "<chapter name>", "from": <page number where it starts>}. '
+    + 'Use the page number in the [pN] tag. Ignore the contents page, which lists many chapters at once. '
+    + 'Ignore back-references inside body text. If you find no chapters, return [].';
+  var r = await fetch('/api/ai', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ max_tokens: 2000, system: sys,
+      messages: [{ role: 'user', content: digest }] })
+  });
+  var d = await r.json();
+  var txt = (d && d.content && d.content[0] && d.content[0].text) ? d.content[0].text : '';
+  txt = txt.replace(/```json|```/g, '').trim();
+  var first = txt.indexOf('['), last = txt.lastIndexOf(']');
+  if (first < 0 || last < first) return [];
+  var arr;
+  try { arr = JSON.parse(txt.slice(first, last + 1)); } catch (e) { return []; }
+  if (!Array.isArray(arr) || !arr.length) return [];
+  var starts = [];
+  arr.forEach(function(a, i) {
+    var p = parseInt(a.from, 10);
+    if (!p) return;
+    starts.push({ num: parseInt(a.n, 10) || (i + 1), page: p, idx: i,
+                  title: String(a.title || '').trim() || ('Chapter ' + (i + 1)) });
+  });
+  starts.sort(function(x, y) { return x.page - y.page; });
+  return tblStartsToChapters(starts, blocks);
+}
+
+// Pattern first (free, instant). AI only if the pattern finds nothing.
+// Even chunks only if both fail, so a book is never left with no chapters.
+function tblLooksTruncated(chapters, totalPages) {
+  if (!chapters.length || !totalPages) return true;
+  // Strict sequencing can stop early if one heading page extracts badly.
+  // The tell is a final chapter that swallows a third of the book.
+  for (var i = 0; i < chapters.length; i++) {
+    var span = (chapters[i].pageTo - chapters[i].pageFrom + 1) / totalPages;
+    if (span > 0.35) return true;
+  }
+  return false;
+}
+
+async function tblBuildChapters(raw, prog) {
+  var total = tblPageBlocks(raw).length;
+  var chapters = tblDetectChapters(raw);
+  if (chapters.length >= 2 && !tblLooksTruncated(chapters, total)) return chapters;
+  if (prog) prog(chapters.length ? 'Checking with AI...' : 'No headings matched - asking AI...');
+  try {
+    var ai = await tblAiChapters(raw);
+    if (ai.length >= 2 && ai.length >= chapters.length) return ai;
+  } catch (e) { }
+  if (chapters.length >= 2) return chapters;
+  if (prog) prog('Splitting into sections...');
+  var blocks = tblPageBlocks(raw);
+  var out = [], sz = 15;
+  for (var s = 0; s < blocks.length; s += sz) {
+    var chunk = blocks.slice(s, s + sz);
+    if (!chunk.length) break;
+    out.push({ number: out.length + 1, title: 'Section ' + (out.length + 1),
+               pageFrom: chunk[0].page, pageTo: chunk[chunk.length - 1].page,
+               text: chunk.map(function(b) { return b.text; }).join('\n\n') });
+  }
+  return out;
+}
+
+async function tblExtractPdfUrl(url) {
+  var r = await fetch(url);
+  if (!r.ok) throw new Error('Could not download the stored PDF (' + r.status + ')');
+  var blob = await r.blob();
+  return await tblExtractPdf(blob);
+}
+
+// Re-runs detection on a book already in the library, using the PDF saved in
+// storage. Avoids having to delete and re-upload every book after a fix.
+async function tblRedetect(id, title, btn) {
+  if (!confirm('Re-detect chapters for "' + title + '"?\n\nThe current chapter list for this book will be replaced.')) return;
+  var el = document.getElementById('tbl-ch-' + id);
+  el.style.display = 'block';
+  el.innerHTML = 'Loading PDF...';
+  btn.disabled = true;
+  var say = function(t) { el.innerHTML = t; };
+  try {
+    var rows = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=pdf_url,class_name,subject,medium&limit=1');
+    var bk = (rows && rows[0]) || {};
+    if (!bk.pdf_url) throw new Error('This book has no stored PDF. Re-upload it to use Re-detect.');
+    say('Reading PDF...');
+    var raw = await tblExtractPdfUrl(bk.pdf_url);
+    if (!raw || raw.length < 100) throw new Error('Could not read text from the stored PDF.');
+    say('Detecting chapters...');
+    var chapters = await tblBuildChapters(raw, say);
+    if (!chapters.length) throw new Error('No chapters could be detected.');
+    say('Saving ' + chapters.length + ' chapters...');
+    await tblDB('textbook_chapters', 'DELETE', null, 'book_id=eq.' + id);
+    for (var i = 0; i < chapters.length; i++) {
+      await tblDB('textbook_chapters', 'POST', {
+        book_id: id,
+        chapter_number: chapters[i].number || (i + 1),
+        chapter_title: chapters[i].title,
+        page_from: chapters[i].pageFrom,
+        page_to: chapters[i].pageTo,
+        extracted_text: (chapters[i].text || '').substring(0, 20000),
+        syllabus_type: 'samacheer',
+        class_name: bk.class_name || '', subject: bk.subject || '', medium: bk.medium || ''
+      });
     }
-  }
-  if (!chapters.length) chapters.push({title:'Full Book', pageFrom:1, pageTo:pageNums[pageNums.length-1]||1, text:raw});
-  return chapters;
+    var fresh = await tblDB('textbook_chapters', 'GET', null, 'book_id=eq.' + id + '&order=chapter_number&select=id,chapter_number,chapter_title,page_from,page_to');
+    tblChRender(id, fresh || []);
+    var m = document.getElementById('tbl-chmsg-' + id);
+    if (m) { m.style.color = '#1a5c2a'; m.textContent = 'Re-detected ' + chapters.length + ' chapters. Check them, then Save if you edit.'; }
+  } catch (e) {
+    el.innerHTML = '';
+    var w = document.createElement('div');
+    w.style.cssText = 'font-size:.72rem;color:#c0392b;font-weight:700;';
+    w.textContent = 'Error: ' + e.message;
+    el.appendChild(w);
+  } finally { btn.disabled = false; }
 }
 
 async function tblLoadBooks() {
@@ -1042,6 +1200,10 @@ async function tblLoadBooks() {
       chBtn.setAttribute('data-id', book.id);
       chBtn.addEventListener('click', function() { tblToggleCh(this.getAttribute('data-id')); });
       acts.appendChild(chBtn);
+      var reBtn = document.createElement('button'); reBtn.className = 'btn bp bsm'; reBtn.textContent = 'Re-detect';
+      reBtn.setAttribute('data-id', book.id); reBtn.setAttribute('data-title', book.title || '');
+      reBtn.addEventListener('click', function() { tblRedetect(this.getAttribute('data-id'), this.getAttribute('data-title'), this); });
+      acts.appendChild(reBtn);
       var delBtn = document.createElement('button'); delBtn.className = 'btn br bsm'; delBtn.textContent = 'Delete';
       delBtn.setAttribute('data-id', book.id); delBtn.setAttribute('data-title', book.title||'');
       delBtn.addEventListener('click', function() { tblDelete(this.getAttribute('data-id'), this.getAttribute('data-title')); });
