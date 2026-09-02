@@ -1803,7 +1803,18 @@ async function samChapterTextFallback(bookId, from, to){
     return parts.join('\n\n').trim();
   }catch(e){ return ''; }
 }
-function mbMakePdfKey(subj,cls){
+// The cached PDF is keyed per BOOK, not just per subject and class. When a
+// subject is split into several books (Social Science into History, Geography,
+// Civics and Economics) the old key made all of them share one cache slot, so
+// opening History could serve Geography's PDF. The same key also seeds the
+// narration cache in fullscreen-class.html, which meant page 11 of History and
+// page 11 of Geography shared cached audio.
+function mbMakePdfKey(subj,cls,bookId){
+  return ('pdf_'+subj+'_'+cls+'_'+(bookId||'nobook'))
+    .replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
+}
+// The pre-fix key, so its orphaned entry can be cleared off the device.
+function mbLegacyPdfKey(subj,cls){
   return ('pdf_'+subj+'_'+cls).replace(/\s+/g,'_').toLowerCase().replace(/[^a-z0-9_]/g,'');
 }
 
@@ -1876,7 +1887,13 @@ async function mbGoTeach(){
   try{
     // Step 1: Open IndexedDB
     await mbOpenIDB();
-    var pdfKey=mbMakePdfKey(subject,b.cls);
+    var pdfKey=mbMakePdfKey(subject,b.cls,b.bookId);
+    // Clear the old shared entry once, so a stale PDF is never served and the
+    // device is not left holding a book nobody can reach any more.
+    try{
+      var legacyKey=mbLegacyPdfKey(subject,b.cls);
+      if(legacyKey!==pdfKey) await mbDeletePdfFromIDB(legacyKey);
+    }catch(lk){}
 
     // Step 2: Try to load from IndexedDB cache first
     var savedPdf=await mbLoadPdfFromIDB(pdfKey);
