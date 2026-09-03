@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Map Practice — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&family=Caveat:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --maroon:#6B1A1A; --maroon-dark:#4a1010; --gold:#C9A84C; --gold-light:#FFD86A;
+  --sandal:#E8C99A; --text-light:#f5efe2;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--text-light);
+  font-family:'Nunito',sans-serif;min-height:100vh;}
+
+#topbar{position:fixed;top:0;left:0;right:0;height:58px;
+  background:linear-gradient(180deg,rgba(20,8,6,0.97),rgba(20,8,6,0.9));
+  border-bottom:1.5px solid rgba(201,168,76,0.35);display:flex;align-items:center;gap:10px;
+  padding:0 14px;z-index:100;}
+.back-btn,.ctrl-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);
+  color:var(--sandal);padding:7px 14px;border-radius:9px;cursor:pointer;font-family:inherit;
+  font-weight:700;font-size:0.8rem;white-space:nowrap;}
+.ctrl-btn.active{background:var(--gold);color:#2a1505;}
+.ctrl-btn:disabled{opacity:0.45;cursor:not-allowed;}
+#topbar .title{font-family:'Caveat',cursive;font-size:1.3rem;color:var(--sandal);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+/* ── setup ── */
+#setup{max-width:940px;margin:0 auto;padding:88px 20px 40px;}
+#setup h1{font-family:'Cinzel',serif;font-size:clamp(1.4rem,3vw,2.1rem);color:var(--gold-light);
+  text-align:center;margin-bottom:8px;}
+#setup .lead{text-align:center;color:var(--sandal);font-size:0.92rem;line-height:1.6;
+  max-width:60ch;margin:0 auto 30px;}
+.set-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;}
+.set-card{background:linear-gradient(160deg,rgba(201,168,76,0.13),rgba(30,20,8,0.55));
+  border:1.5px solid rgba(201,168,76,0.42);border-radius:14px;padding:16px 18px;cursor:pointer;
+  text-align:left;color:inherit;font-family:inherit;transition:border-color 0.15s,transform 0.15s;}
+.set-card:hover,.set-card:focus-visible{border-color:var(--gold);transform:translateY(-2px);}
+.set-card h3{font-family:'Cinzel',serif;font-size:1rem;color:var(--gold-light);margin-bottom:5px;}
+.set-card p{font-size:0.79rem;color:var(--sandal);line-height:1.5;}
+.set-card .count{display:inline-block;margin-top:9px;font-size:0.7rem;font-weight:800;
+  color:var(--gold);border:1px solid rgba(201,168,76,0.45);border-radius:999px;padding:2px 9px;}
+.group-head{font-family:'Cinzel',serif;font-size:0.95rem;color:var(--sandal);
+  margin:26px 0 12px;padding-bottom:7px;border-bottom:1.5px solid rgba(201,168,76,0.3);}
+.missing{background:rgba(107,26,26,0.3);border:1.5px solid rgba(201,168,76,0.35);
+  border-radius:12px;padding:14px 16px;font-size:0.82rem;color:var(--sandal);line-height:1.6;
+  margin-top:14px;}
+
+/* ── practice ── */
+#practice{display:none;padding:68px 14px 14px;}
+.work{display:grid;grid-template-columns:1fr 310px;gap:14px;max-width:1500px;margin:0 auto;
+  align-items:start;}
+.map-shell{background:#eaf4fb;border:1.5px solid rgba(201,168,76,0.5);border-radius:14px;
+  overflow:hidden;position:relative;}
+.map-shell svg{display:block;width:100%;height:auto;}
+.rail{display:flex;flex-direction:column;gap:10px;}
+.phase-row{display:flex;gap:6px;}
+.phase-row .ctrl-btn{flex:1;text-align:center;padding:8px 6px;font-size:0.74rem;}
+.prompt{background:linear-gradient(160deg,rgba(107,26,26,0.45),rgba(30,12,8,0.7));
+  border:1.5px solid rgba(201,168,76,0.5);border-radius:13px;padding:14px 16px;text-align:center;}
+.prompt .ask{font-size:0.72rem;color:var(--sandal);letter-spacing:0.04em;margin-bottom:6px;}
+.prompt .name{font-family:'Cinzel',serif;font-size:clamp(1.05rem,2.2vw,1.5rem);color:var(--gold-light);
+  line-height:1.3;}
+.prompt .hint{font-size:0.76rem;color:var(--sandal);line-height:1.5;margin-top:8px;}
+.place-list{display:flex;flex-direction:column;gap:6px;max-height:46vh;overflow-y:auto;padding-right:2px;}
+.place-btn{display:block;width:100%;text-align:left;background:linear-gradient(160deg,rgba(201,168,76,0.15),rgba(30,20,8,0.55));
+  color:var(--gold-light);border:1.5px solid rgba(201,168,76,0.45);border-radius:10px;
+  padding:10px 13px;font-family:inherit;font-weight:800;font-size:0.85rem;cursor:pointer;}
+.place-btn:hover:not(.done){filter:brightness(1.12);}
+.place-btn.done{background:linear-gradient(160deg,rgba(107,26,26,0.5),rgba(30,12,8,0.7));cursor:default;}
+.place-btn .sub{display:block;font-weight:400;font-size:0.72rem;color:var(--sandal);
+  line-height:1.45;margin-top:4px;}
+.rail-note{font-size:0.74rem;color:var(--sandal);line-height:1.55;text-align:center;}
+.done-banner{font-family:'Cinzel',serif;font-size:0.88rem;color:var(--gold);text-align:center;
+  border-top:1.5px solid rgba(201,168,76,0.35);padding-top:10px;}
+
+/* markers drawn into the map */
+.dss-dot{fill:#6B1A1A;stroke:#FFD86A;stroke-width:2.2;}
+.dss-label{font-family:'Nunito',sans-serif;font-weight:800;fill:#3a1608;paint-order:stroke;
+  stroke:#fff;stroke-width:3.2;stroke-linejoin:round;}
+
+@media(max-width:920px){
+  .work{grid-template-columns:1fr;}
+  .place-list{max-height:none;}
+}
+
+/* ── print: a clean worksheet, no interface, no ink-heavy ocean ── */
+@media print{
+  @page{size:landscape;margin:12mm;}
+  body{background:#fff;color:#000;}
+  #topbar,#setup,.rail,.no-print{display:none !important;}
+  #practice{display:block !important;padding:0;}
+  .work{display:block;}
+  .map-shell{border:1px solid #000;border-radius:0;background:#fff;}
+  .map-shell svg .region{fill:#fff !important;stroke:#333 !important;stroke-width:0.4 !important;}
+  .map-shell svg #gSeaBase path,.map-shell svg .sea{fill:#fff !important;stroke:#000 !important;}
+  .dss-dot{fill:#000 !important;stroke:#000 !important;}
+  .dss-label{fill:#000 !important;stroke:#fff !important;}
+  #printhead{display:block !important;}
+}
+#printhead{display:none;margin-bottom:8px;font-family:'Cinzel',serif;font-size:12pt;color:#000;}
+#printhead .line{margin-top:6px;font-family:'Nunito',sans-serif;font-size:10pt;}
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <button class="back-btn" id="btn-back" type="button">← Back</button>
+  <div class="title" id="bar-title">Map Practice</div>
+  <button class="ctrl-btn no-print" id="btn-change" type="button" style="display:none;">Change map</button>
+</div>
+
+<!-- ═══ SETUP ═══ -->
+<section id="setup">
+  <h1>Map Practice</h1>
+  <p class="lead">Pick a set. The class sees every place marked first, then marks a blank map
+     together. Print the blank map for homework when you finish.</p>
+  <div id="set-groups"></div>
+</section>
+
+<!-- ═══ PRACTICE ═══ -->
+<section id="practice">
+  <div id="printhead">
+    <span id="print-title"></span>
+    <div class="line">Name: ________________________  Class: __________  Date: __________</div>
+    <div class="line" id="print-places"></div>
+  </div>
+  <div class="work">
+    <div class="map-shell" id="map-shell"></div>
+    <div class="rail no-print">
+      <div class="phase-row">
+        <button class="ctrl-btn active" id="ph-show" type="button">1. Show</button>
+        <button class="ctrl-btn" id="ph-practice" type="button">2. Practise</button>
+        <button class="ctrl-btn" id="ph-print" type="button">3. Print</button>
+      </div>
+      <div class="prompt" id="prompt">
+        <div class="ask" id="prompt-ask"></div>
+        <div class="name" id="prompt-name"></div>
+        <div class="hint" id="prompt-hint"></div>
+      </div>
+      <div class="place-list" id="place-list"></div>
+      <div class="rail-note" id="rail-note"></div>
+      <div class="done-banner" id="done-banner" style="display:none;"></div>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ══════════════════════════════════════════════════════════════
+   MAP DEFINITIONS
+
+   Each map records how to turn latitude and longitude into a point
+   on that particular SVG. world-blank.svg is equirectangular but
+   centred on 10°E, not the prime meridian, so the longitude is
+   shifted before scaling. The frame numbers come from the map's own
+   sea rectangle, measured from the file rather than assumed.
+   ══════════════════════════════════════════════════════════════ */
+var MAPS = {
+  world: {
+    file: 'assets/maps/world-blank.svg',
+    label: 'World',
+    x0: 1.90, x1: 1102.00, y0: 1.70, y1: 551.30,
+    centreLng: 10,
+    project: function(lat, lng){
+      var w = this.x1 - this.x0, h = this.y1 - this.y0;
+      return {
+        x: this.x0 + (((lng - this.centreLng + 180) % 360 + 360) % 360) / 360 * w,
+        y: this.y0 + (90 - lat) / 180 * h
+      };
+    }
+  }
+  /* India maps slot in here once the Survey of India files are added. */
+};
+
+/* ══════════════════════════════════════════════════════════════
+   PRACTICE SETS
+   Ordinary data. Add a set by copying one of these.
+   "view" is the corner-to-corner window the map opens at, so a
+   Europe set fills the screen instead of sitting in a tiny corner.
+   ══════════════════════════════════════════════════════════════ */
+var SETS = [
+  { id:'wwi-europe', map:'world', group:'World — History',
+    title:'First World War: the two sides',
+    blurb:'The countries Samacheer asks students to mark for the First World War.',
+    view:{ latMin:33, latMax:63, lngMin:-13, lngMax:45 },
+    places:[
+      { name:'Great Britain', lat:54.0,  lng:-2.0,  hint:'island to the north-west of France' },
+      { name:'France',        lat:46.6,  lng:2.4,   hint:'faces the Atlantic, west of Germany' },
+      { name:'Germany',       lat:51.2,  lng:10.4,  hint:'central Europe, north of the Alps' },
+      { name:'Italy',         lat:41.9,  lng:12.5,  hint:'the boot-shaped peninsula' },
+      { name:'Greece',        lat:39.1,  lng:21.8,  hint:'south-east tip of Europe' },
+      { name:'Sarajevo',      lat:43.86, lng:18.41, hint:'in the Balkans, where the Archduke was shot' }
+    ]},
+  { id:'wwi-powers', map:'world', group:'World — History',
+    title:'First World War: the wider war',
+    blurb:'The powers outside western Europe that shaped the war and its end.',
+    view:{ latMin:20, latMax:68, lngMin:-15, lngMax:70 },
+    places:[
+      { name:'Russia',        lat:55.75, lng:37.62, hint:'the vast empire to the east' },
+      { name:'Austria-Hungary', lat:47.5, lng:16.4, hint:'centred on Vienna, south-east of Germany' },
+      { name:'Serbia',        lat:44.0,  lng:20.9,  hint:'in the Balkans, north of Greece' },
+      { name:'Ottoman Empire',lat:39.0,  lng:35.0,  hint:'centred on Turkey, guarding the straits' },
+      { name:'Versailles',    lat:48.80, lng:2.13,  hint:'just west of Paris, where the treaty was signed' }
+    ]},
+  { id:'continents', map:'world', group:'World — Geography',
+    title:'Continents and oceans',
+    blurb:'The starting point for every world map question.',
+    view:{ latMin:-58, latMax:75, lngMin:-170, lngMax:180 },
+    places:[
+      { name:'Asia',           lat:45,  lng:90,   hint:'the largest continent' },
+      { name:'Africa',         lat:2,   lng:20,   hint:'south of Europe, across the Mediterranean' },
+      { name:'Europe',         lat:50,  lng:15,   hint:'north-west of Asia' },
+      { name:'North America',  lat:45,  lng:-100, hint:'west across the Atlantic' },
+      { name:'South America',  lat:-15, lng:-60,  hint:'below North America' },
+      { name:'Australia',      lat:-25, lng:134,  hint:'south-east of Asia' },
+      { name:'Pacific Ocean',  lat:0,   lng:-150, hint:'the largest ocean' },
+      { name:'Atlantic Ocean', lat:5,   lng:-30,  hint:'between America and Africa' },
+      { name:'Indian Ocean',   lat:-20, lng:78,   hint:'south of India' }
+    ]},
+  { id:'india-neighbours', map:'world', group:'World — Geography',
+    title:'India and her neighbours',
+    blurb:'The countries that share a border or a sea with India.',
+    view:{ latMin:2, latMax:42, lngMin:58, lngMax:102 },
+    places:[
+      { name:'India',      lat:22.0, lng:79.0, hint:'the peninsula between the Arabian Sea and Bay of Bengal' },
+      { name:'Pakistan',   lat:30.0, lng:70.0, hint:'to the north-west' },
+      { name:'China',      lat:35.0, lng:92.0, hint:'across the Himalayas to the north' },
+      { name:'Nepal',      lat:28.2, lng:84.0, hint:'a narrow country along the Himalayas' },
+      { name:'Bangladesh', lat:23.7, lng:90.3, hint:'to the east, around the Ganga delta' },
+      { name:'Sri Lanka',  lat:7.8,  lng:80.7, hint:'the island off the southern tip' },
+      { name:'Myanmar',    lat:21.0, lng:96.0, hint:'east of Bangladesh' }
+    ]}
+];
+
+/* ══════════════════════════════════════════════════════════════ */
+var CURRENT = null, PHASE = 'show', REVEALED = 0, SVGROOT = null;
+
+function $(id){ return document.getElementById(id); }
+
+function buildSetup(){
+  var wrap = $('set-groups');
+  wrap.innerHTML = '';
+  var groups = [];
+  SETS.forEach(function(s){ if (groups.indexOf(s.group) === -1) groups.push(s.group); });
+  groups.forEach(function(g){
+    var h = document.createElement('div');
+    h.className = 'group-head';
+    h.textContent = g;
+    wrap.appendChild(h);
+    var grid = document.createElement('div');
+    grid.className = 'set-grid';
+    SETS.filter(function(s){ return s.group === g; }).forEach(function(s){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'set-card';
+      var t = document.createElement('h3'); t.textContent = s.title; b.appendChild(t);
+      var p = document.createElement('p'); p.textContent = s.blurb; b.appendChild(p);
+      var c = document.createElement('span'); c.className = 'count';
+      c.textContent = s.places.length + ' places'; b.appendChild(c);
+      b.onclick = function(){ startSet(s); };
+      grid.appendChild(b);
+    });
+    wrap.appendChild(grid);
+  });
+  var note = document.createElement('div');
+  note.className = 'missing';
+  note.textContent = 'India political, India physical and Tamil Nadu district sets appear here '
+    + 'once those outline maps are added to assets/maps.';
+  wrap.appendChild(note);
+}
+
+async function startSet(set){
+  CURRENT = set; PHASE = 'show'; REVEALED = 0;
+  $('setup').style.display = 'none';
+  $('practice').style.display = 'block';
+  $('btn-change').style.display = '';
+  $('bar-title').textContent = set.title;
+  $('print-title').textContent = set.title;
+  $('print-places').textContent = 'Mark: ' + set.places.map(function(p){ return p.name; }).join(', ');
+  $('map-shell').innerHTML = '<div style="padding:40px;text-align:center;color:#6B1A1A;'
+    + 'font-weight:700;">Loading map…</div>';
+  try{
+    await loadMap(MAPS[set.map], set.view);
+  }catch(e){
+    $('map-shell').innerHTML = '';
+    var err = document.createElement('div');
+    err.style.cssText = 'padding:30px;text-align:center;color:#6B1A1A;font-weight:700;line-height:1.6;';
+    err.textContent = 'The map file could not be loaded. Check that '
+      + MAPS[set.map].file + ' is in the repository.';
+    $('map-shell').appendChild(err);
+    return;
+  }
+  setPhase('show');
+}
+
+async function loadMap(mapDef, view){
+  var res = await fetch(mapDef.file);
+  if (!res.ok) throw new Error('missing map file');
+  var txt = await res.text();
+  $('map-shell').innerHTML = txt;
+  SVGROOT = $('map-shell').querySelector('svg');
+  if (!SVGROOT) throw new Error('not an svg');
+  // The file carries width and height but no viewBox, so it cannot scale.
+  // Give it one, cropped to the window this set cares about.
+  var a = mapDef.project(view.latMax, view.lngMin);
+  var b = mapDef.project(view.latMin, view.lngMax);
+  var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  var w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
+  SVGROOT.setAttribute('viewBox', x + ' ' + y + ' ' + w + ' ' + h);
+  SVGROOT.removeAttribute('width');
+  SVGROOT.removeAttribute('height');
+  SVGROOT.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  var layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  layer.setAttribute('id', 'dss-marks');
+  SVGROOT.appendChild(layer);
+  // Marks are sized against the crop, so a Europe set and a world set
+  // both end up with dots and labels the class can actually read.
+  SVGROOT._scale = w / 1000;
+}
+
+function clearMarks(){
+  var layer = SVGROOT && SVGROOT.querySelector('#dss-marks');
+  if (layer) while (layer.firstChild) layer.removeChild(layer.firstChild);
+}
+
+function mark(place){
+  if (!SVGROOT) return;
+  var layer = SVGROOT.querySelector('#dss-marks');
+  var pt = MAPS[CURRENT.map].project(place.lat, place.lng);
+  var s = SVGROOT._scale || 1;
+  var NS = 'http://www.w3.org/2000/svg';
+  var c = document.createElementNS(NS, 'circle');
+  c.setAttribute('cx', pt.x); c.setAttribute('cy', pt.y);
+  c.setAttribute('r', 5 * s); c.setAttribute('class', 'dss-dot');
+  c.setAttribute('stroke-width', 2.2 * s);
+  layer.appendChild(c);
+  var t = document.createElementNS(NS, 'text');
+  t.setAttribute('x', pt.x + 8 * s); t.setAttribute('y', pt.y - 7 * s);
+  t.setAttribute('class', 'dss-label');
+  t.setAttribute('font-size', 15 * s);
+  t.setAttribute('stroke-width', 3.2 * s);
+  t.textContent = place.name;
+  layer.appendChild(t);
+}
+
+function setPhase(p){
+  PHASE = p; REVEALED = 0;
+  ['show','practice','print'].forEach(function(k){
+    $('ph-' + k).classList.toggle('active', k === p);
+  });
+  clearMarks();
+  $('done-banner').style.display = 'none';
+  var list = $('place-list');
+  list.innerHTML = '';
+
+  if (p === 'show'){
+    $('prompt-ask').textContent = 'Step one';
+    $('prompt-name').textContent = 'Where each place is';
+    $('prompt-hint').textContent = 'Tap a name to put it on the map and read out where it sits.';
+    $('rail-note').textContent = 'When the class has seen them all, move to Practise.';
+    CURRENT.places.forEach(function(pl){
+      addPlaceButton(pl, function(btn){
+        mark(pl);
+        btn.classList.add('done');
+        addSub(btn, pl.hint);
+        bumpDone('All placed. Move to Practise and let the class try.');
+      });
+    });
+  }
+
+  if (p === 'practice'){
+    $('prompt-ask').textContent = 'Ask the class';
+    $('prompt-name').textContent = 'Where is ' + CURRENT.places[0].name + '?';
+    $('prompt-hint').textContent = 'Let them point first. Tap the name to mark it.';
+    $('rail-note').textContent = 'The map starts blank. Work down the list in order.';
+    CURRENT.places.forEach(function(pl, i){
+      addPlaceButton(pl, function(btn){
+        mark(pl);
+        btn.classList.add('done');
+        addSub(btn, pl.hint);
+        var next = CURRENT.places[i + 1];
+        $('prompt-name').textContent = next ? ('Where is ' + next.name + '?') : 'Every place marked';
+        $('prompt-hint').textContent = next ? 'Let them point first. Tap the name to mark it.'
+                                            : 'This is how the finished answer should look.';
+        bumpDone('All ' + CURRENT.places.length + ' marked — this is the finished answer.');
+      });
+    });
+  }
+
+  if (p === 'print'){
+    $('prompt-ask').textContent = 'Step three';
+    $('prompt-name').textContent = 'Print for homework';
+    $('prompt-hint').textContent = 'The blank sheet lists the places to mark and has space for a name.';
+    $('rail-note').textContent = 'Printing uses landscape. The ocean prints white to save ink.';
+    var blank = document.createElement('button');
+    blank.type = 'button'; blank.className = 'place-btn';
+    blank.textContent = 'Print blank map for students';
+    blank.onclick = function(){ clearMarks(); window.print(); };
+    list.appendChild(blank);
+    var key = document.createElement('button');
+    key.type = 'button'; key.className = 'place-btn';
+    key.textContent = 'Print marked map as answer key';
+    key.onclick = function(){
+      clearMarks();
+      CURRENT.places.forEach(mark);
+      window.print();
+    };
+    list.appendChild(key);
+  }
+}
+
+function addPlaceButton(pl, onPick){
+  var b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'place-btn';
+  b.textContent = pl.name;
+  b.onclick = function(){
+    if (b.classList.contains('done')) return;
+    onPick(b);
+  };
+  $('place-list').appendChild(b);
+  return b;
+}
+
+function addSub(btn, text){
+  if (!text) return;
+  var s = document.createElement('span');
+  s.className = 'sub';
+  s.textContent = text;
+  btn.appendChild(s);
+}
+
+function bumpDone(msg){
+  REVEALED++;
+  if (REVEALED === CURRENT.places.length){
+    var d = $('done-banner');
+    d.textContent = msg;
+    d.style.display = 'block';
+  }
+}
+
+$('ph-show').onclick = function(){ setPhase('show'); };
+$('ph-practice').onclick = function(){ setPhase('practice'); };
+$('ph-print').onclick = function(){ setPhase('print'); };
+$('btn-change').onclick = function(){
+  $('practice').style.display = 'none';
+  $('setup').style.display = 'block';
+  $('btn-change').style.display = 'none';
+  $('bar-title').textContent = 'Map Practice';
+  CURRENT = null;
+};
+$('btn-back').onclick = function(){
+  if (CURRENT){ $('btn-change').onclick(); return; }
+  var url = 'teachbot.html';
+  try{ url = sessionStorage.getItem('maps_returnUrl') || url; }catch(e){}
+  location.href = url;
+};
+
+buildSetup();
+</script>
+</body>
+</html>
