@@ -178,8 +178,43 @@ var MAPS = {
         y: this.y0 + (90 - lat) / 180 * h
       };
     }
+  },
+  /* Survey of India 1:16M outline, published 2023. Unlike the world map this is
+     a conic projection: parallels are circular arcs about a point far above the
+     sheet, and meridians are straight rays from it. The numbers below were
+     measured off the latitude and longitude grid printed on the map itself -
+     they came out at a central meridian of 80.001 E and a standard parallel of
+     23.4 N, both round figures, which is what confirms the reading is right. */
+  india_political: {
+    file: 'assets/maps/india-political.svg',
+    label: 'India — states',
+    x0: 252.3021, yc: -2183.5643, n: 0.396607, lam0: 80.0010,
+    rhoCoef: [-0.004902, -19.220950, 3020.622058],
+    rho: function(lat){
+      var a = this.rhoCoef;
+      return (a[0]*lat + a[1])*lat + a[2];
+    },
+    project: function(lat, lng){
+      var t = this.n * (lng - this.lam0) * Math.PI / 180, r = this.rho(lat);
+      return { x: this.x0 + r*Math.sin(t), y: this.yc + r*Math.cos(t) };
+    },
+    full: { latMin:5.5, latMax:38.5, lngMin:66.5, lngMax:99.5 }
   }
-  /* India maps slot in here once the Survey of India files are added. */
+};
+
+/* The window that shows the whole sheet. The world map wraps round, so it is
+   given directly; India is worked out from its corners like any other view. */
+MAPS.world.fullView = function(){
+  var top = this.project(83, this.centreLng).y, bot = this.project(-58, this.centreLng).y;
+  return { x:this.x0, y:top, w:this.x1 - this.x0, h:bot - top };
+};
+MAPS.india_political.fullView = function(){
+  var f = this.full;
+  var a = this.project(f.latMax, f.lngMin), b = this.project(f.latMin, f.lngMax);
+  var c2 = this.project(f.latMax, f.lngMax), d2 = this.project(f.latMin, f.lngMin);
+  var xs = [a.x,b.x,c2.x,d2.x], ys = [a.y,b.y,c2.y,d2.y];
+  var x = Math.min.apply(null,xs), y = Math.min.apply(null,ys);
+  return { x:x, y:y, w:Math.max.apply(null,xs)-x, h:Math.max.apply(null,ys)-y };
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -239,6 +274,78 @@ var SETS = [
       { name:'Bangladesh', lat:23.7, lng:90.3, hint:'to the east, around the Ganga delta' },
       { name:'Sri Lanka',  lat:7.8,  lng:80.7, hint:'the island off the southern tip' },
       { name:'Myanmar',    lat:21.0, lng:96.0, hint:'east of Bangladesh' }
+    ]},
+
+  { id:'south-states', map:'india_political', group:'India — States',
+    title:'States of southern India',
+    blurb:'The southern states, starting from home.',
+    view:{ latMin:7.5, latMax:21.5, lngMin:71.5, lngMax:85 },
+    places:[
+      { name:'Tamil Nadu',     lat:11.0, lng:78.5, hint:'the south-eastern corner, our own state' },
+      { name:'Kerala',         lat:10.4, lng:76.4, hint:'the narrow strip along the west coast' },
+      { name:'Karnataka',      lat:15.0, lng:76.0, hint:'north-west of Tamil Nadu' },
+      { name:'Andhra Pradesh', lat:15.9, lng:79.9, hint:'north of Tamil Nadu, on the east coast' },
+      { name:'Telangana',      lat:17.9, lng:79.0, hint:'inland, above Andhra Pradesh' },
+      { name:'Maharashtra',    lat:19.4, lng:76.2, hint:'the large state north of Karnataka' }
+    ]},
+  { id:'north-states', map:'india_political', group:'India — States',
+    title:'States of northern India',
+    blurb:'From the Thar desert up to the Himalayas.',
+    view:{ latMin:25.5, latMax:36.5, lngMin:68, lngMax:82 },
+    places:[
+      { name:'Rajasthan',         lat:26.8, lng:73.8, hint:'the largest state, desert in the west' },
+      { name:'Punjab',            lat:30.9, lng:75.4, hint:'north-west, the land of five rivers' },
+      { name:'Haryana',           lat:29.2, lng:76.3, hint:'wraps around Delhi' },
+      { name:'Uttar Pradesh',     lat:27.0, lng:80.5, hint:'the big state on the Ganga plain' },
+      { name:'Uttarakhand',       lat:30.1, lng:79.2, hint:'in the hills, north of Uttar Pradesh' },
+      { name:'Himachal Pradesh',  lat:31.9, lng:77.3, hint:'Himalayan state above Punjab' }
+    ]},
+  { id:'east-states', map:'india_political', group:'India — States',
+    title:'Eastern and north-eastern states',
+    blurb:'From the Ganga delta across to the far north-east.',
+    view:{ latMin:19.5, latMax:30.5, lngMin:81, lngMax:98 },
+    places:[
+      { name:'West Bengal',       lat:23.5, lng:87.8, hint:'along the Ganga delta' },
+      { name:'Odisha',            lat:20.6, lng:84.5, hint:'on the east coast, south of West Bengal' },
+      { name:'Bihar',             lat:25.6, lng:85.5, hint:'north-west of West Bengal' },
+      { name:'Jharkhand',         lat:23.6, lng:85.4, hint:'below Bihar' },
+      { name:'Assam',             lat:26.3, lng:92.7, hint:'the Brahmaputra valley in the north-east' },
+      { name:'Arunachal Pradesh', lat:28.2, lng:94.5, hint:'the far north-eastern corner' }
+    ]},
+  { id:'central-states', map:'india_political', group:'India — States',
+    title:'Central and western states',
+    blurb:'The wide middle of the country.',
+    view:{ latMin:14.5, latMax:27, lngMin:67.5, lngMax:85 },
+    places:[
+      { name:'Gujarat',        lat:22.7, lng:71.5, hint:'the west coast, shaped like a pincer' },
+      { name:'Madhya Pradesh', lat:23.5, lng:78.5, hint:'right in the centre of the country' },
+      { name:'Chhattisgarh',   lat:21.3, lng:82.0, hint:'east of Madhya Pradesh' },
+      { name:'Maharashtra',    lat:19.4, lng:76.2, hint:'south of Madhya Pradesh, on the west coast' },
+      { name:'Goa',            lat:15.4, lng:74.0, hint:'the smallest state, on the west coast' }
+    ]},
+  { id:'capitals', map:'india_political', group:'India — Cities',
+    title:'Major cities',
+    blurb:'The cities that come up most often in map questions.',
+    view:{ latMin:8, latMax:33, lngMin:68, lngMax:93 },
+    places:[
+      { name:'New Delhi',  lat:28.61, lng:77.21, hint:'the capital, in the north' },
+      { name:'Mumbai',     lat:19.08, lng:72.88, hint:'west coast, in Maharashtra' },
+      { name:'Chennai',    lat:13.08, lng:80.27, hint:'east coast, in Tamil Nadu' },
+      { name:'Kolkata',    lat:22.57, lng:88.36, hint:'east, near the Ganga delta' },
+      { name:'Bengaluru',  lat:12.97, lng:77.59, hint:'inland, in Karnataka' },
+      { name:'Hyderabad',  lat:17.39, lng:78.49, hint:'inland, in Telangana' }
+    ]},
+  { id:'india-extremes', map:'india_political', group:'India — Geography',
+    title:'The edges of India',
+    blurb:'The four corners and the island groups.',
+    view:{ latMin:5.5, latMax:38.5, lngMin:66.5, lngMax:99.5 },
+    places:[
+      { name:'Kanyakumari',  lat:8.08,  lng:77.55, hint:'the southern tip of the mainland' },
+      { name:'Kachchh',      lat:23.25, lng:69.67, hint:'the westernmost part of India, in Gujarat' },
+      { name:'Arunachal',    lat:28.0,  lng:96.3,  hint:'the easternmost part of India' },
+      { name:'Ladakh',       lat:34.6,  lng:77.6,  hint:'the northernmost region' },
+      { name:'Andaman & Nicobar', lat:11.7, lng:92.7, hint:'islands in the Bay of Bengal' },
+      { name:'Lakshadweep',  lat:10.6,  lng:72.6,  hint:'small islands in the Arabian Sea' }
     ]}
 ];
 
@@ -279,7 +386,7 @@ function buildSetup(){
   });
   var note = document.createElement('div');
   note.className = 'missing';
-  note.textContent = 'India political, India physical and Tamil Nadu district sets appear here '
+  note.textContent = 'India rivers, physical and Tamil Nadu district sets appear here '
     + 'once those outline maps are added to assets/maps.';
   wrap.appendChild(note);
 }
@@ -308,6 +415,16 @@ async function startSet(set){
   setPhase('show');
 }
 
+/* On a conic map the corners of a latitude/longitude window do not line up
+   into a neat rectangle, so take all four and use their extent. */
+function cornersToBox(mapDef, v){
+  var p = [ mapDef.project(v.latMax, v.lngMin), mapDef.project(v.latMax, v.lngMax),
+            mapDef.project(v.latMin, v.lngMin), mapDef.project(v.latMin, v.lngMax) ];
+  var xs = p.map(function(q){ return q.x; }), ys = p.map(function(q){ return q.y; });
+  var x = Math.min.apply(null, xs), y = Math.min.apply(null, ys);
+  return { x:x, y:y, w:Math.max.apply(null,xs)-x, h:Math.max.apply(null,ys)-y };
+}
+
 async function loadMap(mapDef, view){
   var res = await fetch(mapDef.file);
   if (!res.ok) throw new Error('missing map file');
@@ -317,13 +434,8 @@ async function loadMap(mapDef, view){
   if (!SVGROOT) throw new Error('not an svg');
   // The file carries width and height but no viewBox, so it cannot scale.
   // Give it one, cropped to the window this set cares about.
-  var a = mapDef.project(view.latMax, view.lngMin);
-  var b = mapDef.project(view.latMin, view.lngMax);
-  AREA = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
-           w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
-  // The whole map, poles trimmed - empty ice only shrinks everything else.
-  var top = mapDef.project(83, 0).y, bot = mapDef.project(-58, 0).y;
-  WORLD = { x: mapDef.x0, y: top, w: mapDef.x1 - mapDef.x0, h: bot - top };
+  AREA = cornersToBox(mapDef, view);
+  WORLD = mapDef.fullView();
   SVGROOT.removeAttribute('width');
   SVGROOT.removeAttribute('height');
   SVGROOT.setAttribute('preserveAspectRatio', 'xMidYMid meet');
