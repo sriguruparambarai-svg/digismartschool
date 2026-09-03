@@ -777,12 +777,23 @@ function renderMapDrill(inner, step){
     'Read a name aloud. Let the class point to it first, then tap to mark it.';
 
   var myIdx = CUR;
-  scMap = L.map('sc-drill-map', { zoomControl:false, attributionControl:true });
+  scMap = L.map('sc-drill-map', { zoomControl:false, attributionControl:true,
+    minZoom: 2, worldCopyJump: false,
+    maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1.0 });
+  // noWrap stops the world repeating sideways when the teacher drags the map.
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 10, attribution: '&copy; OpenStreetMap contributors'
+    maxZoom: 10, noWrap: true, bounds: [[-85, -180], [85, 180]],
+    attribution: '&copy; OpenStreetMap contributors'
   }).addTo(scMap);
   var bounds = step.places.map(function(p){ return [p.lat, p.lng]; });
   scMap.fitBounds(bounds, { padding:[60,60] });
+  // The map is built before the panel has finished sizing, so Leaflet works out
+  // its zoom against an empty box and lands on the whole world. Measure again
+  // once the layout has settled and fit properly.
+  setTimeout(function(){
+    if (CUR !== myIdx || !scMap) return;
+    try{ scMap.invalidateSize(); scMap.fitBounds(bounds, { padding:[60,60] }); }catch(e){}
+  }, 120);
 
   var list = inner.querySelector('.sc-drill-list');
   var doneEl = inner.querySelector('.sc-drill-done');
@@ -953,9 +964,12 @@ function renderMap(inner, step){
   }
 
   var myIdx = CUR;
-  scMap = L.map('sc-map', { zoomControl:false, attributionControl:true });
+  scMap = L.map('sc-map', { zoomControl:false, attributionControl:true,
+    minZoom: 2, worldCopyJump: false,
+    maxBounds: [[-85, -180], [85, 180]], maxBoundsViscosity: 1.0 });
   L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 10, attribution: '&copy; OpenStreetMap contributors'
+    maxZoom: 10, noWrap: true, bounds: [[-85, -180], [85, 180]],
+    attribution: '&copy; OpenStreetMap contributors'
   }).addTo(scMap);
 
   /* A region is one shape ("ring") or several ("rings" - a bloc of countries). */
@@ -968,6 +982,10 @@ function renderMap(inner, step){
   (step.markers || []).forEach(function(m){ bounds.push([m.lat, m.lng]); });
   if (bounds.length === 0) bounds = [[8,68],[34,92]];
   scMap.fitBounds(bounds, { padding:[46,46] });
+  setTimeout(function(){
+    if (CUR !== myIdx || !scMap) return;
+    try{ scMap.invalidateSize(); scMap.fitBounds(bounds, { padding:[46,46] }); }catch(e){}
+  }, 120);
 
   /* Regions appear one after another — like the teacher tracing the wall map */
   (step.regions || []).forEach(function(k, i){
