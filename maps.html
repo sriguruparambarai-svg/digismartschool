@@ -71,6 +71,9 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 .place-btn.done{background:linear-gradient(160deg,rgba(107,26,26,0.5),rgba(30,12,8,0.7));cursor:default;}
 .place-btn .sub{display:block;font-weight:400;font-size:0.72rem;color:var(--sandal);
   line-height:1.45;margin-top:4px;}
+.zoom-row{display:flex;gap:6px;}
+.zoom-row .ctrl-btn{flex:1;text-align:center;padding:8px 4px;font-size:0.72rem;}
+.zoom-row .zm-step{flex:0 0 40px;font-size:0.95rem;line-height:1;}
 .rail-note{font-size:0.74rem;color:var(--sandal);line-height:1.55;text-align:center;}
 .done-banner{font-family:'Cinzel',serif;font-size:0.88rem;color:var(--gold);text-align:center;
   border-top:1.5px solid rgba(201,168,76,0.35);padding-top:10px;}
@@ -138,6 +141,12 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
         <div class="ask" id="prompt-ask"></div>
         <div class="name" id="prompt-name"></div>
         <div class="hint" id="prompt-hint"></div>
+      </div>
+      <div class="zoom-row">
+        <button class="ctrl-btn" id="zm-world" type="button">Whole world</button>
+        <button class="ctrl-btn active" id="zm-area" type="button">Zoom to area</button>
+        <button class="ctrl-btn zm-step" id="zm-out" type="button" aria-label="Zoom out">&minus;</button>
+        <button class="ctrl-btn zm-step" id="zm-in" type="button" aria-label="Zoom in">+</button>
       </div>
       <div class="place-list" id="place-list"></div>
       <div class="rail-note" id="rail-note"></div>
@@ -235,6 +244,11 @@ var SETS = [
 
 /* ══════════════════════════════════════════════════════════════ */
 var CURRENT = null, PHASE = 'show', REVEALED = 0, SVGROOT = null;
+var VIEW = null;        // the window currently on screen, in map units
+var WORLD = null;       // the whole map, so the class can see where the area sits
+var AREA = null;        // this set's close-up
+var MARKED = [];        // places already put on the map
+var ANIM = null;
 
 function $(id){ return document.getElementById(id); }
 
@@ -305,28 +319,85 @@ async function loadMap(mapDef, view){
   // Give it one, cropped to the window this set cares about.
   var a = mapDef.project(view.latMax, view.lngMin);
   var b = mapDef.project(view.latMin, view.lngMax);
-  var x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
-  var w = Math.abs(b.x - a.x), h = Math.abs(b.y - a.y);
-  SVGROOT.setAttribute('viewBox', x + ' ' + y + ' ' + w + ' ' + h);
+  AREA = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y),
+           w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) };
+  // The whole map, poles trimmed - empty ice only shrinks everything else.
+  var top = mapDef.project(83, 0).y, bot = mapDef.project(-58, 0).y;
+  WORLD = { x: mapDef.x0, y: top, w: mapDef.x1 - mapDef.x0, h: bot - top };
   SVGROOT.removeAttribute('width');
   SVGROOT.removeAttribute('height');
   SVGROOT.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   var layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
   layer.setAttribute('id', 'dss-marks');
   SVGROOT.appendChild(layer);
-  // Marks are sized against the crop, so a Europe set and a world set
-  // both end up with dots and labels the class can actually read.
-  SVGROOT._scale = w / 1000;
+  applyView(WORLD);
+}
+
+/* Marks are drawn at a size relative to the window on screen, so a dot is
+   readable whether the class is looking at the whole world or at one country.
+   Changing the window therefore redraws them rather than rescaling in place. */
+function applyView(v){
+  VIEW = { x:v.x, y:v.y, w:v.w, h:v.h };
+  SVGROOT.setAttribute('viewBox', VIEW.x + ' ' + VIEW.y + ' ' + VIEW.w + ' ' + VIEW.h);
+  SVGROOT._scale = VIEW.w / 1000;
+  drawMarks();
+  var atWorld = Math.abs(VIEW.w - WORLD.w) < 1;
+  $('zm-world').classList.toggle('active', atWorld);
+  $('zm-area').classList.toggle('active', !atWorld);
+}
+
+/* Slide from one window to the next so the class watches the map travel to the
+   region instead of it simply cutting there. */
+function animateView(to, ms){
+  if (ANIM) cancelAnimationFrame(ANIM);
+  var from = { x:VIEW.x, y:VIEW.y, w:VIEW.w, h:VIEW.h };
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (reduce || !ms){ applyView(to); return; }
+  var t0 = performance.now();
+  function frame(now){
+    var p = Math.min(1, (now - t0) / ms);
+    var e = p < 0.5 ? 2*p*p : -1 + (4 - 2*p) * p;   // ease in and out
+    applyView({
+      x: from.x + (to.x - from.x) * e,
+      y: from.y + (to.y - from.y) * e,
+      w: from.w + (to.w - from.w) * e,
+      h: from.h + (to.h - from.h) * e
+    });
+    if (p < 1) ANIM = requestAnimationFrame(frame); else ANIM = null;
+  }
+  ANIM = requestAnimationFrame(frame);
+}
+
+function zoomBy(factor){
+  var cx = VIEW.x + VIEW.w / 2, cy = VIEW.y + VIEW.h / 2;
+  var w = VIEW.w * factor, h = VIEW.h * factor;
+  var maxW = WORLD.w, minW = WORLD.w / 40;
+  if (w > maxW){ w = maxW; h = WORLD.h; }
+  if (w < minW){ w = minW; h = minW * (VIEW.h / VIEW.w); }
+  animateView({ x: cx - w/2, y: cy - h/2, w: w, h: h }, 220);
+}
+
+function drawMarks(){
+  var layer = SVGROOT && SVGROOT.querySelector('#dss-marks');
+  if (!layer) return;
+  while (layer.firstChild) layer.removeChild(layer.firstChild);
+  MARKED.forEach(drawOne);
 }
 
 function clearMarks(){
-  var layer = SVGROOT && SVGROOT.querySelector('#dss-marks');
-  if (layer) while (layer.firstChild) layer.removeChild(layer.firstChild);
+  MARKED = [];
+  drawMarks();
 }
 
 function mark(place){
   if (!SVGROOT) return;
+  MARKED.push(place);
+  drawOne(place);
+}
+
+function drawOne(place){
   var layer = SVGROOT.querySelector('#dss-marks');
+  if (!layer) return;
   var pt = MAPS[CURRENT.map].project(place.lat, place.lng);
   var s = SVGROOT._scale || 1;
   var NS = 'http://www.w3.org/2000/svg';
@@ -350,6 +421,10 @@ function setPhase(p){
     $('ph-' + k).classList.toggle('active', k === p);
   });
   clearMarks();
+  if (WORLD){
+    applyView(WORLD);
+    setTimeout(function(){ if (PHASE === p && AREA) animateView(AREA, 1100); }, 900);
+  }
   $('done-banner').style.display = 'none';
   var list = $('place-list');
   list.innerHTML = '';
@@ -397,6 +472,10 @@ function setPhase(p){
     blank.type = 'button'; blank.className = 'place-btn';
     blank.textContent = 'Print blank map for students';
     blank.onclick = function(){ clearMarks(); window.print(); };
+    var zoomNote = document.createElement('div');
+    zoomNote.className = 'rail-note';
+    zoomNote.textContent = 'The sheet prints exactly the area on screen. '
+      + 'Zoom before printing if you want a closer map.';
     list.appendChild(blank);
     var key = document.createElement('button');
     key.type = 'button'; key.className = 'place-btn';
@@ -407,6 +486,7 @@ function setPhase(p){
       window.print();
     };
     list.appendChild(key);
+    list.appendChild(zoomNote);
   }
 }
 
@@ -417,6 +497,7 @@ function addPlaceButton(pl, onPick){
   b.textContent = pl.name;
   b.onclick = function(){
     if (b.classList.contains('done')) return;
+    if (VIEW && WORLD && Math.abs(VIEW.w - WORLD.w) < 1 && AREA) animateView(AREA, 700);
     onPick(b);
   };
   $('place-list').appendChild(b);
@@ -439,6 +520,11 @@ function bumpDone(msg){
     d.style.display = 'block';
   }
 }
+
+$('zm-world').onclick = function(){ animateView(WORLD, 700); };
+$('zm-area').onclick  = function(){ animateView(AREA, 700); };
+$('zm-in').onclick    = function(){ zoomBy(0.7); };
+$('zm-out').onclick   = function(){ zoomBy(1.45); };
 
 $('ph-show').onclick = function(){ setPhase('show'); };
 $('ph-practice').onclick = function(){ setPhase('practice'); };
