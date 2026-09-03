@@ -49,6 +49,12 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 
 /* ── practice ── */
 #practice{display:none;padding:68px 14px 14px;}
+body.working{overflow:hidden;height:100vh;}
+body.working #practice{height:100vh;}
+body.working .work{height:calc(100vh - 82px);}
+body.working .map-shell{height:100%;display:flex;align-items:center;justify-content:center;}
+body.working .map-shell svg{max-height:100%;width:auto;max-width:100%;}
+body.working .rail{height:calc(100vh - 82px);overflow-y:auto;}
 .work{display:grid;grid-template-columns:1fr 310px;gap:14px;max-width:1500px;margin:0 auto;
   align-items:start;}
 .map-shell{background:#eaf4fb;border:1.5px solid rgba(201,168,76,0.5);border-radius:14px;
@@ -395,6 +401,7 @@ async function startSet(set){
   CURRENT = set; PHASE = 'show'; REVEALED = 0;
   $('setup').style.display = 'none';
   $('practice').style.display = 'block';
+  document.body.classList.add('working');
   $('btn-change').style.display = '';
   $('bar-title').textContent = set.title;
   $('print-title').textContent = set.title;
@@ -493,7 +500,18 @@ function drawMarks(){
   var layer = SVGROOT && SVGROOT.querySelector('#dss-marks');
   if (!layer) return;
   while (layer.firstChild) layer.removeChild(layer.firstChild);
-  MARKED.forEach(drawOne);
+  // Two places close together - Bengaluru and Chennai, say - would print their
+  // names on top of one another. Nudge the later one below its dot instead.
+  var placed = [];
+  MARKED.forEach(function(p){
+    var pt = MAPS[CURRENT.map].project(p.lat, p.lng);
+    var s = SVGROOT._scale || 1;
+    var below = placed.some(function(q){
+      return Math.abs(q.x - pt.x) < 110 * s && Math.abs(q.y - pt.y) < 22 * s;
+    });
+    placed.push(pt);
+    drawOne(p, below);
+  });
 }
 
 function clearMarks(){
@@ -507,7 +525,7 @@ function mark(place){
   drawOne(place);
 }
 
-function drawOne(place){
+function drawOne(place, below){
   var layer = SVGROOT.querySelector('#dss-marks');
   if (!layer) return;
   var pt = MAPS[CURRENT.map].project(place.lat, place.lng);
@@ -519,7 +537,8 @@ function drawOne(place){
   c.setAttribute('stroke-width', 2.2 * s);
   layer.appendChild(c);
   var t = document.createElementNS(NS, 'text');
-  t.setAttribute('x', pt.x + 8 * s); t.setAttribute('y', pt.y - 7 * s);
+  t.setAttribute('x', pt.x + 8 * s);
+  t.setAttribute('y', pt.y + (below ? 17 * s : -7 * s));
   t.setAttribute('class', 'dss-label');
   t.setAttribute('font-size', 15 * s);
   t.setAttribute('stroke-width', 3.2 * s);
@@ -644,6 +663,7 @@ $('ph-print').onclick = function(){ setPhase('print'); };
 $('btn-change').onclick = function(){
   $('practice').style.display = 'none';
   $('setup').style.display = 'block';
+  document.body.classList.remove('working');
   $('btn-change').style.display = 'none';
   $('bar-title').textContent = 'Map Practice';
   CURRENT = null;
