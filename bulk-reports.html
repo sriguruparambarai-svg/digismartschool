@@ -113,21 +113,23 @@ body{font-family:'Nunito',sans-serif;background:#f0f2f5;color:var(--t);}
 <div class="card">
   <div class="ctitle">📝 Step 1 — Enter Student Marks</div>
 
+  <div style="font-size:.8rem;font-weight:700;color:#A07830;margin-bottom:9px;">How do you want to enter the marks?</div>
+
   <div class="mtabs">
     <div class="mtab active" id="tab-photo" onclick="setMethod('photo')">
       <div class="mtab-icon">📷</div>
-      <div class="mtab-title">Upload Photo</div>
-      <div class="mtab-desc">Photo of handwritten marksheet — AI reads automatically</div>
+      <div class="mtab-title">From a photo</div>
+      <div class="mtab-desc">Photo of a handwritten marksheet — AI reads it</div>
     </div>
     <div class="mtab" id="tab-excel" onclick="setMethod('excel')">
       <div class="mtab-icon">📊</div>
-      <div class="mtab-title">Upload Excel</div>
-      <div class="mtab-desc">Upload .xlsx or .csv with marks</div>
+      <div class="mtab-title">From Excel</div>
+      <div class="mtab-desc">An .xlsx or .csv file of marks</div>
     </div>
     <div class="mtab" id="tab-manual" onclick="setMethod('manual')">
       <div class="mtab-icon">✏️</div>
-      <div class="mtab-title">Enter Manually</div>
-      <div class="mtab-desc">Type marks directly below</div>
+      <div class="mtab-title">Type it in</div>
+      <div class="mtab-desc">Enter marks by hand in a table</div>
     </div>
   </div>
 
@@ -148,7 +150,7 @@ body{font-family:'Nunito',sans-serif;background:#f0f2f5;color:var(--t);}
   <div id="m-excel" style="display:none;">
     <div style="margin-bottom:10px;padding:10px;background:rgba(201,168,76,.07);border-radius:9px;font-size:.8rem;display:flex;align-items:center;gap:10px;">
       <span style="font-size:1.3rem;">📋</span>
-      <div style="flex:1;color:#555;">Format: Roll No | Student Name | Tamil | English | Maths | Science | Social | (optional subjects)</div>
+      <div style="flex:1;color:#555;">Format: Roll No | Student Name | Father's Name | Tamil | English | Maths | Science | Social | (optional subjects)</div>
       <button class="btn btno" onclick="dlTemplate()" style="padding:7px 12px;font-size:.78rem;flex-shrink:0;">⬇ Template</button>
     </div>
     <div class="uparea"><input type="file" id="excel-inp" accept=".xlsx,.xls,.csv" onchange="doExcel(this)"/>
@@ -326,7 +328,7 @@ async function doPhoto(inp){
     data.forEach(function(s){Object.keys(s.marks||{}).forEach(function(k){subs.add(k);});});
     if(subs.size>0){selSubjects=[...subs];buildChips();}
 
-    students=data.map(function(s){return{roll:String(s.roll||''),name:s.name||'',marks:s.marks||{},att:''};});
+    students=data.map(function(s){return{roll:String(s.roll||''),name:s.name||'',father:s.father||'',marks:s.marks||{},att:''};});
     showTable();
     showMsg('✅ AI read '+students.length+' students from your photo. Please verify marks below.','ok');
   }catch(e){
@@ -349,7 +351,7 @@ function doExcel(inp){
       var hdrs=rows[0].map(function(h){return String(h).trim();});
       var nIdx=hdrs.findIndex(function(h){return h.toLowerCase().includes('name');});
       var rIdx=hdrs.findIndex(function(h){return /roll|roll.no/i.test(h);});
-      var skip=['roll no','roll','name','student name','total','grade','rank','attendance','days present'];
+      var skip=['roll no','roll','name','student name','father','father name',"father's name",'total','grade','rank','attendance','days present'];
       var subCols=hdrs.filter(function(h){return h&&!skip.includes(h.toLowerCase());});
       if(subCols.length){selSubjects=subCols;buildChips();}
       students=[];
@@ -357,7 +359,8 @@ function doExcel(inp){
         var r=rows[i]; if(!r[nIdx>=0?nIdx:1]&&!r[rIdx>=0?rIdx:0]) continue;
         var marks={};
         subCols.forEach(function(s){var v=r[hdrs.indexOf(s)];marks[s]=v!==''?parseFloat(v)||null:null;});
-        students.push({roll:String(r[rIdx>=0?rIdx:0]||i),name:String(r[nIdx>=0?nIdx:1]||''),marks:marks,att:''});
+        var fIdx=hdrs.findIndex(function(h){return /father/i.test(h);});
+        students.push({roll:String(r[rIdx>=0?rIdx:0]||i),name:String(r[nIdx>=0?nIdx:1]||''),father:(fIdx>=0?String(r[fIdx]||''):''),marks:marks,att:''});
       }
       showTable();
       showMsg('✅ Found '+students.length+' students from Excel.','ok');
@@ -369,10 +372,10 @@ function doExcel(inp){
 function dlTemplate(){
   var wb=XLSX.utils.book_new();
   var ws=XLSX.utils.aoa_to_sheet([
-    ['Roll No','Student Name','Tamil','English','Maths','Science','Social Science','Hindi','Computer'],
-    [1,'Anitha R',85,90,92,88,87,78,95],[2,'Arun Kumar',72,68,95,70,75,80,82],[3,'Priya',91,85,78,88,92,70,89]
+    ['Roll No','Student Name',"Father's Name",'Tamil','English','Maths','Science','Social Science','Hindi','Computer'],
+    [1,'Anitha R','Ramesh K',85,90,92,88,87,78,95],[2,'Arun Kumar','Kumar S',72,68,95,70,75,80,82],[3,'Priya','Selvam M',91,85,78,88,92,70,89]
   ]);
-  ws['!cols']=[{wch:8},{wch:20},{wch:8},{wch:8},{wch:8},{wch:10},{wch:16},{wch:8},{wch:10}];
+  ws['!cols']=[{wch:8},{wch:20},{wch:20},{wch:8},{wch:8},{wch:8},{wch:10},{wch:16},{wch:8},{wch:10}];
   XLSX.utils.book_append_sheet(wb,ws,'Marks');
   XLSX.writeFile(wb,'Marks_Template.xlsx');
 }
@@ -381,11 +384,11 @@ function dlTemplate(){
 function buildManualEmpty(){
   var n=parseInt(document.getElementById('count-inp').value)||10;
   students=[];
-  for(var i=1;i<=n;i++) students.push({roll:String(i),name:'',marks:{},att:''});
+  for(var i=1;i<=n;i++) students.push({roll:String(i),name:'',father:'',marks:{},att:''});
   showTable();
 }
 function buildManual(){buildManualEmpty();}
-function addRow(){students.push({roll:String(students.length+1),name:'',marks:{},att:''});showTable();}
+function addRow(){students.push({roll:String(students.length+1),name:'',father:'',marks:{},att:''});showTable();}
 
 // ── TABLE ──
 function showTable(){
@@ -399,6 +402,7 @@ function rebuildHead(){
   document.getElementById('mthead').innerHTML='<tr>'
     +'<th style="width:50px;">Roll</th>'
     +'<th style="min-width:130px;">Student Name</th>'
+    +'<th style="min-width:130px;">Father\'s Name</th>'
     +selSubjects.map(function(s){return '<th>'+esc(s)+'<br/><span style="font-size:.6rem;opacity:.7;">/'+mmax+'</span></th>';}).join('')
     +'<th>Days<br/>Present</th>'
     +'<th>Total</th><th>%</th><th>Grade</th>'
@@ -416,6 +420,7 @@ function rebuildBody(){
     return '<tr>'
       +'<td><input class="roll-inp" type="text" value="'+esc(s.roll||'')+'" onchange="students['+idx+'].roll=this.value"/></td>'
       +'<td><input class="name-inp" type="text" value="'+esc(s.name||'')+'" onchange="students['+idx+'].name=this.value"/></td>'
+      +'<td><input class="name-inp" type="text" value="'+esc(s.father||'')+'" onchange="students['+idx+'].father=this.value"/></td>'
       +selSubjects.map(function(sub,si){
         var v=s.marks[sub]!==undefined&&s.marks[sub]!==null?s.marks[sub]:'';
         return '<td><input type="number" value="'+v+'" min="0" max="'+mmax+'" onchange="updMark('+idx+',\''+sub+'\',this.value)"/></td>';
@@ -439,11 +444,12 @@ function readTableValues(){
     if(!ins.length) return;
     students[idx].roll=ins[0].value;
     students[idx].name=ins[1].value;
+    students[idx].father=ins[2].value;
     selSubjects.forEach(function(sub,si){
-      var v=ins[2+si].value;
+      var v=ins[3+si].value;
       students[idx].marks[sub]=v===''?null:parseFloat(v);
     });
-    var attInp=ins[2+selSubjects.length];
+    var attInp=ins[3+selSubjects.length];
     if(attInp) students[idx].att=attInp.value;
   });
 }
@@ -559,7 +565,7 @@ async function startGen(){
       return{name:sub,max:mmax,obtained:m,pct:mp,grade:g.grade,color:g.color,bg:g.bg};
     }).filter(function(m){return m.obtained>0||s.marks[m.name]!==null;});
 
-    rcs.push({rollNo:s.roll,name:s.name,school:school,addr:addr,cls:cls,exam:exam,year:year,
+    rcs.push({rollNo:s.roll,name:s.name,father:s.father||'',school:school,addr:addr,cls:cls,exam:exam,year:year,
       teacher:teacher,principal:principal,correspondent:correspondent,workdays:workdays,present:s.att||'',
       mmax:mmax,marksData:marksData,total:s._tot,totalMax:totalMax,pct:pct,
       grade:grade,rank:s._rank,total_stu:total,remarks:remarks,date:date});
@@ -674,9 +680,10 @@ function buildRC(d){
   // Student info
   html+='<div style="padding:14px 22px;">';
   html+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;background:#FFFDF5;border:1px solid #EDD9A3;border-radius:9px;padding:12px;margin-bottom:16px;">';
-  [{l:'Student Name',v:d.name},{l:'Class',v:d.cls},{l:'Roll Number',v:String(d.rollNo)},
-   {l:'Examination',v:d.exam},{l:'Rank in Class',v:d.rank+' / '+d.total_stu},{l:'Academic Year',v:d.year}
-  ].forEach(function(f){
+  [{l:'Student Name',v:d.name},{l:"Father's Name",v:d.father||''},{l:'Class',v:d.cls},
+   {l:'Roll Number',v:String(d.rollNo)},{l:'Examination',v:d.exam},
+   {l:'Rank in Class',v:d.rank+' / '+d.total_stu},{l:'Academic Year',v:d.year}
+  ].filter(function(f){ return String(f.v||'').trim() !== ''; }).forEach(function(f){
     html+='<div style="border-bottom:1px dashed #EDD9A3;padding-bottom:6px;">';
     html+='<div style="font-size:.65rem;font-weight:700;color:#A07830;text-transform:uppercase;letter-spacing:.5px;">'+f.l+'</div>';
     html+='<div style="font-weight:700;color:#2A0A0F;font-size:.9rem;margin-top:2px;">'+esc(String(f.v))+'</div>';
