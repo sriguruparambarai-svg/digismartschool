@@ -1746,7 +1746,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
     <div class="form-row">
       <div class="form-group">
         <label>Class</label>
-        <select id="bb-class"><option value="">Select</option>
+        <select id="bb-class" onchange="bbLoadBooks()"><option value="">Select</option>
           <option>Pre KG</option><option>LKG</option><option>UKG</option>
           <option>Class 1</option><option>Class 2</option><option>Class 3</option>
           <option>Class 4</option><option>Class 5</option><option>Class 6</option>
@@ -1755,12 +1755,26 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
       <div class="form-group">
         <label>Subject</label>
-        <select id="bb-subject"><option value="">Select</option>
+        <select id="bb-subject" onchange="bbLoadBooks()"><option value="">Select</option>
           <option>English</option><option>Tamil</option><option>Maths</option>
           <option>Science</option><option>Social Science</option>
           <option>EVS</option><option>Computer Science</option><option>Hindi</option>
         </select>
       </div>
+    </div>
+    <div class="form-group">
+      <label>📖 Book (from your library)</label>
+      <select id="bb-book" onchange="bbBookChanged()">
+        <option value="">Select class and subject first</option>
+      </select>
+      <div id="bb-book-msg" style="font-size:0.8rem;color:#888;margin-top:6px;line-height:1.6;"></div>
+    </div>
+    <div class="form-group" id="bb-chwrap" style="display:none;">
+      <label>📑 Chapter</label>
+      <select id="bb-chapter" onchange="bbApplyChapter()">
+        <option value="">Select chapter</option>
+      </select>
+      <div style="font-size:0.78rem;color:#888;margin-top:5px;">Page numbers fill in automatically. Leave the boxes below empty and the AI reads this chapter straight from the book.</div>
     </div>
     <div class="form-group">
       <label>Lesson / Chapter Content (paste from textbook)</label>
@@ -2681,10 +2695,14 @@ function renderObjective(text) {
   return html;
 }
 
-// ══ WORKSHEET: BOOK + CHAPTER PICKER ══
+// ══ BOOK + CHAPTER PICKER (shared) ══
 // Same chapter source as the teach tab, so a teacher never counts pages by hand.
-// Paste and upload still work exactly as before — this is an extra route, not a replacement.
-var _wsBooks = [], _wsChapters = [], _wsBook = null;
+// More than one tool uses it, so every element id is built from a prefix:
+//   'ws' = Worksheet Generator, 'bb' = Book Back Answers.
+// Paste and upload still work everywhere - this is an extra route, not a replacement.
+var _pickBooks = {}, _pickChapters = {}, _pickBook = {};
+
+function dssPickedBook(p){ return _pickBook[p] || null; }
 
 function wsEsc(v){
   return String(v == null ? '' : v).replace(/[&<>"]/g, function(c){
@@ -2714,14 +2732,16 @@ function wsCleanTitle(t, n){
   return t;
 }
 
-async function wsLoadBooks(){
-  var cls = document.getElementById('ws-class').value;
-  var sub = document.getElementById('ws-subject').value;
-  var sel = document.getElementById('ws-book');
-  var msg = document.getElementById('ws-book-msg');
-  var chw = document.getElementById('ws-chwrap');
-  if (!sel) return;
-  _wsBooks = []; _wsChapters = []; _wsBook = null;
+async function dssPickBooks(p){
+  var clsEl = document.getElementById(p + '-class');
+  var subEl = document.getElementById(p + '-subject');
+  var sel = document.getElementById(p + '-book');
+  var msg = document.getElementById(p + '-book-msg');
+  var chw = document.getElementById(p + '-chwrap');
+  if (!sel || !clsEl || !subEl) return;
+  var cls = clsEl.value, sub = subEl.value;
+
+  _pickBooks[p] = []; _pickChapters[p] = []; _pickBook[p] = null;
   sel.innerHTML = '<option value="">Select book</option>';
   if (chw) chw.style.display = 'none';
   if (msg) msg.textContent = '';
@@ -2764,7 +2784,7 @@ async function wsLoadBooks(){
     });
   } catch(e) { /* library optional */ }
 
-  _wsBooks = books;
+  _pickBooks[p] = books;
   if (!books.length) {
     if (msg) msg.innerHTML = 'No book uploaded for ' + wsEsc(cls) + ' ' + wsEsc(sub)
       + ' yet. Ask your admin to add it \u2014 or just paste the lesson / upload a PDF below.';
@@ -2779,23 +2799,23 @@ async function wsLoadBooks(){
   });
 }
 
-async function wsBookChanged(){
-  var sel = document.getElementById('ws-book');
-  var chw = document.getElementById('ws-chwrap');
-  var chs = document.getElementById('ws-chapter');
-  var msg = document.getElementById('ws-book-msg');
-  _wsChapters = []; _wsBook = null;
+async function dssPickBookChanged(p){
+  var sel = document.getElementById(p + '-book');
+  var chw = document.getElementById(p + '-chwrap');
+  var chs = document.getElementById(p + '-chapter');
+  var msg = document.getElementById(p + '-book-msg');
+  _pickChapters[p] = []; _pickBook[p] = null;
   if (chs) chs.innerHTML = '<option value="">Select chapter</option>';
   if (chw) chw.style.display = 'none';
   if (msg) msg.textContent = '';
   if (!sel || sel.value === '') return;
-  var b = _wsBooks[parseInt(sel.value, 10)];
+  var b = (_pickBooks[p] || [])[parseInt(sel.value, 10)];
   if (!b) return;
-  _wsBook = b;
+  _pickBook[p] = b;
 
-  // A Samacheer library book means a State Board school -> book back by default.
-  // The school's own book means CBSE/private -> concept based by default.
-  wsSetStyle(b.source === 'library' ? 'bookback' : 'concept');
+  // Worksheet only: a Samacheer library book means a State Board school, so
+  // book back is the sensible default. The school's own book means CBSE.
+  if (p === 'ws') wsSetStyle(b.source === 'library' ? 'bookback' : 'concept');
 
   try {
     var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
@@ -2810,7 +2830,7 @@ async function wsBookChanged(){
       if (msg) msg.textContent = 'This book has no chapters detected yet \u2014 you can still paste the lesson or upload the PDF below.';
       return;
     }
-    _wsChapters = list;
+    _pickChapters[p] = list;
     list.forEach(function(c, i){
       var o = document.createElement('option');
       o.value = String(i);
@@ -2824,25 +2844,26 @@ async function wsBookChanged(){
   } catch(e) { /* chapters optional - paste and upload still work */ }
 }
 
-function wsApplyChapter(){
-  var sel = document.getElementById('ws-chapter');
+function dssPickChapter(p){
+  var sel = document.getElementById(p + '-chapter');
   if (!sel || sel.value === '') return;
-  var c = _wsChapters[parseInt(sel.value, 10)];
+  var c = (_pickChapters[p] || [])[parseInt(sel.value, 10)];
   if (!c) return;
-  var t = document.getElementById('ws-topic');
+  var t = document.getElementById(p + '-topic');   // Book Back has no Topic box
   var title = wsCleanTitle(c.chapter_title, c.chapter_number);
   if (t && title) t.value = title;
-  var f = document.getElementById('ws-start-page');
-  var e = document.getElementById('ws-end-page');
+  var f = document.getElementById(p + '-start-page');
+  var e = document.getElementById(p + '-end-page');
   if (f) f.value = c.page_from;
   if (e) e.value = c.page_to;
 }
 
 // Pull the chosen book's PDF so the AI can read the chapter directly.
-async function wsFetchBookPdf(){
-  if (!_wsBook || !_wsBook.pdf) return null;
+async function dssPickPdf(p){
+  var b = _pickBook[p];
+  if (!b || !b.pdf) return null;
   try {
-    var r = await fetch(_wsBook.pdf);
+    var r = await fetch(b.pdf);
     if (!r.ok) return null;
     var blob = await r.blob();
     return new File([blob], 'book.pdf', { type:'application/pdf' });
@@ -2851,6 +2872,15 @@ async function wsFetchBookPdf(){
     return null;
   }
 }
+
+// Named shortcuts used by the form controls on each panel
+function wsLoadBooks(){ return dssPickBooks('ws'); }
+function wsBookChanged(){ return dssPickBookChanged('ws'); }
+function wsApplyChapter(){ return dssPickChapter('ws'); }
+function wsFetchBookPdf(){ return dssPickPdf('ws'); }
+function bbLoadBooks(){ return dssPickBooks('bb'); }
+function bbBookChanged(){ return dssPickBookChanged('bb'); }
+function bbApplyChapter(){ return dssPickChapter('bb'); }
 
 // ══ WORKSHEET STYLE ══
 function wsGetStyle(){
@@ -2942,7 +2972,7 @@ Make it practical, engaging and suitable for Indian school children.`;
     if (!cls || !topic) { alert('Please fill Class and Topic.'); return; }
 
     // Nothing pasted, nothing uploaded, but a book chapter is chosen -> use the library book.
-    if (!pdfFile && !content.trim() && _wsBook) {
+    if (!pdfFile && !content.trim() && dssPickedBook('ws')) {
       document.getElementById(loadId).classList.add('show');
       pdfFile = await wsFetchBookPdf();
       document.getElementById(loadId).classList.remove('show');
@@ -2962,7 +2992,7 @@ Make it practical, engaging and suitable for Indian school children.`;
     if (document.getElementById('ws-short').checked) types.push('Short Answer Questions');
     if (document.getElementById('ws-match').checked) types.push('Match the Following');
 
-    const board = (_wsBook && _wsBook.source === 'library')
+    const board = (dssPickedBook('ws') && dssPickedBook('ws').source === 'library')
       ? 'Tamil Nadu State Board (Samacheer Kalvi)'
       : 'CBSE';
 
@@ -3110,9 +3140,27 @@ Rules:
     const bbFileInput = document.getElementById('bb-file');
     const hasPdf = bbFileInput && bbFileInput.files && bbFileInput.files[0];
     
-    if (!questions && !hasPdf && !content) { 
+    var pickedBB = dssPickedBook('bb');
+
+    if (!questions && !hasPdf && !content && !pickedBB) { 
       alert('Please either:\n1. Upload a PDF of the lesson, OR\n2. Paste the lesson text AND questions below'); 
       return; 
+    }
+
+    // Nothing pasted or uploaded, but a chapter is chosen - fetch the library book.
+    if (!hasPdf && !content && pickedBB) {
+      document.getElementById(loadId).classList.add('show');
+      var libPdf = await dssPickPdf('bb');
+      document.getElementById(loadId).classList.remove('show');
+      if (!libPdf) {
+        alert('Could not open the book file. Please paste the lesson or upload the PDF instead.');
+        return;
+      }
+      var libTrimmed = await extractPdfPageRange(libPdf,
+        document.getElementById('bb-start-page').value,
+        document.getElementById('bb-end-page').value);
+      await generateBookBackFromPDF(libTrimmed, cls, sub, questions, style);
+      return;
     }
 
     // If PDF uploaded, use it directly with AI
