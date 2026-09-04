@@ -196,6 +196,23 @@ tr:hover td{background:#fef9f0;}
       <option value="50">50 Teachers (Unlimited)</option>
     </select>
     <div id="sub-teacher-count" style="font-size:0.82rem;color:#555;margin-top:4px;padding:6px 10px;background:#f5f5f5;border-radius:6px;"></div>
+
+    <label style="margin-top:14px;">School Logo</label>
+    <div style="display:flex;align-items:center;gap:12px;padding:10px;border:1.5px solid #e0d5bd;border-radius:8px;background:#fffdf7;">
+      <img id="sub-logo-preview" src="" alt=""
+           style="width:60px;height:60px;object-fit:contain;border:1px solid #e0d5bd;border-radius:6px;background:#fff;display:none;flex-shrink:0;"/>
+      <div id="sub-logo-none" style="width:60px;height:60px;border:1px dashed #cbbb95;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:1.4rem;color:#bbb;flex-shrink:0;">🏫</div>
+      <div style="flex:1;min-width:0;">
+        <input type="file" id="sub-logo-file" accept="image/png,image/jpeg,image/webp" style="font-size:0.8rem;width:100%;"/>
+        <div style="font-size:0.72rem;color:#888;margin-top:4px;line-height:1.5;">
+          Appears on worksheets, question papers and report cards for this school.
+          A square PNG with a clear background works best.
+        </div>
+        <button type="button" id="sub-logo-remove" onclick="clearSchoolLogo()"
+                style="display:none;margin-top:6px;background:none;border:none;color:#c0392b;font-size:0.75rem;font-weight:700;cursor:pointer;padding:0;">Remove this logo</button>
+      </div>
+    </div>
+    <div id="sub-logo-msg" style="font-size:0.78rem;color:#666;margin-top:5px;"></div>
     <div class="success" id="sub-ok">✅ Updated!</div>
     <div class="error" id="sub-err"></div>
     <br/>
@@ -284,14 +301,19 @@ async function loadSchools() {
     const statusBadge = s.subscription_status === 'active' ? 'badge-active' :
                         s.subscription_status === 'trial' ? 'badge-trial' : 'badge-expired';
     tbody.innerHTML += `<tr>
-      <td><strong>${s.name}</strong></td>
+      <td>
+        ${s.logo_url
+          ? `<img src="${s.logo_url}" alt="" style="width:26px;height:26px;object-fit:contain;vertical-align:middle;margin-right:7px;border-radius:4px;">`
+          : `<span title="No logo yet" style="display:inline-block;width:26px;text-align:center;vertical-align:middle;margin-right:7px;opacity:0.35;">🏫</span>`}
+        <strong>${s.name}</strong>
+      </td>
       <td>${s.city || '-'}</td>
       <td>${s.email}</td>
       <td>${s.phone || '-'}</td>
       <td><span class="${statusBadge}">${s.subscription_status}</span></td>
       <td>${s.subscription_end || '-'}</td>
       <td>
-        <button class="btn bg bsm" onclick="openSubModal('${s.id}','${s.name}','${s.subscription_status}','${s.subscription_end||''}','${s.max_teachers||5}')">📋 Subscription</button>
+        <button class="btn bg bsm" onclick="openSubModal('${s.id}','${s.name}','${s.subscription_status}','${s.subscription_end||''}','${s.max_teachers||5}','${s.logo_url||''}')">📋 Subscription</button>
         <button class="btn bp bsm" onclick="openTeacherModal('${s.id}','${s.name}')" style="margin-left:5px;">👩‍🏫 Add Teacher</button>
       </td>
     </tr>`;
@@ -327,13 +349,39 @@ async function addSchool() {
   loadSchools();
 }
 
-async function openSubModal(id, name, status, end, maxT) {
+var _subLogoUrl = '';        // logo already saved for the school being edited
+
+function showSubLogo(url){
+  _subLogoUrl = url || '';
+  var img = document.getElementById('sub-logo-preview');
+  var none = document.getElementById('sub-logo-none');
+  var rm = document.getElementById('sub-logo-remove');
+  if (_subLogoUrl) {
+    img.src = _subLogoUrl; img.style.display = 'block';
+    none.style.display = 'none'; rm.style.display = 'inline';
+  } else {
+    img.style.display = 'none'; img.removeAttribute('src');
+    none.style.display = 'flex'; rm.style.display = 'none';
+  }
+}
+
+// Clearing only blanks the field here; it is written on Save like everything else.
+function clearSchoolLogo(){
+  showSubLogo('');
+  document.getElementById('sub-logo-file').value = '';
+  document.getElementById('sub-logo-msg').textContent = 'Logo will be removed when you save.';
+}
+
+async function openSubModal(id, name, status, end, maxT, logoUrl) {
   document.getElementById('sub-school-id').value = id;
   document.getElementById('sub-school-name').value = name;
   document.getElementById('sub-status').value = status;
   document.getElementById('sub-end').value = end;
   document.getElementById('sub-ok').style.display = 'none';
   document.getElementById('sub-err').style.display = 'none';
+  document.getElementById('sub-logo-file').value = '';
+  document.getElementById('sub-logo-msg').textContent = '';
+  showSubLogo(logoUrl || '');
   // Set max_teachers dropdown
   const maxSel = document.getElementById('sub-max-teachers');
   if(maxT){ maxSel.value = String(maxT); }
@@ -350,13 +398,70 @@ async function openSubModal(id, name, status, end, maxT) {
   document.getElementById('sub-modal').classList.add('on');
 }
 
+// Puts the picked file in storage and returns its public address.
+async function uploadSchoolLogo(schoolId, file){
+  var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+  var SB_KEY = 'sb_publishable_AeMrzyinAl4n2AifhC-j3A_wRh_nda3';
+  var ext = (file.name.split('.').pop() || 'png').toLowerCase();
+  if (['png','jpg','jpeg','webp'].indexOf(ext) === -1) ext = 'png';
+  // One fixed name per school, overwritten each time, so old files never pile up.
+  var path = 'logos/' + String(schoolId).replace(/[^A-Za-z0-9_-]/g, '') + '.' + ext;
+  var up = await fetch(SB_URL + '/storage/v1/object/library-books/' + path, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': file.type || 'image/png',
+      'x-upsert': 'true'
+    },
+    body: file
+  });
+  if (!up.ok) {
+    var t = await up.text();
+    throw new Error('Logo upload failed: ' + t.substring(0, 120));
+  }
+  // Cache-buster, otherwise a replaced logo keeps showing the old picture.
+  return SB_URL + '/storage/v1/object/public/library-books/' + path + '?v=' + Date.now();
+}
+
 async function saveSubscription() {
   const id = document.getElementById('sub-school-id').value;
   const status = document.getElementById('sub-status').value;
   const end = document.getElementById('sub-end').value;
   const maxTeachers = parseInt(document.getElementById('sub-max-teachers').value) || 5;
+
+  // Logo first - if it fails, nothing else has been changed yet.
+  const logoInput = document.getElementById('sub-logo-file');
+  const logoMsg = document.getElementById('sub-logo-msg');
+  const picked = logoInput && logoInput.files && logoInput.files[0];
+  let newLogoUrl = _subLogoUrl;
+  if (picked) {
+    if (picked.size > 2 * 1024 * 1024) {
+      showMsg('sub-err', 'That logo is over 2 MB. Please use a smaller image.');
+      return;
+    }
+    try {
+      logoMsg.textContent = 'Uploading logo\u2026';
+      newLogoUrl = await uploadSchoolLogo(id, picked);
+      logoMsg.textContent = '';
+    } catch (e) {
+      logoMsg.textContent = '';
+      showMsg('sub-err', e.message);
+      return;
+    }
+  }
+
   const d = await callAuth({ action: 'update_subscription', school_id: id, status, end_date: end, max_teachers: maxTeachers });
   if (d.error) { showMsg('sub-err', d.error); return; }
+
+  // Saved separately, because update_subscription does not know about logos.
+  if (newLogoUrl !== _subLogoUrl) {
+    const lr = await callAuth({ action: 'tbl_patch', table: 'schools',
+                                body: { logo_url: newLogoUrl || null },
+                                params: 'id=eq.' + encodeURIComponent(id) });
+    if (lr && lr.error) { showMsg('sub-err', 'Subscription saved, but the logo did not: ' + lr.error); return; }
+    _subLogoUrl = newLogoUrl;
+  }
   showMsg('sub-ok', null);
   setTimeout(() => { document.getElementById('sub-modal').classList.remove('on'); loadSchools(); }, 1000);
 }
