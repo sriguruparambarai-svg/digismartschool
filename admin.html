@@ -1085,9 +1085,15 @@ async function kgDraw(word, kind, redraw){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ query: kgPrompt(row), mode: kind === 'colour' ? 'kg-colour' : 'kg-outline' })
     });
-    var d = await r.json();
+    var d = null;
+    try { d = await r.json(); } catch(e){ d = null; }
+    if (!r.ok) {
+      throw new Error('the server said ' + r.status + (d && d.note ? ' \u2014 ' + d.note : '')
+        + (r.status === 403 ? ' (this page is not allowed to call the drawing service)' : '')
+        + (r.status === 504 || r.status === 502 ? ' (the drawing took too long and timed out)' : ''));
+    }
     var url = d && d.images && d.images[0] && d.images[0].url;
-    if (!url) throw new Error(d.note || 'the drawing service did not return a picture');
+    if (!url) throw new Error(d && d.note ? d.note : 'the drawing service returned nothing');
 
     var patch = {};
     patch[kind === 'colour' ? 'colour_url' : 'outline_url'] = url;
@@ -1099,11 +1105,13 @@ async function kgDraw(word, kind, redraw){
     kgRender();
     return true;
   } catch (e) {
-    kgSet('Could not draw "' + word + '": ' + e.message, '#c0392b');
+    kgLastError = word + ' (' + kind + '): ' + e.message;
+    kgSet('Could not draw ' + kgLastError, '#c0392b');
     if (card) card.style.opacity = '1';
     return false;
   }
 }
+var kgLastError = '';
 
 // Ten at a time, on purpose. Watch what the first batch costs before running
 // the whole list.
@@ -1121,17 +1129,30 @@ async function kgBatch(){
   document.getElementById('kg-batch-btn').disabled = true;
   document.getElementById('kg-stop-btn').style.display = 'inline-block';
 
-  var ok = 0;
+  var ok = 0, failed = 0;
+  kgLastError = '';
   for (var i = 0; i < todo.length; i++) {
     if (kgStopFlag) break;
     kgSet('Drawing ' + (i + 1) + ' of ' + todo.length + ' \u2014 ' + todo[i][0] + ' (' + todo[i][1] + ')\u2026');
-    if (await kgDraw(todo[i][0], todo[i][1])) ok++;
+    if (await kgDraw(todo[i][0], todo[i][1])) { ok++; failed = 0; }
+    else {
+      failed++;
+      // Two in a row means something is wrong at the other end, not with one
+      // word. Stop instead of burning through the rest.
+      if (failed >= 2) { kgStopFlag = true; break; }
+    }
   }
 
   kgBusy = false;
   document.getElementById('kg-batch-btn').disabled = false;
   document.getElementById('kg-stop-btn').style.display = 'none';
-  kgSet(ok + ' of ' + todo.length + ' drawn' + (kgStopFlag ? ' (stopped)' : '') + '.', '#1a5c2a');
+  if (kgLastError && ok === 0) {
+    kgSet('Nothing was drawn. Last error \u2014 ' + kgLastError, '#c0392b');
+  } else if (kgLastError) {
+    kgSet(ok + ' of ' + todo.length + ' drawn, then it stopped. Last error \u2014 ' + kgLastError, '#c0392b');
+  } else {
+    kgSet(ok + ' of ' + todo.length + ' drawn' + (kgStopFlag ? ' (stopped)' : '') + '.', '#1a5c2a');
+  }
 }
 
 function kgStop(){ kgStopFlag = true; kgSet('Stopping after this one\u2026'); }
