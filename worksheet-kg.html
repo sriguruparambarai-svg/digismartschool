@@ -608,6 +608,7 @@
       <button class="tab" data-t="cutpaste">Cut and paste<small>Cut the pictures out and glue them in place</small></button>
       <button class="tab" data-t="c12">Class 1 &amp; 2 Maths<small>Place value, carrying, tables, time, money, word problems</small></button>
       <button class="tab" data-t="c12e">Class 1 &amp; 2 English<small>Grammar, sentences, spelling, comprehension</small></button>
+      <button class="tab" data-t="kcon">KG Concepts<small>Opposites, sorting, position, same and different</small></button>
     </div>
   </nav>
 
@@ -757,6 +758,35 @@
       </div>
       <label class="chk"><input type="checkbox" id="dGuide"> Show a faint guide line</label>
       <label class="chk"><input type="checkbox" id="dColourAfter" checked> Add "now colour it" below</label>
+    </div>
+
+    <!-- kg concepts -->
+    <div data-panel="kcon" style="display:none">
+      <div class="grp">
+        <label>Concept</label>
+        <select id="kcKind">
+          <option value="opposite">Opposites — draw a line to match</option>
+          <option value="samediff">Same or different</option>
+          <option value="position">Where is it? — in, on, under</option>
+          <option value="sort">Sorting — draw a line to the right group</option>
+          <option value="size">Big and small, tall and short</option>
+          <option value="fullempty">Full and empty</option>
+        </select>
+      </div>
+      <div class="grp" id="kc-cat-wrap" style="display:none">
+        <label>Group one</label>
+        <select id="kcCat"></select>
+      </div>
+      <div class="grp" id="kc-cat2-wrap" style="display:none">
+        <label>Group two</label>
+        <select id="kcCat2"></select>
+      </div>
+      <div class="grp">
+        <label>How many</label>
+        <input type="number" id="kcQty" value="6" min="3" max="10">
+      </div>
+      <label class="chk"><input type="checkbox" id="kcKey" checked> Print an answer key page</label>
+      <p class="hint" id="kcHint"></p>
     </div>
 
     <!-- class 1 and 2 english -->
@@ -1377,6 +1407,7 @@ Draw your school bag</textarea>
       if(mode==="cutpaste"){ ctFillLists(); }
       if(mode==="c12"){ c12Sync(); }
       if(mode==="c12e"){ ceSync(); }
+      if(mode==="kcon"){ kcFillLists(); }
       if(mode==="count"){ makeCounts(); }
       if(mode==="cgrid"){ makeGrid(); }
       if(MATHS.indexOf(mode)>=0){ makeMaths(mode); }
@@ -1419,7 +1450,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="c12e");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="c12e" || mode==="kcon");
     b.style.display = uses ? "" : "none";
   }
 
@@ -2719,6 +2750,7 @@ Draw your school bag</textarea>
     kgPicHint();
     try { cpFillLists(); } catch(e) {}
     try { ctFillLists(); } catch(e) {}
+    try { kcFillLists(); } catch(e) {}
     try { render(); } catch(e) {}
   }
 
@@ -3870,6 +3902,224 @@ Draw your school bag</textarea>
      carrying and borrowing, and tables to ten. */
 
   /* ══════════════ CLASS 1 AND 2 ENGLISH ══════════════ */
+
+  /* ══════════════ KG CONCEPTS ══════════════
+     The early ideas that come before reading and counting: opposites, sorting,
+     where a thing is, whether two things are the same. Drawn with simple SVG
+     where we have no picture for the idea. */
+  var KC_OPP = [["big","small"],["tall","short"],["long","short"],["up","down"],
+                ["hot","cold"],["day","night"],["open","closed"],["happy","sad"],
+                ["full","empty"],["fast","slow"],["wet","dry"],["heavy","light"]];
+  var KC_POS = [["in","inside the box"],["on","on top of the box"],["under","under the box"],
+                ["beside","next to the box"]];
+
+  function kcBall(pos, size){
+    var w = size || 92;
+    var box = '<rect x="18" y="40" width="56" height="38" fill="none" stroke="#000" stroke-width="2.6"/>';
+    var ball = { in:[46,60], on:[46,31], under:[46,89], beside:[84,60] }[pos] || [46,60];
+    return '<svg width="'+w+'" height="'+w+'" viewBox="0 0 104 104">'
+         + box
+         + '<circle cx="'+ball[0]+'" cy="'+ball[1]+'" r="11" fill="#555" stroke="#000" stroke-width="2"/>'
+         + '</svg>';
+  }
+  function kcGlass(level){
+    var full = level >= 0.9, top = 74 - Math.round(level * 44);
+    return '<svg width="64" height="92" viewBox="0 0 64 92">'
+         + '<path d="M14 12 L18 78 Q32 84 46 78 L50 12 Z" fill="none" stroke="#000" stroke-width="2.6"/>'
+         + (level > 0.05 ? '<path d="M' + (14 + (top-12)*0.06) + ' ' + top + ' L18 78 Q32 84 46 78 L'
+             + (50 - (top-12)*0.06) + ' ' + top + ' Z" fill="#8ab6d6" stroke="none"/>' : '')
+         + '</svg>';
+  }
+  function kcTick(label, chosen, key){
+    return '<span style="display:inline-flex;align-items:center;gap:6px;margin:0 14px">'
+         + '<span style="display:inline-block;width:26px;height:26px;border:2px solid '
+         + (key && chosen ? '#1a5c2a' : '#000') + ';border-radius:5px;text-align:center;line-height:24px;'
+         + 'color:#1a5c2a;font-weight:700">' + (key && chosen ? '\u2713' : '') + '</span>'
+         + '<span style="font-family:var(--hf);font-size:18px">' + esc(label) + '</span></span>';
+  }
+  function kcCard(inner){
+    return '<div style="border:1.5px solid #999;border-radius:10px;padding:10px;text-align:center">' + inner + '</div>';
+  }
+  function kcSay(t){ return '<p style="text-align:center;font-size:15px;color:#333;margin:2px 0 14px">'+esc(t)+'</p>'; }
+  function kcPic(w, size){
+    var svg = iconSvg(w, size || 62);
+    return svg || '<span style="display:inline-block;width:'+(size||62)+'px;height:'+(size||62)
+         + 'px;border:1.5px dashed #bbb;border-radius:8px"></span>';
+  }
+  function kcPool(cat){
+    var out = [];
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      if (!ICONS[k].img && !ICONS[k].d) continue;
+      if (cat && cat !== "any" && ICONS[k].cat !== cat) continue;
+      out.push(k);
+    }
+    return out;
+  }
+
+  function kcFillLists(){
+    var seen = {};
+    kcPool(null).forEach(function(k){ if (ICONS[k].cat) seen[ICONS[k].cat] = true; });
+    var opts = Object.keys(seen).sort().map(function(c){
+      return '<option value="'+c+'">'+esc(CAT_LABELS[c] || c)+'</option>';
+    }).join('');
+    [["kcCat", 0], ["kcCat2", 1]].forEach(function(pair){
+      var el = $(pair[0]);
+      if (!el) return;
+      var keep = el.value;
+      el.innerHTML = opts;
+      if (keep && el.querySelector('option[value="'+keep+'"]')) el.value = keep;
+      else if (el.options.length > pair[1]) el.selectedIndex = pair[1];
+    });
+    kcSync();
+  }
+
+  function kcSync(){
+    var kind = val("kcKind") || "opposite";
+    function show(id, on){ var e = $(id); if (e) e.style.display = on ? "" : "none"; }
+    show("kc-cat-wrap",  kind === "sort" || kind === "samediff");
+    show("kc-cat2-wrap", kind === "sort");
+    var hint = $("kcHint");
+    if (hint){
+      hint.textContent = (kind === "position")
+        ? "A ball and a box. The child circles where the ball is."
+        : (kind === "size")
+          ? "The same picture at two sizes, so any drawn picture works."
+          : "Pictures come from the Picture Library where we have them.";
+    }
+  }
+
+  function buildKCon(key){
+    var kind = val("kcKind") || "opposite";
+    var qty = Math.max(3, Math.min(10, num("kcQty", 6)));
+    var rand = seeded(val("school") + "|kc|" + kind + "|" + qty + "|" + cpSeed);
+    var i, out = [];
+
+    if (kind === "opposite"){
+      var pairs = shuffleWith(KC_OPP.slice(), rand).slice(0, qty);
+      var right = shuffleWith(pairs.map(function(p){ return p[1]; }), rand);
+      var h = kcSay('Draw a line to join each word to its opposite.');
+      h += '<div style="display:grid;grid-template-columns:1fr 90px 1fr;gap:8px;align-items:center;margin-top:10px">';
+      for (i = 0; i < pairs.length; i++){
+        h += '<div style="text-align:right;font-family:var(--hf);font-size:24px;padding:10px 12px;'
+           + 'border:1.5px solid #999;border-radius:9px">' + esc(pairs[i][0]) + '</div>'
+           + '<div style="text-align:center;color:' + (key ? '#1a5c2a' : '#ccc') + ';font-size:15px">'
+           + (key ? esc(pairs[i][1]) : '\u2022 \u2014 \u2014 \u2022') + '</div>'
+           + '<div style="text-align:left;font-family:var(--hf);font-size:24px;padding:10px 12px;'
+           + 'border:1.5px solid #999;border-radius:9px">' + esc(right[i]) + '</div>';
+      }
+      return h + '</div>';
+    }
+
+    if (kind === "samediff"){
+      var pool = kcPool(val("kcCat"));
+      if (pool.length < 2) return kcEmpty();
+      var sh = shuffleWith(pool.slice(), rand);
+      var h2 = kcSay('Look at the two pictures. Tick same or different.');
+      for (i = 0; i < qty; i++){
+        var same = rand() < 0.5;
+        var a = sh[i % sh.length];
+        var b = same ? a : sh[(i + 1 + Math.floor(rand() * (sh.length - 1))) % sh.length];
+        if (!same && b === a) b = sh[(i + 1) % sh.length];
+        out.push('<div style="display:flex;align-items:center;gap:18px;padding:12px 4px;border-bottom:1px dashed #bbb">'
+          + kcPic(a, 60) + kcPic(b, 60)
+          + '<span style="margin-left:auto">' + kcTick('same', same, key) + kcTick('different', !same, key) + '</span>'
+          + '</div>');
+      }
+      return h2 + out.join('');
+    }
+
+    if (kind === "position"){
+      var h3 = kcSay('Where is the ball? Circle the right word.');
+      var cells = [];
+      for (i = 0; i < qty; i++){
+        var p = KC_POS[Math.floor(rand() * KC_POS.length)];
+        cells.push(kcCard(kcBall(p[0], 96)
+          + '<div style="margin-top:6px">' + KC_POS.map(function(o){
+              var mine = (o[0] === p[0]);
+              return '<span style="display:inline-block;margin:3px 6px;font-family:var(--hf);font-size:17px;'
+                   + (key && mine ? 'color:#1a5c2a;font-weight:700;border:2px solid #1a5c2a;border-radius:16px;padding:0 10px' : '')
+                   + '">' + esc(o[0]) + '</span>';
+            }).join('') + '</div>'));
+      }
+      return h3 + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">' + cells.join('') + '</div>';
+    }
+
+    if (kind === "sort"){
+      var c1 = val("kcCat") || "any", c2 = val("kcCat2") || "any";
+      var p1 = shuffleWith(kcPool(c1), rand).slice(0, Math.ceil(qty / 2));
+      var p2 = shuffleWith(kcPool(c2), rand).slice(0, Math.floor(qty / 2));
+      if (!p1.length && !p2.length) return kcEmpty();
+      var mixed = shuffleWith(p1.concat(p2), rand);
+      var h4 = kcSay('Draw a line from each picture to the group it belongs to.');
+      h4 += '<div style="display:flex;gap:20px;align-items:flex-start;margin-top:10px">'
+          + '<div style="flex:1">' + mixed.map(function(w){
+              return '<div style="display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px dashed #ddd">'
+                   + kcPic(w, 54)
+                   + (key ? '<span style="font-size:14px;color:#1a5c2a;font-weight:700">'
+                            + esc(CAT_LABELS[ICONS[w].cat] || ICONS[w].cat) + '</span>' : '')
+                   + '<span style="margin-left:auto;color:#bbb">\u2022</span></div>';
+            }).join('') + '</div>'
+          + '<div style="flex:0 0 150px;display:flex;flex-direction:column;gap:20px;padding-top:20px">'
+          + [c1, c2].map(function(c){
+              return '<div style="border:2px solid #000;border-radius:10px;padding:14px 8px;text-align:center;'
+                   + 'font-family:var(--hf);font-size:18px">\u2022 &nbsp;' + esc(CAT_LABELS[c] || c) + '</div>';
+            }).join('')
+          + '</div></div>';
+      return h4;
+    }
+
+    if (kind === "size"){
+      var sp = shuffleWith(kcPool(null), rand);
+      if (!sp.length) return kcEmpty();
+      var words = [["big","small"],["tall","short"],["long","short"]];
+      var h5 = kcSay('Circle the one the word tells you.');
+      var cells5 = [];
+      for (i = 0; i < qty; i++){
+        var w = sp[i % sp.length];
+        var pair = words[Math.floor(rand() * words.length)];
+        var wantBig = rand() < 0.5;
+        var ask = wantBig ? pair[0] : pair[1];
+        var leftBig = rand() < 0.5;
+        var mark = function(isBig){
+          var correct = (wantBig === isBig);
+          return '<span style="display:inline-block;padding:6px;border-radius:50%;'
+               + (key && correct ? 'border:3px solid #1a5c2a' : '') + '">'
+               + kcPic(w, isBig ? 76 : 40) + '</span>';
+        };
+        cells5.push(kcCard('<div style="font-family:var(--hf);font-size:19px;margin-bottom:6px">'
+          + 'Circle the <strong>' + esc(ask) + '</strong> one</div>'
+          + '<div style="display:flex;align-items:center;justify-content:center;gap:18px;min-height:86px">'
+          + (leftBig ? (mark(true) + mark(false)) : (mark(false) + mark(true))) + '</div>'));
+      }
+      return h5 + '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:12px">' + cells5.join('') + '</div>';
+    }
+
+    if (kind === "fullempty"){
+      var h6 = kcSay('Circle the word that tells about each glass.');
+      var cells6 = [];
+      for (i = 0; i < qty; i++){
+        var lvl = [0, 0.5, 1][Math.floor(rand() * 3)];
+        var word = lvl >= 0.9 ? "full" : (lvl <= 0.05 ? "empty" : "half full");
+        cells6.push(kcCard(kcGlass(lvl)
+          + '<div style="margin-top:4px">' + ["full", "half full", "empty"].map(function(o){
+              var mine = (o === word);
+              return '<span style="display:inline-block;margin:3px 6px;font-family:var(--hf);font-size:17px;'
+                   + (key && mine ? 'color:#1a5c2a;font-weight:700;border:2px solid #1a5c2a;border-radius:16px;padding:0 10px' : '')
+                   + '">' + esc(o) + '</span>';
+            }).join('') + '</div>'));
+      }
+      return h6 + '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px">' + cells6.join('') + '</div>';
+    }
+
+    return kcEmpty();
+  }
+
+  function kcEmpty(){
+    return '<p style="text-align:center;color:#999;padding:40px 20px;line-height:1.8">'
+         + 'No pictures available for this yet.<br>Draw some in the Super Admin Picture Library.</p>';
+  }
+
   var EN_NOUN = ["boy","girl","school","mango","teacher","bus","river","doctor","book","cow",
                  "village","garden","house","chair","temple","market","farmer","bird","pencil","water"];
   var EN_VERB = ["run","jump","eat","sing","read","write","play","sleep","walk","drink",
@@ -5182,6 +5432,7 @@ Draw your school bag</textarea>
     else if(mode==="cutpaste"){ body = buildCutPaste(); }
     else if(mode==="c12"){ body = buildC12(false); }
     else if(mode==="c12e"){ body = buildC12E(false); }
+    else if(mode==="kcon"){ body = buildKCon(false); }
     else if(MATHS.indexOf(mode)>=0){ body = buildMaths(mode,false); }
     else { body = buildCount(false); }
 
@@ -5194,6 +5445,13 @@ Draw your school bag</textarea>
               '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
               '<div style="height:10px"></div>'+
               buildMaths(mode,true)+signature()+footer()+'</div>';
+    }
+
+    if(mode==="kcon" && $("kcKey").checked){
+      html += '<div class="paper'+colour+'"'+st+'>'+header()+
+              '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
+              '<div style="height:10px"></div>'+
+              buildKCon(true)+signature()+footer()+'</div>';
     }
 
     if(mode==="c12e" && $("ceKey").checked){
@@ -5373,7 +5631,8 @@ Draw your school bag</textarea>
                "phFamily","phTricky","phBlendSet","phQty","phPics",
                "ctKind","ctCat","ctCat2","ctQty","ctLabel",
                "c12Kind","c12Level","c12Skip","c12Table","c12Time","c12Qty","c12Key",
-               "ceKind","ceLevel","ceQty","ceKey"];
+               "ceKind","ceLevel","ceQty","ceKey",
+               "kcKind","kcCat","kcCat2","kcQty","kcKey"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
@@ -5382,6 +5641,7 @@ Draw your school bag</textarea>
       if(this.id.indexOf("ct")===0){ ctSync(); }
       if(this.id.indexOf("c12")===0){ c12Sync(); }
       if(this.id.indexOf("ce")===0){ ceSync(); }
+      if(this.id.indexOf("kc")===0){ kcSync(); }
       if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
@@ -5419,6 +5679,7 @@ Draw your school bag</textarea>
   ctFillLists();
   c12Sync();
   ceSync();
+  kcFillLists();
   bindSecList(LANG); bindSecList(MIX);
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
