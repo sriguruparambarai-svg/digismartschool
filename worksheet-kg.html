@@ -603,6 +603,7 @@
       <button class="tab" data-t="half">Complete the other half<small>Draw the missing side</small></button>
       <button class="tab" data-t="draw">Draw in the box<small>A framed space for each idea</small></button>
       <button class="tab" data-t="cgrid">Colour by instruction<small>Colour each shape its own colour</small></button>
+      <button class="tab" data-t="colourpic">Colouring sheet<small>Big pictures for children to colour in</small></button>
     </div>
   </nav>
 
@@ -752,6 +753,37 @@
       </div>
       <label class="chk"><input type="checkbox" id="dGuide"> Show a faint guide line</label>
       <label class="chk"><input type="checkbox" id="dColourAfter" checked> Add "now colour it" below</label>
+    </div>
+
+    <!-- colouring sheet -->
+    <div data-panel="colourpic" style="display:none">
+      <div class="grp">
+        <label>Pictures from</label>
+        <select id="cpCat"><option value="any">Any picture</option></select>
+      </div>
+      <div class="grp">
+        <label>Which picture</label>
+        <select id="cpPick"><option value="">Any — pick for me</option></select>
+      </div>
+      <div class="grp">
+        <label>How many on the page</label>
+        <select id="cpPer">
+          <option value="1" selected>One big picture</option>
+          <option value="2">Two pictures</option>
+          <option value="4">Four pictures</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>Write the name under it</label>
+        <select id="cpLang">
+          <option value="">No name</option>
+          <option value="en" selected>English</option>
+          <option value="ta">Tamil</option>
+          <option value="hi">Hindi</option>
+        </select>
+      </div>
+      <label class="chk"><input type="checkbox" id="cpBox" checked> Draw a frame around each picture</label>
+      <p class="hint" id="cpHint">Uses the colouring pictures from the library. Draw more of them in the Super Admin Picture Library.</p>
     </div>
 
     <!-- complete the other half -->
@@ -1145,6 +1177,7 @@ Draw your school bag</textarea>
       for(var q=0;q<onlyMaths.length;q++){
         onlyMaths[q].style.display = (MATHS.indexOf(mode)>=0) ? "" : "none";
       }
+      if(mode==="colourpic"){ cpFillLists(); }
       if(mode==="count"){ makeCounts(); }
       if(mode==="cgrid"){ makeGrid(); }
       if(MATHS.indexOf(mode)>=0){ makeMaths(mode); }
@@ -1187,7 +1220,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic");
     b.style.display = uses ? "" : "none";
   }
 
@@ -2485,6 +2518,7 @@ Draw your school bag</textarea>
     } catch(e) { /* library optional - built-in drawings still work */ }
     kgApplyPicStyle();
     kgPicHint();
+    try { cpFillLists(); } catch(e) {}
     try { render(); } catch(e) {}
   }
 
@@ -3211,6 +3245,99 @@ Draw your school bag</textarea>
   }
 
   /* ---------- complete the other half ---------- */
+  /* ---------- colouring sheet ----------
+     Big outline pictures for a child to colour in. Only words that actually
+     have a colouring picture are offered, so a page is never half empty. */
+  var cpSeed = 1;                 // bumped by the Shuffle button
+  function cpPool(){
+    var cat = val("cpCat") || "any";
+    var out = [];
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      var row = KG_PIC[k];
+      if (!row || !row.outline_url) continue;              // needs a colouring picture
+      if (cat !== "any" && ICONS[k].cat !== cat) continue;
+      out.push(k);
+    }
+    return out;
+  }
+
+  function cpFillLists(){
+    var catSel = $("cpCat"), pickSel = $("cpPick");
+    if (!catSel || !pickSel) return;
+    // Categories that have at least one colouring picture
+    var seen = {};
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      var row = KG_PIC[k];
+      if (row && row.outline_url && ICONS[k].cat) seen[ICONS[k].cat] = true;
+    }
+    var keepCat = catSel.value;
+    catSel.innerHTML = '<option value="any">Any picture</option>'
+      + Object.keys(seen).sort().map(function(c){
+          return '<option value="' + c + '">' + esc(CAT_LABELS[c] || c) + '</option>';
+        }).join('');
+    if (keepCat) catSel.value = keepCat;
+    if (!catSel.value) catSel.value = "any";
+
+    var keepPick = pickSel.value;
+    var pool = cpPool();
+    pickSel.innerHTML = '<option value="">Any \u2014 pick for me</option>'
+      + pool.sort().map(function(k){
+          return '<option value="' + k + '">' + esc(ICONS[k].en || k) + '</option>';
+        }).join('');
+    if (keepPick && pool.indexOf(keepPick) >= 0) pickSel.value = keepPick;
+
+    var hint = $("cpHint");
+    if (hint) {
+      hint.textContent = pool.length
+        ? pool.length + ' colouring pictures available here.'
+        : 'No colouring pictures drawn yet. Open the Super Admin Picture Library and draw some outlines first.';
+    }
+  }
+
+  function buildColourPic(){
+    var pool = cpPool();
+    if (!pool.length){
+      return '<p style="text-align:center;color:#999;padding:40px 20px;line-height:1.8">'
+           + 'No colouring pictures have been drawn yet.<br>'
+           + 'Ask your admin to draw some outlines in the Picture Library.</p>';
+    }
+
+    var per = num("cpPer", 1);
+    var lang = val("cpLang");
+    var framed = $("cpBox").checked;
+    var chosen = val("cpPick");
+    var rand = seeded(val("school") + "|colourpic|" + val("cpCat") + "|" + per + "|" + cpSeed);
+
+    var picks = [];
+    if (chosen) {
+      for (var i = 0; i < per; i++) picks.push(chosen);       // same picture repeated
+    } else {
+      var bag = shuffleWith(pool.slice(), rand);
+      for (var j = 0; j < per; j++) picks.push(bag[j % bag.length]);
+    }
+
+    // One big picture fills the page; four share it.
+    var imgH = per === 1 ? 400 : (per === 2 ? 250 : 175);
+    var cols = per === 1 ? 1 : 2;
+
+    var html = '<div style="display:grid;grid-template-columns:repeat(' + cols + ',1fr);gap:14px;margin-top:6px">';
+    for (var p = 0; p < picks.length; p++){
+      var ic = ICONS[picks[p]];
+      var url = (KG_PIC[picks[p]] || {}).outline_url;
+      var name = lang ? (ic[lang] || ic.en || picks[p]) : '';
+      html += '<div style="text-align:center;'
+            + (framed ? 'border:2px solid #000;border-radius:10px;padding:10px;' : 'padding:6px;')
+            + '">'
+            + '<img src="' + esc(url) + '" alt="" style="width:100%;max-height:' + imgH + 'px;object-fit:contain;display:block;margin:0 auto">'
+            + (name ? '<div style="font-family:var(--hf);font-size:' + (per === 1 ? 30 : 22) + 'px;margin-top:8px;letter-spacing:2px">' + esc(name) + '</div>' : '')
+            + '</div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
   function buildHalf(){
     var pts = HALF[val("hShape")] || HALF.star;
     var col = ink();
@@ -3702,6 +3829,7 @@ Draw your school bag</textarea>
     else if(mode==="half"){ body = buildHalf(); }
     else if(mode==="draw"){ body = buildDraw(); }
     else if(mode==="cgrid"){ body = buildGrid(); }
+    else if(mode==="colourpic"){ body = buildColourPic(); }
     else if(MATHS.indexOf(mode)>=0){ body = buildMaths(mode,false); }
     else { body = buildCount(false); }
 
@@ -3873,11 +4001,13 @@ Draw your school bag</textarea>
                "pOp","pQty","pMax","pShape",
                "kWhich","kQty","kMax",
                "sFrom","sTo","sTimes","sTrace","fitOne",
-               "wnLang","wnSet","wnFrom","wnTo","wnFmt"];
+               "wnLang","wnSet","wnFrom","wnTo","wnFmt",
+               "cpCat","cpPick","cpPer","cpLang","cpBox"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
     el.addEventListener("input", function(){
+      if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
       if("nFrom nTo nGap".indexOf(this.id)>=0){ makeMnum(); }
@@ -3896,6 +4026,7 @@ Draw your school bag</textarea>
   $("shuffle").addEventListener("click", function(){
     if(mode==="mix"){ MIX.reseed(); render(); return; }
     if(mode==="sec"){ LANG.reseed(); render(); return; }
+    cpSeed++;
     makeCounts();
     makeGrid();
     makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
