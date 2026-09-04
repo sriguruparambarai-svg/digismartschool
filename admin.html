@@ -104,6 +104,7 @@ tr:hover td{background:#fef9f0;}
     <button class="tbl-sidebar-item tbl-on" id="tbl-tab-schools" onclick="tblTab('schools')">🏫 Schools</button>
     <button class="tbl-sidebar-item" id="tbl-tab-library" onclick="tblTab('library')">📚 Textbook Library</button>
     <button class="tbl-sidebar-item" id="tbl-tab-revision" onclick="tblTab('revision')">🗣️ Revision Library</button>
+    <button class="tbl-sidebar-item" id="tbl-tab-pics" onclick="tblTab('pics')">🎨 Picture Library</button>
   </div>
   <div class="tbl-content">
   <div class="tbl-panel tbl-show" id="tbl-panel-schools">
@@ -640,6 +641,42 @@ loadSchools();
     </div>
   </div><!-- /revision panel -->
 
+  <!-- ══════════ KG PICTURE LIBRARY ══════════ -->
+  <div class="tbl-panel" id="tbl-panel-pics">
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px;">
+        <h2 style="margin:0;">🎨 KG Picture Library</h2>
+        <span id="kg-count" style="font-size:0.85rem;color:#666;"></span>
+      </div>
+      <p style="font-size:0.85rem;color:#666;line-height:1.6;margin-bottom:14px;">
+        Each word gets two pictures: a <strong>colour</strong> one for counting and matching sheets,
+        and an <strong>outline</strong> one for colouring pages. Drawn once here and shared by every
+        school forever — teachers never wait for a picture to be made.
+      </p>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+        <select id="kg-cat" onchange="kgRender()" style="padding:8px 10px;border:1.5px solid #e0d5bd;border-radius:8px;">
+          <option value="">All categories</option>
+        </select>
+        <select id="kg-filter" onchange="kgRender()" style="padding:8px 10px;border:1.5px solid #e0d5bd;border-radius:8px;">
+          <option value="all">Show all</option>
+          <option value="missing">Missing a picture</option>
+          <option value="done">Both done</option>
+        </select>
+        <input type="text" id="kg-search" oninput="kgRender()" placeholder="Search a word…"
+               style="padding:8px 10px;border:1.5px solid #e0d5bd;border-radius:8px;min-width:160px;">
+        <button class="btn bp bsm" onclick="kgBatch()" id="kg-batch-btn">▶ Draw missing (10)</button>
+        <button class="btn bsm" onclick="kgStop()" id="kg-stop-btn" style="display:none;background:#c0392b;color:#fff;">■ Stop</button>
+        <button class="btn bg bsm" onclick="kgLoad()">↻ Refresh</button>
+      </div>
+
+      <div id="kg-status" style="display:none;padding:10px 12px;background:#fffdf7;border:1.5px solid #e0d5bd;border-radius:8px;font-size:0.85rem;margin-bottom:12px;"></div>
+      <div id="kg-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:12px;">
+        <div style="color:#999;">Loading…</div>
+      </div>
+    </div>
+  </div><!-- /pics panel -->
+
   </div><!-- /tbl-content -->
 </div><!-- /tbl-wrap -->
 
@@ -943,8 +980,164 @@ async function rlRemove(id, chapter){
 }
 
 // ===== TEXTBOOK LIBRARY FUNCTIONS =====
+// ══════════ KG PICTURE LIBRARY ══════════
+var kgRows = [], kgStopFlag = false, kgBusy = false;
+
+// What to actually ask the drawing model for. A bare word like "run" or "ear"
+// is ambiguous, so each category gets a short phrase around it.
+function kgPrompt(r){
+  var w = r.en || r.word;
+  switch (r.cat) {
+    case 'action':    return 'a child doing the action: ' + w;
+    case 'helper':    return 'an Indian ' + w + ', a friendly community helper, standing';
+    case 'body':      return 'a single human ' + w + ', shown on its own as a body part for a child to name';
+    case 'shape':     return 'a plain ' + w + ' shape, a simple geometric shape on its own';
+    case 'family':    return 'an Indian ' + w + ', a friendly family member';
+    case 'weather':   return w + ', shown as a simple weather symbol';
+    case 'vegetable': return 'a ' + w + ' vegetable';
+    case 'fruit':     return 'a ' + w + ' fruit';
+    case 'clothes':   return 'a ' + w + ', an item of clothing on its own';
+    default:          return 'a ' + w;
+  }
+}
+
+function kgSet(msg, colour){
+  var el = document.getElementById('kg-status');
+  if (!el) return;
+  if (!msg) { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.textContent = msg;
+  el.style.color = colour || '#444';
+}
+
+async function kgLoad(){
+  var grid = document.getElementById('kg-grid');
+  grid.innerHTML = '<div style="color:#999;">Loading\u2026</div>';
+  var d = await callAuth({ action:'tbl_get', table:'kg_pictures', params:'select=*&order=cat,word' });
+  if (d && d.error) { grid.innerHTML = '<div style="color:#c0392b;">' + d.error + '</div>'; return; }
+  kgRows = Array.isArray(d) ? d : [];
+  if (!kgRows.length) {
+    grid.innerHTML = '<div style="color:#c0392b;line-height:1.7;">No words found. Run <strong>kg_pictures.sql</strong> in the Supabase SQL editor first.</div>';
+    return;
+  }
+  var cats = {}; kgRows.forEach(function(r){ cats[r.cat] = 1; });
+  var sel = document.getElementById('kg-cat');
+  sel.innerHTML = '<option value="">All categories</option>'
+    + Object.keys(cats).sort().map(function(c){ return '<option value="' + c + '">' + c + '</option>'; }).join('');
+  kgRender();
+}
+
+function kgVisible(){
+  var cat = document.getElementById('kg-cat').value;
+  var filt = document.getElementById('kg-filter').value;
+  var q = (document.getElementById('kg-search').value || '').toLowerCase().trim();
+  return kgRows.filter(function(r){
+    if (cat && r.cat !== cat) return false;
+    if (q && (r.word + ' ' + (r.en||'')).toLowerCase().indexOf(q) === -1) return false;
+    var both = r.colour_url && r.outline_url;
+    if (filt === 'missing' && both) return false;
+    if (filt === 'done' && !both) return false;
+    return true;
+  });
+}
+
+function kgRender(){
+  var rows = kgVisible();
+  var doneC = kgRows.filter(function(r){ return r.colour_url; }).length;
+  var doneO = kgRows.filter(function(r){ return r.outline_url; }).length;
+  document.getElementById('kg-count').textContent =
+    kgRows.length + ' words \u00B7 ' + doneC + ' colour \u00B7 ' + doneO + ' outline drawn';
+
+  var box = function(url, word, kind){
+    var label = kind === 'colour' ? 'Colour' : 'Outline';
+    if (url) {
+      return '<div style="text-align:center;">'
+           + '<img src="' + url + '" alt="" style="width:72px;height:72px;object-fit:contain;border:1px solid #e6dcc4;border-radius:6px;background:#fff;">'
+           + '<div style="font-size:0.68rem;color:#888;margin-top:2px;">' + label + '</div>'
+           + '<button onclick="kgDraw(\'' + word + '\',\'' + kind + '\',true)" style="background:none;border:none;color:#A07830;font-size:0.66rem;cursor:pointer;padding:0;">redraw</button>'
+           + '</div>';
+    }
+    return '<div style="text-align:center;">'
+         + '<div style="width:72px;height:72px;border:1px dashed #cbbb95;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#ccc;font-size:1.5rem;">?</div>'
+         + '<button onclick="kgDraw(\'' + word + '\',\'' + kind + '\')" class="btn bp bsm" style="margin-top:4px;padding:3px 8px;font-size:0.66rem;">Draw ' + label + '</button>'
+         + '</div>';
+  };
+
+  document.getElementById('kg-grid').innerHTML = rows.length
+    ? rows.map(function(r){
+        return '<div id="kg-card-' + r.word + '" style="border:1.5px solid #e6dcc4;border-radius:10px;padding:10px;background:#fffdf7;">'
+          + '<div style="font-weight:800;color:#6B0F1A;font-size:0.88rem;">' + (r.en || r.word) + '</div>'
+          + '<div style="font-size:0.7rem;color:#999;margin-bottom:8px;">' + (r.cat || '') + ' \u00B7 ' + (r.ta || '') + '</div>'
+          + '<div style="display:flex;gap:10px;justify-content:center;">' + box(r.colour_url, r.word, 'colour') + box(r.outline_url, r.word, 'outline') + '</div>'
+          + '</div>';
+      }).join('')
+    : '<div style="color:#999;">Nothing matches that filter.</div>';
+}
+
+// Draw one picture and remember where it was saved.
+async function kgDraw(word, kind, redraw){
+  var row = kgRows.filter(function(r){ return r.word === word; })[0];
+  if (!row) return;
+  var card = document.getElementById('kg-card-' + word);
+  if (card) card.style.opacity = '0.5';
+  try {
+    var r = await fetch('/api/gen-image', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query: kgPrompt(row), mode: kind === 'colour' ? 'kg-colour' : 'kg-outline' })
+    });
+    var d = await r.json();
+    var url = d && d.images && d.images[0] && d.images[0].url;
+    if (!url) throw new Error(d.note || 'the drawing service did not return a picture');
+
+    var patch = {};
+    patch[kind === 'colour' ? 'colour_url' : 'outline_url'] = url;
+    var pr = await callAuth({ action:'tbl_patch', table:'kg_pictures', body: patch,
+                              params:'word=eq.' + encodeURIComponent(word) });
+    if (pr && pr.error) throw new Error(pr.error);
+
+    row[kind === 'colour' ? 'colour_url' : 'outline_url'] = url;
+    kgRender();
+    return true;
+  } catch (e) {
+    kgSet('Could not draw "' + word + '": ' + e.message, '#c0392b');
+    if (card) card.style.opacity = '1';
+    return false;
+  }
+}
+
+// Ten at a time, on purpose. Watch what the first batch costs before running
+// the whole list.
+async function kgBatch(){
+  if (kgBusy) return;
+  var todo = [];
+  kgVisible().forEach(function(r){
+    if (!r.colour_url)  todo.push([r.word, 'colour']);
+    if (!r.outline_url) todo.push([r.word, 'outline']);
+  });
+  todo = todo.slice(0, 10);
+  if (!todo.length) { kgSet('Nothing missing in this view.', '#1a5c2a'); return; }
+
+  kgBusy = true; kgStopFlag = false;
+  document.getElementById('kg-batch-btn').disabled = true;
+  document.getElementById('kg-stop-btn').style.display = 'inline-block';
+
+  var ok = 0;
+  for (var i = 0; i < todo.length; i++) {
+    if (kgStopFlag) break;
+    kgSet('Drawing ' + (i + 1) + ' of ' + todo.length + ' \u2014 ' + todo[i][0] + ' (' + todo[i][1] + ')\u2026');
+    if (await kgDraw(todo[i][0], todo[i][1])) ok++;
+  }
+
+  kgBusy = false;
+  document.getElementById('kg-batch-btn').disabled = false;
+  document.getElementById('kg-stop-btn').style.display = 'none';
+  kgSet(ok + ' of ' + todo.length + ' drawn' + (kgStopFlag ? ' (stopped)' : '') + '.', '#1a5c2a');
+}
+
+function kgStop(){ kgStopFlag = true; kgSet('Stopping after this one\u2026'); }
+
 function tblTab(tab) {
-  ['schools','library','revision'].forEach(function(t) {
+  ['schools','library','revision','pics'].forEach(function(t) {
     var tb = document.getElementById('tbl-tab-' + t);
     var pn = document.getElementById('tbl-panel-' + t);
     if (tb) tb.classList.toggle('tbl-on', t === tab);
@@ -952,6 +1145,7 @@ function tblTab(tab) {
   });
   if (tab === 'library') { tblLoadBooks(); tblLoadAccess(); }
   if (tab === 'revision') { rlLoadList(); }
+  if (tab === 'pics') { kgLoad(); }
 }
 
 var tblFile = null;
