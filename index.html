@@ -3519,7 +3519,7 @@ function dssBuildToolbar(tool){
     + '<span class="ot-grp"><label>Text size</label>'
     +   '<select onchange="dssFont(\'' + tool + '\', this.value)">' + sizeOpts + '</select>'
     + '</span>'
-    + '<span class="ot-grp" id="ot-keywrap-' + tool + '" style="display:none"><label>Answer key</label>'
+    + '<span class="ot-grp" id="ot-keywrap-' + tool + '"><label>Answer key</label>'
     +   '<select onchange="dssKeyMode(\'' + tool + '\', this.value)">'
     +     '<option value="both">On a separate sheet</option>'
     +     '<option value="nokey">Do not print it</option>'
@@ -3539,16 +3539,20 @@ function dssBuildToolbar(tool){
 
   // Show the toolbar whenever the result box appears, hide it when it goes.
   try {
+    var syncTimer = null;
     var obs = new MutationObserver(function(){
       if (box.classList.contains('show')) {
         bar.classList.add('show');
-        dssSyncKeyUI(tool);
+        // Content changes fire on every keystroke while editing, so the
+        // re-scan waits until typing pauses rather than running each time.
+        if (syncTimer) clearTimeout(syncTimer);
+        syncTimer = setTimeout(function(){ dssSyncKeyUI(tool); }, 400);
       } else {
         bar.classList.remove('show');
         dssSetEdit(tool, false);
       }
     });
-    obs.observe(box, { attributes:true, attributeFilter:['class'] });
+    obs.observe(box, { attributes:true, attributeFilter:['class'], childList:true, subtree:true });
   } catch(e) { bar.classList.add('show'); }
 }
 
@@ -3638,7 +3642,12 @@ function dssSyncKeyUI(tool){
   var box = document.getElementById('out-' + tool);
   var wrap = document.getElementById('ot-keywrap-' + tool);
   if (!box || !wrap) return;
-  wrap.style.display = dssSplitAnswerKey(box) ? 'flex' : 'none';
+  // Always leave the choice on screen. If the control disappeared whenever
+  // detection failed, a teacher would have no way to turn the key off.
+  wrap.style.display = 'flex';
+  var found = !!dssSplitAnswerKey(box);
+  wrap.style.opacity = found ? '1' : '0.5';
+  wrap.title = found ? '' : 'No answer key was found in this result.';
 }
 
 function dssKeyMode(tool, mode){
