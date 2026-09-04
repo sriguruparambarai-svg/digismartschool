@@ -3019,7 +3019,10 @@ Format it as a proper school worksheet with:
 - School name line, Date line, Name line, Class line at top
 - Clear numbered sections
 - Marks for each question
-- Answer Key at the bottom
+
+Put every answer at the VERY END, after a line containing exactly:
+ANSWER KEY
+Nothing but the answers may come after that line.
 
 Keep the language clear and age-appropriate for ${cls} students.`;
   }
@@ -3516,6 +3519,13 @@ function dssBuildToolbar(tool){
     + '<span class="ot-grp"><label>Text size</label>'
     +   '<select onchange="dssFont(\'' + tool + '\', this.value)">' + sizeOpts + '</select>'
     + '</span>'
+    + '<span class="ot-grp" id="ot-keywrap-' + tool + '" style="display:none"><label>Answer key</label>'
+    +   '<select onchange="dssKeyMode(\'' + tool + '\', this.value)">'
+    +     '<option value="both">On a separate sheet</option>'
+    +     '<option value="nokey">Do not print it</option>'
+    +     '<option value="keyonly">Print only the key</option>'
+    +   '</select>'
+    + '</span>'
     + '<span class="ot-grp"><label>Paper</label>'
     +   '<select onchange="dssPage(\'' + tool + '\', this.value)">'
     +     '<option value="a4">A4 \u2014 full page</option>'
@@ -3532,6 +3542,7 @@ function dssBuildToolbar(tool){
     var obs = new MutationObserver(function(){
       if (box.classList.contains('show')) {
         bar.classList.add('show');
+        dssSyncKeyUI(tool);
       } else {
         bar.classList.remove('show');
         dssSetEdit(tool, false);
@@ -3578,6 +3589,63 @@ function dssFont(tool, px){
   box.setAttribute('data-ot-font', px);
 }
 
+// ══ ANSWER KEY ══
+// The key is part of the same generated text, so we cut the result in two at
+// print time instead of asking the AI for it twice. A Range is used rather than
+// splitting the text, so tools that render real HTML survive the cut intact.
+var OT_KEY_RE = /(^|\n)[\s\-=_*]*ANSWERS?\s*KEY\b/i;
+
+function dssSplitAnswerKey(box){
+  if (!box) return null;
+  var clone = box.cloneNode(true);
+  if (!clone.lastChild) return null;
+
+  var hit = null;
+  try {
+    var walker = document.createTreeWalker(clone, NodeFilter.SHOW_TEXT, null, false);
+    var n;
+    while ((n = walker.nextNode())) {
+      var m = OT_KEY_RE.exec(n.nodeValue || '');
+      if (m) {
+        hit = { node: n, offset: m.index + (m[1] ? m[1].length : 0) };
+        break;
+      }
+    }
+  } catch(e) { return null; }
+  if (!hit) return null;
+
+  try {
+    var range = document.createRange();
+    range.setStart(hit.node, hit.offset);
+    range.setEndAfter(clone.lastChild);
+    var frag = range.extractContents();
+    var keyWrap = document.createElement('div');
+    keyWrap.appendChild(frag);
+    // Tidy the empty shell left where the heading was cut out, but keep
+    // deliberate blank lines (a div holding only a <br>).
+    var last = clone.lastChild;
+    while (last && last.nodeType === 1
+           && !(last.textContent || '').trim()
+           && !last.querySelector('img,br,hr,input')) {
+      clone.removeChild(last);
+      last = clone.lastChild;
+    }
+    return { work: clone.innerHTML, key: keyWrap.innerHTML };
+  } catch(e) { return null; }
+}
+
+function dssSyncKeyUI(tool){
+  var box = document.getElementById('out-' + tool);
+  var wrap = document.getElementById('ot-keywrap-' + tool);
+  if (!box || !wrap) return;
+  wrap.style.display = dssSplitAnswerKey(box) ? 'flex' : 'none';
+}
+
+function dssKeyMode(tool, mode){
+  var box = document.getElementById('out-' + tool);
+  if (box) box.setAttribute('data-ot-key', mode);
+}
+
 function dssPage(tool, mode){
   var box = document.getElementById('out-' + tool);
   var note = document.getElementById('ot-note-' + tool);
@@ -3586,7 +3654,7 @@ function dssPage(tool, mode){
   if (mode === 'a5') {
     note.textContent = 'Prints on half-size (A5) sheets. A long worksheet simply carries on over more sheets.';
   } else if (mode === 'twoup') {
-    note.textContent = 'Prints the same worksheet twice on one landscape sheet \u2014 cut down the middle for two students. Best for short worksheets; anything past one page will not fit.';
+    note.textContent = 'Prints the same worksheet twice on one landscape sheet \u2014 cut down the middle for two students. The answer key is left out. Best for short worksheets; anything past one page will not fit.';
   } else {
     note.textContent = '';
   }
@@ -3599,7 +3667,22 @@ function printOutput(id) {
   var font  = box.getAttribute('data-ot-font')  || '15';
   var align = box.getAttribute('data-ot-align') || 'left';
   var page  = box.getAttribute('data-ot-page')  || 'a4';
-  var body  = box.innerHTML;
+  var keyMode = box.getAttribute('data-ot-key') || 'both';
+
+  var parts = dssSplitAnswerKey(box);
+  var body;
+  if (!parts) {
+    body = box.innerHTML;
+  } else if (keyMode === 'nokey') {
+    body = parts.work;
+  } else if (keyMode === 'keyonly') {
+    body = parts.key;
+  } else if (page === 'twoup') {
+    // Two copies side by side is the students' copy - never hand out the key.
+    body = parts.work;
+  } else {
+    body = parts.work + '<div class="pbreak"></div>' + parts.key;
+  }
 
   var pageRule, content;
   var textCss = 'white-space:pre-wrap;font-size:' + font + 'px;line-height:1.7;text-align:' + align + ';';
@@ -3622,6 +3705,7 @@ function printOutput(id) {
     + 'html,body{margin:0;padding:0;}'
     + 'body{font-family:Arial,Helvetica,sans-serif;color:#000;}'
     + '.sheet{' + textCss + '}'
+    + '.pbreak{page-break-before:always;break-before:page;height:0;}'
     + '.lsheet{display:flex;width:297mm;height:210mm;overflow:hidden;}'
     + '.lslot{flex:0 0 148.5mm;width:148.5mm;height:210mm;overflow:hidden;box-sizing:border-box;}'
     + '.lslot:first-child{border-right:1px dashed #999;}'
