@@ -657,7 +657,14 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 <script>
 // ── GENERATE DIARY (new version with subject tabs) ──
 // ── LOGO PREVIEW ──
-var rcLogoBase64 = '';
+// Starts from the logo held against the school, so the upload box below is
+// only needed if a teacher wants a different one on this particular card.
+var rcLogoBase64 = (function(){
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    return u.logo_url || (u.schools && u.schools.logo_url) || '';
+  } catch(e) { return ''; }
+})();
 
 
 function previewLogo(input) {
@@ -1049,6 +1056,16 @@ document.addEventListener('DOMContentLoaded', function() {
 <div class="header">
   <button class="menu-btn" onclick="toggleMenu()" aria-label="Open menu">☰</button>
   <img id="header-logo-img" class="header-logo" src="logo.png" onerror="this.style.display='none'" alt="Logo"/>
+  <script>
+  /* Every school gets its own logo here; logo.png was the same picture for all. */
+  (function(){
+    try {
+      var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+      var url = u.logo_url || (u.schools && u.schools.logo_url) || '';
+      if (url) document.getElementById('header-logo-img').src = url;
+    } catch(e){}
+  })();
+  </script>
   <div class="header-text">
     <h1 id="header-school-name">DigiSmartSchool</h1>
     <p id="header-subtitle">Teacher Dashboard — AI-Powered Academic Tools</p>
@@ -3635,6 +3652,22 @@ function copyOutput(id) {
   navigator.clipboard.writeText(document.getElementById(id).textContent)
     .then(() => alert('✅ Copied to clipboard!'));
 }
+// ══ SCHOOL LOGO ══
+// Set once by the super admin against the school record, so a teacher never
+// has to upload it. It arrives in dss_user at login.
+function schoolLogoUrl(){
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    return u.logo_url || (u.schools && u.schools.logo_url) || '';
+  } catch(e) { return ''; }
+}
+function schoolNameForPrint(){
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    return u.name || u.school_name || '';
+  } catch(e) { return ''; }
+}
+
 // ══ OUTPUT EDIT TOOLBAR ══
 // One toolbar shape for every tool that shows a result, so a teacher learns it
 // once. Settings are kept on the output box itself and read again at print time.
@@ -3650,6 +3683,7 @@ function dssBuildToolbar(tool){
   box.setAttribute('data-ot-font', '15');
   box.setAttribute('data-ot-align', 'left');
   box.setAttribute('data-ot-page', 'a4');
+  box.setAttribute('data-ot-logo', '1');
 
   var sizeOpts = '';
   OT_SIZES.forEach(function(p){
@@ -3675,6 +3709,11 @@ function dssBuildToolbar(tool){
     +     '<option value="nokey">Do not print it</option>'
     +     '<option value="keyonly">Print only the key</option>'
     +   '</select>'
+    + '</span>'
+    + '<span class="ot-grp" id="ot-logowrap-' + tool + '">'
+    +   '<label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-weight:800;">'
+    +     '<input type="checkbox" id="ot-logo-' + tool + '" checked onchange="dssLogo(\'' + tool + '\', this.checked)"> School logo'
+    +   '</label>'
     + '</span>'
     + '<span class="ot-grp"><label>Paper</label>'
     +   '<select onchange="dssPage(\'' + tool + '\', this.value)">'
@@ -3794,6 +3833,8 @@ function dssSyncKeyUI(tool){
   if (!box || !wrap) return;
   // Always leave the choice on screen. If the control disappeared whenever
   // detection failed, a teacher would have no way to turn the key off.
+  var lw = document.getElementById('ot-logowrap-' + tool);
+  if (lw) lw.style.display = schoolLogoUrl() ? 'flex' : 'none';
   wrap.style.display = 'flex';
   var found = !!dssSplitAnswerKey(box);
   wrap.style.opacity = found ? '1' : '0.5';
@@ -3803,6 +3844,11 @@ function dssSyncKeyUI(tool){
 function dssKeyMode(tool, mode){
   var box = document.getElementById('out-' + tool);
   if (box) box.setAttribute('data-ot-key', mode);
+}
+
+function dssLogo(tool, on){
+  var box = document.getElementById('out-' + tool);
+  if (box) box.setAttribute('data-ot-logo', on ? '1' : '0');
 }
 
 function dssPage(tool, mode){
@@ -3860,7 +3906,24 @@ function printOutput(id) {
     content = '<div class="sheet">' + body + '</div>';
   }
 
+  // Letterhead, unless the teacher turned it off for rough work
+  var logoUrl = (box.getAttribute('data-ot-logo') !== '0') ? schoolLogoUrl() : '';
+  if (logoUrl) {
+    var head = '<div class="lhead">'
+             + '<img src="' + logoUrl + '" alt="">'
+             + '<div class="lname">' + (schoolNameForPrint() || '') + '</div>'
+             + '</div>';
+    if (page === 'twoup') {
+      body = body.replace(/<div class="inner">/g, '<div class="inner">' + head);
+    } else {
+      body = head + body;
+    }
+  }
+
   var css = pageRule
+    + '.lhead{display:flex;align-items:center;gap:12px;border-bottom:2px solid #C9A84C;padding-bottom:8px;margin-bottom:14px;}'
+    + '.lhead img{height:52px;width:52px;object-fit:contain;}'
+    + '.lhead .lname{font-family:Georgia,serif;font-size:17px;font-weight:700;color:#6B0F1A;}'
     + 'html,body{margin:0;padding:0;}'
     + 'body{font-family:Arial,Helvetica,sans-serif;color:#000;}'
     + '.sheet{' + textCss + '}'
