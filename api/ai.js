@@ -29,6 +29,38 @@ const MAX_TOKENS_CAP = 8000;   // highest any of our tools legitimately needs
 const MAX_MESSAGES   = 40;     // a normal conversation never comes near this
 const RATE_PER_MIN   = 40;     // calls allowed per address per minute
 
+// ── Signed session token ────────────────────────────────────────────────
+// auth.js seals the school code and an expiry into this at login. Because the
+// signature is made with a secret only the server knows, a token cannot be
+// faked from a browser or from curl.
+//
+// ROLLOUT: leave this false for the first few days. Anyone already logged in
+// has no token yet, and would be locked out the moment you deploy. Once your
+// teachers have signed in again (tokens last 12 hours), set it to true and
+// the endpoint stops answering anything that is not a real session.
+const REQUIRE_TOKEN = false;
+
+const crypto = require('crypto');
+
+// Returns 'valid', 'expired', 'bad' or 'none'.
+function checkToken(raw) {
+  if (!raw) return 'none';
+  try {
+    var parts = String(raw).split('.');
+    if (parts.length !== 2) return 'bad';
+    var payload = Buffer.from(parts[0], 'base64').toString();
+    var secret = process.env.SUPABASE_SECRET_KEY || '';
+    var expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    var got = Buffer.from(parts[1], 'utf8');
+    var want = Buffer.from(expect, 'utf8');
+    if (got.length !== want.length) return 'bad';
+    if (!crypto.timingSafeEqual(got, want)) return 'bad';
+    var data = JSON.parse(payload);
+    if (!data.exp || Date.now() > data.exp) return 'expired';
+    return 'valid';
+  } catch (e) { return 'bad'; }
+}
+
 function hostOf(url) {
   try { return new URL(url).hostname.toLowerCase(); } catch (e) { return ''; }
 }
@@ -121,13 +153,26 @@ module.exports = async function handler(req, res) {
     res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-dss-session');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
   if (!fromOurSite(req)) {
     return res.status(403).json({ type: 'error', error: 'forbidden',
       message: 'This service is only available from DigiSmartSchool.' });
+  }
+
+  // A valid token is proof of a real login. Without one we fall back to the
+  // origin check above, until REQUIRE_TOKEN is switched on.
+  var tokenState = checkToken(req.headers['x-dss-session']);
+  if (REQUIRE_TOKEN && tokenState !== 'valid') {
+    return res.status(401).json({ type: 'error', error: 'no_session',
+      message: tokenState === 'expired'
+        ? 'Your session has ended. Please log in again.'
+        : 'Please log in to use this.' });
+  }
+  if (tokenState !== 'valid') {
+    console.log('[ai] request without a valid session token (' + tokenState + ')');
   }
 
   var ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim()
