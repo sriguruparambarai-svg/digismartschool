@@ -566,6 +566,34 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 </style>
 <!-- Supabase for saving to student diary -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+/* ══ SESSION TOKEN ══
+   auth.js seals the school code into a signed token at login and stores it as
+   dss_session. This attaches it to every /api/ai call, so the server can tell
+   a real logged-in school from anyone else poking at the endpoint.
+   Wrapping fetch once here means the 49 places that call the AI need no change. */
+(function(){
+  if (window.__dssSessionWrapped) return;
+  window.__dssSessionWrapped = true;
+  var _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+      if (url.indexOf('/api/ai') !== -1){
+        var token = '';
+        try { token = localStorage.getItem('dss_session') || ''; } catch(e){}
+        if (token){
+          init = init || {};
+          var h = new Headers((init && init.headers) || {});
+          h.set('x-dss-session', token);
+          init.headers = h;
+        }
+      }
+    }catch(e){ /* never let this stop a request going out */ }
+    return _fetch.call(this, input, init);
+  };
+})();
+</script>
 </head>
 <body>
 
