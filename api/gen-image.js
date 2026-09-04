@@ -207,6 +207,7 @@ module.exports = async function handler(req, res) {
 
   try {
     // 1) already drawn before? return instantly.
+    console.log('[gen-image] request mode=' + mode + ' key=' + fileName.substring(0, 12));
     if (await cacheExists(fileName)) {
       return res.json(Object.assign(wrap(url), { cached: true }));
     }
@@ -215,9 +216,13 @@ module.exports = async function handler(req, res) {
     const prompt = style
       ? (style.prefix + query + (context ? ('. ' + context.substring(0, 220)) : ''))
       : (STYLE_PREFIX + query + (context ? ('. ' + context.substring(0, 220)) : ''));
+    console.log('[gen-image] drawing "' + query.substring(0, 60) + '" mode=' + mode);
+    const t0 = Date.now();
     const drawn = await drawImage(prompt,
                                   style ? style.size : IMG_SIZE,
                                   style ? style.quality : IMG_QUALITY);
+    console.log('[gen-image] draw ' + (drawn.ok ? 'ok' : 'FAILED: ' + drawn.note)
+                + ' in ' + Math.round((Date.now() - t0) / 1000) + 's');
     if (!drawn.ok) {
       // Let the front end fall back (to a diagram/photo/text) instead of showing nothing.
       return res.json({ images: [], note: drawn.note || 'draw failed' });
@@ -225,7 +230,14 @@ module.exports = async function handler(req, res) {
 
     // 3) save to cache, then return the public URL.
     const png = Buffer.from(drawn.b64, 'base64');
-    await saveImage(png, fileName);
+    const saved = await saveImage(png, fileName);
+    console.log('[gen-image] save to storage ' + (saved ? 'ok' : 'FAILED')
+                + ' (' + Math.round(png.length / 1024) + ' KB) ' + fileName);
+    if (!saved) {
+      // Returning a URL that points at nothing would look like success and
+      // leave a broken picture in the library.
+      return res.json({ images: [], note: 'the picture was drawn but could not be saved to storage' });
+    }
     return res.json(Object.assign(wrap(url), { cached: false }));
   } catch (e) {
     return res.json({ images: [], note: String(e.message || e).substring(0, 140) });
