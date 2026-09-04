@@ -606,6 +606,7 @@
       <button class="tab" data-t="colourpic">Colouring sheet<small>Big pictures for children to colour in</small></button>
       <button class="tab" data-t="phonics">Phonics<small>Sounds, blending, word families, tricky words</small></button>
       <button class="tab" data-t="cutpaste">Cut and paste<small>Cut the pictures out and glue them in place</small></button>
+      <button class="tab" data-t="c12">Class 1 &amp; 2 Maths<small>Place value, carrying, tables, time, money, word problems</small></button>
     </div>
   </nav>
 
@@ -755,6 +756,64 @@
       </div>
       <label class="chk"><input type="checkbox" id="dGuide"> Show a faint guide line</label>
       <label class="chk"><input type="checkbox" id="dColourAfter" checked> Add "now colour it" below</label>
+    </div>
+
+    <!-- class 1 and 2 maths -->
+    <div data-panel="c12" style="display:none">
+      <div class="grp">
+        <label>Topic</label>
+        <select id="c12Kind">
+          <option value="place">Place value — tens and ones</option>
+          <option value="expand">Expanded form — 34 = 30 + 4</option>
+          <option value="addcol">Column addition</option>
+          <option value="subcol">Column subtraction</option>
+          <option value="skip">Skip counting — 2s, 5s, 10s</option>
+          <option value="tables">Multiplication — groups, arrays, tables</option>
+          <option value="divide">Division — share equally</option>
+          <option value="fraction">Fractions — half and quarter</option>
+          <option value="time">Telling the time</option>
+          <option value="money">Money — rupees</option>
+          <option value="tally">Tally marks and pictograph</option>
+          <option value="word">Word problems</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>Level</label>
+        <select id="c12Level">
+          <option value="1" selected>Class 1 — easier numbers</option>
+          <option value="2">Class 2 — bigger numbers, carrying</option>
+        </select>
+      </div>
+      <div class="grp" id="c12-skip-wrap" style="display:none">
+        <label>Count in</label>
+        <select id="c12Skip">
+          <option value="2" selected>2s</option><option value="3">3s</option>
+          <option value="5">5s</option><option value="10">10s</option>
+        </select>
+      </div>
+      <div class="grp" id="c12-table-wrap" style="display:none">
+        <label>Table</label>
+        <select id="c12Table">
+          <option value="0" selected>Mixed</option>
+          <option value="2">2</option><option value="3">3</option><option value="4">4</option>
+          <option value="5">5</option><option value="6">6</option><option value="7">7</option>
+          <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+        </select>
+      </div>
+      <div class="grp" id="c12-time-wrap" style="display:none">
+        <label>Times</label>
+        <select id="c12Time">
+          <option value="hour" selected>O'clock only</option>
+          <option value="half">O'clock and half past</option>
+          <option value="quarter">Include quarter past and to</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>How many</label>
+        <input type="number" id="c12Qty" value="8" min="2" max="20">
+      </div>
+      <label class="chk"><input type="checkbox" id="c12Key" checked> Print an answer key page</label>
+      <p class="hint" id="c12Hint"></p>
     </div>
 
     <!-- cut and paste -->
@@ -1280,6 +1339,7 @@ Draw your school bag</textarea>
       if(mode==="colourpic"){ cpFillLists(); }
       if(mode==="phonics"){ phSync(); }
       if(mode==="cutpaste"){ ctFillLists(); }
+      if(mode==="c12"){ c12Sync(); }
       if(mode==="count"){ makeCounts(); }
       if(mode==="cgrid"){ makeGrid(); }
       if(MATHS.indexOf(mode)>=0){ makeMaths(mode); }
@@ -1322,7 +1382,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12");
     b.style.display = uses ? "" : "none";
   }
 
@@ -3767,6 +3827,320 @@ Draw your school bag</textarea>
   /* ══════════════ CUT AND PASTE ══════════════
      Every sheet is the same shape: a work area at the top with empty boxes to
      glue into, a dashed cut line, and the pieces to cut out underneath. */
+
+  /* ══════════════ CLASS 1 AND 2 MATHS ══════════════
+     Level 1 keeps numbers small and never carries. Level 2 uses two digits,
+     carrying and borrowing, and tables to ten. */
+  function q12(rand, lo, hi){ return lo + Math.floor(rand() * (hi - lo + 1)); }
+  function c12Lev(){ return (val("c12Level") === "2") ? 2 : 1; }
+  function c12Row(left, right){
+    return '<div style="display:flex;align-items:center;gap:14px;padding:10px 4px;border-bottom:1px dashed #bbb">'
+         + '<div style="flex:1">' + left + '</div>' + (right || '') + '</div>';
+  }
+  function c12Say(t){ return '<p style="text-align:center;font-size:15px;color:#333;margin:2px 0 14px">'+esc(t)+'</p>'; }
+  function c12Box(w){ return '<span style="display:inline-block;width:'+(w||54)+'px;height:46px;border:2px solid #000;'
+         + 'border-radius:6px;vertical-align:middle;margin:0 4px"></span>'; }
+  function c12Ans(v, key){ return key
+    ? '<span style="display:inline-block;min-width:54px;height:46px;line-height:46px;text-align:center;'
+      + 'border:2px solid #1a5c2a;border-radius:6px;color:#1a5c2a;font-weight:700;margin:0 4px">'+v+'</span>'
+    : c12Box(); }
+  function c12Grid(cells, cols){
+    return '<div style="display:grid;grid-template-columns:repeat('+(cols||2)+',1fr);gap:12px">'+cells.join('')+'</div>';
+  }
+
+  /* Ten-rods and unit-squares, the way place value is taught. */
+  function c12Blocks(t, o){
+    var g = '<span style="display:inline-flex;align-items:flex-end;gap:4px;vertical-align:middle">';
+    for (var i = 0; i < t; i++){
+      g += '<svg width="14" height="56" viewBox="0 0 14 56"><rect x="1" y="1" width="12" height="54" fill="none" stroke="#000" stroke-width="1.6"/>'
+         + '<path d="M1 12h12M1 23h12M1 34h12M1 45h12" stroke="#000" stroke-width="1"/></svg>';
+    }
+    if (o) g += '<span style="display:inline-block;width:8px"></span>';
+    for (var j = 0; j < o; j++){
+      g += '<svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" fill="none" stroke="#000" stroke-width="1.6"/></svg>';
+    }
+    return g + '</span>';
+  }
+
+  function c12Clock(h, m, showHands){
+    var cx = 52, cy = 52, r = 46, out = '<svg width="104" height="104" viewBox="0 0 104 104">'
+      + '<circle cx="52" cy="52" r="46" fill="none" stroke="#000" stroke-width="2.4"/>';
+    for (var i = 0; i < 12; i++){
+      var a = (i * 30 - 90) * Math.PI / 180;
+      out += '<text x="' + (cx + Math.cos(a) * (r - 11)).toFixed(1) + '" y="' + (cy + Math.sin(a) * (r - 11) + 5).toFixed(1)
+           + '" font-size="12" text-anchor="middle" font-family="sans-serif">' + (i === 0 ? 12 : i) + '</text>';
+    }
+    if (showHands){
+      var ha = ((h % 12) * 30 + m * 0.5 - 90) * Math.PI / 180;
+      var ma = (m * 6 - 90) * Math.PI / 180;
+      out += '<line x1="52" y1="52" x2="' + (cx + Math.cos(ha) * 22).toFixed(1) + '" y2="' + (cy + Math.sin(ha) * 22).toFixed(1)
+           + '" stroke="#000" stroke-width="4" stroke-linecap="round"/>';
+      out += '<line x1="52" y1="52" x2="' + (cx + Math.cos(ma) * 32).toFixed(1) + '" y2="' + (cy + Math.sin(ma) * 32).toFixed(1)
+           + '" stroke="#000" stroke-width="2.6" stroke-linecap="round"/>';
+    }
+    return out + '<circle cx="52" cy="52" r="3" fill="#000"/></svg>';
+  }
+  function c12TimeWord(h, m){
+    var names = ["twelve","one","two","three","four","five","six","seven","eight","nine","ten","eleven"];
+    var hn = names[h % 12];
+    if (m === 0) return hn + " o'clock";
+    if (m === 30) return "half past " + hn;
+    if (m === 15) return "quarter past " + hn;
+    return "quarter to " + names[(h + 1) % 12];
+  }
+
+  function c12Shape(kind, shadedParts, total){
+    var out = '<svg width="76" height="76" viewBox="0 0 76 76">';
+    if (kind === "circle"){
+      for (var i = 0; i < total; i++){
+        var a0 = (i * 360 / total - 90) * Math.PI / 180, a1 = ((i + 1) * 360 / total - 90) * Math.PI / 180;
+        var big = (360 / total) > 180 ? 1 : 0;
+        out += '<path d="M38,38 L' + (38 + Math.cos(a0) * 34).toFixed(1) + ',' + (38 + Math.sin(a0) * 34).toFixed(1)
+             + ' A34,34 0 ' + big + ',1 ' + (38 + Math.cos(a1) * 34).toFixed(1) + ',' + (38 + Math.sin(a1) * 34).toFixed(1)
+             + ' Z" fill="' + (i < shadedParts ? '#555' : 'none') + '" stroke="#000" stroke-width="1.8"/>';
+      }
+    } else {
+      var w = 68 / total;
+      for (var j = 0; j < total; j++){
+        out += '<rect x="' + (4 + j * w).toFixed(1) + '" y="18" width="' + w.toFixed(1) + '" height="40" fill="'
+             + (j < shadedParts ? '#555' : 'none') + '" stroke="#000" stroke-width="1.8"/>';
+      }
+    }
+    return out + '</svg>';
+  }
+
+  // Name, then the pronouns that go with it, so a boy is never called "she".
+  var C12_NAMES = [["Anitha","she","her"],["Arun","he","his"],["Priya","she","her"],
+                   ["Karthik","he","his"],["Divya","she","her"],["Ravi","he","his"],
+                   ["Meena","she","her"],["Suresh","he","his"],["Lakshmi","she","her"],
+                   ["Vijay","he","his"]];
+  var C12_THINGS = [["mangoes","a basket"],["pencils","a box"],["marbles","a bag"],["balloons","a bunch"],
+                    ["books","a shelf"],["laddus","a plate"],["flowers","a garland"],["stickers","a sheet"]];
+
+  function buildC12(key){
+    var kind = val("c12Kind") || "place";
+    var lev = c12Lev();
+    var qty = Math.max(2, Math.min(20, num("c12Qty", 8)));
+    var rand = seeded(val("school") + "|c12|" + kind + "|" + lev + "|" + qty + "|" + cpSeed);
+    var i;
+
+    if (kind === "place"){
+      var h = c12Say('Count the tens and ones. Write how many.');
+      var cells = [];
+      for (i = 0; i < qty; i++){
+        var t = q12(rand, 1, lev === 1 ? 5 : 9), o = q12(rand, 0, 9);
+        cells.push('<div style="border:1.5px solid #999;border-radius:9px;padding:10px">'
+          + c12Blocks(t, o)
+          + '<div style="margin-top:10px;font-size:16px">Tens ' + c12Ans(t, key) + ' Ones ' + c12Ans(o, key)
+          + ' &nbsp;=&nbsp; ' + c12Ans(t * 10 + o, key) + '</div></div>');
+      }
+      return h + c12Grid(cells, 2);
+    }
+
+    if (kind === "expand"){
+      var h2 = c12Say('Break each number into tens and ones.');
+      var rows = [];
+      for (i = 0; i < qty; i++){
+        var n = lev === 1 ? q12(rand, 11, 99) : q12(rand, 100, 999);
+        var hd = Math.floor(n / 100), tn = Math.floor((n % 100) / 10), on = n % 10;
+        rows.push(c12Row('<span style="font-size:26px;font-weight:700">' + n + '</span>'
+          + ' &nbsp;=&nbsp; ' + (lev === 2 ? (c12Ans(hd * 100, key) + ' + ') : '')
+          + c12Ans(tn * 10, key) + ' + ' + c12Ans(on, key)));
+      }
+      return h2 + rows.join('');
+    }
+
+    if (kind === "addcol" || kind === "subcol"){
+      var sub = (kind === "subcol");
+      var h3 = c12Say(sub ? 'Subtract. Start from the ones.' : 'Add. Start from the ones.');
+      var cs = [];
+      for (i = 0; i < qty; i++){
+        var a, b;
+        if (lev === 1){ a = q12(rand, 11, 49); b = q12(rand, 1, 9);
+          if (sub && a - b < 0) { var sw = a; a = b + 10; b = sw % 9 + 1; }
+        } else { a = q12(rand, 21, 98); b = q12(rand, 12, 79); }
+        if (sub && b > a){ var tmp = a; a = b; b = tmp; }
+        var ans = sub ? a - b : a + b;
+        cs.push('<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px;text-align:right;'
+          + 'font-family:var(--hf);font-size:26px;line-height:1.5">'
+          + '<div style="color:#999;font-size:13px;text-align:left">' + (i + 1) + '</div>'
+          + '<div>' + a + '</div>'
+          + '<div style="border-bottom:2.5px solid #000;padding-bottom:4px">' + (sub ? '\u2212' : '+') + ' ' + b + '</div>'
+          + '<div style="height:40px;color:#1a5c2a">' + (key ? ans : '') + '</div></div>');
+      }
+      return h3 + c12Grid(cs, 4);
+    }
+
+    if (kind === "skip"){
+      var step = num("c12Skip", 2);
+      var h4 = c12Say('Count in ' + step + 's. Fill the empty boxes.');
+      var lines = [];
+      for (i = 0; i < Math.min(qty, 8); i++){
+        var start = step * q12(rand, 1, 5);
+        var seq = '';
+        for (var j = 0; j < 8; j++){
+          var v = start + j * step;
+          var hide = (j > 1 && rand() < 0.45);
+          seq += hide ? c12Ans(v, key) : '<span style="display:inline-block;min-width:54px;text-align:center;font-size:22px">' + v + '</span>';
+        }
+        lines.push('<div style="padding:12px 4px;border-bottom:1px dashed #bbb">' + seq + '</div>');
+      }
+      return h4 + lines.join('');
+    }
+
+    if (kind === "tables"){
+      var tsel = num("c12Table", 0);
+      var h5 = c12Say(tsel ? ('The ' + tsel + ' times table.') : 'Groups, arrays and multiplying.');
+      var out5 = [];
+      for (i = 0; i < qty; i++){
+        var m1 = tsel || q12(rand, 2, lev === 1 ? 5 : 10);
+        var m2 = q12(rand, 1, 10);
+        if (i < 3){
+          // an array of dots, so the child sees what multiplying means
+          var dots = '';
+          for (var r2 = 0; r2 < m1; r2++){
+            dots += '<div>';
+            for (var c2 = 0; c2 < m2; c2++) dots += '<span style="display:inline-block;width:15px;height:15px;border-radius:50%;background:#444;margin:3px"></span>';
+            dots += '</div>';
+          }
+          out5.push('<div style="border:1.5px solid #999;border-radius:9px;padding:10px;margin-bottom:10px">'
+            + dots + '<div style="margin-top:8px;font-size:20px">' + m1 + ' rows of ' + m2 + ' &nbsp;=&nbsp; '
+            + m1 + ' \u00D7 ' + m2 + ' = ' + c12Ans(m1 * m2, key) + '</div></div>');
+        } else {
+          out5.push(c12Row('<span style="font-size:24px">' + m1 + ' \u00D7 ' + m2 + ' = </span>' + c12Ans(m1 * m2, key)));
+        }
+      }
+      return h5 + out5.join('');
+    }
+
+    if (kind === "divide"){
+      var h6 = c12Say('Share them equally. How many does each child get?');
+      var rows6 = [];
+      for (i = 0; i < qty; i++){
+        var per = q12(rand, 2, lev === 1 ? 5 : 9), grp = q12(rand, 2, lev === 1 ? 4 : 6);
+        var tot = per * grp;
+        rows6.push(c12Row('<span style="font-size:20px">' + tot + ' sweets shared between ' + grp
+          + ' children. &nbsp; ' + tot + ' \u00F7 ' + grp + ' = </span>' + c12Ans(per, key)
+          + '<span style="font-size:20px"> each</span>'));
+      }
+      return h6 + rows6.join('');
+    }
+
+    if (kind === "fraction"){
+      var h7 = c12Say('Colour the part shown by the fraction.');
+      var cells7 = [];
+      var opts = lev === 1 ? [[1,2],[1,2],[1,4]] : [[1,2],[1,3],[1,4],[2,4],[3,4],[2,3]];
+      for (i = 0; i < qty; i++){
+        var f = opts[Math.floor(rand() * opts.length)];
+        var shape = (rand() < 0.5) ? "circle" : "bar";
+        cells7.push('<div style="border:1.5px solid #999;border-radius:9px;padding:10px;text-align:center">'
+          + c12Shape(shape, key ? f[0] : 0, f[1])
+          + '<div style="font-size:22px;margin-top:6px">'
+          + '<span style="display:inline-block;border-bottom:2px solid #000;padding:0 6px">' + f[0] + '</span>'
+          + '<div>' + f[1] + '</div></div></div>');
+      }
+      return h7 + c12Grid(cells7, 4);
+    }
+
+    if (kind === "time"){
+      var mode2 = val("c12Time") || "hour";
+      var mins = mode2 === "hour" ? [0] : (mode2 === "half" ? [0, 30] : [0, 15, 30, 45]);
+      var h8 = c12Say('Write the time under each clock.');
+      var cells8 = [];
+      for (i = 0; i < qty; i++){
+        var hh = q12(rand, 1, 12), mm = mins[Math.floor(rand() * mins.length)];
+        cells8.push('<div style="border:1.5px solid #999;border-radius:9px;padding:10px;text-align:center">'
+          + c12Clock(hh, mm, true)
+          + '<div style="margin-top:6px;font-size:16px;color:' + (key ? '#1a5c2a' : '#000') + '">'
+          + (key ? esc(c12TimeWord(hh, mm)) : '<span style="display:inline-block;width:100%;border-bottom:2px solid #000;height:22px"></span>')
+          + '</div></div>');
+      }
+      return h8 + c12Grid(cells8, 4);
+    }
+
+    if (kind === "money"){
+      var h9 = c12Say('Add up the money. Write the total in rupees.');
+      var notes = lev === 1 ? [1, 2, 5, 10] : [1, 2, 5, 10, 20, 50];
+      var rows9 = [];
+      for (i = 0; i < qty; i++){
+        var n1 = notes[Math.floor(rand() * notes.length)], c1 = q12(rand, 2, 4);
+        var n2 = notes[Math.floor(rand() * notes.length)], c2 = q12(rand, 1, 3);
+        var totm = n1 * c1 + n2 * c2;
+        rows9.push(c12Row('<span style="font-size:19px">' + c1 + ' coins of \u20B9' + n1
+          + ' &nbsp;and&nbsp; ' + c2 + ' coins of \u20B9' + n2 + ' &nbsp;=&nbsp; \u20B9</span>' + c12Ans(totm, key)));
+      }
+      return h9 + rows9.join('');
+    }
+
+    if (kind === "tally"){
+      var h10 = c12Say('Read the tally marks. Write the number.');
+      var rows10 = [];
+      var pool10 = [];
+      for (var kk in ICONS){ if (ICONS.hasOwnProperty(kk) && (ICONS[kk].img || ICONS[kk].d)) pool10.push(kk); }
+      for (i = 0; i < Math.min(qty, 8); i++){
+        var cnt = q12(rand, 3, 17);
+        var marks = '';
+        for (var t2 = 0; t2 < Math.floor(cnt / 5); t2++) marks += '<span style="letter-spacing:2px;margin-right:9px;font-size:24px">\u2960</span>';
+        for (var u2 = 0; u2 < cnt % 5; u2++) marks += '<span style="font-size:24px">|</span>';
+        var pic = pool10.length ? iconSvg(pool10[i % pool10.length], 34) : '';
+        rows10.push(c12Row(pic + ' <span style="margin-left:10px">' + marks + '</span>', c12Ans(cnt, key)));
+      }
+      return h10 + rows10.join('');
+    }
+
+    if (kind === "word"){
+      var h11 = c12Say('Read carefully. Show your working, then write the answer.');
+      var rows11 = [];
+      for (i = 0; i < Math.min(qty, 8); i++){
+        var who = C12_NAMES[Math.floor(rand() * C12_NAMES.length)];
+        var nm = who[0], sheHe = who[1], herHis = who[2];
+        var th = C12_THINGS[Math.floor(rand() * C12_THINGS.length)];
+        var x = lev === 1 ? q12(rand, 5, 20) : q12(rand, 15, 60);
+        var y = lev === 1 ? q12(rand, 2, 9) : q12(rand, 6, 35);
+        var pick = Math.floor(rand() * (lev === 1 ? 2 : 3));
+        var q, a;
+        if (pick === 0){
+          q = nm + ' had ' + x + ' ' + th[0] + '. A friend gave ' + herHis + ' ' + y
+            + ' more. How many does ' + sheHe + ' have now?';
+          a = x + y;
+        } else if (pick === 1){
+          q = nm + ' had ' + (x + y) + ' ' + th[0] + '. ' + sheHe.charAt(0).toUpperCase() + sheHe.slice(1)
+            + ' gave away ' + y + '. How many are left?';
+          a = x;
+        } else {
+          var g2 = q12(rand, 2, 5), boxes = q12(rand, 2, 6);
+          q = nm + ' put ' + g2 + ' ' + th[0] + ' in each box. There are ' + boxes
+            + ' boxes. How many ' + th[0] + ' altogether?';
+          a = g2 * boxes;
+        }
+        rows11.push('<div style="padding:12px 4px;border-bottom:1px dashed #bbb">'
+          + '<div style="font-size:17px;line-height:1.7">' + (i + 1) + '. ' + esc(q) + '</div>'
+          + '<div style="display:flex;align-items:flex-end;gap:14px;margin-top:8px">'
+          + '<div style="flex:1;height:52px;border:1.5px dashed #bbb;border-radius:8px"></div>'
+          + '<div style="font-size:16px">Answer ' + c12Ans(a, key) + '</div></div></div>');
+      }
+      return h11 + rows11.join('');
+    }
+
+    return '<p style="text-align:center;color:#999">Choose a topic on the left.</p>';
+  }
+
+  function c12Sync(){
+    var kind = val("c12Kind") || "place";
+    function show(id, on){ var e = $(id); if (e) e.style.display = on ? "" : "none"; }
+    show("c12-skip-wrap",  kind === "skip");
+    show("c12-table-wrap", kind === "tables");
+    show("c12-time-wrap",  kind === "time");
+    var hint = $("c12Hint");
+    if (hint){
+      hint.textContent = (kind === "addcol" || kind === "subcol")
+        ? "Class 1 stays inside easy numbers. Class 2 carries and borrows."
+        : (kind === "word")
+          ? "One-step problems with Indian names and everyday things."
+          : "Class 1 uses smaller numbers than Class 2.";
+    }
+  }
+
   function ctPic(word, size){
     var svg = iconSvg(word, size || 62);
     if (svg) return svg;
@@ -4503,6 +4877,7 @@ Draw your school bag</textarea>
     else if(mode==="colourpic"){ body = buildColourPic(); }
     else if(mode==="phonics"){ body = buildPhonics(); }
     else if(mode==="cutpaste"){ body = buildCutPaste(); }
+    else if(mode==="c12"){ body = buildC12(false); }
     else if(MATHS.indexOf(mode)>=0){ body = buildMaths(mode,false); }
     else { body = buildCount(false); }
 
@@ -4515,6 +4890,13 @@ Draw your school bag</textarea>
               '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
               '<div style="height:10px"></div>'+
               buildMaths(mode,true)+signature()+footer()+'</div>';
+    }
+
+    if(mode==="c12" && $("c12Key").checked){
+      html += '<div class="paper'+colour+'"'+st+'>'+header()+
+              '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
+              '<div style="height:10px"></div>'+
+              buildC12(true)+signature()+footer()+'</div>';
     }
 
     if(mode==="count" && $("cKey").checked){
@@ -4678,13 +5060,15 @@ Draw your school bag</textarea>
                "cpCat","cpPick","cpPer","cpLang","cpBox",
                "phKind","phOrder","phGroup","phSound","phSound2","phVowel",
                "phFamily","phTricky","phBlendSet","phQty","phPics",
-               "ctKind","ctCat","ctCat2","ctQty","ctLabel"];
+               "ctKind","ctCat","ctCat2","ctQty","ctLabel",
+               "c12Kind","c12Level","c12Skip","c12Table","c12Time","c12Qty","c12Key"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
     el.addEventListener("input", function(){
       if(this.id.indexOf("ph")===0){ phSync(); }
       if(this.id.indexOf("ct")===0){ ctSync(); }
+      if(this.id.indexOf("c12")===0){ c12Sync(); }
       if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
@@ -4720,6 +5104,7 @@ Draw your school bag</textarea>
   makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
   phSync();
   ctFillLists();
+  c12Sync();
   bindSecList(LANG); bindSecList(MIX);
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
