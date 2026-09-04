@@ -1399,7 +1399,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
     <div class="form-row">
       <div class="form-group">
         <label>Class</label>
-        <select id="ws-class"><option value="">Select Class</option>
+        <select id="ws-class" onchange="wsLoadBooks()"><option value="">Select Class</option>
           <option>Pre KG</option><option>LKG</option><option>UKG</option>
           <option>Class 1</option><option>Class 2</option><option>Class 3</option>
           <option>Class 4</option><option>Class 5</option><option>Class 6</option>
@@ -1408,12 +1408,26 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
       <div class="form-group">
         <label>Subject</label>
-        <select id="ws-subject"><option value="">Select Subject</option>
+        <select id="ws-subject" onchange="wsLoadBooks()"><option value="">Select Subject</option>
           <option>English</option><option>Tamil</option><option>Maths</option>
           <option>Science</option><option>Social Science</option>
           <option>EVS</option><option>Computer Science</option><option>Hindi</option>
         </select>
       </div>
+    </div>
+    <div class="form-group">
+      <label>📖 Book (from your library)</label>
+      <select id="ws-book" onchange="wsBookChanged()">
+        <option value="">Select class and subject first</option>
+      </select>
+      <div id="ws-book-msg" style="font-size:0.8rem;color:#888;margin-top:6px;line-height:1.6;"></div>
+    </div>
+    <div class="form-group" id="ws-chwrap" style="display:none;">
+      <label>📑 Chapter</label>
+      <select id="ws-chapter" onchange="wsApplyChapter()">
+        <option value="">Select chapter</option>
+      </select>
+      <div style="font-size:0.78rem;color:#888;margin-top:5px;">Topic and page numbers fill in automatically.</div>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1428,6 +1442,15 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
           <option value="hard">Hard / Challenge</option>
         </select>
       </div>
+    </div>
+    <div class="form-group">
+      <label>Worksheet Style</label>
+      <div class="check-group">
+        <label class="check-item"><input type="radio" name="ws-style" value="bookback" onchange="wsApplyStyle()"> Book Back Only</label>
+        <label class="check-item"><input type="radio" name="ws-style" value="concept" checked onchange="wsApplyStyle()"> Concept Based</label>
+        <label class="check-item"><input type="radio" name="ws-style" value="mixed" onchange="wsApplyStyle()"> Mixed</label>
+      </div>
+      <div id="ws-style-note" style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.6;">Fresh questions covering every concept in the lesson, so the student must read the full chapter.</div>
     </div>
     <div class="form-group">
       <label>Question Types to Include</label>
@@ -2598,6 +2621,185 @@ function renderObjective(text) {
   return html;
 }
 
+// ══ WORKSHEET: BOOK + CHAPTER PICKER ══
+// Same chapter source as the teach tab, so a teacher never counts pages by hand.
+// Paste and upload still work exactly as before — this is an extra route, not a replacement.
+var _wsBooks = [], _wsChapters = [], _wsBook = null;
+
+function wsEsc(v){
+  return String(v == null ? '' : v).replace(/[&<>"]/g, function(c){
+    return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c];
+  });
+}
+
+async function wsLoadBooks(){
+  var cls = document.getElementById('ws-class').value;
+  var sub = document.getElementById('ws-subject').value;
+  var sel = document.getElementById('ws-book');
+  var msg = document.getElementById('ws-book-msg');
+  var chw = document.getElementById('ws-chwrap');
+  if (!sel) return;
+  _wsBooks = []; _wsChapters = []; _wsBook = null;
+  sel.innerHTML = '<option value="">Select book</option>';
+  if (chw) chw.style.display = 'none';
+  if (msg) msg.textContent = '';
+  if (!cls || !sub) {
+    sel.innerHTML = '<option value="">Select class and subject first</option>';
+    return;
+  }
+  if (msg) msg.textContent = 'Looking for books\u2026';
+  var books = [];
+
+  // Books this school uploaded itself
+  try {
+    var r1 = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'get_school_books', school_id: getSchoolId() }) });
+    var d1 = await r1.json();
+    (d1.books || []).forEach(function(b){
+      if (String(b.class_name || '') === cls && String(b.subject || '') === sub) {
+        books.push({ id:b.id, name:(b.book_name || b.subject || 'Book'), pdf:(b.pdf_url || ''), source:'private' });
+      }
+    });
+  } catch(e) { /* private books optional */ }
+
+  // Shared Samacheer library
+  try {
+    var r2 = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'tbl_get', table:'textbook_library',
+        params:'class_name=eq.' + encodeURIComponent(cls) + '&subject=eq.' + encodeURIComponent(sub)
+             + '&select=id,title,class_name,subject,pdf_url' }) });
+    var d2 = await r2.json();
+    var lib = Array.isArray(d2) ? d2 : (d2.books || []);
+    lib.forEach(function(b){
+      books.push({ id:b.id, name:((b.title || b.subject || 'Book') + ' (Samacheer)'), pdf:(b.pdf_url || ''), source:'library' });
+    });
+  } catch(e) { /* library optional */ }
+
+  _wsBooks = books;
+  if (!books.length) {
+    if (msg) msg.innerHTML = 'No book uploaded for ' + wsEsc(cls) + ' ' + wsEsc(sub)
+      + ' yet. Ask your admin to add it \u2014 or just paste the lesson / upload a PDF below.';
+    return;
+  }
+  if (msg) msg.textContent = '';
+  books.forEach(function(b, i){
+    var o = document.createElement('option');
+    o.value = String(i);
+    o.textContent = b.name;
+    sel.appendChild(o);
+  });
+}
+
+async function wsBookChanged(){
+  var sel = document.getElementById('ws-book');
+  var chw = document.getElementById('ws-chwrap');
+  var chs = document.getElementById('ws-chapter');
+  var msg = document.getElementById('ws-book-msg');
+  _wsChapters = []; _wsBook = null;
+  if (chs) chs.innerHTML = '<option value="">Select chapter</option>';
+  if (chw) chw.style.display = 'none';
+  if (msg) msg.textContent = '';
+  if (!sel || sel.value === '') return;
+  var b = _wsBooks[parseInt(sel.value, 10)];
+  if (!b) return;
+  _wsBook = b;
+
+  // A Samacheer library book means a State Board school -> book back by default.
+  // The school's own book means CBSE/private -> concept based by default.
+  wsSetStyle(b.source === 'library' ? 'bookback' : 'concept');
+
+  try {
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'tbl_get',
+        table: (b.source === 'private' ? 'school_book_chapters' : 'textbook_chapters'),
+        params:'book_id=eq.' + encodeURIComponent(b.id)
+             + '&order=page_from&select=chapter_number,chapter_title,page_from,page_to' }) });
+    var d = await r.json();
+    var list = Array.isArray(d) ? d : (d.chapters || []);
+    list = list.filter(function(c){ return c && c.page_from && c.page_to; });
+    if (!list.length) {
+      if (msg) msg.textContent = 'This book has no chapters detected yet \u2014 you can still paste the lesson or upload the PDF below.';
+      return;
+    }
+    _wsChapters = list;
+    list.forEach(function(c, i){
+      var o = document.createElement('option');
+      o.value = String(i);
+      o.textContent = 'Ch.' + (c.chapter_number || (i + 1)) + ' \u2014 '
+        + (((c.chapter_title || '').trim()) || 'Untitled')
+        + '  (p.' + c.page_from + '-' + c.page_to + ')';
+      chs.appendChild(o);
+    });
+    if (chw) chw.style.display = 'block';
+  } catch(e) { /* chapters optional - paste and upload still work */ }
+}
+
+function wsApplyChapter(){
+  var sel = document.getElementById('ws-chapter');
+  if (!sel || sel.value === '') return;
+  var c = _wsChapters[parseInt(sel.value, 10)];
+  if (!c) return;
+  var t = document.getElementById('ws-topic');
+  var title = (c.chapter_title || '').trim();
+  if (t && title) t.value = title;
+  var f = document.getElementById('ws-start-page');
+  var e = document.getElementById('ws-end-page');
+  if (f) f.value = c.page_from;
+  if (e) e.value = c.page_to;
+}
+
+// Pull the chosen book's PDF so the AI can read the chapter directly.
+async function wsFetchBookPdf(){
+  if (!_wsBook || !_wsBook.pdf) return null;
+  try {
+    var r = await fetch(_wsBook.pdf);
+    if (!r.ok) return null;
+    var blob = await r.blob();
+    return new File([blob], 'book.pdf', { type:'application/pdf' });
+  } catch(e) {
+    console.error('Could not open book PDF:', e);
+    return null;
+  }
+}
+
+// ══ WORKSHEET STYLE ══
+function wsGetStyle(){
+  var r = document.querySelector('input[name="ws-style"]:checked');
+  return r ? r.value : 'concept';
+}
+
+function wsSetStyle(v){
+  var r = document.querySelector('input[name="ws-style"][value="' + v + '"]');
+  if (r) r.checked = true;
+  wsApplyStyle();
+}
+
+// In Book Back mode the book decides the questions, so difficulty and
+// question types are switched off rather than quietly ignored.
+function wsApplyStyle(){
+  var style = wsGetStyle();
+  var lock = (style === 'bookback');
+  var lvl = document.getElementById('ws-level');
+  if (lvl) { lvl.disabled = lock; lvl.style.opacity = lock ? '0.5' : '1'; }
+  ['ws-mcq','ws-fill','ws-tf','ws-short','ws-match'].forEach(function(id){
+    var el = document.getElementById(id);
+    if (el) {
+      el.disabled = lock;
+      if (el.parentElement) el.parentElement.style.opacity = lock ? '0.5' : '1';
+    }
+  });
+  var note = document.getElementById('ws-style-note');
+  if (note) {
+    if (style === 'bookback') {
+      note.textContent = 'Questions are taken from the exercises at the end of the chapter. Difficulty and question types are as given in the book.';
+    } else if (style === 'mixed') {
+      note.textContent = 'Book back exercises first, then extra concept questions below them.';
+    } else {
+      note.textContent = 'Fresh questions covering every concept in the lesson, so the student must read the full chapter.';
+    }
+  }
+}
+
 // ── GENERATE TOOLS ──
 async function generateTool(tool) {
   let prompt = '';
@@ -2643,33 +2845,93 @@ Make it practical, engaging and suitable for Indian school children.`;
     const topic = document.getElementById('ws-topic').value;
     const level = document.getElementById('ws-level').value;
     const content = document.getElementById('ws-content').value;
+    const style = wsGetStyle();
     const wsFileInput = document.getElementById('ws-file');
     pdfFile = wsFileInput && wsFileInput.files && wsFileInput.files[0] ? wsFileInput.files[0] : null;
+
+    if (!cls || !topic) { alert('Please fill Class and Topic.'); return; }
+
+    // Nothing pasted, nothing uploaded, but a book chapter is chosen -> use the library book.
+    if (!pdfFile && !content.trim() && _wsBook) {
+      document.getElementById(loadId).classList.add('show');
+      pdfFile = await wsFetchBookPdf();
+      document.getElementById(loadId).classList.remove('show');
+      if (!pdfFile) {
+        alert('Could not open the book file. Please paste the lesson or upload the PDF instead.');
+        return;
+      }
+    }
+
     pdfStart = document.getElementById('ws-start-page').value;
     pdfEnd = document.getElementById('ws-end-page').value;
+
     const types = [];
     if (document.getElementById('ws-mcq').checked) types.push('MCQ (4 options with answer)');
     if (document.getElementById('ws-fill').checked) types.push('Fill in the Blanks (with answers)');
     if (document.getElementById('ws-tf').checked) types.push('True or False (with answers)');
     if (document.getElementById('ws-short').checked) types.push('Short Answer Questions');
     if (document.getElementById('ws-match').checked) types.push('Match the Following');
-    if (!cls || !topic) { alert('Please fill Class and Topic.'); return; }
-    prompt = `You are a CBSE school teacher in Tamil Nadu, India.
-Create a complete ${level} difficulty worksheet for:
-Class: ${cls} | Subject: ${sub} | Topic: ${topic}
 
-Include these question types: ${types.join(', ')}
+    const board = (_wsBook && _wsBook.source === 'library')
+      ? 'Tamil Nadu State Board (Samacheer Kalvi)'
+      : 'CBSE';
 
-Lesson Content to base questions on:
-${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge for this topic.')}
+    const sourceLine = content
+      || (pdfFile
+        ? 'See the attached PDF document - read it carefully and base everything on its actual content.'
+        : 'Use standard ' + board + ' curriculum knowledge for this topic.');
+
+    let styleBlock;
+    if (style === 'bookback') {
+      styleBlock = `Prepare a BOOK BACK worksheet.
+
+BOOK BACK RULES (follow these exactly):
+- Use ONLY the exercise questions printed at the END of this chapter (the book back / exercise section).
+- Do NOT write any new question of your own.
+- Keep the book's own order, numbering and wording.
+- Keep every question type the book uses, even if it is unusual.
+- Include ALL the book back questions, do not skip any.
+- Then give the correct answers in an Answer Key at the bottom.`;
+    } else if (style === 'mixed') {
+      styleBlock = `Prepare a MIXED worksheet in two parts.
+
+PART A - FROM THE BOOK:
+- Copy the exercise questions printed at the END of this chapter, in the book's own order and wording.
+- Do not change or skip them.
+
+PART B - CONCEPT PRACTICE (${level} difficulty):
+- Write fresh questions from the lesson body itself, not from the exercises.
+- Cover the main concepts the lesson teaches, in the order it teaches them.
+- Use these question types: ${types.join(', ')}
+
+Give one combined Answer Key at the bottom covering both parts.`;
+    } else {
+      styleBlock = `Prepare a CONCEPT worksheet at ${level} difficulty.
+
+CONCEPT RULES:
+- Build fresh questions from the lesson body, NOT from the book back exercises.
+- Cover EVERY main concept in the chapter, in the order the lesson teaches them.
+- A student should not be able to answer these without reading the whole lesson.
+- Use these question types: ${types.join(', ')}
+- Then give the correct answers in an Answer Key at the bottom.`;
+    }
+
+    prompt = `You are a ${board} school teacher in Tamil Nadu, India.
+
+Class: ${cls} | Subject: ${sub} | Chapter / Topic: ${topic}
+
+${styleBlock}
+
+Lesson Content to work from:
+${sourceLine}
 
 Format it as a proper school worksheet with:
 - School name line, Date line, Name line, Class line at top
-- Clear sections for each question type
+- Clear numbered sections
 - Marks for each question
 - Answer Key at the bottom
 
-Make questions clear and age-appropriate for ${cls} students.`;
+Keep the language clear and age-appropriate for ${cls} students.`;
   }
 
   else if (tool === 'qpaper') {
@@ -2835,7 +3097,7 @@ Keep it concise, warm and easy for parents to read on their phone.`;
 
   // Token limits per tool
   const tokenMap = {
-    lesson: 2000, worksheet: 3000, qpaper: 4000,
+    lesson: 2000, worksheet: 4000, qpaper: 4000,
     objective: 4000, bookback: 4000, reportcard: 3000, diary: 1500
   };
   if (pdfFile && pdfStart && pdfEnd) {
