@@ -1049,6 +1049,16 @@ Draw your school bag</textarea>
       </select>
     </div>
 
+    <div class="grp" id="picstyle-grp">
+      <label>Pictures</label>
+      <select id="picStyle">
+        <option value="colour" selected>Colour pictures</option>
+        <option value="outline">Colouring pictures — children colour them in</option>
+        <option value="line">Simple line drawings</option>
+      </select>
+      <p class="hint" id="picStyle-hint">Loading the picture library…</p>
+    </div>
+
     <label class="chk"><input type="checkbox" id="colour"> Print in colour <span style="color:#888">(for display boards)</span></label>
     <label class="chk"><input type="checkbox" id="showNd" checked> Show name &amp; date lines</label>
     <label class="chk"><input type="checkbox" id="showSign" checked> Show signature lines</label>
@@ -2368,13 +2378,124 @@ Draw your school bag</textarea>
   var SHAPE_KEYS = ["circle","square","triangle","rectangle","oval","star","heart","diamond"];
   if(window.KG_ICONS_EXTRA){ for(var xk in window.KG_ICONS_EXTRA){ if(window.KG_ICONS_EXTRA.hasOwnProperty(xk)){ ICONS[xk] = window.KG_ICONS_EXTRA[xk]; } } }
   var ICON_KEYS = []; for(var ik in ICONS){ if(ICONS.hasOwnProperty(ik)){ ICON_KEYS.push(ik); } }
+  // Reassigned once the picture library loads, so these are plain variables
   var ICON_CATS = [["any","Any picture"],["fruit","Fruits"],["animal","Animals"],["bird","Birds"],["insect","Insects"],
                    ["vehicle","Vehicles"],["object","Things"],["food","Food"],["nature","Nature"]];
+
+  /* ---------- generated picture library ----------
+     Pictures drawn once in super admin and shared by every school. Each word
+     may have a colour version and a colouring-page outline. Words that only
+     exist in the library (no built-in drawing) simply drop out of the pool
+     when the teacher picks "Simple line drawings". */
+  var KG_PIC = {};                 // word -> { colour_url, outline_url }
+  var ICONS_BUILTIN = {};          // which words came with a drawing in this file
+  for (var bk in ICONS){ if(ICONS.hasOwnProperty(bk) && ICONS[bk].d){ ICONS_BUILTIN[bk] = true; } }
+
+  var CAT_LABELS = {
+    fruit:"Fruits", animal:"Animals", bird:"Birds", insect:"Insects", vehicle:"Vehicles",
+    object:"Things", food:"Food", nature:"Nature", body:"Body parts", clothes:"Clothes",
+    helper:"Community helpers", shape:"Shapes", weather:"Weather", home:"Things at home",
+    family:"Family", action:"Action words", school:"School things", vegetable:"Vegetables"
+  };
+
+  function kgPicStyle(){
+    var el = document.getElementById("picStyle");
+    return el ? el.value : "colour";
+  }
+
+  // Point each picture at the right file for the chosen style, and drop any
+  // word that has nothing to show in that style.
+  function kgApplyPicStyle(){
+    var style = kgPicStyle();
+    ICON_KEYS = [];
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      var ic = ICONS[k], row = KG_PIC[k] || {};
+      var url = style === "colour" ? row.colour_url : (style === "outline" ? row.outline_url : "");
+      if (style === "line" || !url) { delete ic.img; } else { ic.img = url; }
+      // Keep the word only if it will actually draw something
+      if (ic.img || ic.d) ICON_KEYS.push(k);
+    }
+    if (!ICON_KEYS.length){
+      // Never leave the pool empty - fall back to whatever has a drawing
+      for (var k2 in ICONS){ if(ICONS.hasOwnProperty(k2) && ICONS[k2].d) ICON_KEYS.push(k2); }
+    }
+    kgRebuildCats();
+  }
+
+  function kgRebuildCats(){
+    var seen = {};
+    for (var i=0;i<ICON_KEYS.length;i++){
+      var c = ICONS[ICON_KEYS[i]].cat;
+      if (c) seen[c] = true;
+    }
+    var out = [["any","Any picture"]];
+    Object.keys(seen).sort().forEach(function(c){ out.push([c, CAT_LABELS[c] || c]); });
+    ICON_CATS = out;
+  }
+
+  function kgPicStyleChanged(){
+    kgApplyPicStyle();
+    kgPicHint();
+    try { render(); } catch(e) {}
+  }
+
+  function kgPicHint(){
+    var el = document.getElementById("picStyle-hint");
+    if (!el) return;
+    var style = kgPicStyle(), n = 0;
+    for (var k in KG_PIC){
+      if (!KG_PIC.hasOwnProperty(k)) continue;
+      if (style === "colour" && KG_PIC[k].colour_url) n++;
+      if (style === "outline" && KG_PIC[k].outline_url) n++;
+    }
+    if (style === "line"){
+      el.textContent = Object.keys(ICONS_BUILTIN).length + " simple drawings, printed in outline.";
+    } else if (n === 0){
+      el.textContent = "No pictures drawn yet for this style \u2014 simple line drawings are being used instead.";
+    } else {
+      el.textContent = n + " pictures ready"
+        + (style === "outline" ? " for children to colour in." : ".");
+    }
+  }
+
+  async function kgLoadPictures(){
+    try {
+      var r = await fetch('/api/auth', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ action:'tbl_get', table:'kg_pictures',
+                               params:'select=word,en,ta,hi,cat,colour_url,outline_url&order=word' })
+      });
+      var rows = await r.json();
+      if (!Array.isArray(rows)) rows = [];
+      rows.forEach(function(row){
+        if (!row || !row.word) return;
+        if (!row.colour_url && !row.outline_url && !ICONS[row.word]) return;  // nothing to show yet
+        KG_PIC[row.word] = { colour_url: row.colour_url || '', outline_url: row.outline_url || '' };
+        if (!ICONS[row.word]){
+          ICONS[row.word] = { en: row.en || row.word, ta: row.ta || '', hi: row.hi || '', cat: row.cat || 'object' };
+        } else {
+          // Keep the built-in drawing, just fill in anything missing
+          var ic = ICONS[row.word];
+          if (!ic.ta && row.ta) ic.ta = row.ta;
+          if (!ic.hi && row.hi) ic.hi = row.hi;
+          if (!ic.cat && row.cat) ic.cat = row.cat;
+        }
+      });
+    } catch(e) { /* library optional - built-in drawings still work */ }
+    kgApplyPicStyle();
+    kgPicHint();
+    try { render(); } catch(e) {}
+  }
 
   function iconSvg(key, size, faint){
     var ic = ICONS[key]; if(!ic){ return ""; }
     size = size || 52;
-    if(ic.img){ return '<img class="ico" src="'+esc(ic.img)+'" width="'+size+'" height="'+size+'" alt="">'; }
+    if(ic.img){
+      // A generated picture is already the right colours - print it as it is.
+      return '<img class="ico" src="'+esc(ic.img)+'" width="'+size+'" height="'+size+'" alt="" '
+           + 'style="object-fit:contain;'+(faint?'opacity:.45;':'')+'">';
+    }
     var col = faint ? "#bbb" : ink();
     return '<svg class="ico" width="'+size+'" height="'+size+'" viewBox="0 0 64 64" fill="none" stroke="'+col+'" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">'+
            ic.d.split('fill="#000"').join('fill="'+col+'"')+'</svg>';
@@ -3810,6 +3931,14 @@ Draw your school bag</textarea>
     document.fonts.ready.then(function(){ render(); });
   }
 })();
+
+/* Fetch the drawn picture library once the page is ready. Until it arrives the
+   built-in line drawings are used, so the generator works either way. */
+try {
+  var _psEl = document.getElementById("picStyle");
+  if (_psEl) _psEl.addEventListener("change", kgPicStyleChanged);
+  kgLoadPictures();
+} catch(e) {}
 </script>
 </body>
 </html>
