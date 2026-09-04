@@ -604,6 +604,7 @@
       <button class="tab" data-t="draw">Draw in the box<small>A framed space for each idea</small></button>
       <button class="tab" data-t="cgrid">Colour by instruction<small>Colour each shape its own colour</small></button>
       <button class="tab" data-t="colourpic">Colouring sheet<small>Big pictures for children to colour in</small></button>
+      <button class="tab" data-t="phonics">Phonics<small>Sounds, blending, word families, tricky words</small></button>
     </div>
   </nav>
 
@@ -753,6 +754,75 @@
       </div>
       <label class="chk"><input type="checkbox" id="dGuide"> Show a faint guide line</label>
       <label class="chk"><input type="checkbox" id="dColourAfter" checked> Add "now colour it" below</label>
+    </div>
+
+    <!-- phonics -->
+    <div data-panel="phonics" style="display:none">
+      <div class="grp">
+        <label>Practice</label>
+        <select id="phKind">
+          <option value="sound">Sound sheet — trace the letter, colour the pictures</option>
+          <option value="begin">Beginning sound — write the first letter</option>
+          <option value="middle">Middle sound — the missing vowel</option>
+          <option value="end">Ending sound — write the last letter</option>
+          <option value="blend">Blend and read — c · a · t</option>
+          <option value="family">Word family — -at, -an, -ig…</option>
+          <option value="picword">Picture to word — write the word</option>
+          <option value="sort">Sound sort — two columns</option>
+          <option value="tricky">Tricky words — trace, read, find</option>
+          <option value="blendd">Blends and digraphs</option>
+        </select>
+      </div>
+
+      <div class="grp" id="ph-order-wrap">
+        <label>Sound order</label>
+        <select id="phOrder">
+          <option value="jolly" selected>Jolly Phonics groups</option>
+          <option value="alpha">A to Z</option>
+        </select>
+      </div>
+      <div class="grp" id="ph-group-wrap">
+        <label>Group</label>
+        <select id="phGroup"></select>
+      </div>
+      <div class="grp" id="ph-sound-wrap">
+        <label>Sound</label>
+        <select id="phSound"></select>
+      </div>
+      <div class="grp" id="ph-sound2-wrap" style="display:none">
+        <label>Second sound (to sort against)</label>
+        <select id="phSound2"></select>
+      </div>
+      <div class="grp" id="ph-vowel-wrap" style="display:none">
+        <label>Middle vowel</label>
+        <select id="phVowel">
+          <option value="a" selected>a — cat, bag, man</option>
+          <option value="e">e — bed, hen, net</option>
+          <option value="i">i — pig, pin, six</option>
+          <option value="o">o — dog, pot, box</option>
+          <option value="u">u — bus, cup, sun</option>
+          <option value="mix">All five mixed</option>
+        </select>
+      </div>
+      <div class="grp" id="ph-family-wrap" style="display:none">
+        <label>Word family</label>
+        <select id="phFamily"></select>
+      </div>
+      <div class="grp" id="ph-tricky-wrap" style="display:none">
+        <label>Tricky word set</label>
+        <select id="phTricky"></select>
+      </div>
+      <div class="grp" id="ph-blend-wrap" style="display:none">
+        <label>Blend or digraph</label>
+        <select id="phBlendSet"></select>
+      </div>
+
+      <div class="grp">
+        <label>How many rows</label>
+        <input type="number" id="phQty" value="6" min="2" max="14">
+      </div>
+      <label class="chk"><input type="checkbox" id="phPics" checked> Use pictures where we have them</label>
+      <p class="hint" id="phHint"></p>
     </div>
 
     <!-- colouring sheet -->
@@ -1178,6 +1248,7 @@ Draw your school bag</textarea>
         onlyMaths[q].style.display = (MATHS.indexOf(mode)>=0) ? "" : "none";
       }
       if(mode==="colourpic"){ cpFillLists(); }
+      if(mode==="phonics"){ phSync(); }
       if(mode==="count"){ makeCounts(); }
       if(mode==="cgrid"){ makeGrid(); }
       if(MATHS.indexOf(mode)>=0){ makeMaths(mode); }
@@ -1220,7 +1291,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics");
     b.style.display = uses ? "" : "none";
   }
 
@@ -3296,6 +3367,370 @@ Draw your school bag</textarea>
     }
   }
 
+
+  /* ══════════════ PHONICS ══════════════
+     Jolly Phonics teaches 42 sounds in seven groups, ordered so that children
+     can blend real words from the first week. Group 1 alone gives sat, tap,
+     pat, pin, nip. A sheet for a group never uses a sound from a later group. */
+  var PH_GROUPS = [
+    ["1", "s a t i p n",              ["s","a","t","i","p","n"]],
+    ["2", "c k e h r m d",            ["c","k","e","h","r","m","d"]],
+    ["3", "g o u l f b",              ["g","o","u","l","f","b"]],
+    ["4", "ai j oa ie ee or",         ["ai","j","oa","ie","ee","or"]],
+    ["5", "z w ng v oo",              ["z","w","ng","v","oo"]],
+    ["6", "y x ch sh th",             ["y","x","ch","sh","th"]],
+    ["7", "qu ou oi ue er ar",        ["qu","ou","oi","ue","er","ar"]]
+  ];
+  var PH_ALPHABET = "abcdefghijklmnopqrstuvwxyz".split("");
+
+  /* Words that begin with each sound. Kept short and picture-friendly so the
+     same words can carry a drawing when one exists. */
+  var PH_WORDS = {
+    s:["sun","sit","sad","six","sock","sand"], a:["ant","apple","axe","arm","add"],
+    t:["tap","ten","top","tin","tub","tree"],  i:["ink","igloo","in","it","ill"],
+    p:["pen","pig","pot","pan","pin","park"],  n:["net","nut","nap","nose","nest"],
+    c:["cat","cup","car","cot","cap","cow"],   k:["key","kit","kite","king","kid"],
+    e:["egg","elephant","end","elbow"],        h:["hat","hen","hop","hut","hand"],
+    r:["rat","run","red","rug","rain"],        m:["man","map","mug","mat","moon"],
+    d:["dog","dig","den","dot","duck"],        g:["gap","got","gum","goat","gate"],
+    o:["ox","orange","on","off","otter"],      u:["up","umbrella","under","us"],
+    l:["leg","log","lip","lid","lamp"],        f:["fan","fig","fox","fun","fish"],
+    b:["bat","bus","bed","bag","ball"],        ai:["rain","tail","nail","paint","train"],
+    j:["jam","jug","jet","jump","jar"],        oa:["boat","coat","goat","road","soap"],
+    ie:["tie","pie","lie","die"],              ee:["bee","tree","feet","seed","green"],
+    or:["fork","corn","horn","born","short"],  z:["zip","zoo","zebra","zigzag"],
+    w:["web","wig","win","wet","wind"],        ng:["ring","king","sing","wing","song"],
+    v:["van","vet","vase","violin"],           oo:["book","moon","food","zoo","cook"],
+    y:["yes","yak","yell","yard"],             x:["box","fox","six","mix","fix"],
+    ch:["chip","chin","chair","cheese","chick"], sh:["ship","shop","shell","shoe","fish"],
+    th:["thin","thick","this","that","three"], qu:["queen","quick","quilt","quiz"],
+    ou:["out","cloud","mouse","house","round"], oi:["oil","coin","boil","soil","point"],
+    ue:["blue","glue","true","clue"],          er:["her","letter","water","under"],
+    ar:["car","star","farm","arm","park"]
+  };
+
+  /* Word families - the biggest single thing the market sites carry. */
+  var PH_FAMILY = {
+    "-at":["cat","bat","hat","mat","rat","sat","pat","fat"],
+    "-an":["can","fan","man","pan","ran","tan","van"],
+    "-ap":["cap","map","tap","nap","gap","lap"],
+    "-ag":["bag","tag","rag","wag","jag"],
+    "-am":["ham","jam","ram","dam","yam"],
+    "-ad":["bad","dad","had","mad","pad","sad"],
+    "-et":["get","jet","net","pet","wet","let"],
+    "-en":["hen","pen","ten","den","men"],
+    "-ed":["bed","fed","led","red","wed"],
+    "-eg":["beg","leg","peg"],
+    "-it":["bit","fit","hit","kit","pit","sit"],
+    "-in":["bin","fin","pin","tin","win"],
+    "-ig":["big","dig","fig","pig","wig"],
+    "-ip":["dip","lip","rip","tip","zip"],
+    "-ot":["cot","dot","got","hot","pot","not"],
+    "-og":["dog","fog","hog","jog","log"],
+    "-op":["hop","mop","pop","top","stop"],
+    "-ug":["bug","dug","hug","jug","mug","rug"],
+    "-un":["bun","fun","run","sun"],
+    "-ut":["but","cut","hut","nut","put"],
+    "-ub":["cub","rub","tub","sub"]
+  };
+
+  /* CVC words by their middle vowel, for missing-vowel and blending sheets. */
+  var PH_CVC = {
+    a:["cat","bat","hat","map","bag","can","fan","man","pan","rat","sad","tap","van","jam","ham"],
+    e:["bed","hen","pen","ten","net","leg","red","wet","jet","peg"],
+    i:["pig","big","pin","tin","lip","zip","six","fin","hit","wig","bin","dig"],
+    o:["dog","log","pot","top","box","fox","mop","cot","hop","rod"],
+    u:["bus","cup","sun","nut","mug","jug","rug","bug","hut","cut"]
+  };
+
+  /* Tricky words cannot be sounded out, so they are learnt by sight. */
+  var PH_TRICKY = {
+    "Set 1":["I","the","he","she","me","we","be","was","to","do","are","all"],
+    "Set 2":["you","your","come","some","said","here","there","they","go","no","so","my"],
+    "Set 3":["one","by","only","old","like","have","live","give","little","down","what","when"],
+    "Set 4":["why","where","who","which","any","many","more","before","other","were","because","want"],
+    "Set 5":["saw","put","could","should","would","right","two","four","goes","does","made","their"]
+  };
+
+  var PH_BLEND = {
+    "bl":["black","block","blue"], "cl":["clap","clock","clean"], "fl":["flag","flat","fly"],
+    "gl":["glad","glue","glass"],  "pl":["plan","plug","plate"],  "sl":["slip","slide","sled"],
+    "br":["bread","brick","brush"],"cr":["crab","cry","cross"],   "dr":["drum","dress","drink"],
+    "fr":["frog","fruit","front"], "gr":["green","grass","grow"], "pr":["press","print","pray"],
+    "tr":["tree","train","truck"], "sk":["skip","skirt","sky"],   "sm":["small","smile","smoke"],
+    "sn":["snake","snail","snow"], "sp":["spoon","spin","spider"],"st":["star","stop","stand"],
+    "sw":["swim","swing","sweet"], "tw":["twin","twelve","twist"]
+  };
+  var PH_DIGRAPH = {
+    "ch":["chair","chip","cheese","chick"], "sh":["ship","shop","shell","fish"],
+    "th":["thin","three","this","bath"],    "wh":["wheel","white","whale"],
+    "ng":["ring","king","song","wing"],     "ck":["duck","sock","clock","kick"],
+    "ph":["phone","photo","dolphin"]
+  };
+
+  /* A picture if we have one, otherwise an empty box to draw in. */
+  function phPic(word, size){
+    size = size || 60;
+    if ($("phPics").checked){
+      var svg = iconSvg(word, size);
+      if (svg) return svg;
+    }
+    return '<span style="display:inline-block;width:'+size+'px;height:'+size+'px;'
+         + 'border:1.5px dashed #bbb;border-radius:8px;vertical-align:middle"></span>';
+  }
+  function phBox(w){ return '<span style="display:inline-block;width:'+(w||40)+'px;height:44px;'
+         + 'border:2px solid #000;border-radius:6px;vertical-align:middle;margin:0 3px"></span>'; }
+  function phLine(w){ return '<span style="display:inline-block;width:'+(w||120)+'px;'
+         + 'border-bottom:2px solid #000;margin:0 6px"></span>'; }
+  function phCard(inner){ return '<div style="border:1.5px solid #999;border-radius:10px;'
+         + 'padding:12px 10px;text-align:center">'+inner+'</div>'; }
+  function phGrid(cells, cols){
+    return '<div style="display:grid;grid-template-columns:repeat('+(cols||3)+',1fr);gap:12px;margin-top:8px">'
+         + cells.join('') + '</div>';
+  }
+  function phTitle(t){ return '<p style="text-align:center;font-size:15px;color:#333;margin:2px 0 12px">'+esc(t)+'</p>'; }
+
+  function phSounds(){
+    if (val("phOrder") === "alpha") return PH_ALPHABET.slice();
+    var g = val("phGroup") || "1";
+    for (var i=0;i<PH_GROUPS.length;i++){ if (PH_GROUPS[i][0] === g) return PH_GROUPS[i][2].slice(); }
+    return PH_GROUPS[0][2].slice();
+  }
+  function phWordsFor(sound){
+    var list = PH_WORDS[sound];
+    if (list && list.length) return list.slice();
+    // Alphabet mode may ask for a sound with no list - fall back to CVC words
+    var out = [];
+    for (var v in PH_CVC){ PH_CVC[v].forEach(function(w){ if (w.charAt(0) === sound) out.push(w); }); }
+    return out;
+  }
+  function phCvcPool(){
+    var v = val("phVowel") || "a";
+    if (v === "mix"){
+      var all = [];
+      for (var k in PH_CVC) all = all.concat(PH_CVC[k]);
+      return all;
+    }
+    return (PH_CVC[v] || PH_CVC.a).slice();
+  }
+
+  /* ---------- the ten sheets ---------- */
+  function buildPhonics(){
+    var kind = val("phKind") || "sound";
+    var qty = Math.max(2, Math.min(14, num("phQty", 6)));
+    var rand = seeded(val("school") + "|ph|" + kind + "|" + val("phSound") + "|" + val("phVowel") + "|" + cpSeed);
+    var sound = val("phSound") || "s";
+
+    if (kind === "sound"){
+      var words = shuffleWith(phWordsFor(sound), rand).slice(0, 6);
+      var h = phTitle('Say the sound. Trace it, then colour the pictures that begin with it.');
+      h += '<div style="text-align:center;font-family:var(--hf);font-size:64px;letter-spacing:14px;color:#bbb;margin:6px 0">'
+         + esc(sound) + ' ' + esc(sound) + ' ' + esc(sound) + '</div>';
+      h += '<div style="border-bottom:2px solid #000;margin:0 0 16px"></div>';
+      h += phGrid(words.map(function(w){
+        return phCard(phPic(w, 78) + '<div style="font-family:var(--hf);font-size:20px;margin-top:6px">' + esc(w) + '</div>');
+      }), 3);
+      return h;
+    }
+
+    if (kind === "begin" || kind === "end"){
+      var atEnd = (kind === "end");
+      var pool = [];
+      phSounds().forEach(function(sd){ pool = pool.concat(phWordsFor(sd)); });
+      pool = shuffleWith(pool, rand).slice(0, qty);
+      var h2 = phTitle(atEnd ? 'Say the word. Write the last letter.' : 'Say the word. Write the first letter.');
+      h2 += phGrid(pool.map(function(w){
+        var shown = atEnd ? (w.slice(0, -1) + '__') : ('__' + w.slice(1));
+        return phCard(phPic(w, 70)
+          + '<div style="font-family:var(--hf);font-size:26px;letter-spacing:3px;margin-top:8px">'
+          + (atEnd ? esc(w.slice(0,-1)) + phBox(34) : phBox(34) + esc(w.slice(1))) + '</div>');
+      }), 3);
+      return h2;
+    }
+
+    if (kind === "middle"){
+      var mp = shuffleWith(phCvcPool(), rand).slice(0, qty);
+      var h3 = phTitle('Say the word. Write the missing vowel in the middle.');
+      h3 += phGrid(mp.map(function(w){
+        return phCard(phPic(w, 70)
+          + '<div style="font-family:var(--hf);font-size:28px;letter-spacing:3px;margin-top:8px">'
+          + esc(w.charAt(0)) + phBox(34) + esc(w.charAt(2)) + '</div>');
+      }), 3);
+      h3 += '<p style="text-align:center;font-size:15px;color:#555;margin-top:14px">a &nbsp; e &nbsp; i &nbsp; o &nbsp; u</p>';
+      return h3;
+    }
+
+    if (kind === "blend"){
+      var bp = shuffleWith(phCvcPool(), rand).slice(0, qty);
+      var h4 = phTitle('Sound out each letter, then write the whole word.');
+      h4 += bp.map(function(w){
+        return '<div style="display:flex;align-items:center;gap:10px;padding:11px 4px;border-bottom:1px dashed #bbb">'
+             + w.split('').map(function(c){
+                 return '<span style="display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;'
+                      + 'border:2px solid #000;border-radius:8px;font-family:var(--hf);font-size:24px">' + esc(c) + '</span>';
+               }).join('<span style="font-size:20px;color:#666">\u00B7</span>')
+             + '<span style="font-size:22px;color:#666;margin:0 6px">\u2192</span>'
+             + phLine(180)
+             + '<span style="margin-left:auto">' + phPic(w, 54) + '</span>'
+             + '</div>';
+      }).join('');
+      return h4;
+    }
+
+    if (kind === "family"){
+      var fam = val("phFamily") || "-at";
+      var fw = (PH_FAMILY[fam] || []).slice();
+      var h5 = phTitle('The ' + fam + ' family. Read each word, then write it again.');
+      h5 += '<div style="text-align:center;font-family:var(--hf);font-size:56px;color:#000;margin:4px 0 14px;letter-spacing:4px">'
+          + esc(fam) + '</div>';
+      h5 += fw.slice(0, qty).map(function(w){
+        return '<div style="display:flex;align-items:center;gap:14px;padding:10px 4px;border-bottom:1px dashed #bbb">'
+             + phPic(w, 50)
+             + '<span style="font-family:var(--hf);font-size:30px;letter-spacing:3px;min-width:110px">' + esc(w) + '</span>'
+             + phLine(150) + phLine(150)
+             + '</div>';
+      }).join('');
+      return h5;
+    }
+
+    if (kind === "picword"){
+      var pw = shuffleWith(phCvcPool(), rand).slice(0, qty);
+      var bank = shuffleWith(pw.slice(), rand);
+      var h6 = phTitle('Look at the picture. Write the word.');
+      h6 += phGrid(pw.map(function(w){
+        return phCard(phPic(w, 76)
+          + '<div style="margin-top:10px">'
+          + w.split('').map(function(){ return phBox(30); }).join('')
+          + '</div>');
+      }), 3);
+      h6 += '<div style="margin-top:16px;border:1.5px dashed #999;border-radius:10px;padding:10px;text-align:center">'
+          + '<div style="font-size:13px;color:#666;margin-bottom:6px">Word box</div>'
+          + '<div style="font-family:var(--hf);font-size:22px;letter-spacing:2px">' + bank.map(esc).join(' &nbsp; ') + '</div>'
+          + '</div>';
+      return h6;
+    }
+
+    if (kind === "sort"){
+      var s1 = sound, s2 = val("phSound2") || phSounds()[1] || "t";
+      var mix = shuffleWith(phWordsFor(s1).slice(0,4).concat(phWordsFor(s2).slice(0,4)), rand);
+      var h7 = phTitle('Cut out the pictures. Put each one under the sound it begins with.');
+      h7 += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">'
+          + [s1, s2].map(function(sd){
+              return '<div style="border:2px solid #000;border-radius:10px;min-height:190px;padding:8px">'
+                   + '<div style="text-align:center;font-family:var(--hf);font-size:38px;border-bottom:2px solid #000;padding-bottom:4px">'
+                   + esc(sd) + '</div></div>';
+            }).join('')
+          + '</div>';
+      h7 += '<div style="border-top:2px dashed #999;padding-top:12px">'
+          + '<div style="font-size:13px;color:#666;margin-bottom:8px">Cut these out</div>'
+          + phGrid(mix.map(function(w){
+              return phCard(phPic(w, 62) + '<div style="font-family:var(--hf);font-size:17px;margin-top:4px">' + esc(w) + '</div>');
+            }), 4)
+          + '</div>';
+      return h7;
+    }
+
+    if (kind === "tricky"){
+      var set = val("phTricky") || "Set 1";
+      var tw = (PH_TRICKY[set] || []).slice(0, qty);
+      var h8 = phTitle('These words cannot be sounded out. Read each one, then trace and write it.');
+      h8 += tw.map(function(w){
+        return '<div style="display:flex;align-items:center;gap:12px;padding:12px 4px;border-bottom:1px dashed #bbb">'
+             + '<span style="font-family:var(--hf);font-size:30px;min-width:120px;letter-spacing:2px">' + esc(w) + '</span>'
+             + '<span style="font-family:var(--hf);font-size:30px;color:#c4c4c4;min-width:120px;letter-spacing:2px">' + esc(w) + '</span>'
+             + phLine(160)
+             + '</div>';
+      }).join('');
+      return h8;
+    }
+
+    if (kind === "blendd"){
+      var bs = val("phBlendSet") || "bl";
+      var bwords = (PH_BLEND[bs] || PH_DIGRAPH[bs] || []).slice();
+      var isDig = !!PH_DIGRAPH[bs];
+      var h9 = phTitle(isDig
+        ? 'These two letters make one sound. Read each word, then write it.'
+        : 'Say the two sounds together. Read each word, then write it.');
+      h9 += '<div style="text-align:center;font-family:var(--hf);font-size:58px;letter-spacing:6px;margin:4px 0 14px">'
+          + esc(bs) + '</div>';
+      h9 += bwords.slice(0, qty).map(function(w){
+        return '<div style="display:flex;align-items:center;gap:14px;padding:11px 4px;border-bottom:1px dashed #bbb">'
+             + phPic(w, 50)
+             + '<span style="font-family:var(--hf);font-size:28px;min-width:150px;letter-spacing:2px">' + esc(w) + '</span>'
+             + phLine(180)
+             + '</div>';
+      }).join('');
+      h9 += '<p style="text-align:center;font-size:15px;color:#555;margin-top:14px">'
+          + 'Now circle every <strong>' + esc(bs) + '</strong> you can find.</p>';
+      return h9;
+    }
+
+    return '<p style="text-align:center;color:#999">Choose a kind of practice on the left.</p>';
+  }
+
+  /* Fill the dropdowns and show only the ones this sheet needs. */
+  function phSync(){
+    var kind = val("phKind") || "sound";
+    var order = val("phOrder") || "jolly";
+
+    var gsel = $("phGroup");
+    if (gsel && !gsel.options.length){
+      gsel.innerHTML = PH_GROUPS.map(function(g){
+        return '<option value="' + g[0] + '">Group ' + g[0] + ' \u2014 ' + g[1] + '</option>';
+      }).join('');
+    }
+    var fam = $("phFamily");
+    if (fam && !fam.options.length){
+      fam.innerHTML = Object.keys(PH_FAMILY).map(function(k){
+        return '<option value="' + k + '">' + k + ' \u2014 ' + PH_FAMILY[k].slice(0,3).join(', ') + '\u2026</option>';
+      }).join('');
+    }
+    var tri = $("phTricky");
+    if (tri && !tri.options.length){
+      tri.innerHTML = Object.keys(PH_TRICKY).map(function(k){
+        return '<option value="' + k + '">' + k + ' \u2014 ' + PH_TRICKY[k].slice(0,4).join(', ') + '\u2026</option>';
+      }).join('');
+    }
+    var bl = $("phBlendSet");
+    if (bl && !bl.options.length){
+      bl.innerHTML = '<optgroup label="Blends">'
+        + Object.keys(PH_BLEND).map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join('')
+        + '</optgroup><optgroup label="Digraphs">'
+        + Object.keys(PH_DIGRAPH).map(function(k){ return '<option value="'+k+'">'+k+'</option>'; }).join('')
+        + '</optgroup>';
+    }
+
+    // Sound lists follow the chosen order and group
+    var sounds = phSounds();
+    [["phSound", 0], ["phSound2", 1]].forEach(function(pair){
+      var el = $(pair[0]);
+      if (!el) return;
+      var keep = el.value;
+      el.innerHTML = sounds.map(function(sd){ return '<option value="'+sd+'">'+sd+'</option>'; }).join('');
+      if (sounds.indexOf(keep) >= 0) el.value = keep;
+      else el.value = sounds[Math.min(pair[1], sounds.length - 1)];
+    });
+
+    function show(id, on){ var e = $(id); if (e) e.style.display = on ? "" : "none"; }
+    show("ph-group-wrap",  order === "jolly" && ["sound","begin","end","sort"].indexOf(kind) >= 0);
+    show("ph-order-wrap",  ["sound","begin","end","sort"].indexOf(kind) >= 0);
+    show("ph-sound-wrap",  ["sound","sort"].indexOf(kind) >= 0);
+    show("ph-sound2-wrap", kind === "sort");
+    show("ph-vowel-wrap",  ["middle","blend","picword"].indexOf(kind) >= 0);
+    show("ph-family-wrap", kind === "family");
+    show("ph-tricky-wrap", kind === "tricky");
+    show("ph-blend-wrap",  kind === "blendd");
+
+    var hint = $("phHint");
+    if (hint){
+      hint.textContent = (kind === "sort")
+        ? "Children cut the pictures out and sort them. Print on thicker paper if you can."
+        : (kind === "tricky")
+          ? "Tricky words are learnt by sight, not by sounding out."
+          : "Pictures appear for any word already drawn in the Picture Library.";
+    }
+  }
+
   function buildColourPic(){
     var pool = cpPool();
     if (!pool.length){
@@ -3830,6 +4265,7 @@ Draw your school bag</textarea>
     else if(mode==="draw"){ body = buildDraw(); }
     else if(mode==="cgrid"){ body = buildGrid(); }
     else if(mode==="colourpic"){ body = buildColourPic(); }
+    else if(mode==="phonics"){ body = buildPhonics(); }
     else if(MATHS.indexOf(mode)>=0){ body = buildMaths(mode,false); }
     else { body = buildCount(false); }
 
@@ -4002,11 +4438,14 @@ Draw your school bag</textarea>
                "kWhich","kQty","kMax",
                "sFrom","sTo","sTimes","sTrace","fitOne",
                "wnLang","wnSet","wnFrom","wnTo","wnFmt",
-               "cpCat","cpPick","cpPer","cpLang","cpBox"];
+               "cpCat","cpPick","cpPer","cpLang","cpBox",
+               "phKind","phOrder","phGroup","phSound","phSound2","phVowel",
+               "phFamily","phTricky","phBlendSet","phQty","phPics"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
     el.addEventListener("input", function(){
+      if(this.id.indexOf("ph")===0){ phSync(); }
       if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
@@ -4040,6 +4479,7 @@ Draw your school bag</textarea>
   makeCounts();
   makeGrid();
   makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
+  phSync();
   bindSecList(LANG); bindSecList(MIX);
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
