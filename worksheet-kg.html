@@ -605,6 +605,7 @@
       <button class="tab" data-t="cgrid">Colour by instruction<small>Colour each shape its own colour</small></button>
       <button class="tab" data-t="colourpic">Colouring sheet<small>Big pictures for children to colour in</small></button>
       <button class="tab" data-t="phonics">Phonics<small>Sounds, blending, word families, tricky words</small></button>
+      <button class="tab" data-t="cutpaste">Cut and paste<small>Cut the pictures out and glue them in place</small></button>
     </div>
   </nav>
 
@@ -754,6 +755,35 @@
       </div>
       <label class="chk"><input type="checkbox" id="dGuide"> Show a faint guide line</label>
       <label class="chk"><input type="checkbox" id="dColourAfter" checked> Add "now colour it" below</label>
+    </div>
+
+    <!-- cut and paste -->
+    <div data-panel="cutpaste" style="display:none">
+      <div class="grp">
+        <label>Activity</label>
+        <select id="ctKind">
+          <option value="sort2">Sort into two groups</option>
+          <option value="match">Match the picture to the word</option>
+          <option value="build">Build the word — glue the letters</option>
+          <option value="first">Glue the first letter</option>
+          <option value="count">Count and glue the number</option>
+          <option value="order">Put them in order — 1 to 10</option>
+        </select>
+      </div>
+      <div class="grp" id="ct-cat-wrap">
+        <label>Group one</label>
+        <select id="ctCat"></select>
+      </div>
+      <div class="grp" id="ct-cat2-wrap">
+        <label>Group two</label>
+        <select id="ctCat2"></select>
+      </div>
+      <div class="grp">
+        <label>How many</label>
+        <input type="number" id="ctQty" value="6" min="3" max="12">
+      </div>
+      <label class="chk"><input type="checkbox" id="ctLabel"> Write the word under each picture</label>
+      <p class="hint" id="ctHint">Print on thicker paper if you can — it cuts better.</p>
     </div>
 
     <!-- phonics -->
@@ -1249,6 +1279,7 @@ Draw your school bag</textarea>
       }
       if(mode==="colourpic"){ cpFillLists(); }
       if(mode==="phonics"){ phSync(); }
+      if(mode==="cutpaste"){ ctFillLists(); }
       if(mode==="count"){ makeCounts(); }
       if(mode==="cgrid"){ makeGrid(); }
       if(MATHS.indexOf(mode)>=0){ makeMaths(mode); }
@@ -1291,7 +1322,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste");
     b.style.display = uses ? "" : "none";
   }
 
@@ -2590,6 +2621,7 @@ Draw your school bag</textarea>
     kgApplyPicStyle();
     kgPicHint();
     try { cpFillLists(); } catch(e) {}
+    try { ctFillLists(); } catch(e) {}
     try { render(); } catch(e) {}
   }
 
@@ -3731,6 +3763,210 @@ Draw your school bag</textarea>
     }
   }
 
+
+  /* ══════════════ CUT AND PASTE ══════════════
+     Every sheet is the same shape: a work area at the top with empty boxes to
+     glue into, a dashed cut line, and the pieces to cut out underneath. */
+  function ctPic(word, size){
+    var svg = iconSvg(word, size || 62);
+    if (svg) return svg;
+    return '<span style="display:inline-block;width:'+(size||62)+'px;height:'+(size||62)+'px;'
+         + 'border:1.5px dashed #bbb;border-radius:8px"></span>';
+  }
+  function ctGlue(w, h){
+    return '<div style="width:'+(w||78)+'px;height:'+(h||78)+'px;border:2px dashed #777;'
+         + 'border-radius:9px;display:inline-block;vertical-align:middle"></div>';
+  }
+  function ctCutLine(label){
+    return '<div style="margin:20px 0 12px;border-top:2px dashed #999;padding-top:10px">'
+         + '<div style="font-size:13px;color:#666">\u2702 ' + esc(label || 'Cut these out') + '</div></div>';
+  }
+  function ctPiece(inner){
+    return '<div style="border:1.5px solid #999;border-radius:9px;padding:8px 6px;text-align:center">'
+         + inner + '</div>';
+  }
+  function ctStrip(cells, cols){
+    return '<div style="display:grid;grid-template-columns:repeat('+(cols||4)+',1fr);gap:10px">'
+         + cells.join('') + '</div>';
+  }
+  function ctSay(t){ return '<p style="text-align:center;font-size:15px;color:#333;margin:2px 0 14px">'+esc(t)+'</p>'; }
+
+  /* Any word we can actually draw, optionally from one category. */
+  function ctPool(cat){
+    var out = [];
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      var ic = ICONS[k];
+      if (!ic.img && !ic.d) continue;
+      if (cat && cat !== "any" && ic.cat !== cat) continue;
+      out.push(k);
+    }
+    return out;
+  }
+
+  function ctFillLists(){
+    var seen = {};
+    ctPool(null).forEach(function(k){ if (ICONS[k].cat) seen[ICONS[k].cat] = true; });
+    var opts = Object.keys(seen).sort().map(function(c){
+      return '<option value="'+c+'">'+esc(CAT_LABELS[c] || c)+'</option>';
+    }).join('');
+    [["ctCat", 0], ["ctCat2", 1]].forEach(function(pair){
+      var el = $(pair[0]);
+      if (!el) return;
+      var keep = el.value;
+      el.innerHTML = opts;
+      if (keep && el.querySelector('option[value="'+keep+'"]')) el.value = keep;
+      else if (el.options.length > pair[1]) el.selectedIndex = pair[1];
+    });
+    ctSync();
+  }
+
+  function ctSync(){
+    var kind = val("ctKind") || "sort2";
+    function show(id, on){ var e = $(id); if (e) e.style.display = on ? "" : "none"; }
+    show("ct-cat-wrap",  kind !== "order");
+    show("ct-cat2-wrap", kind === "sort2");
+    var hint = $("ctHint");
+    if (hint){
+      hint.textContent = (kind === "build")
+        ? "Children cut single letters and glue them to spell each word."
+        : (kind === "order")
+          ? "Numbers are cut out and glued in the right order."
+          : "Print on thicker paper if you can \u2014 it cuts better.";
+    }
+  }
+
+  function buildCutPaste(){
+    var kind = val("ctKind") || "sort2";
+    var qty = Math.max(3, Math.min(12, num("ctQty", 6)));
+    var label = $("ctLabel").checked;
+    var rand = seeded(val("school") + "|cut|" + kind + "|" + val("ctCat") + "|" + qty + "|" + cpSeed);
+    var name = function(w){ return label
+      ? '<div style="font-family:var(--hf);font-size:15px;margin-top:4px">'+esc(ICONS[w] && ICONS[w].en || w)+'</div>' : ''; };
+
+    if (kind === "sort2"){
+      var c1 = val("ctCat") || "any", c2 = val("ctCat2") || "any";
+      var p1 = shuffleWith(ctPool(c1), rand).slice(0, Math.ceil(qty/2));
+      var p2 = shuffleWith(ctPool(c2), rand).slice(0, Math.floor(qty/2));
+      if (!p1.length && !p2.length) return ctEmpty();
+      var h = ctSay('Cut out the pictures. Glue each one in the right box.');
+      h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">'
+         + [[c1, p1], [c2, p2]].map(function(pair){
+             return '<div style="border:2px solid #000;border-radius:10px;min-height:230px;padding:8px">'
+                  + '<div style="text-align:center;font-family:var(--hf);font-size:22px;border-bottom:2px solid #000;padding-bottom:5px">'
+                  + esc(CAT_LABELS[pair[0]] || pair[0]) + '</div></div>';
+           }).join('')
+         + '</div>';
+      h += ctCutLine();
+      h += ctStrip(shuffleWith(p1.concat(p2), rand).map(function(w){
+             return ctPiece(ctPic(w, 60) + name(w));
+           }), 4);
+      return h;
+    }
+
+    if (kind === "match"){
+      var mp = shuffleWith(ctPool(val("ctCat")), rand).slice(0, qty);
+      if (!mp.length) return ctEmpty();
+      var h2 = ctSay('Cut out the words. Glue each word next to its picture.');
+      h2 += mp.map(function(w){
+        return '<div style="display:flex;align-items:center;gap:16px;padding:9px 4px;border-bottom:1px dashed #bbb">'
+             + ctPic(w, 62) + ctGlue(170, 54) + '</div>';
+      }).join('');
+      h2 += ctCutLine('Cut out these words');
+      h2 += ctStrip(shuffleWith(mp.slice(), rand).map(function(w){
+             return ctPiece('<span style="font-family:var(--hf);font-size:22px;letter-spacing:2px">'
+                  + esc(ICONS[w] && ICONS[w].en || w) + '</span>');
+           }), 3);
+      return h2;
+    }
+
+    if (kind === "build"){
+      var bp = shuffleWith(ctPool(val("ctCat")).filter(function(w){
+        var n = (ICONS[w] && ICONS[w].en) || w;
+        return n.length >= 3 && n.length <= 5 && /^[a-z]+$/.test(n);
+      }), rand).slice(0, Math.min(qty, 5));
+      if (!bp.length) return ctEmpty();
+      var h3 = ctSay('Cut out the letters. Glue them to spell each word.');
+      h3 += bp.map(function(w){
+        var n = (ICONS[w] && ICONS[w].en) || w;
+        return '<div style="display:flex;align-items:center;gap:14px;padding:11px 4px;border-bottom:1px dashed #bbb">'
+             + ctPic(w, 60)
+             + n.split('').map(function(){ return ctGlue(48, 52); }).join(' ')
+             + '</div>';
+      }).join('');
+      var letters = [];
+      bp.forEach(function(w){ ((ICONS[w] && ICONS[w].en) || w).split('').forEach(function(c){ letters.push(c); }); });
+      h3 += ctCutLine('Cut out these letters');
+      h3 += ctStrip(shuffleWith(letters, rand).map(function(c){
+             return ctPiece('<span style="font-family:var(--hf);font-size:26px">'+esc(c)+'</span>');
+           }), 8);
+      return h3;
+    }
+
+    if (kind === "first"){
+      var fp = shuffleWith(ctPool(val("ctCat")), rand).slice(0, qty);
+      if (!fp.length) return ctEmpty();
+      var h4 = ctSay('Cut out the letters. Glue the first letter under each picture.');
+      h4 += '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px">'
+          + fp.map(function(w){
+              return ctPiece(ctPic(w, 66) + '<div style="margin-top:8px">' + ctGlue(50, 54) + '</div>' + name(w));
+            }).join('')
+          + '</div>';
+      var firsts = fp.map(function(w){ return ((ICONS[w] && ICONS[w].en) || w).charAt(0); });
+      h4 += ctCutLine('Cut out these letters');
+      h4 += ctStrip(shuffleWith(firsts, rand).map(function(c){
+             return ctPiece('<span style="font-family:var(--hf);font-size:26px">'+esc(c)+'</span>');
+           }), 6);
+      return h4;
+    }
+
+    if (kind === "count"){
+      var one = shuffleWith(ctPool(val("ctCat")), rand);
+      if (!one.length) return ctEmpty();
+      var rows = [], used = {};
+      for (var i = 0; i < qty; i++){
+        var n = 1 + Math.floor(rand() * 9);
+        while (used[n] && Object.keys(used).length < 9){ n = 1 + Math.floor(rand() * 9); }
+        used[n] = true;
+        rows.push({ n: n, w: one[i % one.length] });
+      }
+      var h5 = ctSay('Count the pictures. Cut out the numbers and glue the right one in the box.');
+      h5 += rows.map(function(r){
+        var pics = '';
+        for (var j = 0; j < r.n; j++) pics += ctPic(r.w, 34) + ' ';
+        return '<div style="display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px dashed #bbb">'
+             + '<div style="flex:1;line-height:2.1">' + pics + '</div>' + ctGlue(56, 56) + '</div>';
+      }).join('');
+      h5 += ctCutLine('Cut out these numbers');
+      h5 += ctStrip(shuffleWith(rows.map(function(r){ return r.n; }), rand).map(function(n){
+             return ctPiece('<span style="font-family:var(--hf);font-size:26px">'+n+'</span>');
+           }), 6);
+      return h5;
+    }
+
+    if (kind === "order"){
+      var nums = [];
+      for (var k = 1; k <= qty; k++) nums.push(k);
+      var h6 = ctSay('Cut out the numbers. Glue them in order, smallest first.');
+      h6 += '<div style="display:flex;flex-wrap:wrap;gap:12px;justify-content:center;margin:10px 0 4px">'
+          + nums.map(function(){ return ctGlue(62, 62); }).join('')
+          + '</div>';
+      h6 += ctCutLine('Cut out these numbers');
+      h6 += ctStrip(shuffleWith(nums.slice(), rand).map(function(n){
+             return ctPiece('<span style="font-family:var(--hf);font-size:26px">'+n+'</span>');
+           }), 6);
+      return h6;
+    }
+
+    return ctEmpty();
+  }
+
+  function ctEmpty(){
+    return '<p style="text-align:center;color:#999;padding:40px 20px;line-height:1.8">'
+         + 'No pictures available for this choice yet.<br>'
+         + 'Draw some in the Super Admin Picture Library, or pick another group.</p>';
+  }
+
   function buildColourPic(){
     var pool = cpPool();
     if (!pool.length){
@@ -4266,6 +4502,7 @@ Draw your school bag</textarea>
     else if(mode==="cgrid"){ body = buildGrid(); }
     else if(mode==="colourpic"){ body = buildColourPic(); }
     else if(mode==="phonics"){ body = buildPhonics(); }
+    else if(mode==="cutpaste"){ body = buildCutPaste(); }
     else if(MATHS.indexOf(mode)>=0){ body = buildMaths(mode,false); }
     else { body = buildCount(false); }
 
@@ -4440,12 +4677,14 @@ Draw your school bag</textarea>
                "wnLang","wnSet","wnFrom","wnTo","wnFmt",
                "cpCat","cpPick","cpPer","cpLang","cpBox",
                "phKind","phOrder","phGroup","phSound","phSound2","phVowel",
-               "phFamily","phTricky","phBlendSet","phQty","phPics"];
+               "phFamily","phTricky","phBlendSet","phQty","phPics",
+               "ctKind","ctCat","ctCat2","ctQty","ctLabel"];
   for(var w=0;w<watch.length;w++){
     var el = $(watch[w]);
     if(!el){ continue; }
     el.addEventListener("input", function(){
       if(this.id.indexOf("ph")===0){ phSync(); }
+      if(this.id.indexOf("ct")===0){ ctSync(); }
       if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
@@ -4480,6 +4719,7 @@ Draw your school bag</textarea>
   makeGrid();
   makeMnum(); makeMbaf(); makeMpic(); makeMcmp(); makeNname();
   phSync();
+  ctFillLists();
   bindSecList(LANG); bindSecList(MIX);
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
