@@ -302,6 +302,66 @@ textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 }
 .output-box.show { display: block; animation: fadeUp 0.3s ease; }
 
+/* ── OUTPUT EDIT TOOLBAR ── */
+.out-tools {
+  display: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin-top: 14px;
+  padding: 11px 13px;
+  background: var(--white);
+  border: 1.5px solid var(--gold-dark);
+  border-radius: 12px;
+}
+.out-tools.show { display: flex; }
+.out-tools label {
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: var(--maroon);
+  letter-spacing: 0.2px;
+}
+.out-tools select {
+  padding: 6px 9px;
+  border: 1.5px solid var(--gold-dark);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.out-tools .ot-grp { display: flex; align-items: center; gap: 6px; }
+.out-tools .ot-btn {
+  padding: 6px 11px;
+  border: 1.5px solid var(--gold-dark);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--maroon);
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.out-tools .ot-btn:hover { border-color: var(--maroon); }
+.out-tools .ot-btn.on {
+  background: var(--maroon);
+  color: var(--gold-light);
+  border-color: var(--maroon);
+}
+.out-tools .ot-note {
+  width: 100%;
+  font-size: 0.72rem;
+  color: #8a7a60;
+  line-height: 1.6;
+}
+.output-box[contenteditable="true"] {
+  outline: 2px dashed var(--maroon);
+  outline-offset: 3px;
+  background: #fff;
+}
+
 /* ── LOADING ── */
 .loading-box {
   display: none;
@@ -3422,13 +3482,160 @@ function copyOutput(id) {
   navigator.clipboard.writeText(document.getElementById(id).textContent)
     .then(() => alert('✅ Copied to clipboard!'));
 }
-function printOutput(id) {
-  const el = document.getElementById(id);
-  const win = window.open('', '_blank');
-  win.document.write('<html><head><title>DigiSmartSchool Print</title><style>body{font-family:Arial,sans-serif;padding:20px;}</style></head><body>'+el.innerHTML+'</body></html>');
-  win.document.close();
-  win.print();
+// ══ OUTPUT EDIT TOOLBAR ══
+// One toolbar shape for every tool that shows a result, so a teacher learns it
+// once. Settings are kept on the output box itself and read again at print time.
+var OT_TOOLS = ['lesson','annual','monthly','worksheet','qpaper','objective','bookback','reportcard'];
+var OT_SIZES = [['12','Small'],['15','Normal'],['17','Large'],['19','Extra large'],['22','Very large']];
+
+function dssBuildToolbar(tool){
+  var actions = document.getElementById('actions-' + tool);
+  var box = document.getElementById('out-' + tool);
+  if (!actions || !box) return;
+  if (document.getElementById('ot-' + tool)) return;
+
+  box.setAttribute('data-ot-font', '15');
+  box.setAttribute('data-ot-align', 'left');
+  box.setAttribute('data-ot-page', 'a4');
+
+  var sizeOpts = '';
+  OT_SIZES.forEach(function(p){
+    sizeOpts += '<option value="' + p[0] + '"' + (p[0] === '15' ? ' selected' : '') + '>' + p[1] + '</option>';
+  });
+
+  var bar = document.createElement('div');
+  bar.className = 'out-tools';
+  bar.id = 'ot-' + tool;
+  bar.innerHTML =
+      '<button class="ot-btn" id="ot-edit-' + tool + '" onclick="dssToggleEdit(\'' + tool + '\')">\u270F\uFE0F Edit</button>'
+    + '<span class="ot-grp"><label>Align</label>'
+    +   '<button class="ot-btn on" data-a="left" onclick="dssAlign(\'' + tool + '\',\'left\',this)" title="Left">\u2261</button>'
+    +   '<button class="ot-btn" data-a="center" onclick="dssAlign(\'' + tool + '\',\'center\',this)" title="Centre">\u2630</button>'
+    +   '<button class="ot-btn" data-a="right" onclick="dssAlign(\'' + tool + '\',\'right\',this)" title="Right">\u2263</button>'
+    + '</span>'
+    + '<span class="ot-grp"><label>Text size</label>'
+    +   '<select onchange="dssFont(\'' + tool + '\', this.value)">' + sizeOpts + '</select>'
+    + '</span>'
+    + '<span class="ot-grp"><label>Paper</label>'
+    +   '<select onchange="dssPage(\'' + tool + '\', this.value)">'
+    +     '<option value="a4">A4 \u2014 full page</option>'
+    +     '<option value="a5">Half A4 \u2014 small pages</option>'
+    +     '<option value="twoup">Half A4 \u2014 two copies, cut in half</option>'
+    +   '</select>'
+    + '</span>'
+    + '<div class="ot-note" id="ot-note-' + tool + '"></div>';
+
+  actions.parentNode.insertBefore(bar, actions);
+
+  // Show the toolbar whenever the result box appears, hide it when it goes.
+  try {
+    var obs = new MutationObserver(function(){
+      if (box.classList.contains('show')) {
+        bar.classList.add('show');
+      } else {
+        bar.classList.remove('show');
+        dssSetEdit(tool, false);
+      }
+    });
+    obs.observe(box, { attributes:true, attributeFilter:['class'] });
+  } catch(e) { bar.classList.add('show'); }
 }
+
+function dssSetEdit(tool, on){
+  var box = document.getElementById('out-' + tool);
+  var btn = document.getElementById('ot-edit-' + tool);
+  if (!box) return;
+  box.setAttribute('contenteditable', on ? 'true' : 'false');
+  if (btn) {
+    btn.textContent = on ? '\u2705 Done Editing' : '\u270F\uFE0F Edit';
+    btn.className = on ? 'ot-btn on' : 'ot-btn';
+  }
+  if (on) { try { box.focus(); } catch(e) {} }
+}
+
+function dssToggleEdit(tool){
+  var box = document.getElementById('out-' + tool);
+  if (!box) return;
+  dssSetEdit(tool, box.getAttribute('contenteditable') !== 'true');
+}
+
+function dssAlign(tool, how, btn){
+  var box = document.getElementById('out-' + tool);
+  if (!box) return;
+  box.style.textAlign = how;
+  box.setAttribute('data-ot-align', how);
+  if (btn && btn.parentNode) {
+    var sibs = btn.parentNode.querySelectorAll('.ot-btn');
+    for (var i = 0; i < sibs.length; i++) sibs[i].className = 'ot-btn';
+    btn.className = 'ot-btn on';
+  }
+}
+
+function dssFont(tool, px){
+  var box = document.getElementById('out-' + tool);
+  if (!box) return;
+  box.style.fontSize = px + 'px';
+  box.setAttribute('data-ot-font', px);
+}
+
+function dssPage(tool, mode){
+  var box = document.getElementById('out-' + tool);
+  var note = document.getElementById('ot-note-' + tool);
+  if (box) box.setAttribute('data-ot-page', mode);
+  if (!note) return;
+  if (mode === 'a5') {
+    note.textContent = 'Prints on half-size (A5) sheets. A long worksheet simply carries on over more sheets.';
+  } else if (mode === 'twoup') {
+    note.textContent = 'Prints the same worksheet twice on one landscape sheet \u2014 cut down the middle for two students. Best for short worksheets; anything past one page will not fit.';
+  } else {
+    note.textContent = '';
+  }
+}
+
+// ══ PRINT (uses whatever the toolbar is set to) ══
+function printOutput(id) {
+  var box = document.getElementById(id);
+  if (!box) return;
+  var font  = box.getAttribute('data-ot-font')  || '15';
+  var align = box.getAttribute('data-ot-align') || 'left';
+  var page  = box.getAttribute('data-ot-page')  || 'a4';
+  var body  = box.innerHTML;
+
+  var pageRule, content;
+  var textCss = 'white-space:pre-wrap;font-size:' + font + 'px;line-height:1.7;text-align:' + align + ';';
+
+  if (page === 'a5') {
+    pageRule = '@page{size:A5 portrait;margin:10mm}';
+    content = '<div class="sheet">' + body + '</div>';
+  } else if (page === 'twoup') {
+    pageRule = '@page{size:A4 landscape;margin:0}';
+    content = '<div class="lsheet">'
+            +   '<div class="lslot"><div class="inner">' + body + '</div></div>'
+            +   '<div class="lslot"><div class="inner">' + body + '</div></div>'
+            + '</div>';
+  } else {
+    pageRule = '@page{size:A4 portrait;margin:12mm}';
+    content = '<div class="sheet">' + body + '</div>';
+  }
+
+  var css = pageRule
+    + 'html,body{margin:0;padding:0;}'
+    + 'body{font-family:Arial,Helvetica,sans-serif;color:#000;}'
+    + '.sheet{' + textCss + '}'
+    + '.lsheet{display:flex;width:297mm;height:210mm;overflow:hidden;}'
+    + '.lslot{flex:0 0 148.5mm;width:148.5mm;height:210mm;overflow:hidden;box-sizing:border-box;}'
+    + '.lslot:first-child{border-right:1px dashed #999;}'
+    + '.lslot .inner{width:210mm;min-height:297mm;padding:12mm;box-sizing:border-box;'
+    +   'transform:scale(0.7071);transform-origin:top left;' + textCss + '}';
+
+  var win = window.open('', '_blank');
+  if (!win) { alert('Please allow pop-ups for this site so the print page can open.'); return; }
+  win.document.write('<html><head><title>DigiSmartSchool Print</title><style>' + css + '</style></head><body>' + content + '</body></html>');
+  win.document.close();
+  setTimeout(function(){ try { win.focus(); win.print(); } catch(e) {} }, 250);
+}
+
+OT_TOOLS.forEach(dssBuildToolbar);
 function whatsappOutput(id) {
   const text = document.getElementById(id).textContent;
   window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
