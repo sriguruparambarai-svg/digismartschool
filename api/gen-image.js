@@ -22,6 +22,36 @@ const OPENAI_MODEL = 'gpt-image-2';   // current flagship image model (July 2026
 const IMG_SIZE = '1536x1024';         // landscape, fills the projector frame
 const IMG_QUALITY = 'medium';         // bright & clean without paying premium
 
+// ── Picture styles ──────────────────────────────────────────────────────
+// 'scene'      lesson illustrations, landscape, full picture with background
+// 'kg-colour'  one object for a KG worksheet, bright, on plain white
+// 'kg-outline' the same object as a colouring page, outline only
+//
+// Each style has its own cache folder key, so the same word can exist as both
+// a colour picture and an outline without one overwriting the other.
+const STYLES = {
+  'kg-colour': {
+    size: '1024x1024',
+    quality: 'medium',
+    prefix: 'A single simple picture for a kindergarten worksheet. '
+      + 'Flat bright cheerful colours with a thick clean black outline. '
+      + 'Exactly ONE object, centred, filling most of the frame. '
+      + 'Plain pure white background, no shadow, no floor, no scenery, no border, no frame. '
+      + 'No text, no letters, no numbers anywhere. '
+      + 'Clear and instantly recognisable to a four year old child. Draw: '
+  },
+  'kg-outline': {
+    size: '1024x1024',
+    quality: 'medium',
+    prefix: 'A black and white colouring page picture for a young child. '
+      + 'Thick bold black outlines only. No colour, no grey, no shading, no hatching. '
+      + 'Large simple shapes with plenty of open white space inside to colour in. '
+      + 'Exactly ONE object, centred, filling most of the frame. '
+      + 'Plain pure white background, no border, no frame. '
+      + 'No text, no letters, no numbers anywhere. Draw: '
+  }
+};
+
 // Locked storybook style so every young-class picture is cheerful and consistent.
 const STYLE_PREFIX =
   'A bright, cheerful childrens picture-book illustration in a colourful, friendly cartoon style. '
@@ -31,12 +61,31 @@ const STYLE_PREFIX =
   + 'Full-frame single scene, no borders, no collage. Scene to draw: ';
 
 // Cache key: style + scene, so changing the style later re-draws cleanly.
-function cacheKey(query, context) {
+function cacheKey(query, context, mode) {
+  var m = mode || 'scene';
+  var styleLen = STYLES[m] ? STYLES[m].prefix.length : STYLE_PREFIX.length;
   return crypto.createHash('sha256')
-    .update('img-v1|' + STYLE_PREFIX.length + '|'
+    .update('img-v1|' + m + '|' + styleLen + '|'
             + String(query).toLowerCase().trim() + '|'
             + String(context || '').toLowerCase().trim().substring(0, 160))
     .digest('hex').substring(0, 40);
+}
+
+// Only our own pages may spend money here. Same check as /api/ai - it stops
+// other websites and casual misuse, not somebody determined with curl.
+function fromOurSite(req) {
+  function host(u) { try { return new URL(u).hostname.toLowerCase(); } catch (e) { return ''; } }
+  function ok(h) {
+    if (!h) return false;
+    if (['digismartschool.com', 'www.digismartschool.com', 'learn.digismartschool.com',
+         'erp.digismartschool.com', 'localhost', '127.0.0.1'].indexOf(h) !== -1) return true;
+    return /\.vercel\.app$/.test(h);
+  }
+  var o = req.headers['origin'];
+  if (o) return ok(host(o));
+  var r = req.headers['referer'] || req.headers['referrer'];
+  if (r) return ok(host(r));
+  return false;
 }
 
 function publicUrl(fileName) {
@@ -90,15 +139,15 @@ function saveImage(pngBuffer, fileName) {
 }
 
 // ── ask OpenAI GPT Image 2 to draw the scene ────────────────
-function drawImage(prompt) {
+function drawImage(prompt, size, quality) {
   return new Promise(function (resolve) {
     const key = process.env.OPENAI_API_KEY;
     if (!key) return resolve({ ok: false, note: 'no OPENAI_API_KEY set in Vercel' });
     const payload = JSON.stringify({
       model: OPENAI_MODEL,
       prompt: prompt,
-      size: IMG_SIZE,
-      quality: IMG_QUALITY,
+      size: size || IMG_SIZE,
+      quality: quality || IMG_QUALITY,
       n: 1
     });
     const opts = {
@@ -141,12 +190,18 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
+  if (!fromOurSite(req)) {
+    return res.status(403).json({ images: [], note: 'forbidden' });
+  }
+
   const body = req.body || {};
   const query = String(body.query || '').trim();
   const context = String(body.context || '').trim();
+  const mode = STYLES[body.mode] ? body.mode : 'scene';
+  const style = STYLES[mode] || null;
   if (query.length < 3) return res.json({ images: [] });
 
-  const fileName = cacheKey(query, context) + '.png';
+  const fileName = cacheKey(query, context, mode) + '.png';
   const url = publicUrl(fileName);
   const wrap = function (u) { return { images: [{ url: u, title: query, source: 'AI illustration' }] }; };
 
@@ -157,8 +212,12 @@ module.exports = async function handler(req, res) {
     }
 
     // 2) draw it fresh.
-    const prompt = STYLE_PREFIX + query + (context ? ('. ' + context.substring(0, 220)) : '');
-    const drawn = await drawImage(prompt);
+    const prompt = style
+      ? (style.prefix + query + (context ? ('. ' + context.substring(0, 220)) : ''))
+      : (STYLE_PREFIX + query + (context ? ('. ' + context.substring(0, 220)) : ''));
+    const drawn = await drawImage(prompt,
+                                  style ? style.size : IMG_SIZE,
+                                  style ? style.quality : IMG_QUALITY);
     if (!drawn.ok) {
       // Let the front end fall back (to a diagram/photo/text) instead of showing nothing.
       return res.json({ images: [], note: drawn.note || 'draw failed' });
