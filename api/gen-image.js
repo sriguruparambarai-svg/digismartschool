@@ -138,6 +138,24 @@ function saveImage(pngBuffer, fileName) {
   });
 }
 
+// Some replies carry a link to the picture instead of the bytes themselves.
+function fetchBytes(url) {
+  return new Promise(function (resolve) {
+    try {
+      const u = new URL(url);
+      const r = https.request({ hostname: u.hostname, path: u.pathname + u.search, method: 'GET' },
+        function (res) {
+          if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+          const chunks = [];
+          res.on('data', function (c) { chunks.push(c); });
+          res.on('end', function () { resolve(Buffer.concat(chunks)); });
+        });
+      r.on('error', function () { resolve(null); });
+      r.end();
+    } catch (e) { resolve(null); }
+  });
+}
+
 // ── ask OpenAI GPT Image 2 to draw the scene ────────────────
 function drawImage(prompt, size, quality) {
   return new Promise(function (resolve) {
@@ -165,12 +183,22 @@ function drawImage(prompt, size, quality) {
       res.on('data', function (c) { chunks.push(c); });
       res.on('end', function () {
         try {
-          const d = JSON.parse(Buffer.concat(chunks).toString());
+          const raw = Buffer.concat(chunks).toString();
+          const d = JSON.parse(raw);
           if (d && Array.isArray(d.data) && d.data[0] && d.data[0].b64_json) {
             return resolve({ ok: true, b64: d.data[0].b64_json });
           }
-          const msg = (d && d.error && d.error.message) ? d.error.message : ('unexpected response (HTTP ' + res.statusCode + ')');
-          resolve({ ok: false, note: String(msg).substring(0, 180) });
+          if (d && Array.isArray(d.data) && d.data[0] && d.data[0].url) {
+            return resolve({ ok: true, url: d.data[0].url });
+          }
+          if (d && d.error && d.error.message) {
+            console.error('[gen-image] OpenAI refused: ' + d.error.message);
+            return resolve({ ok: false, note: String(d.error.message).substring(0, 180) });
+          }
+          // Neither shape we know. Log it so the reason is visible next time.
+          console.error('[gen-image] unexpected reply (HTTP ' + res.statusCode + '): '
+                        + raw.substring(0, 400));
+          resolve({ ok: false, note: 'unexpected reply from the drawing service (HTTP ' + res.statusCode + ')' });
         } catch (e) {
           resolve({ ok: false, note: 'bad response from image API' });
         }
@@ -229,7 +257,17 @@ module.exports = async function handler(req, res) {
     }
 
     // 3) save to cache, then return the public URL.
-    const png = Buffer.from(drawn.b64, 'base64');
+    let png = null;
+    if (drawn.b64) {
+      png = Buffer.from(drawn.b64, 'base64');
+    } else if (drawn.url) {
+      png = await fetchBytes(drawn.url);
+      console.log('[gen-image] picture came as a link, downloaded '
+                  + (png ? Math.round(png.length / 1024) + ' KB' : 'NOTHING'));
+    }
+    if (!png || !png.length) {
+      return res.json({ images: [], note: 'the picture could not be read from the reply' });
+    }
     const saved = await saveImage(png, fileName);
     console.log('[gen-image] save to storage ' + (saved ? 'ok' : 'FAILED')
                 + ' (' + Math.round(png.length / 1024) + ' KB) ' + fileName);
