@@ -1,0 +1,756 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Physics Working Models — DigiSmartSchool</title>
+<style>
+  :root{
+    --maroon:#6B1A1A; --gold:#C9A84C; --sandal:#E8C99A;
+    --bg:#140A0A; --panel:#241010; --panel2:#2E1414;
+    --line:#5A2A2A; --dim:#B99A7A;
+  }
+  *{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; height:100%; background:var(--bg); }
+  body{
+    font-family:'Segoe UI',system-ui,-apple-system,Arial,sans-serif;
+    color:var(--sandal); display:flex; flex-direction:column; overflow:hidden;
+  }
+  .pm-bar{
+    display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+    padding:12px 20px; border-bottom:1px solid var(--line); background:var(--panel);
+  }
+  .pm-bar h1{ font-size:17px; font-weight:600; color:var(--gold); margin:0 14px 0 0; letter-spacing:.4px; }
+  .chip{
+    background:transparent; color:var(--sandal); border:1px solid var(--line);
+    border-radius:22px; padding:8px 18px; font-size:15px; cursor:pointer;
+    font-family:inherit; transition:background .15s,border-color .15s;
+  }
+  .chip:hover{ background:var(--panel2); }
+  .chip.on{ background:var(--maroon); border-color:var(--gold); color:var(--gold); font-weight:600; }
+  .pm-stage{ flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center; padding:8px 16px; }
+  .pm-stage svg{ width:100%; height:100%; max-height:100%; }
+  .pm-foot{ border-top:1px solid var(--line); background:var(--panel); padding:12px 20px 16px; }
+  .pm-ctrls{ display:flex; flex-wrap:wrap; gap:22px; align-items:center; }
+  .ctl{ display:flex; align-items:center; gap:10px; font-size:15px; }
+  .ctl > .lb{ color:var(--dim); min-width:96px; }
+  .ctl input[type=range]{ width:190px; accent-color:var(--gold); cursor:pointer; }
+  .ctl .val{ color:var(--gold); font-weight:600; min-width:66px; }
+  .btn{
+    background:var(--maroon); color:var(--sandal); border:1px solid var(--gold);
+    border-radius:8px; padding:9px 22px; font-size:15px; font-weight:600;
+    cursor:pointer; font-family:inherit;
+  }
+  .btn:hover{ background:#7d2020; }
+  .pm-read{ display:flex; flex-wrap:wrap; gap:12px; margin-top:14px; }
+  .stat{ background:var(--panel2); border:1px solid var(--line); border-radius:10px; padding:9px 16px; min-width:150px; }
+  .stat .k{ font-size:12.5px; color:var(--dim); letter-spacing:.3px; }
+  .stat .v{ font-size:21px; color:var(--gold); font-weight:600; margin-top:2px; }
+  .note{ font-size:14px; color:var(--dim); margin-top:12px; line-height:1.5; }
+  text{ font-family:'Segoe UI',system-ui,Arial,sans-serif; }
+  .lbl{ fill:var(--sandal); font-size:19px; }
+  .lbl-sm{ fill:var(--dim); font-size:16px; }
+  .lbl-gold{ fill:var(--gold); font-size:21px; font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="pm-bar">
+  <h1>Working Models</h1>
+  <button class="chip" type="button" data-m="force">Force</button>
+  <button class="chip" type="button" data-m="inertia">Inertia</button>
+  <button class="chip" type="button" data-m="momentum">Momentum</button>
+  <button class="chip" type="button" data-m="rocket">Rocket</button>
+</div>
+
+<div class="pm-stage">
+  <svg id="stage" viewBox="0 0 1000 440" preserveAspectRatio="xMidYMid meet"></svg>
+</div>
+
+<div class="pm-foot">
+  <div class="pm-ctrls" id="ctrls"></div>
+  <div class="pm-read" id="read"></div>
+  <div class="note" id="note"></div>
+</div>
+
+<script>
+/* ──────────────────────────────────────────────────────────────
+   Physics working models — force, inertia, momentum.
+   Hand-built, no API calls, no libraries. Runs offline once loaded,
+   so a classroom projector with a weak connection still shows it.
+   Every model exposes: build(), reset(), step(dt). One rAF loop.
+   ────────────────────────────────────────────────────────────── */
+
+var SVGNS = 'http://www.w3.org/2000/svg';
+var stage = document.getElementById('stage');
+var ctrlBox = document.getElementById('ctrls');
+var readBox = document.getElementById('read');
+var noteBox = document.getElementById('note');
+
+function el(tag, attrs){
+  var n = document.createElementNS(SVGNS, tag);
+  for (var k in attrs){ if (attrs.hasOwnProperty(k)) n.setAttribute(k, attrs[k]); }
+  return n;
+}
+function txt(x, y, s, cls, anchor){
+  var n = el('text', { x:x, y:y, 'class': cls || 'lbl', 'text-anchor': anchor || 'middle' });
+  n.textContent = s;
+  return n;
+}
+function clear(node){ while (node.firstChild) node.removeChild(node.firstChild); }
+
+/* Sliders and buttons are declared by each model and rendered here, so a new
+   model never has to touch the page layout. */
+var SLIDERS = {};
+function slider(id, label, min, max, val, stepv, unit, onChange){
+  var wrap = document.createElement('div'); wrap.className = 'ctl';
+  var lb = document.createElement('span'); lb.className = 'lb'; lb.textContent = label;
+  var inp = document.createElement('input');
+  inp.type = 'range'; inp.min = min; inp.max = max; inp.step = stepv; inp.value = val;
+  var out = document.createElement('span'); out.className = 'val';
+  out.textContent = (+val).toFixed(stepv < 1 ? 1 : 0) + ' ' + unit;
+  inp.oninput = function(){
+    out.textContent = (+inp.value).toFixed(stepv < 1 ? 1 : 0) + ' ' + unit;
+    if (onChange) onChange(+inp.value);
+  };
+  wrap.appendChild(lb); wrap.appendChild(inp); wrap.appendChild(out);
+  ctrlBox.appendChild(wrap);
+  SLIDERS[id] = inp;
+  return inp;
+}
+function button(label, fn){
+  var b = document.createElement('button');
+  b.className = 'btn'; b.type = 'button'; b.textContent = label; b.onclick = fn;
+  ctrlBox.appendChild(b);
+  return b;
+}
+function stat(id, label){
+  var d = document.createElement('div'); d.className = 'stat';
+  var k = document.createElement('div'); k.className = 'k'; k.textContent = label;
+  var v = document.createElement('div'); v.className = 'v'; v.id = 'st-' + id; v.textContent = '—';
+  d.appendChild(k); d.appendChild(v); readBox.appendChild(d);
+}
+function setStat(id, value){
+  var n = document.getElementById('st-' + id);
+  if (n) n.textContent = value;
+}
+function sv(id){ return SLIDERS[id] ? +SLIDERS[id].value : 0; }
+
+function wheel(cx, cy, r){
+  var g = el('g', {});
+  g.appendChild(el('circle', { cx:cx, cy:cy, r:r, fill:'#3A1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+  g.appendChild(el('circle', { cx:cx, cy:cy, r:3, fill:'#C9A84C' }));
+  return g;
+}
+function ground(y){
+  var g = el('g', {});
+  g.appendChild(el('line', { x1:40, y1:y, x2:960, y2:y, stroke:'#5A2A2A', 'stroke-width':4, 'stroke-linecap':'round' }));
+  return g;
+}
+
+/* ══════════════ MODEL 1 — FORCE ══════════════
+   A bigger push makes the arrow longer and the cart pick up speed faster.
+   The same push on a heavier cart barely moves it. That is a = F / m,
+   seen rather than memorised. */
+var Force = {
+  x:0, v:0, cart:null, arrow:null, alab:null, mlab:null,
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    var defs = el('defs', {});
+    var mk = el('marker', { id:'ah', viewBox:'0 0 10 10', refX:'8', refY:'5',
+      markerWidth:'5', markerHeight:'5', orient:'auto-start-reverse' });
+    mk.appendChild(el('path', { d:'M1 1L9 5L1 9', fill:'none', stroke:'#C9A84C',
+      'stroke-width':2, 'stroke-linecap':'round', 'stroke-linejoin':'round' }));
+    defs.appendChild(mk); stage.appendChild(defs);
+
+    stage.appendChild(ground(356));
+    stage.appendChild(txt(500, 60, 'What is force?', 'lbl-gold'));
+    stage.appendChild(txt(500, 90, 'A push or a pull  \u2014  \u0BB5\u0BBF\u0B9A\u0BC8', 'lbl-sm'));
+
+    this.alab = txt(300, 200, 'Force \u2014 \u0BB5\u0BBF\u0B9A\u0BC8', 'lbl');
+    stage.appendChild(this.alab);
+    this.arrow = el('line', { x1:250, y1:224, x2:400, y2:224, stroke:'#C9A84C',
+      'stroke-width':7, 'stroke-linecap':'round', 'marker-end':'url(#ah)' });
+    stage.appendChild(this.arrow);
+
+    var g = el('g', { id:'cart' });
+    g.appendChild(el('rect', { x:150, y:262, width:120, height:78, rx:8,
+      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    g.appendChild(wheel(180, 340, 16));
+    g.appendChild(wheel(240, 340, 16));
+    this.mlab = txt(210, 308, '1 kg', 'lbl');
+    g.appendChild(this.mlab);
+    this.cart = g; stage.appendChild(g);
+
+    stage.appendChild(txt(60, 400, 'Ground', 'lbl-sm', 'start'));
+
+    slider('F', 'Force (N)', 1, 10, 4, 1, 'N', function(){ Force.reset(); });
+    slider('m', 'Mass (kg)', 1, 5, 1, 1, 'kg', function(){ Force.reset(); });
+    button('Push again', function(){ Force.reset(); });
+    stat('a', 'Acceleration  a = F / m');
+    stat('v', 'Speed now');
+    noteBox.textContent = 'Make the force bigger \u2014 the arrow grows and the cart picks up speed faster. '
+      + 'Now make the cart heavier with the same force \u2014 it crawls. That is a = F / m.';
+    this.reset();
+  },
+  reset: function(){ this.x = 0; this.v = 0; this.paint(); },
+  step: function(dt){
+    var a = sv('F') / sv('m');
+    this.v += a * dt;
+    this.x += this.v * 26 * dt;
+    if (this.x > 440){ this.x = 0; this.v = 0; }
+    this.paint();
+  },
+  paint: function(){
+    var F = sv('F'), m = sv('m'), len = 30 + F * 16;
+    this.cart.setAttribute('transform', 'translate(' + this.x.toFixed(1) + ',0)');
+    this.mlab.textContent = m + ' kg';
+    var a1 = 285 + this.x, a2 = a1 + len;
+    this.arrow.setAttribute('x1', a1.toFixed(1));
+    this.arrow.setAttribute('x2', a2.toFixed(1));
+    this.alab.setAttribute('x', ((a1 + a2) / 2).toFixed(1));
+    setStat('a', (F / m).toFixed(1) + ' m/s\u00B2');
+    setStat('v', this.v.toFixed(1) + ' m/s');
+  }
+};
+
+/* ══════════════ MODEL 2 — INERTIA ══════════════
+   The bus starts: the standing passenger is still at rest, so he falls
+   backward. The bus brakes: he is still moving, so he pitches forward.
+   Two buttons, two lessons - inertia of rest and inertia of motion. */
+var Inertia = {
+  v:0, mode:'rest', lean:0, target:0, road:0, dashes:[], person:null, cap:null, tag:null,
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    stage.appendChild(txt(500, 52, 'Inertia \u2014 \u0BA8\u0BBF\u0BB2\u0BC8\u0BAE\u0BAE\u0BCD', 'lbl-gold'));
+    this.cap = txt(500, 82, 'A body resists any change to its state of rest or motion', 'lbl-sm');
+    stage.appendChild(this.cap);
+
+    var road = el('g', {}); this.dashes = [];
+    for (var i = 0; i < 14; i++){
+      var d = el('rect', { x: 40 + i * 70, y:384, width:38, height:5, rx:2, fill:'#5A2A2A' });
+      road.appendChild(d); this.dashes.push(d);
+    }
+    stage.appendChild(road);
+    stage.appendChild(ground(372));
+
+    var bus = el('g', {});
+    bus.appendChild(el('rect', { x:250, y:170, width:460, height:172, rx:14,
+      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    bus.appendChild(el('rect', { x:600, y:192, width:92, height:70, rx:8,
+      fill:'#2E1414', stroke:'#C9A84C', 'stroke-width':1.5 }));
+    bus.appendChild(el('rect', { x:270, y:192, width:92, height:70, rx:8,
+      fill:'#2E1414', stroke:'#C9A84C', 'stroke-width':1.5 }));
+    bus.appendChild(wheel(340, 356, 22));
+    bus.appendChild(wheel(630, 356, 22));
+    stage.appendChild(bus);
+
+    var p = el('g', { id:'person' });
+    p.appendChild(el('circle', { cx:480, cy:214, r:16, fill:'#E8C99A' }));
+    p.appendChild(el('line', { x1:480, y1:230, x2:480, y2:298, stroke:'#E8C99A',
+      'stroke-width':7, 'stroke-linecap':'round' }));
+    p.appendChild(el('line', { x1:480, y1:250, x2:512, y2:238, stroke:'#E8C99A',
+      'stroke-width':6, 'stroke-linecap':'round' }));
+    p.appendChild(el('line', { x1:480, y1:298, x2:464, y2:340, stroke:'#E8C99A',
+      'stroke-width':6, 'stroke-linecap':'round' }));
+    p.appendChild(el('line', { x1:480, y1:298, x2:498, y2:340, stroke:'#E8C99A',
+      'stroke-width':6, 'stroke-linecap':'round' }));
+    this.person = p; stage.appendChild(p);
+
+    this.tag = txt(500, 424, 'Bus is standing still', 'lbl');
+    stage.appendChild(this.tag);
+
+    button('Start the bus', function(){ Inertia.mode = 'start'; });
+    button('Apply brakes', function(){ Inertia.mode = 'brake'; });
+    button('Reset', function(){ Inertia.reset(); });
+    stat('v', 'Bus speed');
+    stat('w', 'What the passenger feels');
+    noteBox.textContent = 'Start the bus \u2014 the passenger falls backward, because his body is still at rest. '
+      + 'Brake \u2014 he pitches forward, because his body is still moving. Nobody pushed him either time.';
+    this.reset();
+  },
+  reset: function(){ this.v = 0; this.mode = 'rest'; this.lean = 0; this.target = 0; this.paint(); },
+  step: function(dt){
+    var msg = 'At rest';
+    if (this.mode === 'start'){
+      this.v += 9 * dt;
+      if (this.v >= 16){ this.v = 16; this.mode = 'moving'; }
+      this.target = -15; msg = 'Falls BACKWARD \u2014 inertia of rest';
+    } else if (this.mode === 'moving'){
+      this.target = 0; msg = 'Standing steady \u2014 no change in motion';
+    } else if (this.mode === 'brake'){
+      this.v -= 13 * dt;
+      if (this.v <= 0){ this.v = 0; this.mode = 'rest'; }
+      this.target = 17; msg = 'Pitches FORWARD \u2014 inertia of motion';
+    } else {
+      this.target = 0; msg = this.v > 0 ? 'Standing steady' : 'At rest';
+    }
+    this.lean += (this.target - this.lean) * Math.min(1, dt * 7);
+    this.road += this.v * 34 * dt;
+    this.paint(msg);
+  },
+  paint: function(msg){
+    for (var i = 0; i < this.dashes.length; i++){
+      var x = 40 + i * 70 - (this.road % 70);
+      if (x < 20) x += this.dashes.length * 70;
+      this.dashes[i].setAttribute('x', x.toFixed(1));
+    }
+    this.person.setAttribute('transform', 'rotate(' + this.lean.toFixed(2) + ',480,340)');
+    setStat('v', this.v.toFixed(1) + ' m/s');
+    setStat('w', msg || 'At rest');
+    var t = 'Bus is standing still';
+    if (this.mode === 'start') t = 'Bus is starting \u2014 speeding up';
+    else if (this.mode === 'moving') t = 'Bus is moving steadily';
+    else if (this.mode === 'brake') t = 'Bus is braking \u2014 slowing down';
+    if (this.tag) this.tag.textContent = t;
+  }
+};
+
+/* ══════════════ MODEL 3 — MOMENTUM ══════════════
+   Ball A rolls into a resting ball B. Whatever the masses, the two
+   momentum bars always add back to the same total. The number does not
+   have to be believed - it is on screen before and after. */
+var Momentum = {
+  xA:0, xB:0, vA:0, vB:0, hit:false, running:false,
+  ballA:null, ballB:null, labA:null, labB:null, barA:null, barB:null, barT:null, stateTag:null,
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    stage.appendChild(txt(500, 50, 'Conservation of momentum \u2014 \u0B89\u0BA8\u0BCD\u0BA4\u0BAE\u0BCD', 'lbl-gold'));
+    stage.appendChild(txt(500, 80, 'Momentum p = mass \u00D7 velocity. The total never changes.', 'lbl-sm'));
+
+    stage.appendChild(ground(300));
+    this.ballA = el('circle', { cx:150, cy:262, r:34, fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2.5 });
+    this.ballB = el('circle', { cx:700, cy:262, r:34, fill:'#2E1414', stroke:'#E8C99A', 'stroke-width':2.5 });
+    stage.appendChild(this.ballA); stage.appendChild(this.ballB);
+    this.labA = txt(150, 270, 'A', 'lbl'); this.labB = txt(700, 270, 'B', 'lbl');
+    stage.appendChild(this.labA); stage.appendChild(this.labB);
+
+    stage.appendChild(txt(60, 348, 'Momentum of A', 'lbl-sm', 'start'));
+    stage.appendChild(txt(60, 388, 'Momentum of B', 'lbl-sm', 'start'));
+    stage.appendChild(txt(60, 428, 'Total  A + B', 'lbl-sm', 'start'));
+    this.barA = el('rect', { x:250, y:332, width:0, height:20, rx:6, fill:'#C9A84C' });
+    this.barB = el('rect', { x:250, y:372, width:0, height:20, rx:6, fill:'#E8C99A' });
+    this.barT = el('rect', { x:250, y:412, width:0, height:20, rx:6, fill:'#8E5A2A' });
+    stage.appendChild(this.barA); stage.appendChild(this.barB); stage.appendChild(this.barT);
+
+    this.stateTag = txt(500, 130, 'Before the collision', 'lbl');
+    stage.appendChild(this.stateTag);
+
+    slider('mA', 'Mass of A', 1, 6, 3, 1, 'kg', function(){ Momentum.reset(); });
+    slider('vA', 'Speed of A', 1, 8, 4, 1, 'm/s', function(){ Momentum.reset(); });
+    slider('mB', 'Mass of B', 1, 6, 2, 1, 'kg', function(){ Momentum.reset(); });
+    button('Release', function(){ Momentum.running = true; });
+    button('Reset', function(){ Momentum.reset(); });
+    stat('pb', 'Total before');
+    stat('pa', 'Total after');
+    noteBox.textContent = 'B is standing still. Release A and watch the two bars change \u2014 '
+      + 'but the total bar never moves. Momentum is only passed on, never created or destroyed.';
+    this.reset();
+  },
+  reset: function(){
+    this.xA = 150; this.xB = 700; this.vA = sv('vA'); this.vB = 0;
+    this.hit = false; this.running = false;
+    this.paint(); setStat('pa', '\u2014');
+  },
+  radius: function(m){ return 20 + m * 5; },
+  step: function(dt){
+    if (!this.running) { this.paint(); return; }
+    var rA = this.radius(sv('mA')), rB = this.radius(sv('mB'));
+    this.xA += this.vA * 22 * dt;
+    this.xB += this.vB * 22 * dt;
+    if (!this.hit && (this.xA + rA) >= (this.xB - rB)){
+      this.collide();
+      this.xA = this.xB - rB - rA;   // sit them exactly touching, no overlap
+    }
+    if (this.xB > 900 || this.xA < 90 || this.xA > 900) this.running = false;
+    this.paint();
+  },
+  collide: function(){
+    var m1 = sv('mA'), m2 = sv('mB'), u1 = this.vA;
+    this.vA = ((m1 - m2) * u1) / (m1 + m2);   // elastic, B initially at rest
+    this.vB = (2 * m1 * u1) / (m1 + m2);
+    this.hit = true;
+  },
+  paint: function(){
+    var mA = sv('mA'), mB = sv('mB');
+    var rA = this.radius(mA), rB = this.radius(mB);
+    this.ballA.setAttribute('cx', this.xA.toFixed(1)); this.ballA.setAttribute('r', rA);
+    this.ballB.setAttribute('cx', this.xB.toFixed(1)); this.ballB.setAttribute('r', rB);
+    this.labA.setAttribute('x', this.xA.toFixed(1));
+    this.labB.setAttribute('x', this.xB.toFixed(1));
+    this.labA.textContent = mA + ' kg';
+    this.labB.textContent = mB + ' kg';
+
+    var pA = mA * this.vA, pB = mB * this.vB, tot = pA + pB;
+    var scale = 620 / Math.max(1, sv('mA') * sv('vA'));
+    this.barA.setAttribute('width', Math.max(0, pA * scale).toFixed(1));
+    this.barB.setAttribute('width', Math.max(0, pB * scale).toFixed(1));
+    this.barT.setAttribute('width', Math.max(0, tot * scale).toFixed(1));
+
+    if (this.stateTag) this.stateTag.textContent = this.hit ? 'After the collision' : 'Before the collision';
+    setStat('pb', (mA * sv('vA')).toFixed(1) + ' kg\u00B7m/s');
+    if (this.hit) setStat('pa', tot.toFixed(1) + ' kg\u00B7m/s');
+  }
+};
+
+/* ── switching and the single animation loop ── */
+/* ══════════════ MODEL 4 — ROCKET PROPULSION ══════════════
+   Built to the answer the book asks for, not just to look like a rocket.
+
+   A student is asked to "describe rocket propulsion", and the marks are for a
+   fixed chain of statements: fuel in the propellant tank, burnt gas thrown out
+   of the nozzle carrying momentum, an equal and opposite reaction in the
+   combustion chamber, falling mass, no external force so momentum is conserved,
+   rising velocity, escape from Earth's pull. So the model walks those
+   statements in that order, with the parts named on screen.
+
+   The narration is laid over a REAL simulation - the bars and the mass are
+   computed from the same physics as free flight, never faked to look equal. */
+var Rocket = {
+  DRY:20, FUEL0:80, G:9.8, RATE:6, U:60,
+  mode:'story', stepIdx:0, space:false,
+  alt:0, v:0, fuel:80, gasP:0, maxAlt:0, flying:false, outcome:'', burn:false,
+  parts:[], lines:[],
+
+  STORY:[
+    { part:'tank',    burn:false,
+      line:'A rocket carries its fuel \u2014 liquid or solid \u2014 in the propellant tank.' },
+    { part:'chamber', burn:false,
+      line:'When the rocket is fired, this fuel is burnt in the combustion chamber.' },
+    { part:'nozzle',  burn:true,
+      line:'The hot gas is ejected at high speed through the nozzle, carrying a huge momentum downward.' },
+    { part:'chamber', burn:true,
+      line:'To balance that momentum, an equal and opposite reaction force is produced in the combustion chamber, and this drives the rocket forward. This is Newton\u2019s third law.' },
+    { part:'tank',    burn:true,
+      line:'While in motion the mass of the rocket gradually decreases, because the fuel is burning away.' },
+    { part:'',        burn:true,
+      line:'No net external force acts on the system, so its linear momentum is conserved \u2014 the gas momentum down and the rocket momentum up stay equal and cancel to zero.' },
+    { part:'',        burn:true, lift:true,
+      line:'As the mass keeps falling, the velocity keeps rising, until the rocket is fast enough to escape the gravitational pull of the Earth.' }
+  ],
+
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    var t = this.mode === 'story' ? 'Rocket propulsion \u2014 how the book explains it'
+                                  : 'Rocket propulsion \u2014 free flight';
+    stage.appendChild(txt(285, 34, t, 'lbl-gold'));
+
+    var st = el('g', { opacity:0 }); this.stars = st;
+    var sx = 71, sy = 43;
+    for (var i = 0; i < 22; i++){
+      sx = (sx * 37 + 11) % 380; sy = (sy * 29 + 7) % 300;
+      st.appendChild(el('circle', { cx: 55 + sx, cy: 60 + sy, r: (i % 3) ? 1.6 : 2.4, fill:'#E8C99A' }));
+    }
+    stage.appendChild(st);
+
+    this.ground = el('rect', { x:0, y:392, width:500, height:120, fill:'#2E1414' });
+    this.groundLine = el('line', { x1:0, y1:392, x2:500, y2:392, stroke:'#5A2A2A', 'stroke-width':4 });
+    stage.appendChild(this.ground); stage.appendChild(this.groundLine);
+
+    this.parts = [];
+    this.pGroup = el('g', {}); stage.appendChild(this.pGroup);
+    this.flame = el('polygon', { points:'', fill:'#C9A84C', opacity:0 });
+    stage.appendChild(this.flame);
+
+    /* ── the labelled cutaway ── */
+    var b = el('g', {}); this.bodyG = b;
+    b.appendChild(el('polygon', { points:'170,124 230,124 200,72', fill:'#C9A84C' }));
+    b.appendChild(el('rect', { x:170, y:124, width:60, height:194, rx:4,
+      fill:'#3A1414', stroke:'#C9A84C', 'stroke-width':2 }));
+    this.pTank = el('rect', { x:178, y:134, width:44, height:106, rx:3,
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    this.pCham = el('rect', { x:178, y:250, width:44, height:60, rx:3,
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    b.appendChild(this.pTank); b.appendChild(this.pCham);
+    this.pNozz = el('polygon', { points:'178,318 222,318 240,362 160,362',
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    b.appendChild(this.pNozz);
+    b.appendChild(el('polygon', { points:'170,268 170,318 146,326', fill:'#C9A84C' }));
+    b.appendChild(el('polygon', { points:'230,268 230,318 254,326', fill:'#C9A84C' }));
+    stage.appendChild(b);
+
+    this.ring = el('rect', { x:0, y:0, width:0, height:0, rx:5, fill:'none',
+      stroke:'#C9A84C', 'stroke-width':4, opacity:0 });
+    stage.appendChild(this.ring);
+
+    var lead = function(y1, y2){
+      stage.appendChild(el('line', { x1:232, y1:y1, x2:272, y2:y2,
+        stroke:'#8E5A2A', 'stroke-width':1.5, 'stroke-dasharray':'4 4' }));
+    };
+    lead(188, 188); lead(280, 280); lead(340, 348);
+    this.lTank = txt(280, 194, 'Propellant tank', 'lbl-sm', 'start');
+    this.lCham = txt(280, 286, 'Combustion chamber', 'lbl-sm', 'start');
+    this.lNozz = txt(280, 354, 'Nozzle', 'lbl-sm', 'start');
+    stage.appendChild(this.lTank); stage.appendChild(this.lCham); stage.appendChild(this.lNozz);
+
+    /* ── the panel on the right ── */
+    stage.appendChild(txt(530, 74, 'Rocket propulsion is based on', 'lbl-sm', 'start'));
+    this.pr1 = txt(530, 104, '1.  Law of conservation of linear momentum', 'lbl-sm', 'start');
+    this.pr2 = txt(530, 132, '2.  Newton\u2019s third law of motion', 'lbl-sm', 'start');
+    stage.appendChild(this.pr1); stage.appendChild(this.pr2);
+    stage.appendChild(el('line', { x1:530, y1:156, x2:960, y2:156, stroke:'#5A2A2A', 'stroke-width':1.5 }));
+
+    this.labA = txt(530, 196, 'Momentum of hot gas (downward)', 'lbl-sm', 'start');
+    this.labB = txt(530, 256, 'Momentum of rocket (upward)', 'lbl-sm', 'start');
+    stage.appendChild(this.labA); stage.appendChild(this.labB);
+    stage.appendChild(el('rect', { x:530, y:206, width:410, height:20, rx:6, fill:'#2E1414' }));
+    stage.appendChild(el('rect', { x:530, y:266, width:410, height:20, rx:6, fill:'#2E1414' }));
+    this.barA = el('rect', { x:530, y:206, width:0, height:20, rx:6, fill:'#8E5A2A' });
+    this.barB = el('rect', { x:530, y:266, width:0, height:20, rx:6, fill:'#C9A84C' });
+    stage.appendChild(this.barA); stage.appendChild(this.barB);
+
+    this.totTag = txt(530, 314, '', 'lbl', 'start');
+    this.massTag = txt(530, 352, '', 'lbl-sm', 'start');
+    this.velTag = txt(530, 382, '', 'lbl-sm', 'start');
+    this.escTag = txt(530, 414, '', 'lbl-sm', 'start');
+    stage.appendChild(this.totTag); stage.appendChild(this.massTag);
+    stage.appendChild(this.velTag); stage.appendChild(this.escTag);
+
+    if (this.mode === 'story'){
+      button('Next step', function(){ Rocket.next(1); });
+      button('Back', function(){ Rocket.next(-1); });
+      button('Start again', function(){ Rocket.reset(); });
+      button('Free flight', function(){ Rocket.mode = 'play'; Rocket.reset(); Rocket.build(); });
+    } else {
+      slider('r', 'Gas per second', 1, 10, 6, 1, 'kg/s', function(){ Rocket.reset(); });
+      slider('u', 'Gas speed', 20, 100, 60, 10, 'm/s', function(){ Rocket.reset(); });
+      this.gBtn = button('Place: on Earth', function(){ Rocket.space = !Rocket.space; Rocket.reset(); });
+      button('Launch', function(){ if (!Rocket.flying && Rocket.fuel > 0) Rocket.flying = true; });
+      button('Reset', function(){ Rocket.reset(); });
+      button('Back to the lesson', function(){ Rocket.mode = 'story'; Rocket.reset(); Rocket.build(); });
+    }
+    this.reset();
+  },
+
+  reset: function(){
+    this.alt = 0; this.v = 0; this.fuel = this.FUEL0; this.gasP = 0;
+    this.maxAlt = 0; this.outcome = ''; this.stepIdx = 0;
+    this.flying = (this.mode === 'story');
+    this.burn = false;
+    while (this.pGroup.firstChild) this.pGroup.removeChild(this.pGroup.firstChild);
+    this.parts = [];
+    if (this.gBtn) this.gBtn.textContent = this.space ? 'Place: in space' : 'Place: on Earth';
+    this.writeNote();
+    this.paint();
+  },
+
+  next: function(d){
+    var n = this.stepIdx + d;
+    if (n < 0 || n >= this.STORY.length) return;
+    this.stepIdx = n;
+    this.writeNote();
+  },
+
+  /* The answer builds up line by line, so by the last step the whole thing is
+     on screen for the class to copy down. */
+  writeNote: function(){
+    if (this.mode !== 'story'){
+      noteBox.textContent = this.space
+        ? 'No gravity and no air out here \u2014 the two bars stay mirror images. A rocket does not push against air; it pushes against its own gas.'
+        : 'Thrust must beat weight or the rocket never leaves the pad. And when the fuel runs out, it falls back.';
+      return;
+    }
+    noteBox.textContent = '';
+    for (var i = 0; i <= this.stepIdx; i++){
+      var d = document.createElement('div');
+      d.style.marginBottom = '5px';
+      d.style.color = (i === this.stepIdx) ? '#C9A84C' : '#B99A7A';
+      d.textContent = (i + 1) + '.  ' + this.STORY[i].line;
+      noteBox.appendChild(d);
+    }
+  },
+
+  step: function(dt){
+    var rate, u, g;
+    if (this.mode === 'story'){
+      var sdef = this.STORY[this.stepIdx];
+      this.burn = !!sdef.burn;
+      rate = this.RATE; u = this.U; g = 0;          // the book's case: no external force
+      if (this.burn && this.fuel > 0){
+        var dm = Math.min(rate * dt, this.fuel);
+        var m0 = this.DRY + this.fuel;
+        this.gasP += dm * (this.v - u);
+        this.v += u * dm / m0;
+        this.fuel -= dm;
+        this.spawn(dt);
+      }
+      if (sdef.lift) this.alt += this.v * dt * 0.5;
+    } else {
+      if (this.flying){
+        rate = sv('r'); u = sv('u'); g = this.space ? 0 : this.G;
+        var m = this.DRY + this.fuel;
+        this.burn = this.fuel > 0;
+        if (this.fuel > 0){
+          var dm2 = Math.min(rate * dt, this.fuel);
+          this.gasP += dm2 * (this.v - u);
+          this.v += u * dm2 / m;
+          this.fuel -= dm2;
+          this.spawn(dt);
+        }
+        this.v -= g * dt;
+        this.alt += this.v * dt;
+        if (this.alt > this.maxAlt) this.maxAlt = this.alt;
+        if (this.alt <= 0){
+          this.alt = 0;
+          if (this.v < 0){
+            this.v = 0;
+            if (this.maxAlt > 1){ this.flying = false; this.outcome = 'fell'; }
+          }
+        }
+        if (this.fuel <= 0 && this.maxAlt <= 1 && !this.space){
+          this.flying = false; this.outcome = 'nolift';
+        }
+        if (this.alt > 4000){ this.flying = false; this.outcome = 'away'; }
+      } else { this.burn = false; }
+    }
+    this.drift(dt);
+    this.paint();
+  },
+
+  spawn: function(dt){
+    if (this.parts.length > 30) return;
+    if (Math.random() > dt * 38) return;
+    var n = el('circle', { cx: 200 + (Math.random() * 26 - 13), cy: 366,
+      r: 3 + Math.random() * 4, fill:'#C9A84C', opacity:0.85 });
+    this.pGroup.appendChild(n);
+    this.parts.push({ n:n, y:366, vy: 140 + Math.random() * 110, o:0.85 });
+  },
+
+  drift: function(dt){
+    for (var i = this.parts.length - 1; i >= 0; i--){
+      var p = this.parts[i];
+      p.y += p.vy * dt; p.o -= dt * 0.85;
+      if (p.o <= 0 || p.y > 470){ this.pGroup.removeChild(p.n); this.parts.splice(i, 1); continue; }
+      p.n.setAttribute('cy', p.y.toFixed(1));
+      p.n.setAttribute('opacity', p.o.toFixed(2));
+    }
+  },
+
+  highlight: function(part){
+    var boxes = {
+      tank:    [174, 130, 52, 114],
+      chamber: [174, 246, 52, 68],
+      nozzle:  [156, 314, 88, 52]
+    };
+    var b = boxes[part];
+    this.ring.setAttribute('opacity', b ? 1 : 0);
+    if (b){
+      this.ring.setAttribute('x', b[0]); this.ring.setAttribute('y', b[1]);
+      this.ring.setAttribute('width', b[2]); this.ring.setAttribute('height', b[3]);
+    }
+    this.lTank.setAttribute('fill', part === 'tank'    ? '#C9A84C' : '#B99A7A');
+    this.lCham.setAttribute('fill', part === 'chamber' ? '#C9A84C' : '#B99A7A');
+    this.lNozz.setAttribute('fill', part === 'nozzle'  ? '#C9A84C' : '#B99A7A');
+  },
+
+  paint: function(){
+    var story = this.mode === 'story';
+    var sdef = story ? this.STORY[this.stepIdx] : null;
+    var m = this.DRY + this.fuel;
+    var thrust = this.burn ? (story ? this.RATE * this.U : sv('r') * sv('u')) : 0;
+
+    this.highlight(story ? sdef.part : '');
+
+    var off = Math.min(this.alt * 1.6, 200);
+    this.ground.setAttribute('y', (392 + off).toFixed(1));
+    this.groundLine.setAttribute('y1', (392 + off).toFixed(1));
+    this.groundLine.setAttribute('y2', (392 + off).toFixed(1));
+    this.stars.setAttribute('opacity',
+      (!story && this.space) ? 1 : Math.min(1, this.alt / 60).toFixed(2));
+
+    if (thrust > 0){
+      var fl = 26 + (thrust / 1000) * 84 + Math.random() * 12;
+      this.flame.setAttribute('opacity', 0.92);
+      this.flame.setAttribute('points', '182,362 218,362 210,' + (366 + fl * 0.55).toFixed(0) +
+        ' 200,' + (366 + fl).toFixed(0) + ' 190,' + (366 + fl * 0.55).toFixed(0));
+    } else {
+      this.flame.setAttribute('opacity', 0);
+    }
+
+    var rp = m * this.v, gp = Math.abs(this.gasP);
+    var earth = (!story && !this.space);
+    var aLen, bLen;
+    if (earth){
+      this.labA.textContent = 'Thrust';
+      this.labB.textContent = 'Weight of the rocket';
+      aLen = (thrust / 1000) * 410;
+      bLen = (m * this.G / 1000) * 410;
+      this.totTag.textContent = thrust > m * this.G ? 'Thrust beats weight \u2014 it climbs'
+                                                    : 'Weight beats thrust \u2014 it stays down';
+    } else {
+      this.labA.textContent = 'Momentum of hot gas (downward)';
+      this.labB.textContent = 'Momentum of rocket (upward)';
+      var sc = 400 / Math.max(1, Math.max(gp, Math.abs(rp)));
+      aLen = gp * sc; bLen = Math.abs(rp) * sc;
+      this.totTag.textContent = (gp > 0.5 && (story ? this.stepIdx >= 5 : true))
+        ? 'Down + up  =  0    momentum is conserved' : '';
+    }
+    this.barA.setAttribute('width', Math.max(0, Math.min(410, aLen)).toFixed(1));
+    this.barB.setAttribute('width', Math.max(0, Math.min(410, bLen)).toFixed(1));
+
+    var lit = story && this.stepIdx >= 5;
+    this.pr1.setAttribute('fill', lit ? '#C9A84C' : '#B99A7A');
+    this.pr2.setAttribute('fill', (story && this.stepIdx >= 3) ? '#C9A84C' : '#B99A7A');
+
+    this.massTag.textContent = 'Mass of the rocket   ' + m.toFixed(0) + ' kg'
+      + (this.fuel < this.FUEL0 ? '   (fuel is burning away)' : '');
+    this.velTag.textContent = 'Velocity   ' + this.v.toFixed(1) + ' m/s'
+      + (this.alt > 0.5 ? '     Height ' + this.alt.toFixed(0) + ' m' : '');
+
+    if (story && sdef.lift) this.escTag.textContent = 'To leave the Earth it must reach 11.2 km/s \u2014 the escape speed';
+    else if (this.outcome === 'fell') this.escTag.textContent = 'Fuel finished \u2014 it fell back to the ground';
+    else if (this.outcome === 'nolift') this.escTag.textContent = 'Never lifted off \u2014 thrust was less than weight';
+    else if (this.outcome === 'away') this.escTag.textContent = 'Away it goes';
+    else this.escTag.textContent = '';
+  }
+};
+
+var MODELS = { force: Force, inertia: Inertia, momentum: Momentum, rocket: Rocket };
+var current = null, last = 0;
+
+function show(name){
+  if (!MODELS[name]) name = 'force';
+  current = MODELS[name];
+  noteBox.textContent = '';
+  current.build();
+  var chips = document.querySelectorAll('.chip');
+  for (var i = 0; i < chips.length; i++){
+    chips[i].className = 'chip' + (chips[i].getAttribute('data-m') === name ? ' on' : '');
+  }
+  try{ if (window.history && history.replaceState) history.replaceState(null, '', '?m=' + name); }catch(e){}
+}
+
+var chipEls = document.querySelectorAll('.chip');
+for (var ci = 0; ci < chipEls.length; ci++){
+  chipEls[ci].onclick = (function(n){ return function(){ show(n); }; })(chipEls[ci].getAttribute('data-m'));
+}
+
+function loop(t){
+  if (!last) last = t;
+  var dt = (t - last) / 1000; last = t;
+  if (dt > 0.05) dt = 0.05;            // a stalled projector must not teleport the cart
+  if (current && current.step) current.step(dt);
+  requestAnimationFrame(loop);
+}
+
+function startModel(){
+  /* Inside a lesson the class already knows which model it wants, so the
+     chip bar is hidden and only the model itself is shown. */
+  try{
+    if (/[?&]embed=1/.test(String(window.location.search || ''))){
+      var bar = document.querySelector('.pm-bar');
+      if (bar) bar.style.display = 'none';
+    }
+  }catch(eb){}
+  var m = 'force';
+  try{
+    var q = String(window.location.search || '').match(/[?&]m=([a-z]+)/);
+    if (q && MODELS[q[1]]) m = q[1];
+  }catch(e){}
+  show(m);
+  requestAnimationFrame(loop);
+}
+startModel();
+</script>
+</body>
+</html>
