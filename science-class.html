@@ -415,7 +415,7 @@ async function scTopicList(){
   var res = await fetch('/api/ai', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ system: sys, max_tokens: 900,
-      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 200000) }] })
   });
   var d = await res.json();
   var raw = '';
@@ -443,7 +443,7 @@ async function scGeneratePlanFresh(){
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       system: scPlanPrompt(),
-      messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000)}],
+      messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 200000)}],
       max_tokens: 12000
     })
   });
@@ -1746,7 +1746,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v4|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v5|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
@@ -1775,7 +1775,7 @@ async function scCausesStep(){
   var res = await fetch('/api/ai', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ system: sys, max_tokens: 700,
-      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 200000) }] })
   });
   var d = await res.json();
   var raw = '';
@@ -1917,7 +1917,7 @@ async function scTopUpSteps(missing){
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({ system: sys, max_tokens: 2500,
       messages:[{ role:'user', content:'MISSING TOPICS:\n' + missing.join('\n') +
-        '\n\nLESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+        '\n\nLESSON TEXT:\n\n' + LESSON.text.substring(0, 200000) }] })
   });
   var d = await res.json();
   var raw = '';
@@ -2017,9 +2017,18 @@ async function scGeneratePlan(){
   return steps;
 }
 
+/* Every message on the prep screen now carries how much of the chapter
+   actually arrived. A unit that reads 20,000 characters when the book runs to
+   fifty thousand has been cut somewhere upstream, and the teacher can see it
+   before the class starts rather than discovering it mid-lesson. */
+function scLessonSize(){
+  var n = (LESSON.text || '').length;
+  if (!n) return '';
+  return '  \u00B7  ' + n.toLocaleString('en-IN') + ' characters read';
+}
 function scPrepMsg(t){
   var m = document.getElementById('sc-loading-msg');
-  if (m) m.textContent = t;
+  if (m) m.textContent = t + scLessonSize();
 }
 
 async function scPrepareAll(){
