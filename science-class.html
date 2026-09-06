@@ -301,7 +301,7 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
    Photos: /api/social-images (Wikimedia + AI gatekeeper + cache).
    ══════════════════════════════════════════════════════════════ */
 
-var LESSON = { cls:'', subject:'Science', topic:'', text:'' };
+var LESSON = { cls:'', subject:'Science', topic:'', text:'', topics:[] };
 var STEPS = [];
 var CUR = -1;
 var voiceOn = true;
@@ -358,7 +358,7 @@ function scPlanPrompt(){
     ' {\"type\":\"causes\",\"title\":\"...\",\"speech\":\"...\",\"longTerm\":[\"short cause\",\"short cause\"],\"trigger\":{\"name\":\"the one event that started it\",\"detail\":\"one short line\"},\"result\":\"what followed, one short line\"},\n' +
     ']}\n\n' +
     'Rules:\n' +
-    '- 10 to 15 steps total, covering the WHOLE lesson in order. First step is always type "title".\n' +
+    '- Give ONE step to every topic on the TOPIC CHECKLIST below, in the checklist order. There is NO upper limit on step count \u2014 a long chapter is allowed a long plan, and a topic must NEVER be dropped or merged to keep the plan short. If no checklist is supplied, use 10 to 15 steps covering the WHOLE lesson in order. First step is always type "title".\n' +
     '- MANDATORY: if the lesson explains WHY an event or change happened, the plan MUST contain EXACTLY ONE step of type \"causes\", placed BEFORE the steps describing what happened afterwards. Decide this first, before planning any other step. Wars, revolts, revolutions, migrations, shortages, reforms, pollution and social change all qualify. Build it ONLY from causes stated in the lesson text. If the lesson genuinely explains no cause, omit it - but never omit it just to fit in more concept steps.\n' +
     '- Use "model3d" whenever the lesson discusses a body part, organ, organism part or scientific object ' +
     'that a teacher would show as a PHYSICAL MODEL. "organ" must be EXACTLY one of: ' +
@@ -381,17 +381,66 @@ function scPlanPrompt(){
     '- Use "globe" ONLY for Earth science: mode "daynight" for rotation/day-night, "seasons" for revolution and seasons, "latlong" for latitudes.\n' +
     '- "speech" is what the teacher SAYS aloud: 2 to 4 warm, clear sentences in simple Indian classroom English, ' +
     'explaining construction and working, occasionally connecting to Tamil Nadu students\u2019 daily life. No emojis.\n' +
-    '- Every string must be plain text. Keep JSON strictly valid.';
+    '- Every string must be plain text. Keep JSON strictly valid.' + scTopicChecklistRule();
+}
+
+/* The checklist the planner is not allowed to shorten. Empty when the topic
+   pass failed, so the plan still builds the old way rather than not at all. */
+function scTopicChecklistRule(){
+  if (!LESSON.topics || !LESSON.topics.length) return '';
+  var list = LESSON.topics.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\n');
+  return '\n\nTOPIC CHECKLIST \u2014 this lesson teaches the following topics, in book order:\n' + list +
+    '\n\nEVERY topic above must appear as at least one step, in this order. Never leave out a topic that sits near the END of the chapter \u2014 those are the ones most often forgotten, and students are examined on them.';
+}
+
+/* -- TOPIC LIST (first pass) --
+   The old prompt asked for "10 to 15 steps", so on a long chapter the planner
+   quietly dropped whatever sat at the end \u2014 rocket propulsion in Class 10
+   Physics, for one. Reading the headings out on their own first gives the
+   planner a checklist it cannot shorten. One small call, then cached. */
+async function scTopicList(){
+  var sys = 'You read one school lesson and list every topic it teaches, in book order.\n' +
+    'Return ONLY a JSON array of short strings. No prose, no markdown, no code fences.\n' +
+    '["Newton\u2019s First Law of Motion","Moment of Force and Torque"]\n' +
+    'RULES:\n' +
+    '- One entry per teachable topic or section heading in the lesson.\n' +
+    '- Keep the book\u2019s own wording. Each entry under 60 characters.\n' +
+    '- Include EVERY topic, especially the short ones at the END of the chapter.\n' +
+    '- Leave out exercises, question sets, answer keys and summaries.\n' +
+    '- Between 5 and 30 entries, in the order the book presents them.';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 900,
+      messages:[{ role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return [];
+  var t = String(raw).trim().replace(/```json|```/g, '').trim();
+  var s = t.indexOf('['), e = t.lastIndexOf(']');
+  if (s === -1 || e <= s) return [];
+  var arr;
+  try{ arr = JSON.parse(t.substring(s, e + 1)); }catch(err){ return []; }
+  if (!Array.isArray(arr)) return [];
+  return arr.map(function(x){ return String(x || '').trim().substring(0, 60); })
+            .filter(Boolean).slice(0, 30);
 }
 
 async function scGeneratePlanFresh(){
+  /* Read the headings before planning, so nothing at the end can be dropped. */
+  if (!LESSON.topics || !LESSON.topics.length){
+    scPrepMsg('Reading the chapter headings\u2026');
+    try{ LESSON.topics = await scTopicList(); }catch(tl){ LESSON.topics = []; }
+  }
   var res = await fetch('/api/ai', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       system: scPlanPrompt(),
       messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 45000)}],
-      max_tokens: 7000
+      max_tokens: 12000
     })
   });
   var d = await res.json();
@@ -1672,7 +1721,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v2|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v3|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
@@ -1795,9 +1844,111 @@ function scInsertRecall(items){
 }
 
 
+/* -- COVERAGE CHECK (second pass) --
+   A step counts as covering a topic when most of the topic\u2019s own words turn
+   up somewhere in the plan. Deliberately generous: a wrong "missing" reading
+   costs one small extra call, a wrong "covered" reading costs a student a
+   whole exam topic. */
+var SC_TOPIC_SKIP = { the:1, and:1, for:1, its:1, are:1, with:1, from:1, that:1, this:1, when:1, what:1, does:1, into:1, their:1, about:1, other:1 };
+
+function scTopicWords(s){
+  return String(s || '').toLowerCase()
+    .replace(/[^a-z0-9\u0B80-\u0BFF ]+/g, ' ')
+    .split(/\s+/)
+    .filter(function(w){ return w.length >= 4 && !SC_TOPIC_SKIP[w]; });
+}
+
+function scMissingTopics(){
+  if (!LESSON.topics || !LESSON.topics.length) return [];
+  var blob = ' ' + STEPS.map(function(s){ return (s.title || '') + ' ' + (s.speech || ''); })
+    .join(' ').toLowerCase().replace(/[^a-z0-9\u0B80-\u0BFF ]+/g, ' ') + ' ';
+  var gaps = [];
+  LESSON.topics.forEach(function(t){
+    var words = scTopicWords(t);
+    if (!words.length) return;
+    var hit = 0;
+    words.forEach(function(w){ if (blob.indexOf(' ' + w) !== -1) hit++; });
+    if (hit / words.length < 0.7) gaps.push(t);
+  });
+  return gaps.slice(0, 8);
+}
+
+/* Builds steps for the gaps only, so a fully covered lesson pays nothing. */
+async function scTopUpSteps(missing){
+  var sys = 'You add the MISSING steps to a science lesson plan that is already written.\n' +
+    'Return ONLY a JSON array of step objects. No prose, no markdown, no code fences.\n' +
+    'Each step is ONE of these shapes:\n' +
+    '{"type":"concept","topic":"...","title":"...","speech":"...","points":["short point","short point"]}\n' +
+    '{"type":"cycle","topic":"...","title":"...","speech":"...","items":["stage one","stage two","stage three"]}\n' +
+    '{"type":"compare","topic":"...","title":"...","speech":"...","left":{"name":"...","points":["..."]},"right":{"name":"...","points":["..."]}}\n' +
+    'RULES:\n' +
+    '- EXACTLY one step for each missing topic listed below, in the same order.\n' +
+    '- "topic" must be copied EXACTLY, character for character, from the missing topic it teaches.\n' +
+    '- Build every step ONLY from the lesson text. Never add facts from your own knowledge.\n' +
+    '- "speech" is 2 to 4 warm, clear sentences a teacher says aloud in simple Indian classroom English, explaining construction and working. No emojis.\n' +
+    '- "points" and "items": 2 to 5 entries, each under 70 characters.\n' +
+    '- Every string plain text. Keep JSON strictly valid.';
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: sys, max_tokens: 2500,
+      messages:[{ role:'user', content:'MISSING TOPICS:\n' + missing.join('\n') +
+        '\n\nLESSON TEXT:\n\n' + LESSON.text.substring(0, 45000) }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) return [];
+  var t = String(raw).trim().replace(/```json|```/g, '').trim();
+  var s = t.indexOf('['), e = t.lastIndexOf(']');
+  if (s === -1 || e <= s) return [];
+  var arr;
+  try{ arr = JSON.parse(t.substring(s, e + 1)); }catch(err){ return []; }
+  if (!Array.isArray(arr)) return [];
+  var out = [];
+  arr.slice(0, 8).forEach(function(o){
+    var step = scNormaliseStep(o);
+    if (step && step.title){ step._topic = String((o && o.topic) || '').trim(); out.push(step); }
+  });
+  return out;
+}
+
+/* Each gap sits straight after the topic the book puts before it, so the class
+   still runs in chapter order instead of collecting leftovers at the end. */
+function scInsertTopUp(steps){
+  if (!steps || !steps.length) return 0;
+  var order = LESSON.topics || [];
+  var added = 0;
+  steps.forEach(function(st){
+    var idx = order.indexOf(st._topic);
+    var at = STEPS.length;
+    if (idx > 0){
+      var prev = String(order[idx - 1] || '').toLowerCase().trim();
+      for (var i = STEPS.length - 1; i >= 0; i--){
+        var ttl = (STEPS[i].title || '').toLowerCase().trim();
+        if (ttl && prev && (ttl.indexOf(prev) !== -1 || prev.indexOf(ttl) !== -1)){ at = i + 1; break; }
+      }
+    }
+    delete st._topic;
+    STEPS.splice(at, 0, st);
+    added++;
+  });
+  return added;
+}
+
+
 /* The causes and recall passes finish the lesson off. They run once, on the way
    into the cache, so a lesson taught before loads whole and never pays again. */
 async function scEnrichPlan(){
+  /* Fill the gaps before anything else, so quick checks can use the new steps. */
+  var gaps = scMissingTopics();
+  if (gaps.length){
+    scPrepMsg('Checking nothing was left out\u2026');
+    try{
+      var extra = await scTopUpSteps(gaps);
+      if (extra.length) scInsertTopUp(extra);
+    }catch(ge){ /* lesson is still fine without the top-up */ }
+  }
   if (!STEPS.some(function(s){ return s.type === 'causes'; })){
     scPrepMsg('Working out why it happened\u2026');
     try{
