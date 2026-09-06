@@ -371,6 +371,7 @@ function scPlanPrompt(){
     'give a NEW model3d step with organ "skull". One model per step.\n' +
     '- Use "photo" for real-world things best shown as photographs: microscope views, animals, plants, ' +
     'habitats, lab equipment, phenomena (lightning, rainbow, rust). The "search" must be specific.\n' +
+    '- PHYSICS and CHEMISTRY lessons must use "photo" often. Almost every physics idea has a real photograph behind it: a rocket lifting off, a seesaw, a crane lifting a load, a cricketer catching a ball, a tug of war, a cyclist braking, a spanner turning a nut, a pendulum clock, a spring balance, a bus braking, a swimmer pushing off the wall. SHOW the thing first, then explain it. Do not teach a physics idea in words alone when a photograph of it exists.\n' +
     '- Use "cycle" for repeating or flowing processes: water cycle, photosynthesis stages, ' +
     'respiration, blood circulation, life cycles, food chains (3 to 6 short items in order).\n' +
     '- Use "structure" for classifications and hierarchies (kingdoms, types of tissues, forms of energy).\n' +
@@ -381,6 +382,9 @@ function scPlanPrompt(){
     '- Use "globe" ONLY for Earth science: mode "daynight" for rotation/day-night, "seasons" for revolution and seasons, "latlong" for latitudes.\n' +
     '- "speech" is what the teacher SAYS aloud: 2 to 4 warm, clear sentences in simple Indian classroom English, ' +
     'explaining construction and working, occasionally connecting to Tamil Nadu students\u2019 daily life. No emojis.\n' +
+    '- NEVER place more than TWO text-only "concept" steps in a row. Break the run with a photo, a compare, a cycle, a structure, a stat, a timeline or a model3d. A class watching plain sentences for three screens together stops watching.\n' +
+    '- Use "compare" freely in physics and chemistry too: rest vs motion, balanced vs unbalanced forces, mass vs weight, speed vs velocity, like vs unlike parallel forces, elastic vs inelastic collision.\n' +
+    '- A "concept" step MUST carry 2 to 4 SHORT points in "points" \u2014 a few words each, the way a teacher writes on the board. Never one long sentence, never a whole paragraph. The full explanation belongs in "speech", which is spoken aloud, not shown.\n' +
     '- Every string must be plain text. Keep JSON strictly valid.' + scTopicChecklistRule();
 }
 
@@ -480,6 +484,27 @@ function scParseJSON(raw){
   return null;
 }
 
+/* A step that arrives with no points used to have its spoken line chopped at
+   150 characters, which is why cards on the projector ended mid-word
+   (\u201cThis push or p\u201d). Split it into whole sentences instead \u2014 one sentence
+   per card, nothing cut off in front of the class. */
+function scSpeechPoints(speech){
+  var txt = String(speech || '').trim();
+  if (!txt) return [];
+  var out = [], buf = '';
+  for (var i = 0; i < txt.length; i++){
+    var ch = txt.charAt(i);
+    buf += ch;
+    if (ch === '.' || ch === '?' || ch === '!' || ch === '\u0964'){
+      var nxt = txt.charAt(i + 1);
+      if (!nxt || nxt === ' '){ if (buf.trim().length > 1) out.push(buf.trim()); buf = ''; }
+    }
+  }
+  if (buf.trim().length > 1) out.push(buf.trim());
+  if (!out.length) out = [txt];
+  return out.slice(0, 4).map(function(x){ return x.substring(0, 200); });
+}
+
 function scNormaliseStep(s){
   if (!s || !s.type) return null;
   var type = String(s.type).toLowerCase();
@@ -568,7 +593,7 @@ function scNormaliseStep(s){
   }
   if (out.type === 'concept'){
     out.points = (Array.isArray(s.points) ? s.points : []).slice(0, 4).map(function(p){ return String(p).substring(0, 160); });
-    if (out.points.length === 0) out.points = [out.speech.substring(0, 150)];
+    if (out.points.length === 0) out.points = scSpeechPoints(out.speech);
   }
   if (!out.title && !out.speech) return null;
   return out;
@@ -1721,7 +1746,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v3|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v4|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
@@ -1886,7 +1911,7 @@ async function scTopUpSteps(missing){
     '- "topic" must be copied EXACTLY, character for character, from the missing topic it teaches.\n' +
     '- Build every step ONLY from the lesson text. Never add facts from your own knowledge.\n' +
     '- "speech" is 2 to 4 warm, clear sentences a teacher says aloud in simple Indian classroom English, explaining construction and working. No emojis.\n' +
-    '- "points" and "items": 2 to 5 entries, each under 70 characters.\n' +
+    '- "points" and "items": 2 to 5 entries, each under 70 characters. Short board-style phrases, never full sentences.\n' +
     '- Every string plain text. Keep JSON strictly valid.';
   var res = await fetch('/api/ai', {
     method:'POST', headers:{'Content-Type':'application/json'},
