@@ -395,201 +395,313 @@ var Momentum = {
 
 /* ── switching and the single animation loop ── */
 /* ══════════════ MODEL 4 — ROCKET PROPULSION ══════════════
-   The rocket does not push against the air. It throws gas downward, and the
-   gas throws it upward. Two places to try it:
+   Built to the answer the book asks for, not just to look like a rocket.
 
-   ON EARTH  - thrust must beat weight or it never leaves the pad, and when the
-               fuel runs out it falls back. That is the lesson about fuel.
-   IN SPACE  - no gravity, no air. The gas momentum bar and the rocket momentum
-               bar are mirror images at every instant, and they add to zero.
-               That is conservation of momentum, on screen, with no air to
-               push against.
+   A student is asked to "describe rocket propulsion", and the marks are for a
+   fixed chain of statements: fuel in the propellant tank, burnt gas thrown out
+   of the nozzle carrying momentum, an equal and opposite reaction in the
+   combustion chamber, falling mass, no external force so momentum is conserved,
+   rising velocity, escape from Earth's pull. So the model walks those
+   statements in that order, with the parts named on screen.
 
-   Working in the ground frame: gas leaves at (v - u) where u is the exhaust
-   speed relative to the rocket, so m*dv = u*dm. Accumulating each puff of gas
-   separately is what lets the two bars be compared honestly. */
+   The narration is laid over a REAL simulation - the bars and the mass are
+   computed from the same physics as free flight, never faked to look equal. */
 var Rocket = {
-  DRY:20, FUEL0:80, G:9.8,
-  alt:0, v:0, fuel:80, gasP:0, maxAlt:0, flying:false, outcome:'', space:false,
-  parts:[], body:null, flame:null, ground:null, stars:null, gBtn:null,
-  barA:null, barB:null, labA:null, labB:null, tag:null, altTag:null,
+  DRY:20, FUEL0:80, G:9.8, RATE:6, U:60,
+  mode:'story', stepIdx:0, space:false,
+  alt:0, v:0, fuel:80, gasP:0, maxAlt:0, flying:false, outcome:'', burn:false,
+  parts:[], lines:[],
+
+  STORY:[
+    { part:'tank',    burn:false,
+      line:'A rocket carries its fuel \u2014 liquid or solid \u2014 in the propellant tank.' },
+    { part:'chamber', burn:false,
+      line:'When the rocket is fired, this fuel is burnt in the combustion chamber.' },
+    { part:'nozzle',  burn:true,
+      line:'The hot gas is ejected at high speed through the nozzle, carrying a huge momentum downward.' },
+    { part:'chamber', burn:true,
+      line:'To balance that momentum, an equal and opposite reaction force is produced in the combustion chamber, and this drives the rocket forward. This is Newton\u2019s third law.' },
+    { part:'tank',    burn:true,
+      line:'While in motion the mass of the rocket gradually decreases, because the fuel is burning away.' },
+    { part:'',        burn:true,
+      line:'No net external force acts on the system, so its linear momentum is conserved \u2014 the gas momentum down and the rocket momentum up stay equal and cancel to zero.' },
+    { part:'',        burn:true, lift:true,
+      line:'As the mass keeps falling, the velocity keeps rising, until the rocket is fast enough to escape the gravitational pull of the Earth.' }
+  ],
 
   build: function(){
     clear(stage); clear(ctrlBox); clear(readBox);
-    stage.appendChild(txt(500, 36, 'Rocket propulsion \u2014 \u0BB0\u0BBE\u0B95\u0BCD\u0B95\u0BC6\u0B9F\u0BCD \u0B89\u0BA8\u0BCD\u0BA4\u0BC1\u0BA4\u0BB2\u0BCD', 'lbl-gold'));
+    var t = this.mode === 'story' ? 'Rocket propulsion \u2014 how the book explains it'
+                                  : 'Rocket propulsion \u2014 free flight';
+    stage.appendChild(txt(285, 34, t, 'lbl-gold'));
 
     var st = el('g', { opacity:0 }); this.stars = st;
     var sx = 71, sy = 43;
-    for (var i = 0; i < 26; i++){
-      sx = (sx * 37 + 11) % 880; sy = (sy * 29 + 7) % 290;
-      var x = 60 + sx, y = 56 + sy;
-      if (x > 430 && x < 570) x = x + 190 > 940 ? x - 190 : x + 190;
-      st.appendChild(el('circle', { cx:x, cy:y, r: (i % 3) ? 1.6 : 2.6, fill:'#E8C99A' }));
+    for (var i = 0; i < 22; i++){
+      sx = (sx * 37 + 11) % 380; sy = (sy * 29 + 7) % 300;
+      st.appendChild(el('circle', { cx: 55 + sx, cy: 60 + sy, r: (i % 3) ? 1.6 : 2.4, fill:'#E8C99A' }));
     }
     stage.appendChild(st);
 
-    this.labA = txt(60, 82, 'Thrust', 'lbl-sm', 'start');
-    this.labB = txt(60, 112, 'Weight', 'lbl-sm', 'start');
-    stage.appendChild(this.labA); stage.appendChild(this.labB);
-    stage.appendChild(el('line', { x1:290, y1:64, x2:290, y2:120, stroke:'#5A2A2A', 'stroke-width':2 }));
-    this.barA = el('rect', { x:292, y:68, width:0, height:20, rx:6, fill:'#C9A84C' });
-    this.barB = el('rect', { x:292, y:98, width:0, height:20, rx:6, fill:'#8E5A2A' });
-    stage.appendChild(this.barA); stage.appendChild(this.barB);
-
-    this.ground = el('rect', { x:0, y:380, width:1000, height:220, fill:'#2E1414' });
-    stage.appendChild(this.ground);
-    this.groundLine = el('line', { x1:0, y1:380, x2:1000, y2:380, stroke:'#5A2A2A', 'stroke-width':4 });
-    stage.appendChild(this.groundLine);
+    this.ground = el('rect', { x:0, y:392, width:500, height:120, fill:'#2E1414' });
+    this.groundLine = el('line', { x1:0, y1:392, x2:500, y2:392, stroke:'#5A2A2A', 'stroke-width':4 });
+    stage.appendChild(this.ground); stage.appendChild(this.groundLine);
 
     this.parts = [];
     this.pGroup = el('g', {}); stage.appendChild(this.pGroup);
-
     this.flame = el('polygon', { points:'', fill:'#C9A84C', opacity:0 });
     stage.appendChild(this.flame);
 
-    var b = el('g', {});
-    b.appendChild(el('polygon', { points:'478,162 522,162 500,116', fill:'#C9A84C' }));
-    b.appendChild(el('rect', { x:478, y:162, width:44, height:108, rx:5,
-      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
-    b.appendChild(el('circle', { cx:500, cy:196, r:9, fill:'#2E1414', stroke:'#E8C99A', 'stroke-width':1.5 }));
-    b.appendChild(el('polygon', { points:'478,244 478,290 458,290', fill:'#C9A84C' }));
-    b.appendChild(el('polygon', { points:'522,244 522,290 542,290', fill:'#C9A84C' }));
-    b.appendChild(el('rect', { x:486, y:270, width:28, height:14, rx:3, fill:'#3A1A1A', stroke:'#C9A84C', 'stroke-width':1.5 }));
-    this.body = b; stage.appendChild(b);
+    /* ── the labelled cutaway ── */
+    var b = el('g', {}); this.bodyG = b;
+    b.appendChild(el('polygon', { points:'170,124 230,124 200,72', fill:'#C9A84C' }));
+    b.appendChild(el('rect', { x:170, y:124, width:60, height:194, rx:4,
+      fill:'#3A1414', stroke:'#C9A84C', 'stroke-width':2 }));
+    this.pTank = el('rect', { x:178, y:134, width:44, height:106, rx:3,
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    this.pCham = el('rect', { x:178, y:250, width:44, height:60, rx:3,
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    b.appendChild(this.pTank); b.appendChild(this.pCham);
+    this.pNozz = el('polygon', { points:'178,318 222,318 240,362 160,362',
+      fill:'#6B1A1A', stroke:'#E8C99A', 'stroke-width':1.5 });
+    b.appendChild(this.pNozz);
+    b.appendChild(el('polygon', { points:'170,268 170,318 146,326', fill:'#C9A84C' }));
+    b.appendChild(el('polygon', { points:'230,268 230,318 254,326', fill:'#C9A84C' }));
+    stage.appendChild(b);
 
-    this.tag = txt(500, 424, 'On the launchpad', 'lbl');
-    stage.appendChild(this.tag);
-    this.altTag = txt(940, 340, '', 'lbl-sm', 'end');
-    stage.appendChild(this.altTag);
+    this.ring = el('rect', { x:0, y:0, width:0, height:0, rx:5, fill:'none',
+      stroke:'#C9A84C', 'stroke-width':4, opacity:0 });
+    stage.appendChild(this.ring);
 
-    slider('r', 'Gas per second', 1, 10, 6, 1, 'kg/s', function(){ Rocket.reset(); });
-    slider('u', 'Gas speed', 20, 100, 60, 10, 'm/s', function(){ Rocket.reset(); });
-    this.gBtn = button('Place: on Earth', function(){ Rocket.space = !Rocket.space; Rocket.reset(); });
-    button('Launch', function(){ if (!Rocket.flying && Rocket.fuel > 0) Rocket.flying = true; });
-    button('Reset', function(){ Rocket.reset(); });
-    stat('t', 'Thrust  =  gas/s \u00D7 gas speed');
-    stat('s', 'Rocket speed');
-    stat('f', 'Fuel left');
-    noteBox.textContent = '';
+    var lead = function(y1, y2){
+      stage.appendChild(el('line', { x1:232, y1:y1, x2:272, y2:y2,
+        stroke:'#8E5A2A', 'stroke-width':1.5, 'stroke-dasharray':'4 4' }));
+    };
+    lead(188, 188); lead(280, 280); lead(340, 348);
+    this.lTank = txt(280, 194, 'Propellant tank', 'lbl-sm', 'start');
+    this.lCham = txt(280, 286, 'Combustion chamber', 'lbl-sm', 'start');
+    this.lNozz = txt(280, 354, 'Nozzle', 'lbl-sm', 'start');
+    stage.appendChild(this.lTank); stage.appendChild(this.lCham); stage.appendChild(this.lNozz);
+
+    /* ── the panel on the right ── */
+    stage.appendChild(txt(530, 74, 'Rocket propulsion is based on', 'lbl-sm', 'start'));
+    this.pr1 = txt(530, 104, '1.  Law of conservation of linear momentum', 'lbl-sm', 'start');
+    this.pr2 = txt(530, 132, '2.  Newton\u2019s third law of motion', 'lbl-sm', 'start');
+    stage.appendChild(this.pr1); stage.appendChild(this.pr2);
+    stage.appendChild(el('line', { x1:530, y1:156, x2:960, y2:156, stroke:'#5A2A2A', 'stroke-width':1.5 }));
+
+    this.labA = txt(530, 196, 'Momentum of hot gas (downward)', 'lbl-sm', 'start');
+    this.labB = txt(530, 256, 'Momentum of rocket (upward)', 'lbl-sm', 'start');
+    stage.appendChild(this.labA); stage.appendChild(this.labB);
+    stage.appendChild(el('rect', { x:530, y:206, width:410, height:20, rx:6, fill:'#2E1414' }));
+    stage.appendChild(el('rect', { x:530, y:266, width:410, height:20, rx:6, fill:'#2E1414' }));
+    this.barA = el('rect', { x:530, y:206, width:0, height:20, rx:6, fill:'#8E5A2A' });
+    this.barB = el('rect', { x:530, y:266, width:0, height:20, rx:6, fill:'#C9A84C' });
+    stage.appendChild(this.barA); stage.appendChild(this.barB);
+
+    this.totTag = txt(530, 314, '', 'lbl', 'start');
+    this.massTag = txt(530, 352, '', 'lbl-sm', 'start');
+    this.velTag = txt(530, 382, '', 'lbl-sm', 'start');
+    this.escTag = txt(530, 414, '', 'lbl-sm', 'start');
+    stage.appendChild(this.totTag); stage.appendChild(this.massTag);
+    stage.appendChild(this.velTag); stage.appendChild(this.escTag);
+
+    if (this.mode === 'story'){
+      button('Next step', function(){ Rocket.next(1); });
+      button('Back', function(){ Rocket.next(-1); });
+      button('Start again', function(){ Rocket.reset(); });
+      button('Free flight', function(){ Rocket.mode = 'play'; Rocket.reset(); Rocket.build(); });
+    } else {
+      slider('r', 'Gas per second', 1, 10, 6, 1, 'kg/s', function(){ Rocket.reset(); });
+      slider('u', 'Gas speed', 20, 100, 60, 10, 'm/s', function(){ Rocket.reset(); });
+      this.gBtn = button('Place: on Earth', function(){ Rocket.space = !Rocket.space; Rocket.reset(); });
+      button('Launch', function(){ if (!Rocket.flying && Rocket.fuel > 0) Rocket.flying = true; });
+      button('Reset', function(){ Rocket.reset(); });
+      button('Back to the lesson', function(){ Rocket.mode = 'story'; Rocket.reset(); Rocket.build(); });
+    }
     this.reset();
   },
 
   reset: function(){
     this.alt = 0; this.v = 0; this.fuel = this.FUEL0; this.gasP = 0;
-    this.maxAlt = 0; this.flying = false; this.outcome = '';
+    this.maxAlt = 0; this.outcome = ''; this.stepIdx = 0;
+    this.flying = (this.mode === 'story');
+    this.burn = false;
     while (this.pGroup.firstChild) this.pGroup.removeChild(this.pGroup.firstChild);
     this.parts = [];
     if (this.gBtn) this.gBtn.textContent = this.space ? 'Place: in space' : 'Place: on Earth';
-    if (this.labA) this.labA.textContent = this.space ? 'Rocket momentum (up)' : 'Thrust';
-    if (this.labB) this.labB.textContent = this.space ? 'Gas momentum (down)' : 'Weight';
-    noteBox.textContent = this.space
-      ? 'No gravity and no air out here. Watch the two bars \u2014 they stay mirror images. '
-        + 'The gas is thrown down, the rocket is thrown up, and the two always cancel. '
-        + 'A rocket does not push against air; it pushes against its own gas.'
-      : 'Thrust must beat weight or the rocket never leaves the pad \u2014 try a low gas speed. '
-        + 'And when the fuel runs out, it falls back. That is why a rocket carries so much fuel.';
+    this.writeNote();
     this.paint();
   },
 
+  next: function(d){
+    var n = this.stepIdx + d;
+    if (n < 0 || n >= this.STORY.length) return;
+    this.stepIdx = n;
+    this.writeNote();
+  },
+
+  /* The answer builds up line by line, so by the last step the whole thing is
+     on screen for the class to copy down. */
+  writeNote: function(){
+    if (this.mode !== 'story'){
+      noteBox.textContent = this.space
+        ? 'No gravity and no air out here \u2014 the two bars stay mirror images. A rocket does not push against air; it pushes against its own gas.'
+        : 'Thrust must beat weight or the rocket never leaves the pad. And when the fuel runs out, it falls back.';
+      return;
+    }
+    noteBox.textContent = '';
+    for (var i = 0; i <= this.stepIdx; i++){
+      var d = document.createElement('div');
+      d.style.marginBottom = '5px';
+      d.style.color = (i === this.stepIdx) ? '#C9A84C' : '#B99A7A';
+      d.textContent = (i + 1) + '.  ' + this.STORY[i].line;
+      noteBox.appendChild(d);
+    }
+  },
+
   step: function(dt){
-    if (this.flying){
-      var rate = sv('r'), u = sv('u'), g = this.space ? 0 : this.G;
-      var m = this.DRY + this.fuel;
-      if (this.fuel > 0){
+    var rate, u, g;
+    if (this.mode === 'story'){
+      var sdef = this.STORY[this.stepIdx];
+      this.burn = !!sdef.burn;
+      rate = this.RATE; u = this.U; g = 0;          // the book's case: no external force
+      if (this.burn && this.fuel > 0){
         var dm = Math.min(rate * dt, this.fuel);
-        this.gasP += dm * (this.v - u);      // ground frame, downward is negative
-        this.v += u * dm / m;
+        var m0 = this.DRY + this.fuel;
+        this.gasP += dm * (this.v - u);
+        this.v += u * dm / m0;
         this.fuel -= dm;
         this.spawn(dt);
       }
-      this.v -= g * dt;
-      this.alt += this.v * dt;
-      if (this.alt > this.maxAlt) this.maxAlt = this.alt;
-      if (this.alt <= 0){
-        this.alt = 0;
-        if (this.v < 0){
-          this.v = 0;
-          if (this.maxAlt > 1){ this.flying = false; this.outcome = 'fell'; }
+      if (sdef.lift) this.alt += this.v * dt * 0.5;
+    } else {
+      if (this.flying){
+        rate = sv('r'); u = sv('u'); g = this.space ? 0 : this.G;
+        var m = this.DRY + this.fuel;
+        this.burn = this.fuel > 0;
+        if (this.fuel > 0){
+          var dm2 = Math.min(rate * dt, this.fuel);
+          this.gasP += dm2 * (this.v - u);
+          this.v += u * dm2 / m;
+          this.fuel -= dm2;
+          this.spawn(dt);
         }
-      }
-      if (this.fuel <= 0 && this.maxAlt <= 1 && !this.space){
-        this.flying = false; this.outcome = 'nolift';
-      }
-      if (this.alt > 4000){ this.flying = false; this.outcome = 'away'; }
+        this.v -= g * dt;
+        this.alt += this.v * dt;
+        if (this.alt > this.maxAlt) this.maxAlt = this.alt;
+        if (this.alt <= 0){
+          this.alt = 0;
+          if (this.v < 0){
+            this.v = 0;
+            if (this.maxAlt > 1){ this.flying = false; this.outcome = 'fell'; }
+          }
+        }
+        if (this.fuel <= 0 && this.maxAlt <= 1 && !this.space){
+          this.flying = false; this.outcome = 'nolift';
+        }
+        if (this.alt > 4000){ this.flying = false; this.outcome = 'away'; }
+      } else { this.burn = false; }
     }
     this.drift(dt);
     this.paint();
   },
 
   spawn: function(dt){
-    if (this.parts.length > 34) return;
-    if (Math.random() > dt * 40) return;
-    var n = el('circle', { cx: 500 + (Math.random() * 22 - 11), cy: 292, r: 3 + Math.random() * 4,
-      fill:'#C9A84C', opacity:0.85 });
+    if (this.parts.length > 30) return;
+    if (Math.random() > dt * 38) return;
+    var n = el('circle', { cx: 200 + (Math.random() * 26 - 13), cy: 366,
+      r: 3 + Math.random() * 4, fill:'#C9A84C', opacity:0.85 });
     this.pGroup.appendChild(n);
-    this.parts.push({ n:n, y:292, vy: 150 + Math.random() * 120, o:0.85 });
+    this.parts.push({ n:n, y:366, vy: 140 + Math.random() * 110, o:0.85 });
   },
 
   drift: function(dt){
     for (var i = this.parts.length - 1; i >= 0; i--){
       var p = this.parts[i];
-      p.y += p.vy * dt; p.o -= dt * 0.8;
-      if (p.o <= 0 || p.y > 470){
-        this.pGroup.removeChild(p.n); this.parts.splice(i, 1); continue;
-      }
+      p.y += p.vy * dt; p.o -= dt * 0.85;
+      if (p.o <= 0 || p.y > 470){ this.pGroup.removeChild(p.n); this.parts.splice(i, 1); continue; }
       p.n.setAttribute('cy', p.y.toFixed(1));
       p.n.setAttribute('opacity', p.o.toFixed(2));
     }
   },
 
+  highlight: function(part){
+    var boxes = {
+      tank:    [174, 130, 52, 114],
+      chamber: [174, 246, 52, 68],
+      nozzle:  [156, 314, 88, 52]
+    };
+    var b = boxes[part];
+    this.ring.setAttribute('opacity', b ? 1 : 0);
+    if (b){
+      this.ring.setAttribute('x', b[0]); this.ring.setAttribute('y', b[1]);
+      this.ring.setAttribute('width', b[2]); this.ring.setAttribute('height', b[3]);
+    }
+    this.lTank.setAttribute('fill', part === 'tank'    ? '#C9A84C' : '#B99A7A');
+    this.lCham.setAttribute('fill', part === 'chamber' ? '#C9A84C' : '#B99A7A');
+    this.lNozz.setAttribute('fill', part === 'nozzle'  ? '#C9A84C' : '#B99A7A');
+  },
+
   paint: function(){
-    var rate = sv('r'), u = sv('u');
+    var story = this.mode === 'story';
+    var sdef = story ? this.STORY[this.stepIdx] : null;
     var m = this.DRY + this.fuel;
-    var thrust = (this.flying && this.fuel > 0) ? rate * u : 0;
-    var weight = m * this.G;
+    var thrust = this.burn ? (story ? this.RATE * this.U : sv('r') * sv('u')) : 0;
 
-    var off = Math.min(this.alt * 1.6, 260);
-    this.ground.setAttribute('y', (380 + off).toFixed(1));
-    this.groundLine.setAttribute('y1', (380 + off).toFixed(1));
-    this.groundLine.setAttribute('y2', (380 + off).toFixed(1));
-    this.stars.setAttribute('opacity', this.space ? 1 : Math.min(1, this.alt / 90).toFixed(2));
+    this.highlight(story ? sdef.part : '');
 
-    var fl = 24 + (thrust / 1000) * 96 + (thrust ? Math.random() * 14 : 0);
+    var off = Math.min(this.alt * 1.6, 200);
+    this.ground.setAttribute('y', (392 + off).toFixed(1));
+    this.groundLine.setAttribute('y1', (392 + off).toFixed(1));
+    this.groundLine.setAttribute('y2', (392 + off).toFixed(1));
+    this.stars.setAttribute('opacity',
+      (!story && this.space) ? 1 : Math.min(1, this.alt / 60).toFixed(2));
+
     if (thrust > 0){
+      var fl = 26 + (thrust / 1000) * 84 + Math.random() * 12;
       this.flame.setAttribute('opacity', 0.92);
-      this.flame.setAttribute('points',
-        '486,282 514,282 ' + (506 + 0).toFixed(0) + ',' + (284 + fl * 0.55).toFixed(0) +
-        ' 500,' + (284 + fl).toFixed(0) + ' ' + (494).toFixed(0) + ',' + (284 + fl * 0.55).toFixed(0));
+      this.flame.setAttribute('points', '182,362 218,362 210,' + (366 + fl * 0.55).toFixed(0) +
+        ' 200,' + (366 + fl).toFixed(0) + ' 190,' + (366 + fl * 0.55).toFixed(0));
     } else {
       this.flame.setAttribute('opacity', 0);
     }
 
+    var rp = m * this.v, gp = Math.abs(this.gasP);
+    var earth = (!story && !this.space);
     var aLen, bLen;
-    if (this.space){
-      var rp = m * this.v, gp = Math.abs(this.gasP);
-      var sc = 600 / Math.max(1, Math.max(Math.abs(rp), gp));
-      aLen = Math.abs(rp) * sc; bLen = gp * sc;
-      setStat('t', thrust.toFixed(0) + ' N');
+    if (earth){
+      this.labA.textContent = 'Thrust';
+      this.labB.textContent = 'Weight of the rocket';
+      aLen = (thrust / 1000) * 410;
+      bLen = (m * this.G / 1000) * 410;
+      this.totTag.textContent = thrust > m * this.G ? 'Thrust beats weight \u2014 it climbs'
+                                                    : 'Weight beats thrust \u2014 it stays down';
     } else {
-      var sc2 = 600 / 1000;
-      aLen = thrust * sc2; bLen = weight * sc2;
-      setStat('t', thrust.toFixed(0) + ' N   (weight ' + weight.toFixed(0) + ' N)');
+      this.labA.textContent = 'Momentum of hot gas (downward)';
+      this.labB.textContent = 'Momentum of rocket (upward)';
+      var sc = 400 / Math.max(1, Math.max(gp, Math.abs(rp)));
+      aLen = gp * sc; bLen = Math.abs(rp) * sc;
+      this.totTag.textContent = (gp > 0.5 && (story ? this.stepIdx >= 5 : true))
+        ? 'Down + up  =  0    momentum is conserved' : '';
     }
-    this.barA.setAttribute('width', Math.max(0, Math.min(600, aLen)).toFixed(1));
-    this.barB.setAttribute('width', Math.max(0, Math.min(600, bLen)).toFixed(1));
+    this.barA.setAttribute('width', Math.max(0, Math.min(410, aLen)).toFixed(1));
+    this.barB.setAttribute('width', Math.max(0, Math.min(410, bLen)).toFixed(1));
 
-    setStat('s', this.v.toFixed(1) + ' m/s');
-    setStat('f', this.fuel.toFixed(0) + ' kg');
-    this.altTag.textContent = this.alt > 0.5 ? 'Height ' + this.alt.toFixed(0) + ' m' : '';
+    var lit = story && this.stepIdx >= 5;
+    this.pr1.setAttribute('fill', lit ? '#C9A84C' : '#B99A7A');
+    this.pr2.setAttribute('fill', (story && this.stepIdx >= 3) ? '#C9A84C' : '#B99A7A');
 
-    var t;
-    if (this.outcome === 'fell') t = 'Fuel finished \u2014 it fell back to the ground';
-    else if (this.outcome === 'nolift') t = 'Never lifted off \u2014 thrust was less than weight';
-    else if (this.outcome === 'away') t = 'Away it goes';
-    else if (!this.flying) t = this.space ? 'Floating in space' : 'On the launchpad';
-    else if (this.fuel <= 0) t = 'Fuel finished \u2014 coasting';
-    else t = this.space ? 'Gas thrown down, rocket pushed up' : 'Burning fuel \u2014 climbing';
-    this.tag.textContent = t;
+    this.massTag.textContent = 'Mass of the rocket   ' + m.toFixed(0) + ' kg'
+      + (this.fuel < this.FUEL0 ? '   (fuel is burning away)' : '');
+    this.velTag.textContent = 'Velocity   ' + this.v.toFixed(1) + ' m/s'
+      + (this.alt > 0.5 ? '     Height ' + this.alt.toFixed(0) + ' m' : '');
+
+    if (story && sdef.lift) this.escTag.textContent = 'To leave the Earth it must reach 11.2 km/s \u2014 the escape speed';
+    else if (this.outcome === 'fell') this.escTag.textContent = 'Fuel finished \u2014 it fell back to the ground';
+    else if (this.outcome === 'nolift') this.escTag.textContent = 'Never lifted off \u2014 thrust was less than weight';
+    else if (this.outcome === 'away') this.escTag.textContent = 'Away it goes';
+    else this.escTag.textContent = '';
   }
 };
 
