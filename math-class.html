@@ -1417,6 +1417,24 @@ async function solveAndTeach(){
       + '  of the first two, then the HCF of that answer with the third.\n'
       + '  Do NOT use prime factorisation unless the question asks for it by name.\n'
       + '  Factorising three large numbers fills the whole board and teaches nobody.\n\n'
+      + '  NAME THE FOUR PARTS the first time, the way a teacher does at the board:\n'
+      + '  the number being divided is the DIVIDEND, the number we divide by is the\n'
+      + '  DIVISOR, the answer on the right is the QUOTIENT, and what is left over is\n'
+      + '  the REMAINDER. The larger number always goes in the dividend position.\n\n'
+      + '  SPEAK EACH DIVISION LIKE THIS \u2014 divide, then the remainder, then what happens\n'
+      + '  to it next:\n'
+      + '    "We divide 504 by 396. 396 goes 1 time, and the remainder is 108."\n'
+      + '    "Now that remainder 108 becomes the divisor, and 396 becomes the dividend."\n'
+      + '    "We divide 396 by 108. It goes 3 times, remainder 72."\n'
+      + '    "We keep going until the remainder is 0. The last divisor is the HCF."\n'
+      + '  NEVER describe the move as a subtraction. Saying "we subtract 396 from 504"\n'
+      + '  tells a student the wrong operation \u2014 the move is a DIVISION, and the\n'
+      + '  subtraction is only how the remainder is found inside it.\n\n'
+      + '  In the rough work each division must give the true quotient, NOT the\n'
+      + '  remainder. In "396 ) 504 ( 1" the 1 is the quotient and 108 is the remainder\n'
+      + '  written underneath. Check every division with\n'
+      + '  divisor x quotient + remainder = dividend before you write it.\n\n'
+      + '  Finish by writing the answer in full: "HCF of 396 and 504 = 36".\n\n'
       + 'Elsewhere use the ordinary classroom method: the formula for a series,\n'
       + 'factorising or the formula for a quadratic, transposing for a linear equation.\n\n'
       + (chapter
@@ -1954,7 +1972,13 @@ function computeDivisionRows(dividend, divisor, quotient){
     return [{ text: dividend + ' ÷ ' + divisor + ' = ' + quotient, type: 'simple',
               narrate: dividend + ' divided by ' + divisor + ' equals ' + quotient }];
   }
-  var quot = quotient !== undefined ? String(quotient) : String(Math.floor(divd / divs));
+  /* The quotient used to be whatever the AI sent, and it once sent the REMAINDER
+     - putting 108 where the 1 belongs in "396 ) 504 ( 1". Arithmetic is not
+     something to take on trust when it can simply be worked out, so the board
+     computes the quotient itself and only accepts a supplied one that agrees. */
+  var trueQuot = Math.floor(divd / divs);
+  var asked = (quotient !== undefined && quotient !== null) ? parseInt(quotient, 10) : NaN;
+  var quot = String((isFinite(asked) && asked === trueQuot) ? asked : trueQuot);
   var divdStr = String(divd);
 
   var rows = [];
@@ -1965,7 +1989,9 @@ function computeDivisionRows(dividend, divisor, quotient){
   rows.push({
     text: String(divs) + ' ) ' + divdStr + ' ( ' + quot,
     type: 'header',
-    narrate: 'Divide ' + divd + ' by ' + divs + '. Quotient is ' + quot
+    narrate: 'Divide ' + divd + ' by ' + divs + '. ' + divs + ' goes ' + quot + ' time' +
+             (String(quot) === '1' ? '' : 's') +
+             ((divd % divs) ? ', and the remainder is ' + (divd % divs) : ', with no remainder')
   });
 
   for(var i = 0; i < divdStr.length; i++){
@@ -2018,6 +2044,20 @@ function computeDivisionRows(dividend, divisor, quotient){
         narrate: 'Remainder ' + current
       });
     }
+  }
+  /* A division whose last digit divides exactly - 1640 by 2 - used to break out
+     of the loop before writing its remainder line, so the working just stopped
+     with nothing under it. Whatever happened above, the true remainder is
+     written at the end. */
+  var hasRem = false;
+  for(var rr = 0; rr < rows.length; rr++){ if(rows[rr].type === 'remainder') hasRem = true; }
+  if(!hasRem){
+    var finalRem = divd % divs;
+    rows.push({
+      text: spaces(headerLen + divdStr.length) + String(finalRem),
+      type: 'remainder',
+      narrate: finalRem === 0 ? 'Remainder zero. Division complete.' : 'Remainder ' + finalRem
+    });
   }
   return rows;
 }
