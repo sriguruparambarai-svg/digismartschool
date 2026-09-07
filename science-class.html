@@ -896,6 +896,7 @@ function scRender(idx){
   if (cu && cu.scrollIntoView) cu.scrollIntoView({ block:'nearest', behavior:'smooth' });
 
   scHoldAdvance = false;      /* a new step returns control to the class */
+  SC_PANEL_TEXT = '';
   SC_PANELS = scPanelsFor(step);
   SC_PANEL = 'main';
   scBuildPanelBar();
@@ -1938,6 +1939,7 @@ function scSpeakPanel(text){
   if (!t) return;
   var bar = document.getElementById('narr-text');
   if (bar) bar.textContent = t;
+  SC_PANEL_TEXT = t;
   scHoldAdvance = true;
   scSpeak(t);
 }
@@ -1981,6 +1983,7 @@ function scRate(){ return parseFloat(document.getElementById('speed-sel').value)
 
 /* True while the stage is still fetching whatever it is about to show. */
 var scHoldAdvance = false;   /* true while the teacher is reading a panel */
+var SC_PANEL_TEXT = '';      /* what the open panel is showing, for Tamil and the narration bar */
 function scStillLoading(){
   var inner = document.getElementById('stage-inner');
   return !!(inner && inner.querySelector('.sc-spin'));
@@ -2123,7 +2126,10 @@ async function scExplainTamil(){
     scStopAudio();
     if (SC_TAMIL_AUDIO){ try{ SC_TAMIL_AUDIO.pause(); }catch(e){} SC_TAMIL_AUDIO = null; }
 
-    var material = (step.title + '. ' + (step.speech || '')).substring(0, 1500);
+    /* Explain what is ACTUALLY on the screen. With the story open, translating
+       the step's own line describes something the class cannot see. */
+    var scTmSrc = (SC_PANEL !== 'main' && SC_PANEL_TEXT) ? SC_PANEL_TEXT : (step.speech || '');
+    var material = (step.title + '. ' + scTmSrc).substring(0, 2200);
     var key = scTamilKey(material);
     /* --- TAMIL v2 prompt build (31-07-2026) --- */
     var scTmCls   = scTmClassNum();
