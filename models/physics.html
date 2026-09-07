@@ -61,6 +61,8 @@
   <button class="chip" type="button" data-m="inertia">Inertia</button>
   <button class="chip" type="button" data-m="momentum">Momentum</button>
   <button class="chip" type="button" data-m="rocket">Rocket</button>
+  <button class="chip" type="button" data-m="moments">Moments</button>
+  <button class="chip" type="button" data-m="impulse">Impulse</button>
 </div>
 
 <div class="pm-stage">
@@ -705,7 +707,278 @@ var Rocket = {
   }
 };
 
-var MODELS = { force: Force, inertia: Inertia, momentum: Momentum, rocket: Rocket };
+/* Shared arrowhead, since each build() clears the stage. */
+function addArrowDefs(){
+  var defs = el('defs', {});
+  var mk = el('marker', { id:'ah', viewBox:'0 0 10 10', refX:'8', refY:'5',
+    markerWidth:'5', markerHeight:'5', orient:'auto-start-reverse' });
+  mk.appendChild(el('path', { d:'M1 1L9 5L1 9', fill:'none', stroke:'#C9A84C',
+    'stroke-width':2, 'stroke-linecap':'round', 'stroke-linejoin':'round' }));
+  defs.appendChild(mk);
+  stage.appendChild(defs);
+}
+
+/* ══════════════ MODEL 5 — MOMENTS AND THE LEVER ══════════════
+   One model for five topics in the chapter: the rotating effect of force,
+   moment of a force, torque, the principle of moments, and the couple.
+
+   Turning cannot be photographed. A child looking at a picture of a seesaw
+   sees two people sitting down. Only when the distance slider moves and the
+   heavy side rises does "moment = force x distance" stop being a formula.
+
+   SEESAW  - anticlockwise moment F1*d1 against clockwise moment F2*d2. The
+             beam settles level only when they are equal. Slide the small
+             weight further out and it lifts the big one: the same reason a
+             long spanner turns a nut a short one cannot.
+   COUPLE  - two equal, opposite, parallel forces. They add to zero, so the
+             wheel does not move anywhere, and yet it turns. */
+var Moments = {
+  scene:'lever', ang:0, wheelAng:0,
+  PX:85,          /* pixels per metre along the beam */
+  leverG:null, wheelG:null, b1:null, b2:null, t1:null, t2:null,
+
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    addArrowDefs();
+    if (this.scene === 'lever') this.buildLever(); else this.buildCouple();
+    this.reset();
+  },
+
+  buildLever: function(){
+    stage.appendChild(txt(500, 34, 'Moment of a force \u2014 \u0BA4\u0BBF\u0BB0\u0BC1\u0B95\u0BC1 \u0BB5\u0BBF\u0B9A\u0BC8', 'lbl-gold'));
+    stage.appendChild(txt(500, 62, 'Moment  =  force  \u00D7  distance from the pivot', 'lbl-sm'));
+
+    var g = el('g', {}); this.leverG = g;
+    g.appendChild(el('rect', { x:220, y:294, width:560, height:12, rx:4,
+      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    for (var d = -3; d <= 3; d += 0.5){
+      if (Math.abs(d) < 0.01) continue;
+      g.appendChild(el('line', { x1:500 + d * this.PX, y1:306, x2:500 + d * this.PX, y2:314,
+        stroke:'#8E5A2A', 'stroke-width':1.5 }));
+    }
+    this.b1 = el('rect', { x:0, y:0, width:0, height:0, rx:4, fill:'#C9A84C' });
+    this.b2 = el('rect', { x:0, y:0, width:0, height:0, rx:4, fill:'#E8C99A' });
+    g.appendChild(this.b1); g.appendChild(this.b2);
+    this.t1 = txt(0, 0, '', 'lbl-sm'); this.t2 = txt(0, 0, '', 'lbl-sm');
+    g.appendChild(this.t1); g.appendChild(this.t2);
+    stage.appendChild(g);
+
+    stage.appendChild(el('polygon', { points:'500,300 470,352 530,352',
+      fill:'#3A1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    stage.appendChild(el('line', { x1:400, y1:352, x2:600, y2:352, stroke:'#5A2A2A', 'stroke-width':4 }));
+    stage.appendChild(txt(500, 376, 'Pivot', 'lbl-sm'));
+
+    stage.appendChild(txt(40, 404, 'Anticlockwise  F\u2081 \u00D7 d\u2081', 'lbl-sm', 'start'));
+    stage.appendChild(txt(40, 432, 'Clockwise  F\u2082 \u00D7 d\u2082', 'lbl-sm', 'start'));
+    stage.appendChild(el('rect', { x:280, y:390, width:660, height:18, rx:6, fill:'#2E1414' }));
+    stage.appendChild(el('rect', { x:280, y:418, width:660, height:18, rx:6, fill:'#2E1414' }));
+    this.barA = el('rect', { x:280, y:390, width:0, height:18, rx:6, fill:'#C9A84C' });
+    this.barB = el('rect', { x:280, y:418, width:0, height:18, rx:6, fill:'#E8C99A' });
+    stage.appendChild(this.barA); stage.appendChild(this.barB);
+
+    this.verdict = txt(500, 110, '', 'lbl');
+    stage.appendChild(this.verdict);
+
+    slider('f1', 'Left force', 10, 60, 40, 10, 'N', function(){});
+    slider('d1', 'Left distance', 0.5, 3, 1.5, 0.5, 'm', function(){});
+    slider('f2', 'Right force', 10, 60, 20, 10, 'N', function(){});
+    slider('d2', 'Right distance', 0.5, 3, 3, 0.5, 'm', function(){});
+    button('Show a couple', function(){ Moments.scene = 'couple'; Moments.build(); });
+    stat('m1', 'Anticlockwise moment');
+    stat('m2', 'Clockwise moment');
+    noteBox.textContent = 'Slide the small force further from the pivot and it lifts the big one. '
+      + 'That is why a spanner with a long handle turns a stiff nut that a short one cannot \u2014 '
+      + 'the force has not changed, the distance has.';
+  },
+
+  buildCouple: function(){
+    stage.appendChild(txt(500, 34, 'Couple \u2014 \u0B87\u0BB0\u0B9F\u0BCD\u0B9F\u0BC8 \u0BB5\u0BBF\u0B9A\u0BC8', 'lbl-gold'));
+    stage.appendChild(txt(500, 62, 'Two equal, opposite, parallel forces that do not act along the same line', 'lbl-sm'));
+
+    var g = el('g', {}); this.wheelG = g;
+    g.appendChild(el('circle', { cx:500, cy:240, r:104, fill:'none', stroke:'#C9A84C', 'stroke-width':10 }));
+    g.appendChild(el('circle', { cx:500, cy:240, r:26, fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':3 }));
+    for (var a = 0; a < 3; a++){
+      var rad = (a * 120) * Math.PI / 180;
+      g.appendChild(el('line', { x1:500, y1:240,
+        x2:(500 + 100 * Math.cos(rad)).toFixed(1), y2:(240 + 100 * Math.sin(rad)).toFixed(1),
+        stroke:'#C9A84C', 'stroke-width':7, 'stroke-linecap':'round' }));
+    }
+    stage.appendChild(g);
+
+    this.ar1 = el('line', { x1:500, y1:118, x2:640, y2:118, stroke:'#E8C99A',
+      'stroke-width':6, 'stroke-linecap':'round', 'marker-end':'url(#ah)' });
+    this.ar2 = el('line', { x1:500, y1:362, x2:360, y2:362, stroke:'#E8C99A',
+      'stroke-width':6, 'stroke-linecap':'round', 'marker-end':'url(#ah)' });
+    stage.appendChild(this.ar1); stage.appendChild(this.ar2);
+    stage.appendChild(txt(660, 112, 'F', 'lbl', 'start'));
+    stage.appendChild(txt(340, 368, 'F', 'lbl', 'end'));
+    stage.appendChild(el('line', { x1:500, y1:118, x2:500, y2:362,
+      stroke:'#8E5A2A', 'stroke-width':1.5, 'stroke-dasharray':'5 5' }));
+    stage.appendChild(txt(516, 244, 'd', 'lbl-sm', 'start'));
+
+    stage.appendChild(txt(500, 404, 'The two forces add up to zero \u2014 the wheel goes nowhere, and still it turns.', 'lbl-sm'));
+
+    slider('cf', 'Each force', 10, 60, 30, 10, 'N', function(){});
+    button('Back to the seesaw', function(){ Moments.scene = 'lever'; Moments.build(); });
+    stat('net', 'Net force  F \u2212 F');
+    stat('cm', 'Moment of the couple  F \u00D7 d');
+    noteBox.textContent = 'A couple has no resultant force, so nothing is pushed anywhere \u2014 '
+      + 'but the pair still turns the body. Turning a steering wheel and opening a tap both work this way.';
+  },
+
+  reset: function(){ this.ang = 0; this.wheelAng = 0; this.paint(); },
+
+  step: function(dt){
+    if (this.scene === 'lever'){
+      var diff = this.clockwise() - this.anticlockwise();
+      var target = Math.max(-18, Math.min(18, diff / 10));
+      this.ang += (target - this.ang) * Math.min(1, dt * 5);
+    } else {
+      this.wheelAng += sv('cf') * dt * 1.6;
+      if (this.wheelAng > 360) this.wheelAng -= 360;
+    }
+    this.paint();
+  },
+
+  anticlockwise: function(){ return sv('f1') * sv('d1'); },
+  clockwise:     function(){ return sv('f2') * sv('d2'); },
+
+  paint: function(){
+    if (this.scene === 'couple'){
+      var F = sv('cf');
+      this.wheelG.setAttribute('transform', 'rotate(' + this.wheelAng.toFixed(2) + ',500,240)');
+      var len = 60 + F * 1.8;
+      this.ar1.setAttribute('x2', (500 + len).toFixed(1));
+      this.ar2.setAttribute('x2', (500 - len).toFixed(1));
+      setStat('net', '0 N');
+      setStat('cm', (F * 2).toFixed(0) + ' N\u00B7m');   /* d = 2 m across the wheel */
+      return;
+    }
+
+    var f1 = sv('f1'), d1 = sv('d1'), f2 = sv('f2'), d2 = sv('d2');
+    var mA = f1 * d1, mB = f2 * d2;
+
+    var s1 = 22 + f1 * 0.55, s2 = 22 + f2 * 0.55;
+    var x1 = 500 - d1 * this.PX, x2 = 500 + d2 * this.PX;
+    this.b1.setAttribute('x', (x1 - s1 / 2).toFixed(1)); this.b1.setAttribute('y', (294 - s1).toFixed(1));
+    this.b1.setAttribute('width', s1.toFixed(1)); this.b1.setAttribute('height', s1.toFixed(1));
+    this.b2.setAttribute('x', (x2 - s2 / 2).toFixed(1)); this.b2.setAttribute('y', (294 - s2).toFixed(1));
+    this.b2.setAttribute('width', s2.toFixed(1)); this.b2.setAttribute('height', s2.toFixed(1));
+    this.t1.setAttribute('x', x1.toFixed(1)); this.t1.setAttribute('y', (286 - s1).toFixed(1));
+    this.t2.setAttribute('x', x2.toFixed(1)); this.t2.setAttribute('y', (286 - s2).toFixed(1));
+    this.t1.textContent = f1 + ' N'; this.t2.textContent = f2 + ' N';
+    this.leverG.setAttribute('transform', 'rotate(' + this.ang.toFixed(2) + ',500,300)');
+
+    var sc = 660 / 180;
+    this.barA.setAttribute('width', Math.min(660, mA * sc).toFixed(1));
+    this.barB.setAttribute('width', Math.min(660, mB * sc).toFixed(1));
+    setStat('m1', mA.toFixed(0) + ' N\u00B7m');
+    setStat('m2', mB.toFixed(0) + ' N\u00B7m');
+    this.verdict.textContent = (Math.abs(mA - mB) < 0.001)
+      ? 'Balanced \u2014 the two moments are equal'
+      : (mA > mB ? 'The left side goes down' : 'The right side goes down');
+  }
+};
+
+/* ══════════════ MODEL 6 — IMPULSE ══════════════
+   The whole idea is time, so a photograph cannot hold it.
+
+   The ball arrives with the same momentum every throw. Catching it always
+   destroys the same momentum, so the impulse bar never moves. What changes is
+   how long the catch takes - and the force bar collapses as the time grows.
+   That is why a fielder pulls his hands back, why cars carry shock absorbers,
+   and why jumping onto sand hurts less than onto concrete. */
+var Impulse = {
+  M:0.16,                       /* a real cricket ball, in kilograms */
+  state:'ready', bx:120, hand:0, elapsed:0, peakF:0,
+  ball:null, mitt:null, tag:null, barJ:null, barF:null,
+
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    addArrowDefs();
+    stage.appendChild(txt(500, 34, 'Impulse \u2014 \u0BA8\u0BC6\u0B95\u0BC1\u0BB5\u0BC1', 'lbl-gold'));
+    stage.appendChild(txt(500, 62, 'Impulse  =  force  \u00D7  time  =  the change in momentum', 'lbl-sm'));
+
+    stage.appendChild(el('line', { x1:40, y1:300, x2:960, y2:300, stroke:'#5A2A2A', 'stroke-width':3 }));
+
+    var m = el('g', {}); this.mitt = m;
+    m.appendChild(el('path', { d:'M726,196 q-34,0 -34,34 l0,44 q0,34 34,34 l26,0 l0,-112 z',
+      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    m.appendChild(el('rect', { x:750, y:200, width:26, height:104, rx:8,
+      fill:'#3A1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    stage.appendChild(m);
+    stage.appendChild(txt(790, 336, 'Hands', 'lbl-sm', 'start'));
+
+    this.ball = el('circle', { cx:120, cy:252, r:15, fill:'#C9A84C', stroke:'#E8C99A', 'stroke-width':2 });
+    stage.appendChild(this.ball);
+
+    stage.appendChild(txt(40, 384, 'Impulse  (never changes)', 'lbl-sm', 'start'));
+    stage.appendChild(txt(40, 424, 'Force on the hands', 'lbl-sm', 'start'));
+    stage.appendChild(el('rect', { x:300, y:370, width:640, height:18, rx:6, fill:'#2E1414' }));
+    stage.appendChild(el('rect', { x:300, y:410, width:640, height:18, rx:6, fill:'#2E1414' }));
+    this.barJ = el('rect', { x:300, y:370, width:0, height:18, rx:6, fill:'#E8C99A' });
+    this.barF = el('rect', { x:300, y:410, width:0, height:18, rx:6, fill:'#C9A84C' });
+    stage.appendChild(this.barJ); stage.appendChild(this.barF);
+
+    this.tag = txt(500, 120, 'Press Throw', 'lbl');
+    stage.appendChild(this.tag);
+
+    slider('bv', 'Ball speed', 5, 30, 20, 5, 'm/s', function(){ Impulse.reset(); });
+    slider('ct', 'Catching time', 0.01, 0.2, 0.02, 0.01, 's', function(){ Impulse.reset(); });
+    button('Throw', function(){ if (Impulse.state === 'ready') Impulse.state = 'flying'; });
+    button('Reset', function(){ Impulse.reset(); });
+    stat('j', 'Impulse  =  m \u00D7 v');
+    stat('f', 'Force  =  impulse \u00F7 time');
+    stat('d', 'How far the hands move back');
+    noteBox.textContent = 'Throw it with a very short catching time \u2014 the force is huge and it stings. '
+      + 'Now drag the time out and throw again: the same ball, the same impulse, but a gentle force. '
+      + 'That is why a fielder pulls his hands back as he catches.';
+    this.reset();
+  },
+
+  reset: function(){ this.state = 'ready'; this.bx = 120; this.hand = 0; this.elapsed = 0; this.paint(); },
+
+  /* Impulse J = m*v, and the average force over the catch is J / t. */
+  impulse: function(){ return this.M * sv('bv'); },
+  force:   function(){ return this.impulse() / sv('ct'); },
+  recoil:  function(){ return sv('bv') * sv('ct') / 2; },   /* metres, average speed x time */
+
+  step: function(dt){
+    if (this.state === 'flying'){
+      this.bx += sv('bv') * 22 * dt;
+      if (this.bx >= 700){ this.bx = 700; this.state = 'catching'; this.elapsed = 0; }
+    } else if (this.state === 'catching'){
+      this.elapsed += dt;
+      var t = sv('ct');
+      var frac = Math.min(1, this.elapsed / Math.max(0.35, t * 4));   /* slowed so the class can see it */
+      var px = Math.min(180, this.recoil() * 42);
+      this.hand = px * frac;
+      if (frac >= 1) this.state = 'done';
+    }
+    this.paint();
+  },
+
+  paint: function(){
+    var J = this.impulse(), F = this.force();
+    this.ball.setAttribute('cx', (this.bx + this.hand).toFixed(1));
+    this.mitt.setAttribute('transform', 'translate(' + this.hand.toFixed(1) + ',0)');
+
+    this.barJ.setAttribute('width', Math.min(640, (J / 4.8) * 640).toFixed(1));
+    this.barF.setAttribute('width', Math.min(640, (F / 400) * 640).toFixed(1));
+
+    setStat('j', J.toFixed(2) + ' kg\u00B7m/s');
+    setStat('f', F.toFixed(0) + ' N');
+    setStat('d', this.recoil().toFixed(2) + ' m');
+
+    if (this.state === 'ready') this.tag.textContent = 'Ball ' + this.M + ' kg at ' + sv('bv') + ' m/s';
+    else if (this.state === 'flying') this.tag.textContent = 'Coming in\u2026';
+    else if (this.state === 'catching') this.tag.textContent = 'Catching \u2014 hands giving way';
+    else this.tag.textContent = (F > 150) ? 'Caught hard \u2014 that stings' : 'Caught softly \u2014 hands moved with it';
+  }
+};
+
+var MODELS = { force: Force, inertia: Inertia, momentum: Momentum, rocket: Rocket, moments: Moments, impulse: Impulse };
 var current = null, last = 0;
 
 function show(name){
@@ -734,6 +1007,14 @@ function loop(t){
 }
 
 function startModel(){
+  /* Inside a lesson the class already knows which model it wants, so the
+     chip bar is hidden and only the model itself is shown. */
+  try{
+    if (/[?&]embed=1/.test(String(window.location.search || ''))){
+      var bar = document.querySelector('.pm-bar');
+      if (bar) bar.style.display = 'none';
+    }
+  }catch(eb){}
   var m = 'force';
   try{
     var q = String(window.location.search || '').match(/[?&]m=([a-z]+)/);
