@@ -274,7 +274,7 @@ input[type=range]{width:100%;accent-color:var(--teal);height:6px;cursor:pointer;
   <div id="vis-controls" style="display:none;margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
     <button class="btn btn-teal btn-sm" id="vis-play" onclick="playVisAnim()">▶ Play</button>
     <button class="btn btn-sm btn-outline" id="vis-pause" onclick="pauseVisAnim()">⏸ Pause</button>
-    <button class="btn btn-sm btn-outline" onclick="generateVisual()">🔄 Regenerate</button>
+    <button class="btn btn-sm btn-outline" onclick="generateVisual(true)">🔄 Regenerate</button>
     <span id="vis-step-label" style="font-size:0.75rem;color:var(--dim);margin-left:4px;"></span>
   </div>
 
@@ -713,7 +713,32 @@ function escAttr(t){return String(t||'').replace(/'/g,"\\'").replace(/\n/g,' ');
 // ══════════════════════════════════════════
 // MODULE 1 — CONCEPT VISUALISER
 // ══════════════════════════════════════════
-async function generateVisual(){
+/* Reuses the lesson-plan cache rather than adding a new endpoint: it already
+   stores JSON against a key server-side, which is exactly what is needed. The
+   diagram travels as the single entry of a steps array. */
+async function visCacheKey(cls,detail,concept,lang){
+  var data='vis-v1|'+cls+'|'+detail+'|'+concept+'|'+lang;
+  var buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(data));
+  return 'vis_'+Array.from(new Uint8Array(buf)).slice(0,20)
+    .map(function(b){return b.toString(16).padStart(2,'0');}).join('');
+}
+async function visCacheGet(key){
+  try{
+    var r=await fetch('/api/lesson-plan?key='+key);
+    if(!r.ok)return null;
+    var d=await r.json();
+    if(d&&Array.isArray(d.steps)&&d.steps[0]&&d.steps[0].title)return d.steps[0];
+  }catch(e){}
+  return null;
+}
+function visCacheSave(key,d,cls,concept){
+  try{
+    fetch('/api/lesson-plan',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:key,steps:[d],meta:{subject:'Science-Visual',cls:cls,topic:concept}})});
+  }catch(e){}
+}
+
+async function generateVisual(force){
   var cls=document.getElementById('vis-class').value;
   var detail=document.getElementById('vis-detail').value;
   document.getElementById('vis-output').style.display='none';
@@ -746,12 +771,24 @@ Return ONLY valid JSON:
   "tamil_summary": "Tamil explanation (2-3 sentences)"
 }
 
-Make SVG elements realistically represent the concept. Use coordinates within 600x300 viewBox. Use colours: teal #00d4b8 for main structure, gold #f5c842 for movement/energy, green #4ade80 for biology, rose #f87171 for reactions.`;
+Make SVG elements realistically represent the concept. Use coordinates within 600x300 viewBox. Use colours: teal #00d4b8 for main structure, gold #f5c842 for movement/energy, green #4ade80 for biology, rose #f87171 for reactions.
+
+LABELLING RULES - this is a diagram shown on a classroom projector, so it must stay readable:
+- At most 7 labels in TOTAL across "svg_elements" text, element "label" fields and the "labels" array. Fewer is better.
+- Never name the same thing twice. If a circle already has "label":"Nucleus", do not also add a text element or an entry in "labels" saying Nucleus.
+- Keep label text SHORT - two or three words. "K shell", not "K Shell (maximum 2 electrons)". Long explanations belong in "steps" and "key_facts", which are printed under the picture where there is room.
+- Put labels in the OUTER parts of the canvas, away from x 220-380 and y 110-190 where the main shape usually sits. Point at things from the outside.
+- Spread them out. Two labels must never be given the same or nearly the same coordinates.`;
 
   try{
-    var raw=await callAI('You are a science visualisation expert.',p,2000);
-    var d=parseJSON(raw);
-    if(!d)throw new Error('Parse failed');
+    var key=await visCacheKey(cls,detail,visConcept,langs.v1||'en');
+    var d=force?null:await visCacheGet(key);
+    if(!d){
+      var raw=await callAI('You are a science visualisation expert.',p,2000);
+      d=parseJSON(raw);
+      if(!d)throw new Error('The AI did not return a diagram it could draw. Please try Regenerate.');
+      visCacheSave(key,d,cls,visConcept);
+    }
     renderVisual(d);
   }catch(e){
     document.getElementById('vis-loading').style.display='none';
@@ -829,6 +866,40 @@ function renderVisual(d){
 
 function spkVis(){var o=document.getElementById('vis-output');spk(o.getAttribute('data-speak')||'','v1-voice');}
 
+/* The AI chooses an x,y for every label and nothing used to check whether two
+   of them landed in the same place - which is why the atom came out with
+   "Electrostatic Force", "Protons", "Neutrons" and "Nucleus" printed on top of
+   one another. Labels are now collected, pushed apart until none overlap, kept
+   inside the canvas, and drawn last so they sit above the shapes. */
+function visLayoutLabels(items){
+  items.forEach(function(it){
+    it.size = it.size || 10;
+    it.w = Math.max(24, (String(it.text).length * it.size * 0.56) + (it.pill ? 14 : 4));
+    it.h = it.size + 6;
+    it.x = Math.min(598 - it.w / 2, Math.max(it.w / 2 + 2, it.x));
+    it.y = Math.min(294, Math.max(16, it.y));
+  });
+  for (var pass = 0; pass < 80; pass++){
+    var moved = false;
+    for (var i = 0; i < items.length; i++){
+      for (var j = i + 1; j < items.length; j++){
+        var a = items[i], b = items[j];
+        var ox = (a.w + b.w) / 2 - Math.abs(a.x - b.x);
+        var oy = (a.h + b.h) / 2 + 2 - Math.abs(a.y - b.y);
+        if (ox > 0 && oy > 0){
+          var push = oy / 2 + 0.6;
+          if (a.y <= b.y){ a.y -= push; b.y += push; }
+          else { a.y += push; b.y -= push; }
+          moved = true;
+        }
+      }
+    }
+    items.forEach(function(it){ it.y = Math.min(294, Math.max(16, it.y)); });
+    if (!moved) break;
+  }
+  return items;
+}
+
 function drawVisSVG(d){
   var svg=document.getElementById('vis-svg');
   var finalHtml='<defs>'+
@@ -839,6 +910,7 @@ function drawVisSVG(d){
   for(var gx=0;gx<=600;gx+=60) finalHtml+='<line x1="'+gx+'" y1="0" x2="'+gx+'" y2="300" stroke="rgba(0,212,184,0.04)" stroke-width="1"/>';
   for(var gy=0;gy<=300;gy+=60) finalHtml+='<line x1="0" y1="'+gy+'" x2="600" y2="'+gy+'" stroke="rgba(0,212,184,0.04)" stroke-width="1"/>';
   finalHtml+='<text x="10" y="22" fill="rgba(0,212,184,0.8)" font-family="Lexend,sans-serif" font-size="13" font-weight="700">'+escH(d.title||visConcept)+'</text>';
+  var LB=[];   /* every label goes in here and is placed after the shapes are drawn */
 
   (d.svg_elements||[]).forEach(function(el){
     var sw=el.stroke_width||1.5, stroke=el.stroke||'#00d4b8', fill=el.fill||'rgba(0,212,184,0.1)';
@@ -851,10 +923,10 @@ function drawVisSVG(d){
       if(el.animate==='flow') finalHtml+=' stroke-dasharray="8,4"><animate attributeName="stroke-dashoffset" values="0;-24" dur="1s" repeatCount="indefinite"/></path>';
       else finalHtml+='/>';
     } else if(el.type==='text'){
-      finalHtml+='<text x="'+(el.x||300)+'" y="'+(el.y||150)+'" fill="'+(el.fill||'white')+'" text-anchor="middle" font-family="Lexend,sans-serif" font-size="'+(el.font_size||11)+'" font-weight="600">'+escH(el.text||'')+'</text>';
+      LB.push({x:(el.x||300),y:(el.y||150),text:(el.text||''),color:(el.fill||'white'),size:(el.font_size||11),weight:600});
     } else if(el.type==='arrow'){
       finalHtml+='<line x1="'+(el.x1||100)+'" y1="'+(el.y1||150)+'" x2="'+(el.x2||200)+'" y2="'+(el.y2||150)+'" stroke="'+(el.color||'#4ade80')+'" stroke-width="2" marker-end="url(#arr)"/>';
-      if(el.label) finalHtml+='<text x="'+(((el.x1||100)+(el.x2||200))/2)+'" y="'+(((el.y1||150)+(el.y2||150))/2-9)+'" fill="'+(el.color||'#4ade80')+'" text-anchor="middle" font-family="Lexend,sans-serif" font-size="10">'+escH(el.label)+'</text>';
+      if(el.label) LB.push({x:(((el.x1||100)+(el.x2||200))/2),y:(((el.y1||150)+(el.y2||150))/2-9),text:el.label,color:(el.color||'#4ade80'),size:10,weight:600});
     } else if(el.type==='rect'){
       finalHtml+='<rect x="'+(el.x||100)+'" y="'+(el.y||100)+'" width="'+(el.w||100)+'" height="'+(el.h||60)+'" rx="8" fill="'+fill+'" stroke="'+stroke+'" stroke-width="'+sw+'">'+
         '<animate attributeName="opacity" values="1;0.8;1" dur="3s" repeatCount="indefinite"/></rect>';
@@ -863,15 +935,29 @@ function drawVisSVG(d){
     if(el.label && el.type!=='text' && el.type!=='arrow'){
       var lx = el.cx || ((el.x||0)+(el.w||0)/2) || 300;
       var ly = el.cy ? el.cy+(el.r||0)+16 : ((el.y||0)+(el.h||0)/2+4);
-      finalHtml+='<text x="'+lx+'" y="'+ly+'" fill="'+stroke+'" text-anchor="middle" font-family="Lexend,sans-serif" font-size="10" font-weight="700">'+escH(el.label)+'</text>';
+      LB.push({x:lx,y:ly,text:el.label,color:stroke,size:10,weight:700});
     }
   });
 
-  // Extra labels overlay
   (d.labels||[]).forEach(function(lb){
-    var lw=Math.max(60, (lb.text||'').length*6+12);
-    finalHtml+='<rect x="'+(lb.x-lw/2)+'" y="'+(lb.y-13)+'" width="'+lw+'" height="17" rx="4" fill="rgba(0,0,0,0.6)"/>';
-    finalHtml+='<text x="'+lb.x+'" y="'+lb.y+'" fill="'+(lb.color||'#f5c842')+'" text-anchor="middle" font-family="Lexend,sans-serif" font-size="10" font-weight="700">'+escH(lb.text||'')+'</text>';
+    LB.push({x:(lb.x||300),y:(lb.y||150),text:(lb.text||''),color:(lb.color||'#f5c842'),size:10,weight:700,pill:true});
+  });
+
+  /* Drop anything empty, drop a repeated name, then separate what is left. */
+  var seen={}, keep=[];
+  LB.forEach(function(it){
+    var t=String(it.text||'').trim();
+    if(!t) return;
+    var k=t.toLowerCase();
+    if(seen[k]) return;
+    seen[k]=1; it.text=t; keep.push(it);
+  });
+  visLayoutLabels(keep).forEach(function(it){
+    if(it.pill){
+      var lw=it.w;
+      finalHtml+='<rect x="'+(it.x-lw/2).toFixed(1)+'" y="'+(it.y-13).toFixed(1)+'" width="'+lw.toFixed(1)+'" height="17" rx="4" fill="rgba(0,0,0,0.62)"/>';
+    }
+    finalHtml+='<text x="'+it.x.toFixed(1)+'" y="'+it.y.toFixed(1)+'" fill="'+it.color+'" text-anchor="middle" font-family="Lexend,sans-serif" font-size="'+it.size+'" font-weight="'+(it.weight||700)+'" paint-order="stroke" stroke="rgba(3,8,16,0.85)" stroke-width="2.5">'+escH(it.text)+'</text>';
   });
 
   svg.innerHTML=finalHtml;
