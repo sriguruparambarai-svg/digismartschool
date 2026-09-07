@@ -1086,6 +1086,7 @@ html,body{
     <button class="ctrl-btn stop" id="btn-stop" onclick="stopClass()">⏹ Stop</button>
     <button class="ctrl-btn" id="btn-next" onclick="nextStep()">Next ▶</button>
     <button class="ctrl-btn" id="btn-replay" onclick="replayStep()">↻ Replay</button>
+    <button class="ctrl-btn" id="btn-model" style="display:none;" onclick="mcOpenModel()">&#9881; Working model</button>
   </div>
   <div class="tb-section center">
     <span class="step-indicator" id="step-ind">Step 0 / 0</span>
@@ -1108,6 +1109,64 @@ html,body{
 // STATE
 // ═══════════════════════════════════════════
 var $ = function(id){ return document.getElementById(id); };
+
+/* ── WORKING MODELS ──
+   Four labs that already existed as separate tabs. Matched on the chapter and
+   the question itself, so the button only appears when the lab genuinely fits
+   what is on the board. */
+var MC_MODELS = [
+  { file:'pythagoras.html',   name:'Pythagoras \u2014 Visual Lab',
+    re:/pythagoras|pythagorean|right[- ]angled? triangle|hypotenuse/i },
+  { file:'fractions.html',    name:'Fractions \u2014 Visual Lab',
+    re:/fraction|numerator|denominator|equivalent fraction|mixed number|improper/i },
+  { file:'graphplotter.html', name:'Graph Plotter',
+    re:/graph|plot|straight line|coordinate|cartesian|x[- ]axis|y[- ]axis|linear equations? in two|slope|gradient|parabola|function/i },
+  { file:'algebra.html',      name:'Algebra Balance',
+    re:/equation|algebra|solve for|transpos|balance|linear equation|variable|unknown|simultaneous/i }
+];
+function mcPickModel(){
+  var bits = [];
+  try{
+    var ch = document.getElementById('meta-chapter');
+    if (ch && ch.value) bits.push(ch.value);
+  }catch(e){}
+  if (typeof SOLUTION !== 'undefined' && SOLUTION && SOLUTION.question) bits.push(String(SOLUTION.question));
+  var text = bits.join(' ');
+  if (!text.trim()) return null;
+  for (var i = 0; i < MC_MODELS.length; i++){
+    if (MC_MODELS[i].re.test(text)) return MC_MODELS[i];
+  }
+  return null;
+}
+function mcRefreshModelBtn(){
+  var b = document.getElementById('btn-model');
+  if (!b) return;
+  var m = mcPickModel();
+  b.style.display = m ? 'inline-block' : 'none';
+  if (m) b.title = 'Open ' + m.name;
+}
+function mcOpenModel(){
+  var m = mcPickModel();
+  if (!m) return;
+  var ov = document.getElementById('mc-model-ov');
+  var fr = document.getElementById('mc-model-frame');
+  var nm = document.getElementById('mc-model-name');
+  if (!ov || !fr) return;
+  try{ if (typeof pauseClass === 'function') pauseClass(); }catch(e){}
+  nm.textContent = m.name;
+  fr.setAttribute('title', m.name);
+  fr.src = m.file + '?embed=1';
+  ov.style.display = 'flex';
+}
+function mcCloseModel(){
+  var ov = document.getElementById('mc-model-ov');
+  var fr = document.getElementById('mc-model-frame');
+  if (ov) ov.style.display = 'none';
+  if (fr) fr.src = 'about:blank';   /* stop any sound or animation behind the board */
+}
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') mcCloseModel();
+});
 
 var SOLUTION = null;      // The full problem solution from AI
 var STEP_IDX = -1;        // Current step (-1 = not started, 0 = first step)
@@ -1240,6 +1299,7 @@ async function solveAndTeach(){
         if(savedData && savedData.found && savedData.solution &&
            Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0){
           SOLUTION = savedData.solution;
+          try{ mcRefreshModelBtn(); }catch(e){}
           await warmVoices(SOLUTION);
           $('loading').classList.remove('show');
           showClassroom();
@@ -1663,6 +1723,7 @@ async function solveAndTeach(){
     }
 
     SOLUTION = solution;
+    try{ mcRefreshModelBtn(); }catch(e){}
 
     // ── SAVE CLASS for instant replay ──
     // Fire-and-forget: teaching the same question again loads it from Supabase
@@ -5839,6 +5900,7 @@ function nextQueuedQuestion(){
   QUEUE_IDX++;
   if(IS_PLAYING) pausePlayback();
   SOLUTION = null;
+  try{ mcRefreshModelBtn(); }catch(e){}
   STEP_IDX = -1;
   $('classroom').classList.remove('show');
   $('toolbar').style.display = 'none';
@@ -5864,6 +5926,7 @@ function updateNextQButton(){
 function restartSetup(){
   if(IS_PLAYING) pausePlayback();
   SOLUTION = null;
+  try{ mcRefreshModelBtn(); }catch(e){}
   STEP_IDX = -1;
   $('classroom').classList.remove('show');
   $('toolbar').style.display = 'none';
@@ -6015,5 +6078,18 @@ window.addEventListener('load', function(){
   setTimeout(function(){ highlightFigureCard('(c)'); }, 2000);
 });
 </script>
+<!-- ══ WORKING MODEL OVERLAY ══
+     The maths class shows worked solutions beautifully, but a worked solution is
+     still something a child watches. These four labs are the opposite: an
+     equation on a balance, a fraction you can slide, squares on a triangle you
+     can drag. They already existed as separate tabs nobody opened; here they sit
+     one press away from the sum being solved. -->
+<div id="mc-model-ov" style="display:none;position:fixed;inset:0;z-index:9000;background:rgba(8,4,3,0.9);backdrop-filter:blur(3px);flex-direction:column;">
+  <div style="display:flex;align-items:center;gap:12px;padding:10px 16px;background:#6B1A1A;border-bottom:1.5px solid #C9A84C;flex:0 0 auto;">
+    <div id="mc-model-name" style="font-family:'Cinzel',serif;font-size:1rem;color:#FFD86A;flex:1;"></div>
+    <button onclick="mcCloseModel()" style="background:rgba(255,216,106,0.15);border:1.5px solid #C9A84C;color:#FFE9B8;padding:7px 16px;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.82rem;">&larr; Back to the board</button>
+  </div>
+  <iframe id="mc-model-frame" title="" style="flex:1 1 auto;width:100%;border:0;background:#140A0A;"></iframe>
+</div>
 </body>
 </html>
