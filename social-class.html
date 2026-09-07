@@ -731,6 +731,7 @@ function scShowPanel(pid){
   for (var i = 0; i < SC_PANELS.length; i++){ if (SC_PANELS[i].id === pid) pn = SC_PANELS[i]; }
   if (!pn) return;
   SC_PANEL = pid;
+  clearTimeout(scAdvanceTimer);   /* opening a panel by hand stops the clock */
   scBuildPanelBar();
   var inner = document.getElementById('stage-inner');
   scDestroyGlobe();
@@ -1940,13 +1941,30 @@ function scSpeakBrowser(text, seq){
 
 function scRate(){ return parseFloat(document.getElementById('speed-sel').value) || 0.95; }
 
+/* True while the stage is still fetching whatever it is about to show. */
+function scStillLoading(){
+  var inner = document.getElementById('stage-inner');
+  return !!(inner && inner.querySelector('.sc-spin'));
+}
+var scWaitFrom = Date.now();
+
 function scScheduleAdvance(sec){
   clearTimeout(scAdvanceTimer);
   // A recall step waits for the class to answer out loud. Only the teacher
   // moves it on - auto-advancing here would defeat the whole point.
   if (STEPS[CUR] && (STEPS[CUR].type === 'recall' || STEPS[CUR].type === 'mapdrill')) return;
-  scAdvanceTimer = setTimeout(function(){
+  scWaitFrom = Date.now();
+  scAdvanceTimer = setTimeout(function tick(){
     if (isPaused) return;
+    /* Never walk away from a panel that is still loading. Every async panel -
+       photograph, illustration, 3D model, story, real life - shows a spinner
+       while it waits, so the spinner is the signal. Checked rather than
+       counted, so no renderer has to remember to report anything.
+       The cap stops a stuck panel from freezing the class for good. */
+    if (scStillLoading() && (Date.now() - scWaitFrom) < 25000){
+      scAdvanceTimer = setTimeout(tick, 400);
+      return;
+    }
     if (CUR < STEPS.length - 1) scRender(CUR + 1);
     else scShowComplete();
   }, sec * 1000);
