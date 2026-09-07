@@ -3410,8 +3410,14 @@ async function showStep(idx){
   var whyText = (step.whyScript && String(step.whyScript).trim()) ? step.whyScript : '';
   // Show the sentence on the board at the same moment it is spoken.
   var whyEl = $('step-why-' + idx);
-  if(whyEl && whyText) whyEl.classList.add('show');
-  var whyPromise = whyText ? speakStep(whyText) : null;
+  /* A board division speaks a line per row as it writes. Starting the reason
+     at the same time meant two speakStep calls running together: the second
+     replaced the first's audio, the first promise never resolved, and the class
+     stopped dead on the await below. On a division the reason waits until the
+     working is finished - which is also where its sentence now sits. */
+  var divStep = !!step.boardDiv;
+  if(whyEl && whyText && !divStep) whyEl.classList.add('show');
+  var whyPromise = (whyText && !divStep) ? speakStep(whyText) : null;
   if(contentEl){
     if(step.boardDiv){
       /* The whole division used to appear in half a second and the voice then
@@ -3441,6 +3447,12 @@ async function showStep(idx){
         await writePromise;
       }
     }
+  }
+  // On a division the reason comes last, as the conclusion of the working.
+  if(divStep && whyText){
+    if(whyEl) whyEl.classList.add('show');
+    await speakStep(whyText);
+    if(!IS_PLAYING) return;
   }
   // Let the spoken reason finish before the line is read aloud (no overlap).
   if(whyPromise) await whyPromise;
@@ -4452,8 +4464,24 @@ function mcSpellNumbers(text){
   });
 }
 
+/* However carefully the callers are written, one unresolved voice promise
+   stops the whole lesson in front of a class. Every spoken line is given a
+   ceiling: if it has not finished by then the class carries on. Silence for one
+   line is recoverable, a frozen blackboard is not. */
 function speakStep(text){
   return new Promise(function(resolve){
+    var settled = false;
+    var done = function(){
+      if(settled) return;
+      settled = true;
+      clearTimeout(guardTimer);
+      resolve();
+    };
+    var guardTimer = setTimeout(function(){
+      console.log('[voice] line took too long, carrying on: ' + String(text).substring(0, 60));
+      done();
+    }, 30000);
+    resolve = done;
     if(!IS_PLAYING && !text){ resolve(); return; }
     // Convert math symbols/expressions into spoken words BEFORE voice generation
     var cleanText = mathToSpeech(text);
