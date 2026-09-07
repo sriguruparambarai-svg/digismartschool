@@ -681,10 +681,21 @@ function setRLTopic(t,btn){rlTopic=t;document.querySelectorAll('#mod-reallife .c
 // ══════════════════════════════════════════
 // AI HELPER
 // ══════════════════════════════════════════
+/* Reads the reply without assuming it arrived. When the service returns an
+   error instead of an answer, this raises a sentence a teacher can read rather
+   than "Cannot read properties of undefined". */
+function aiText(d){
+  if(d&&Array.isArray(d.content))return d.content.map(b=>b&&b.type==='text'?b.text:'').join('');
+  if(d&&typeof d.text==='string')return d.text;
+  var m=d&&d.error?(d.error.message||d.error):'';
+  throw new Error(m?('The AI service replied with an error: '+m)
+                   :'The AI service did not send back an answer. Please try again in a moment.');
+}
 async function callAI(sys,msg,max){
   var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:max||1500,system:sys,messages:[{role:'user',content:msg}]}})});
-  return (await res.json()).content[0].text;
+    body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:max||1500,system:sys,messages:[{role:'user',content:msg}]})});
+  if(!res.ok)throw new Error('The AI service is not responding (error '+res.status+'). Please try again.');
+  return aiText(await res.json());
 }
 function parseJSON(r){
   var c=r.replace(/```json|```/g,'').trim();
@@ -1170,9 +1181,10 @@ Rules:
 
   try{
     var res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({payload:{model:'claude-sonnet-4-5',max_tokens:900,system:sys,messages:[...doubtHist]}})});
+      body:JSON.stringify({model:'claude-sonnet-4-5',max_tokens:900,system:sys,messages:[...doubtHist]})});
+    if(!res.ok)throw new Error('The AI service is not responding (error '+res.status+'). Please try again.');
     var data=await res.json();
-    var reply=data.content[0].text;
+    var reply=aiText(data);
     doubtHist.push({role:'assistant',content:reply});
     if(te&&te.parentNode)te.remove();
     addDoubtMsg('ai',reply);
