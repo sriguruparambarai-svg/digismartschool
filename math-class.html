@@ -1865,7 +1865,10 @@ function showClassroom(){
     div.id = 'step-' + i;
     // Only the "main" (math) is written on blackboard. "explanation" is spoken only.
     div.innerHTML =
-      '<div class="step-num">' + (i + 1) + '.</div>' +
+      /* The board no longer numbers its own lines. A teacher writing working does
+         not number it, and a numbered list makes a class read down the numbers
+         instead of following the calculation. The div stays as the left margin. */
+      '<div class="step-num"></div>' +
       '<div class="step-content" id="step-content-' + i + '"></div>';
     // The turning-point sentence sits above its step as its own line.
     // It stays empty for ordinary steps, and an empty one is not displayed.
@@ -3583,6 +3586,15 @@ function addRoughWork(label, roughData){
     bodyHtml = '<span class="rough-body">' + escapeHtml(roughData) + '</span>';
   } else if(roughData && typeof roughData === 'object'){
     var type = roughData.type || 'custom';
+    /* "Multiplying 396 x 1" laid out as a vertical sum is not rough work, it is
+       noise beside the real calculation. Anything a child does in their head
+       is skipped so the panel only ever holds working worth looking at. */
+    if(type === 'mul' || type === 'div'){
+      var ra = Math.abs(parseInt(roughData.a, 10)), rb = Math.abs(parseInt(roughData.b, 10));
+      if(isFinite(ra) && isFinite(rb) && (rb === 1 || rb === 0 || ra === rb || ra < 10)){
+        return;   // nothing worth writing down
+      }
+    }
     if(type === 'mul'){
       bodyHtml = renderMultiplication(roughData.a, roughData.b, roughData.result);
     } else if(type === 'div'){
