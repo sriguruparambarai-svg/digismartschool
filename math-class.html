@@ -1419,6 +1419,12 @@ async function solveAndTeach(){
       + '  Factorising three large numbers fills the whole board and teaches nobody.\n\n'
       + 'Elsewhere use the ordinary classroom method: the formula for a series,\n'
       + 'factorising or the formula for a quadratic, transposing for a linear equation.\n\n'
+      + (chapter
+          ? ('This question came out of the chapter "' + chapter + '". Use the method THAT\n'
+             + 'chapter teaches. A class has just been taught one way of doing this, and being\n'
+             + 'shown a different way now confuses them, even when the other way is correct.\n'
+             + 'Never import a method from a later chapter they have not reached yet.\n\n')
+          : '')
       + 'Say WHICH METHOD it is in the intro, in one plain sentence.\n\n'
       + '════════ STEP RULES — APPLIES TO BOTH LANGUAGES ════════\n\n'
       + 'These rules control WHAT IS WRITTEN on the blackboard. They are IDENTICAL for\n'
@@ -4177,6 +4183,7 @@ function collectSpeakLines(sol){
   return lines;
 }
 
+var WARM_TOKEN = 0;
 async function warmVoices(sol){
   var texts = [];
   collectSpeakLines(sol).forEach(function(t){
@@ -4185,11 +4192,24 @@ async function warmVoices(sol){
   });
   if(texts.length === 0) return;
 
+  /* The class used to wait for every line before it could begin - forty-five
+     ElevenLabs calls, two at a time, is about a minute of a teacher standing in
+     front of a class watching a spinner. Only enough lines to START are waited
+     for; the rest fill in behind the lesson, and speakStep generates anything
+     the class reaches first. */
+  var HEAD_START = 6;
+  var myWarm = ++WARM_TOKEN;
+  var headTotal = Math.min(HEAD_START, texts.length);
   var total = texts.length, done = 0;
   var lt = document.querySelector('.loading-text');
   var ls = document.querySelector('.loading-sub');
   if(lt) lt.textContent = "Preparing teacher's voice...";
-  function prog(){ if(ls) ls.textContent = 'Voice lines ready: ' + done + ' / ' + total; }
+  function prog(){
+    if(!ls) return;
+    ls.textContent = (done < headTotal)
+      ? ('Voice lines ready: ' + done + ' / ' + headTotal)
+      : 'Starting the class\u2026';
+  }
   prog();
 
   var idx = 0;
@@ -4212,15 +4232,20 @@ async function warmVoices(sol){
     }
     // Still failed after 3 attempts — the live player will try again in class.
   }
-  async function worker(){
-    while(idx < texts.length){
+  async function worker(limit){
+    while(idx < limit && idx < texts.length){
+      if(myWarm !== WARM_TOKEN) return;   // a new question started; stop warming the old one
       var t = texts[idx++];
       await warmOne(t);
       done++; prog();
     }
   }
   // Two parallel workers — fast, but stays within ElevenLabs concurrency limits
-  await Promise.all([worker(), worker()]);
+  await Promise.all([worker(headTotal), worker(headTotal)]);
+  if(texts.length > headTotal){
+    // Deliberately NOT awaited: the class begins now and these arrive behind it.
+    worker(texts.length); worker(texts.length);
+  }
 }
 
 function speakStep(text){
