@@ -731,7 +731,11 @@ function scShowPanel(pid){
   for (var i = 0; i < SC_PANELS.length; i++){ if (SC_PANELS[i].id === pid) pn = SC_PANELS[i]; }
   if (!pn) return;
   SC_PANEL = pid;
-  clearTimeout(scAdvanceTimer);   /* opening a panel by hand stops the clock */
+  /* Opening a panel by hand stops the clock and silences whatever was being
+     read, so two voices never overlap when the teacher moves between panels. */
+  clearTimeout(scAdvanceTimer);
+  scStopAudio();
+  scHoldAdvance = true;
   scBuildPanelBar();
   var inner = document.getElementById('stage-inner');
   scDestroyGlobe();
@@ -776,6 +780,7 @@ function scRender(idx){
   var cu = document.querySelector('.step-item.current');
   if (cu && cu.scrollIntoView) cu.scrollIntoView({ block:'nearest', behavior:'smooth' });
 
+  scHoldAdvance = false;      /* a new step returns control to the class */
   SC_PANELS = scPanelsFor(step);
   SC_PANEL = 'main';
   scBuildPanelBar();
@@ -1489,6 +1494,7 @@ function renderStory(inner, step){
       wrap.appendChild(d);
     });
     inner.innerHTML = ''; inner.appendChild(wrap);
+    scSpeakPanel(items.slice(0, 5).join(' '));
   }).catch(function(){
     if (CUR === myIdx && SC_PANEL === myPanel) renderConcept(inner, step);
   });
@@ -1519,6 +1525,7 @@ function renderRealLife(inner, step){
     });
     inner.innerHTML = html + '</div></div>';
     inner.querySelector('h2').textContent = 'Where you see this \u2014 ' + (step.title || '');
+    scSpeakPanel(ok.map(function(o){ return o.where + '. ' + o.what; }).join(' '));
     var bs = inner.querySelectorAll('.sc-point b'), ss = inner.querySelectorAll('.sc-point span:not(.sc-point-n)');
     ok.forEach(function(it, i){
       if (bs[i]) bs[i].textContent = it.where;
@@ -1904,6 +1911,18 @@ function scStopAudio(){
   scUtter = null;
 }
 
+/* Reads a panel aloud. The narration bar follows what is actually being said,
+   and the class does not move on afterwards - the teacher opened this panel and
+   decides when to leave it. */
+function scSpeakPanel(text){
+  var t = String(text || '').trim();
+  if (!t) return;
+  var bar = document.getElementById('narr-text');
+  if (bar) bar.textContent = t;
+  scHoldAdvance = true;
+  scSpeak(t);
+}
+
 function scSpeak(text){
   scStopAudio();
   clearTimeout(scAdvanceTimer);
@@ -1942,6 +1961,7 @@ function scSpeakBrowser(text, seq){
 function scRate(){ return parseFloat(document.getElementById('speed-sel').value) || 0.95; }
 
 /* True while the stage is still fetching whatever it is about to show. */
+var scHoldAdvance = false;   /* true while the teacher is reading a panel */
 function scStillLoading(){
   var inner = document.getElementById('stage-inner');
   return !!(inner && inner.querySelector('.sc-spin'));
@@ -1950,6 +1970,7 @@ var scWaitFrom = Date.now();
 
 function scScheduleAdvance(sec){
   clearTimeout(scAdvanceTimer);
+  if (scHoldAdvance) return;
   // A recall step waits for the class to answer out loud. Only the teacher
   // moves it on - auto-advancing here would defeat the whole point.
   if (STEPS[CUR] && (STEPS[CUR].type === 'recall' || STEPS[CUR].type === 'mapdrill')) return;
