@@ -2135,19 +2135,41 @@ async function scExplainTamil(){
     var scTmCls   = scTmClassNum();
     var scTmLabel = (scTmCls === 0) ? 'KG' : ('Class ' + scTmCls);
     var scTmTerms = scTmKeyTerms(material);
-    var scTmShape = (scTmCls <= 5)
+    var scTmShape;
+    scTmShape = (scTmCls <= 5)
       ? '5 to 7 very short spoken lines. Ask a small question in almost every line and answer it yourself straight away. Use everyday examples a small child knows (\u0B9A\u0BBE\u0BAA\u0BCD\u0BAA\u0BBE\u0B9F\u0BC1, \u0BB5\u0BBF\u0BB3\u0BC8\u0BAF\u0BBE\u0B9F\u0BCD\u0B9F\u0BC1, \u0BB5\u0BC0\u0B9F\u0BC1).'
       : '6 to 8 spoken lines, still question-led, with a little more depth and reason (why it happens).';
-    var scTmSys =
+    var scTmSys, scTmAsk;
+    scTmSys =
       'You are a ' + scTmLabel + ' teacher in an ENGLISH-MEDIUM school in Tamil Nadu, chatting with your students in class. You are NOT reading a book aloud.\n' +
       'RULE 1 \u2014 Every subject word, key word and book word stays EXACTLY as printed in the book, in its own script and spelling. NEVER translate a book word into Tamil. The child must hear the same word she will see in her book and in her exam. Example: say "bones", never \u0B8E\u0BB2\u0BC1\u0BAE\u0BCD\u0BAA\u0BC1\u0B95\u0BB3\u0BCD.\n' +
       'RULE 2 \u2014 Every other word (explaining, joining, questioning) in Tamil script only. NEVER write Tamil words in English letters (no Tanglish, no transliteration).\n' +
       'RULE 3 \u2014 Talk, do not narrate. Ask the class a small question, answer it yourself straight away, then move to the next question. Natural spoken classroom talk, not a paragraph.\n' +
       'RULE 4 \u2014 Short spoken lines. Never greet, never say \u0BAE\u0BBE\u0BA3\u0BB5\u0BB0\u0BCD\u0B95\u0BB3\u0BC7 or any pet name. Start straight into the talk. No lists, labels, headings, markdown, emojis or stage directions.';
-    var scTmAsk =
+    scTmAsk =
       scTmLabel + ' \u2014 Science. Turn the book point below into a live classroom chat in Tamil.\n' +
       (scTmTerms ? 'KEEP THESE WORDS EXACTLY AS THEY ARE, DO NOT TRANSLATE THEM: ' + scTmTerms + '\n' : '') +
       scTmShape + '\n\nBOOK POINT:\n' + material;
+    /* The explainer prompt above is built to TALK - ask a question, answer it,
+       move on. That is right for a concept and wrong for a story, which is why
+       the Tamil came out as a lesson rather than a tale. When the story panel
+       is open the teacher becomes a storyteller instead. */
+    var scTmStory = (SC_PANEL === 'story' && !!SC_PANEL_TEXT);
+    if (scTmStory){
+      scTmSys =
+        'You are a ' + scTmLabel + ' teacher in an ENGLISH-MEDIUM school in Tamil Nadu, telling your class a story in Tamil.\n' +
+        'RULE 1 \u2014 Every name, place, book word and subject term stays EXACTLY as printed, in English letters. Write Archduke Franz Ferdinand, Sarajevo, Austria-Hungary in English, never in Tamil script. The child must hear the same words she will see in her book and in her exam.\n' +
+        'RULE 2 \u2014 Every other word in Tamil script only. NEVER Tamil words in English letters, no Tanglish, no transliteration.\n' +
+        'RULE 3 \u2014 TELL THE STORY. Do not explain it, do not ask the class questions, do not summarise it into points. Take them through what happened in the order it happened, with the people in it \u2014 what they wanted, what they feared, what they did.\n' +
+        'RULE 4 \u2014 Use ONLY the facts in the story given to you. Never add an event, a date or a name that is not there.\n' +
+        'RULE 5 \u2014 Warm, vivid spoken Tamil that holds a class. Never dramatic, never gory. Finish by saying plainly why it still matters today.\n' +
+        'RULE 6 \u2014 Never greet, never use a pet name. Start straight into the story. No lists, headings, markdown, emojis or stage directions.';
+      scTmShape = 'Four to six spoken paragraphs. Tell the WHOLE story \u2014 never stop part way through.';
+      scTmAsk =
+        scTmLabel + ' \u2014 Social Science. Tell this story to your class in Tamil. Same events, same order, nothing left out.\n' +
+        (scTmTerms ? 'KEEP THESE WORDS EXACTLY AS THEY ARE, DO NOT TRANSLATE THEM: ' + scTmTerms + '\n' : '') +
+        scTmShape + '\n\nTHE STORY:\n' + material;
+    }
     var entry = SC_TAMIL_CACHE[key];
 
     if (!entry){
@@ -2157,7 +2179,7 @@ async function scExplainTamil(){
         body: JSON.stringify({
           system: scTmSys,
           messages:[{role:'user', content: scTmAsk}],
-          max_tokens: 700
+          max_tokens: scTmStory ? 2600 : (material.length > 900 ? 1500 : 700)
         })
       });
       var d = await aiRes.json();
