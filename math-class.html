@@ -1618,7 +1618,7 @@ async function solveAndTeach(){
       + '  "figures": [ OPTIONAL - line geometry, triangles, circles, coordinate graphs, solids. See FIGURES section below ],\n'
       + '  "finalAnswer": "short final answer e.g. Sum = 820",\n'
       + '  "finalScript": "1 sentence stating the final result (no celebration, just conclusion)",\n'
-      + '  "verificationScript": "OPTIONAL verification, empty string if none",\n'
+      + '  "verificationScript": "OPTIONAL. ONE short sentence checking the answer, or an empty string. NEVER re-work the problem, never repeat the steps, never restate the original numbers one by one. The class has just watched the working, and a retelling at the end sounds like the sum starting again.",\n'
       + '  "practiceQuestion": "ONE practice question of the SAME pattern with DIFFERENT numbers, for students to solve on their own (e.g. after sum 1 to 20, give sum 1 to 30). Similar difficulty, never harder. Empty string if no natural variant exists (e.g. proofs).",\n'
       + '  "practiceAnswer": "final answer ONLY of the practice question, no steps (e.g. Sum = 465). Empty if practiceQuestion is empty."\n'
       + '}\n\n'
@@ -3490,8 +3490,8 @@ async function showFinalAnswer(){
     }
     $('final-answer').classList.add('show');
     $('final-answer').scrollIntoView({ behavior: 'smooth', block: 'center' });
-    var finalScript = SOLUTION.finalScript || ('And so, the final answer is: ' + SOLUTION.finalAnswer + '. Very good children!');
-    await speakStep(finalScript);
+    var finalScript = SOLUTION.finalScript || ('And so, the final answer is: ' + SOLUTION.finalAnswer + '.');
+    await speakStep(mcOneSentence(finalScript));
   }
   if(IS_PLAYING && (SOLUTION.verificationScript || SOLUTION.verification)){
     var vText = SOLUTION.verification || '';
@@ -3500,6 +3500,11 @@ async function showFinalAnswer(){
       $('verification').classList.add('show');
     }
     var vScript = SOLUTION.verificationScript || ('Let us verify our answer. ' + vText);
+    /* A verification for an HCF naturally walks back through all three original
+       numbers, and at the end of a class that sounds like the sum starting over.
+       One sentence only: a check, not a retelling. Trimmed here rather than only
+       in the prompt so classes already saved are fixed too. */
+    vScript = mcOneSentence(vScript);
     if(vScript && vScript.trim()){
       await speakStep(vScript);
     }
@@ -3509,6 +3514,20 @@ async function showFinalAnswer(){
 // ═══ YOUR TURN — one practice question, teacher-controlled reveal ═══
 // Spoken lines are built by these two helpers so warmVoices pre-generates
 // EXACTLY the same text speakStep will ask for later (audio cache hit).
+/* Keeps the first sentence and drops the rest. Used only on the closing lines,
+   where anything beyond one sentence is a repeat of the class just finished. */
+function mcOneSentence(text){
+  var t = String(text || '').trim();
+  if(!t) return '';
+  var cut = -1;
+  for(var i = 0; i < t.length - 1; i++){
+    var ch = t.charAt(i);
+    if((ch === '.' || ch === '?' || ch === '!') && t.charAt(i + 1) === ' '){ cut = i + 1; break; }
+  }
+  var one = (cut > 0) ? t.substring(0, cut) : t;
+  return one.length > 200 ? one.substring(0, 200) : one;
+}
+
 function practiceIntroLine(){
   return TEACH_LANG === 'mix'
     ? 'இப்போ your turn. இந்த problem-ஐ notebook-la solve பண்ணுங்க.'
@@ -4345,10 +4364,10 @@ function collectSpeakLines(sol){
     }
   });
   if(sol.finalAnswer && sol.finalAnswer.trim()){
-    add(sol.finalScript || ('And so, the final answer is: ' + sol.finalAnswer + '. Very good children!'));
+    add(mcOneSentence(sol.finalScript || ('And so, the final answer is: ' + sol.finalAnswer + '.')));
   }
   if(sol.verificationScript || sol.verification){
-    add(sol.verificationScript || ('Let us verify our answer. ' + (sol.verification || '')));
+    add(mcOneSentence(sol.verificationScript || ('Let us verify our answer. ' + (sol.verification || ''))));
   }
   /* A board division speaks a line per row. Those lines are generated here too,
      otherwise every row would stop and wait for its voice mid-lesson. */
