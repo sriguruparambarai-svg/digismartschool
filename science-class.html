@@ -13,6 +13,49 @@
   --maroon:#6B1A1A; --maroon-dark:#4a1010; --gold:#C9A84C; --gold-light:#FFD86A;
   --sandal:#E8C99A; --stage-bg:#0d0f14; --text-light:#f5efe2;
 }
+
+/* ══ BRIGHT ROOM ══
+   A projector cannot make black - it simply sends no light there, so on a
+   sunlit classroom wall "black" becomes whatever grey the room supplies, and
+   dark maroon cards on near-black lose almost all their contrast. Where the
+   room can be darkened, or on a smart TV, the dark theme is the better one.
+   Where it cannot, this swaps to a sandal ground the projector can actually
+   put light onto. The choice is per device and remembered. */
+body.bright{
+  --stage-bg:#F4E7D2; --text-light:#2E1A08; --sandal:#5A3A16;
+  --gold:#8A6A18; --gold-light:#5C3F06;
+  background:linear-gradient(135deg,#EEDFC4,#F7ECD9 60%,#EEDFC4);
+}
+body.bright #topbar{background:linear-gradient(180deg,#6B1A1A,#5a1414);border-bottom-color:rgba(201,168,76,0.65);}
+body.bright #topbar .back-btn{color:#F7ECD9;background:rgba(255,216,106,0.16);border-color:rgba(255,216,106,0.55);}
+body.bright #topbar .topic{color:#F3E3C6;}
+body.bright #topbar .ctrl-btn{color:#F7ECD9;background:rgba(255,216,106,0.14);border-color:rgba(255,216,106,0.5);}
+body.bright #topbar .ctrl-btn.active{background:#C9A84C;color:#3A1D05;}
+body.bright #topbar .cls-pill,body.bright #topbar #tb-part{background:#F7ECD9;color:#6B1A1A;border-color:#C9A84C;}
+body.bright #topbar #speed-sel{background:#F7ECD9;color:#6B1A1A;}
+body.bright #sidebar{background:rgba(252,246,235,0.97);border-right-color:rgba(107,26,26,0.28);}
+body.bright #sidebar h3{color:#8A5A12;}
+body.bright .step-item{color:rgba(58,32,10,0.82);}
+body.bright .step-item:hover{background:rgba(107,26,26,0.08);}
+body.bright .step-item.current{background:#6B1A1A;border-color:#C9A84C;color:#FFE9B8;}
+body.bright #narrbar{background:linear-gradient(0deg,#6B1A1A,#5f1616);border-top-color:rgba(201,168,76,0.6);}
+body.bright #narr-text{color:#F3E3C6;}
+body.bright #narr-prog{color:#FFD86A;}
+body.bright #sc-panel-bar{background:rgba(255,252,245,0.94);border-color:rgba(107,26,26,0.32);}
+body.bright #sc-panel-bar button{color:#5A3A16;}
+body.bright #sc-panel-bar button.on{background:#6B1A1A;color:#FFE9B8;}
+body.bright .sc-mdl-frame{background:#FFFCF4;border-color:rgba(107,26,26,0.3);box-shadow:0 14px 44px rgba(90,50,10,0.22);}
+body.bright .sc-cyc-node,body.bright .sc-str-child{
+  background:linear-gradient(160deg,rgba(107,26,26,0.14),rgba(201,168,76,0.16));
+  box-shadow:0 6px 18px rgba(90,50,10,0.18);}
+body.bright .sc-cmp-panel{box-shadow:0 8px 22px rgba(90,50,10,0.18);}
+body.bright .sc-cmp-panel.left{background:linear-gradient(160deg,rgba(201,168,76,0.24),rgba(201,168,76,0.08));}
+body.bright .sc-cmp-panel.right{background:linear-gradient(160deg,rgba(107,26,26,0.18),rgba(107,26,26,0.05));}
+body.bright .sc-str-root{color:#FFE9B8;}
+body.bright .sc-photo-cap{background:linear-gradient(180deg,transparent,rgba(46,26,8,0.88));}
+body.bright .sc-photo-cap .cap-title{color:#FFD86A;}
+body.bright .sc-photo-cap .cap-text{color:rgba(255,250,240,0.94);}
+
 *{margin:0;padding:0;box-sizing:border-box;}
 body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--text-light);font-family:'Nunito',sans-serif;overflow:hidden;height:100vh;}
 
@@ -255,6 +298,7 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
   <div class="topic" id="tb-topic">Science</div>
   <button class="ctrl-btn" id="btn-pause" onclick="scTogglePause()">&#9208; Pause</button>
   <button class="ctrl-btn active" id="btn-voice" onclick="scToggleVoice()">&#128266; Voice</button>
+  <button class="ctrl-btn" id="sc-bright-btn" onclick="scToggleBright()" title="For a bright room with a projector">&#9788; Bright</button>
   <button class="ctrl-btn" id="sc-tamil-btn" onclick="scExplainTamil()">&#127470;&#127475; &#2980;&#2990;&#3007;&#2996;&#3021;</button>
   <select id="speed-sel" onchange="scSpeedChange()">
     <option value="0.85">Slow</option>
@@ -1363,7 +1407,8 @@ function renderPhysModel(inner, step){
   var f = document.createElement('iframe');
   f.setAttribute('title', lib.name);
   f.setAttribute('loading', 'eager');
-  f.src = 'models/physics.html?m=' + encodeURIComponent(step.model) + '&embed=1';
+  f.src = 'models/physics.html?m=' + encodeURIComponent(step.model) + '&embed=1'
+    + (document.body.classList.contains('bright') ? '&bright=1' : '');
   frame.appendChild(f);
 }
 
@@ -2125,6 +2170,34 @@ function scBuildSidebar(){
     list.appendChild(div);
   });
 }
+
+/* The setting belongs to the room, not the lesson, so it is kept per device
+   and applied before anything is drawn. */
+function scApplyBright(on){
+  document.body.classList.toggle('bright', !!on);
+  var b = document.getElementById('sc-bright-btn');
+  if (b){
+    b.innerHTML = on ? '&#9790; Dark' : '&#9788; Bright';
+    b.title = on ? 'Switch back for a darkened room or a TV' : 'For a bright room with a projector';
+  }
+  /* the working models live in a frame of their own and must match */
+  var f = document.querySelector('.sc-mdl-frame iframe');
+  if (f && /models\/physics\.html/.test(f.src)){
+    var want = f.src.replace(/&bright=1/, '') + (on ? '&bright=1' : '');
+    if (want !== f.src) f.src = want;
+  }
+}
+function scToggleBright(){
+  var on = !document.body.classList.contains('bright');
+  try{ localStorage.setItem('sc_bright', on ? '1' : '0'); }catch(e){}
+  scApplyBright(on);
+}
+(function(){
+  var on = false;
+  try{ on = localStorage.getItem('sc_bright') === '1'; }catch(e){}
+  if (document.body) scApplyBright(on);
+  else document.addEventListener('DOMContentLoaded', function(){ scApplyBright(on); });
+})();
 
 /* ══ THE CHAPTER IN PARTS ══
    A Samacheer unit runs to forty-odd steps. No teacher gets through that in a
