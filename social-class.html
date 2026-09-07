@@ -39,6 +39,15 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 /* ── STAGE ── */
 #stage{position:fixed;top:58px;left:238px;right:0;bottom:52px;background:var(--stage-bg);overflow:hidden;}
 #stage-inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 220px 26px 40px;}
+#sc-panel-bar{position:absolute;top:12px;left:50%;transform:translateX(-50%);z-index:40;display:none;gap:7px;padding:5px;border-radius:999px;background:rgba(8,5,5,0.62);backdrop-filter:blur(6px);border:1px solid rgba(201,168,76,0.28);}
+#sc-panel-bar button{background:transparent;border:0;color:var(--sandal);font-family:inherit;font-size:0.76rem;font-weight:700;padding:7px 15px;border-radius:999px;cursor:pointer;white-space:nowrap;opacity:0.72;}
+#sc-panel-bar button:hover{opacity:1;background:rgba(201,168,76,0.12);}
+#sc-panel-bar button.on{background:var(--maroon);color:var(--gold-light);opacity:1;box-shadow:0 0 0 1px rgba(201,168,76,0.5) inset;}
+.sc-story-wrap{width:100%;max-width:900px;animation:scFadeUp 0.7s ease both;}
+.sc-story-wrap h2{font-family:'Cinzel',serif;font-size:clamp(1.1rem,2.2vw,1.7rem);color:var(--gold-light);text-align:center;margin-bottom:18px;}
+.sc-story-p{font-size:clamp(0.9rem,1.35vw,1.08rem);line-height:1.75;color:var(--text-light);margin-bottom:14px;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+.sc-story-p:first-letter{font-family:'Cinzel',serif;font-size:2.1em;color:var(--gold);float:left;line-height:0.9;margin:2px 8px 0 0;}
+.sc-story-p.plain:first-letter{font-size:1em;float:none;margin:0;color:inherit;font-family:inherit;}
 
 /* Title step */
 .sc-title-wrap{text-align:center;max-width:900px;animation:scFadeUp 1s ease both;}
@@ -296,7 +305,7 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 </div>
 
 <!-- ═══ STAGE ═══ -->
-<div id="stage"><div id="stage-inner"></div></div>
+<div id="stage"><div id="sc-panel-bar"></div><div id="stage-inner"></div></div>
 
 <!-- ═══ TEACHER FIGURE ═══ -->
 <img id="sc-teacher" src="/assets/teacher.png" alt="AI Teacher" title="AI Teacher (click to hide)" onclick="scToggleTeacher()" onerror="this.style.display='none'"/>
@@ -649,6 +658,107 @@ function scPrefetchNextPhoto(fromIdx){
 }
 
 /* ── RENDERERS ── */
+/* ── WHAT ELSE THIS TOPIC HAS ──
+   The same idea as the Science Class: a topic usually has more than one good
+   way of being shown, so every one the class actually holds is offered and the
+   teacher moves between them while the narration plays. */
+var SOC_MODEL_MATCH = [];
+(function(){
+  /* Built from the model library itself, so a model can never be offered that
+     does not exist, and adding one to SOC_MODELS is enough to light it up. */
+  for (var k in SOC_MODELS){
+    if (!SOC_MODELS.hasOwnProperty(k)) continue;
+    var words = String(SOC_MODELS[k].name || k).toLowerCase()
+      .replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/)
+      .filter(function(w){ return w.length > 3 && ['the','and','of'].indexOf(w) === -1; });
+    if (words.length) SOC_MODEL_MATCH.push([k, new RegExp('\\b(' + words.join('|') + ')', 'i')]);
+  }
+})();
+function socMatchModel(text){
+  for (var i = 0; i < SOC_MODEL_MATCH.length; i++){
+    if (SOC_MODEL_MATCH[i][1].test(text)) return SOC_MODEL_MATCH[i][0];
+  }
+  return null;
+}
+/* History is the one place a narrative beats a list of dates. */
+var SOC_STORY_RE = /revolution|\bwar\b|movement|struggle|dynasty|empire|kingdom|invasion|treaty|rebellion|revolt|freedom|independence|reform|congress|battle|conquest|colonial|nationalis/i;
+
+function scMainLabel(step){
+  if (step.type === 'photo')    return 'Picture';
+  if (step.type === 'model3d')  return '3D model';
+  if (step.type === 'map' || step.type === 'globe' || step.type === 'mapdrill') return 'Map';
+  if (step.type === 'timeline') return 'Timeline';
+  if (step.type === 'title')    return 'Title';
+  return 'Lesson';
+}
+
+function scPanelsFor(step){
+  var out = [{ id:'main', label: scMainLabel(step) }];
+  if (step.type === 'title' || step.type === 'recall' || step.type === 'mapdrill') return out;
+  var text = (step.title || '') + ' ' + (step.speech || '');
+
+  if (step.type !== 'photo') out.push({ id:'picture', label:'Picture' });
+  if (step.type !== 'model3d'){
+    var m = socMatchModel(text);
+    if (m && SOC_MODELS[m]) out.push({ id:'model3d', label:'3D model', model:m });
+  }
+  if (SOC_STORY_RE.test(text)) out.push({ id:'story', label:'Story' });
+  out.push({ id:'reallife', label:'Real life' });
+  return out;
+}
+
+var SC_PANELS = [], SC_PANEL = 'main';
+
+function scBuildPanelBar(){
+  var bar = document.getElementById('sc-panel-bar');
+  if (!bar) return;
+  bar.innerHTML = '';
+  if (SC_PANELS.length < 2){ bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  SC_PANELS.forEach(function(pn){
+    var b = document.createElement('button');
+    b.type = 'button'; b.textContent = pn.label;
+    b.className = (pn.id === SC_PANEL) ? 'on' : '';
+    b.onclick = function(){ scShowPanel(pn.id); };
+    bar.appendChild(b);
+  });
+}
+
+function scShowPanel(pid){
+  var step = STEPS[CUR];
+  if (!step) return;
+  var pn = null;
+  for (var i = 0; i < SC_PANELS.length; i++){ if (SC_PANELS[i].id === pid) pn = SC_PANELS[i]; }
+  if (!pn) return;
+  SC_PANEL = pid;
+  scBuildPanelBar();
+  var inner = document.getElementById('stage-inner');
+  scDestroyGlobe();
+  if (pid === 'main') scRenderMain(inner, step);
+  else if (pid === 'picture')  renderIllustration(inner, step);
+  else if (pid === 'model3d')  renderModel3d(inner, { type:'model3d', title:step.title, speech:step.speech, model:pn.model });
+  else if (pid === 'story')    renderStory(inner, step);
+  else if (pid === 'reallife') renderRealLife(inner, step);
+}
+
+function scRenderMain(inner, step){
+  if (step.type === 'title') renderTitle(inner, step);
+  else if (step.type === 'photo') renderPhoto(inner, step);
+  else if (step.type === 'timeline') renderTimeline(inner, step);
+  else if (step.type === 'map') renderMap(inner, step);
+  else if (step.type === 'globe') renderGlobe(inner, step);
+  else if (step.type === 'structure') renderStructure(inner, step);
+  else if (step.type === 'cycle') renderCycle(inner, step);
+  else if (step.type === 'compare') renderCompare(inner, step);
+  else if (step.type === 'stat') renderStat(inner, step);
+  else if (step.type === 'diagram') renderDiagram(inner, step);
+  else if (step.type === 'model3d') renderModel3d(inner, step);
+  else if (step.type === 'causes') renderCauses(inner, step);
+  else if (step.type === 'recall') renderRecall(inner, step);
+  else if (step.type === 'mapdrill') renderMapDrill(inner, step);
+  else renderConcept(inner, step);
+}
+
 function scRender(idx){
   if (idx < 0 || idx >= STEPS.length) return;
   clearTimeout(scAdvanceTimer);
@@ -665,21 +775,10 @@ function scRender(idx){
   var cu = document.querySelector('.step-item.current');
   if (cu && cu.scrollIntoView) cu.scrollIntoView({ block:'nearest', behavior:'smooth' });
 
-  if (step.type === 'title') renderTitle(inner, step);
-  else if (step.type === 'photo') renderPhoto(inner, step);
-  else if (step.type === 'timeline') renderTimeline(inner, step);
-  else if (step.type === 'map') renderMap(inner, step);
-  else if (step.type === 'globe') renderGlobe(inner, step);
-  else if (step.type === 'structure') renderStructure(inner, step);
-  else if (step.type === 'cycle') renderCycle(inner, step);
-  else if (step.type === 'compare') renderCompare(inner, step);
-  else if (step.type === 'stat') renderStat(inner, step);
-  else if (step.type === 'diagram') renderDiagram(inner, step);
-  else if (step.type === 'model3d') renderModel3d(inner, step);
-  else if (step.type === 'causes') renderCauses(inner, step);
-  else if (step.type === 'recall') renderRecall(inner, step);
-  else if (step.type === 'mapdrill') renderMapDrill(inner, step);
-  else renderConcept(inner, step);
+  SC_PANELS = scPanelsFor(step);
+  SC_PANEL = 'main';
+  scBuildPanelBar();
+  scRenderMain(inner, step);
 
   scSpeak(step.speech || step.title);
   scPrefetchNextPhoto(idx);
@@ -1271,6 +1370,164 @@ function socFetchModel(key){
 }
 
 /* Shows the 3D model. If none is found, quietly shows a real photo instead. */
+/* Wikimedia has plenty of real photographs of monuments and documents, but
+   nothing usable for "the causes of the revolution". A drawn illustration can
+   be asked for the scene itself, and gen-image caches it so it is drawn once. */
+function renderIllustration(inner, step){
+  var q = step.title || '';
+  var fb = { type:'photo', title:step.title, speech:step.speech, search:q,
+             caption:(step.speech || '').substring(0, 140) };
+  inner.innerHTML =
+    '<div class="sc-photo-frame"><div class="sc-photo-loading" style="position:absolute;inset:0;justify-content:center;">' +
+    '<div class="sc-spin"></div><div>Drawing the picture&hellip;</div></div></div>';
+  var frame = inner.querySelector('.sc-photo-frame');
+  var myIdx = CUR, myPanel = SC_PANEL;
+  function stale(){ return CUR !== myIdx || SC_PANEL !== myPanel; }
+  fetch('/api/gen-image', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ query:q, context:(step.speech || '').substring(0, 200), mode:'science-scene' })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (stale()) return;
+    var img = d && Array.isArray(d.images) && d.images[0] ? d.images[0] : null;
+    if (!img || !img.url){ renderPhoto(inner, fb); return; }
+    var el = new Image();
+    el.alt = step.title || '';
+    el.onload = function(){
+      if (stale()) return;
+      frame.innerHTML = '';
+      frame.appendChild(el);
+      var cap = document.createElement('div'); cap.className = 'sc-photo-cap';
+      var t = document.createElement('div'); t.className = 'cap-title'; t.textContent = step.title || '';
+      var x = document.createElement('div'); x.className = 'cap-text'; x.textContent = (step.speech || '').substring(0, 150);
+      var s = document.createElement('div'); s.className = 'cap-src'; s.textContent = 'Illustration';
+      cap.appendChild(t); cap.appendChild(x); cap.appendChild(s);
+      frame.appendChild(cap);
+    };
+    el.onerror = function(){ if (!stale()) renderPhoto(inner, fb); };
+    el.src = img.url;
+    if (el.complete && el.naturalWidth) el.onload();
+  }).catch(function(){ if (!stale()) renderPhoto(inner, fb); });
+}
+
+/* ── ONE-OFF TEXT PANELS ──
+   Story and Real life are both a short piece of writing about the same topic,
+   generated once and cached, so the only difference is what is asked for. */
+var SOC_TXT_MEM = {};
+async function socTextKey(kind, topic){
+  var data = kind + '-v1|' + LESSON.cls + '|' + LESSON.subject + '|' + topic;
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return kind + '_' + Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+async function socText(kind, step, sys){
+  var topic = step.title || '';
+  var memk = kind + '|' + topic;
+  if (SOC_TXT_MEM[memk]) return SOC_TXT_MEM[memk];
+  var key = await socTextKey(kind, topic);
+  try{
+    var r = await fetch('/api/lesson-plan?key=' + key);
+    if (r.ok){
+      var cd = await r.json();
+      if (cd && Array.isArray(cd.steps) && cd.steps[0] && Array.isArray(cd.steps[0].items)){
+        SOC_TXT_MEM[memk] = cd.steps[0].items; return cd.steps[0].items;
+      }
+    }
+  }catch(e){}
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system:sys, max_tokens:900,
+      messages:[{ role:'user', content:'CLASS: ' + LESSON.cls + '\nTOPIC: ' + topic +
+        '\n\nWHAT THE LESSON SAYS:\n' + (step.speech || '').substring(0, 700) }] })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  var t = String(raw || '').trim().replace(/```json|```/g, '').trim();
+  var s = t.indexOf('['), e = t.lastIndexOf(']');
+  if (s === -1 || e <= s) return [];
+  var arr;
+  try{ arr = JSON.parse(t.substring(s, e + 1)); }catch(err){ return []; }
+  if (!Array.isArray(arr) || !arr.length) return [];
+  SOC_TXT_MEM[memk] = arr;
+  try{
+    fetch('/api/lesson-plan', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ key:key, steps:[{ title:topic, items:arr }],
+        meta:{ subject:'Social-' + kind, cls:LESSON.cls, topic:topic } }) });
+  }catch(e2){}
+  return arr;
+}
+
+/* ── STORY ──
+   A timeline gives a class the dates. It does not give them a reason to care.
+   The same event told as a story, with people in it, is what they remember in
+   the exam hall three months later. */
+function renderStory(inner, step){
+  inner.innerHTML = '<div class="sc-photo-loading" style="justify-content:center;">' +
+    '<div class="sc-spin"></div><div>Telling the story&hellip;</div></div>';
+  var myIdx = CUR, myPanel = SC_PANEL;
+  var sys = 'You tell a school class the story behind a moment in history.\n' +
+    'Return ONLY a JSON array of 3 to 5 short paragraph strings. No prose outside the array, no markdown, no code fences.\n' +
+    'RULES:\n' +
+    '- Tell it as a STORY with people in it, not as a list of dates. Who was there, what they wanted, what they feared, what happened.\n' +
+    '- Every fact must come from the lesson text. Never invent an event, a date or a name that is not there.\n' +
+    '- Simple Indian classroom English a Class 8 to 10 student reads easily. Warm and vivid, never dramatic or gory.\n' +
+    '- Each paragraph 2 to 4 sentences, under 320 characters.\n' +
+    '- The last paragraph must say plainly why this still matters.';
+  socText('story', step, sys).then(function(items){
+    if (CUR !== myIdx || SC_PANEL !== myPanel) return;
+    if (!items || !items.length){ renderConcept(inner, step); return; }
+    var wrap = document.createElement('div'); wrap.className = 'sc-story-wrap';
+    var h = document.createElement('h2'); h.textContent = 'The story of \u2014 ' + (step.title || '');
+    wrap.appendChild(h);
+    items.slice(0, 5).forEach(function(par, i){
+      var d = document.createElement('div');
+      d.className = 'sc-story-p' + (i ? ' plain' : '');
+      d.style.animationDelay = (0.1 + i * 0.12) + 's';
+      d.textContent = String(par);
+      wrap.appendChild(d);
+    });
+    inner.innerHTML = ''; inner.appendChild(wrap);
+  }).catch(function(){
+    if (CUR === myIdx && SC_PANEL === myPanel) renderConcept(inner, step);
+  });
+}
+
+/* ── REAL LIFE ── where a Tamil Nadu child meets this idea. */
+function renderRealLife(inner, step){
+  inner.innerHTML = '<div class="sc-photo-loading" style="justify-content:center;">' +
+    '<div class="sc-spin"></div><div>Finding where you see this every day&hellip;</div></div>';
+  var myIdx = CUR, myPanel = SC_PANEL;
+  var sys = 'You show a school class where an idea turns up in their own daily life.\n' +
+    'Return ONLY a JSON array. No prose, no markdown, no code fences.\n' +
+    '[{"where":"Short place or situation","what":"One sentence on how the idea works there"}]\n' +
+    'RULES:\n' +
+    '- Exactly 3 entries.\n' +
+    '- Everyday Tamil Nadu life a village or small-town child has actually seen: the panchayat, the ration shop, ' +
+    'the weekly market, bus fares, farming, fishing, temple festivals, the school, local elections, MGNREGA work.\n' +
+    '- No foreign examples. Nothing party-political, and never take a political side.\n' +
+    '- "where" under 30 characters. "what" under 130 characters, plain and concrete.';
+  socText('rl', step, sys).then(function(items){
+    if (CUR !== myIdx || SC_PANEL !== myPanel) return;
+    var ok = (items || []).filter(function(o){ return o && o.where && o.what; });
+    if (!ok.length){ renderConcept(inner, step); return; }
+    var html = '<div class="sc-concept-wrap"><h2></h2><div class="sc-points">';
+    ok.forEach(function(it, i){
+      html += '<div class="sc-point"><span class="sc-point-n">' + (i + 1) + '</span>' +
+        '<div><b style="color:var(--gold-light);display:block;margin-bottom:3px;"></b><span></span></div></div>';
+    });
+    inner.innerHTML = html + '</div></div>';
+    inner.querySelector('h2').textContent = 'Where you see this \u2014 ' + (step.title || '');
+    var bs = inner.querySelectorAll('.sc-point b'), ss = inner.querySelectorAll('.sc-point span:not(.sc-point-n)');
+    ok.forEach(function(it, i){
+      if (bs[i]) bs[i].textContent = it.where;
+      if (ss[i]) ss[i].textContent = it.what;
+    });
+  }).catch(function(){
+    if (CUR === myIdx && SC_PANEL === myPanel) renderConcept(inner, step);
+  });
+}
+
 function renderModel3d(inner, step){
   var lib = SOC_MODELS[step.model];
   inner.innerHTML =
@@ -1944,7 +2201,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v5|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v6|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
