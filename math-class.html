@@ -1910,8 +1910,18 @@ function showClassroom(){
     whyDiv.className = 'step-why';
     whyDiv.id = 'step-why-' + i;
     whyDiv.textContent = (s && s.whyScript && String(s.whyScript).trim()) ? String(s.whyScript).trim() : '';
-    $('steps-list').appendChild(whyDiv);
-    $('steps-list').appendChild(div);
+    /* The turning-point sentence normally sits ABOVE its step, which reads well
+       for "now we substitute". On a division it gave the game away - "remainder
+       0, so we stop here" was printed and spoken before the division that
+       produces the 0 had even been drawn. On those steps it goes underneath,
+       where it becomes the conclusion instead of a spoiler. */
+    if(s && s.boardDiv){
+      $('steps-list').appendChild(div);
+      $('steps-list').appendChild(whyDiv);
+    } else {
+      $('steps-list').appendChild(whyDiv);
+      $('steps-list').appendChild(div);
+    }
   });
 
   STEP_IDX = -1;
@@ -4303,6 +4313,7 @@ async function warmVoices(sol){
   var texts = [];
   collectSpeakLines(sol).forEach(function(t){
     var c = mathToSpeech(t).replace(/\*+/g, '');
+    if(TEACH_LANG === 'mix') c = mcSpellNumbers(c);
     if(c.trim() && texts.indexOf(c) === -1 && !AUDIO_CACHE[TEACH_LANG + '|' + c]) texts.push(c);
   });
   if(texts.length === 0) return;
@@ -4366,12 +4377,43 @@ async function warmVoices(sol){
   }
 }
 
+/* A bare numeral inside a Tamil sentence has no language of its own, so the
+   multilingual voice reads it in Tamil - "8" came out as \u0B8E\u0B9F\u0BCD\u0B9F\u0BC1. These are
+   English-medium students whose book prints the numbers in English, so the
+   spoken copy spells them out in English words. Only what is SENT TO THE VOICE
+   changes; the board keeps its digits. */
+var MC_ONES = ['zero','one','two','three','four','five','six','seven','eight','nine','ten',
+  'eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+var MC_TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+function mcNum99(n){
+  if(n < 20) return MC_ONES[n];
+  var t = MC_TENS[Math.floor(n / 10)], o = n % 10;
+  return o ? (t + '-' + MC_ONES[o]) : t;
+}
+function mcNumWords(n){
+  if(n < 100) return mcNum99(n);
+  if(n < 1000){
+    var h = Math.floor(n / 100), r = n % 100;
+    return MC_ONES[h] + ' hundred' + (r ? ' ' + mcNum99(r) : '');
+  }
+  var th = Math.floor(n / 1000), rr = n % 1000;
+  return mcNumWords(th) + ' thousand' + (rr ? ' ' + mcNumWords(rr) : '');
+}
+function mcSpellNumbers(text){
+  return String(text || '').replace(/\d[\d,]*/g, function(m){
+    var n = parseInt(m.replace(/,/g, ''), 10);
+    if(!isFinite(n) || n > 99999) return m;      // very large numbers are left alone
+    return mcNumWords(n);
+  });
+}
+
 function speakStep(text){
   return new Promise(function(resolve){
     if(!IS_PLAYING && !text){ resolve(); return; }
     // Convert math symbols/expressions into spoken words BEFORE voice generation
     var cleanText = mathToSpeech(text);
     cleanText = cleanText.replace(/\*+/g, '');
+    if(TEACH_LANG === 'mix') cleanText = mcSpellNumbers(cleanText);
     if(!cleanText.trim()){ resolve(); return; }
 
     // ── INSTANT PLAY: use pre-generated audio if we already have this line ──
