@@ -3414,9 +3414,14 @@ async function showStep(idx){
   var whyPromise = whyText ? speakStep(whyText) : null;
   if(contentEl){
     if(step.boardDiv){
-      contentEl.innerHTML = renderDivision(step.boardDiv.a, step.boardDiv.b);
-      contentEl.classList.add('mx-fade');
-      await sleep(500);
+      /* The whole division used to appear in half a second and the voice then
+         talked about it afterwards, so a class saw the answer before hearing
+         why. Every other kind of step draws WHILE the teacher speaks. The
+         division is now revealed a line at a time, each line spoken as it is
+         written: header, then what we multiply, then what is left. Board and
+         voice move together. */
+      await drawDivisionOnBoard(contentEl, step.boardDiv.a, step.boardDiv.b);
+      if(!IS_PLAYING) return;
     } else if(hasMatrixNotation(step.main)){
       renderMathWithMatrices(contentEl, step.main || '');
       contentEl.classList.add('mx-fade');
@@ -4073,6 +4078,36 @@ async function animateColumnAddSub(step){
   await speakStep(colAnswerLine(data.R));
 }
 
+/* Writes a division onto the blackboard one row at a time, speaking each row
+   as it appears. Same rows as the rough-work renderer, so the two can never
+   disagree about the arithmetic. */
+async function drawDivisionOnBoard(contentEl, a, b){
+  contentEl.innerHTML = '';
+  var wrap = document.createElement('div');
+  wrap.className = 'calc-vertical calc-div';
+  contentEl.appendChild(wrap);
+  var rows = computeDivisionRows(a, b);
+  for(var i = 0; i < rows.length; i++){
+    if(!IS_PLAYING) return;
+    var r = rows[i];
+    var rowDiv = document.createElement('div');
+    var cls = 'calc-row';
+    if(r.type === 'divider') cls = 'calc-divider-inline';
+    else if(r.type === 'header') cls += ' calc-header';
+    else if(r.type === 'remainder') cls += ' calc-result';
+    rowDiv.className = cls;
+    wrap.appendChild(rowDiv);
+    await chalkWrite(rowDiv, r.text.replace(/ /g, '\u00a0'), 70);
+    if(!IS_PLAYING) return;
+    if(r.narrate && String(r.narrate).trim()){
+      await speakStep(r.narrate);
+      if(!IS_PLAYING) return;
+    } else {
+      await sleep(120);
+    }
+  }
+}
+
 async function addRoughWorkAnimated(label, roughData, narrateFn){
   var rc = $('rough-content');
   var empty = rc.querySelector('.rough-empty');
@@ -4295,6 +4330,16 @@ function collectSpeakLines(sol){
   if(sol.verificationScript || sol.verification){
     add(sol.verificationScript || ('Let us verify our answer. ' + (sol.verification || '')));
   }
+  /* A board division speaks a line per row. Those lines are generated here too,
+     otherwise every row would stop and wait for its voice mid-lesson. */
+  (sol.steps || []).forEach(function(st){
+    if(!st || !st.boardDiv) return;
+    try{
+      computeDivisionRows(st.boardDiv.a, st.boardDiv.b).forEach(function(r){
+        if(r && r.narrate && String(r.narrate).trim()) add(r.narrate);
+      });
+    }catch(e){}
+  });
   if(sol.practiceQuestion && String(sol.practiceQuestion).trim()){
     add(practiceIntroLine());
     if(sol.practiceAnswer && String(sol.practiceAnswer).trim()){
