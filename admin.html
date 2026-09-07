@@ -86,39 +86,6 @@ tr:hover td{background:#fef9f0;}
 .tbl-acc-on{background:#d4edda;color:#155724;padding:4px 13px;border-radius:9px;font-size:.78rem;font-weight:700;border:none;cursor:pointer;}
 .tbl-acc-off{background:#f8d7da;color:#721c24;padding:4px 13px;border-radius:9px;font-size:.78rem;font-weight:700;border:none;cursor:pointer;}
 
-/* === MOBILE FIX — phones only (600px and below). Desktop unchanged. === */
-@media(max-width:600px){
-  body{overflow-x:hidden;}
-
-  /* Top bar: keep everything inside the screen */
-  .topbar{padding:10px 12px;gap:8px;flex-wrap:wrap;}
-  .topbar h1{font-size:1.05rem;letter-spacing:1px;}
-  .badge{font-size:.65rem;padding:3px 9px;}
-  .logout{padding:6px 12px;font-size:.8rem;}
-
-  /* Left menu becomes a swipeable tab strip on top */
-  .main{padding:10px;}
-  .tbl-wrap{flex-direction:column;min-height:auto;}
-  .tbl-sidebar{width:100%;display:flex;overflow-x:auto;padding:0;
-    border-right:none;border-bottom:2px solid #e8e0d0;border-radius:10px 10px 0 0;
-    -webkit-overflow-scrolling:touch;scrollbar-width:none;}
-  .tbl-sidebar::-webkit-scrollbar{display:none;}
-  .tbl-sidebar-item{width:auto;flex:0 0 auto;white-space:nowrap;padding:11px 14px;
-    font-size:.82rem;border-left:none;border-bottom:3px solid transparent;}
-  .tbl-sidebar-item.tbl-on{border-left-color:transparent;border-bottom-color:#6B0F1A;}
-
-  /* Content gets the full screen width */
-  .tbl-content{width:100%;}
-  .card{padding:16px;}
-  .tbl-card{padding:14px;}
-  .tbl-card-title{font-size:.95rem;}
-  .tbl-g2{grid-template-columns:1fr;}
-  .tbl-book-grid{grid-template-columns:1fr;}
-
-  /* Wide tables scroll sideways instead of breaking the page */
-  table{display:block;overflow-x:auto;white-space:nowrap;}
-}
-
 </style>
 </head>
 <body>
@@ -1102,9 +1069,26 @@ function kgRender(){
           + '<div style="font-weight:800;color:#6B0F1A;font-size:0.88rem;">' + (r.en || r.word) + '</div>'
           + '<div style="font-size:0.7rem;color:#999;margin-bottom:8px;">' + (r.cat || '') + ' \u00B7 ' + (r.ta || '') + '</div>'
           + '<div style="display:flex;gap:10px;justify-content:center;">' + box(r.colour_url, r.word, 'colour') + box(r.outline_url, r.word, 'outline') + '</div>'
+          + '<div style="text-align:center;margin-top:7px">'
+          +   '<button onclick="kgRemove(\'' + r.word + '\')" style="background:none;border:none;color:#c0392b;'
+          +   'font-size:0.68rem;cursor:pointer;padding:0">remove this word</button>'
+          + '</div>'
           + '</div>';
       }).join('')
     : '<div style="color:#999;">Nothing matches that filter.</div>';
+}
+
+// Some words turn out to be a bad idea for a children's picture, or the
+// drawing keeps coming out wrong. Taking the word out is cleaner than
+// redrawing it forever.
+async function kgRemove(word){
+  if (!confirm('Remove "' + word + '" from the picture library?\n\nIt will stop appearing on worksheets. You can add it back later with SQL.')) return;
+  var r = await callAuth({ action:'tbl_delete', table:'kg_pictures',
+                           params:'word=eq.' + encodeURIComponent(word) });
+  if (r && r.error) { kgSet('Could not remove it: ' + r.error, '#c0392b'); return; }
+  kgRows = kgRows.filter(function(x){ return x.word !== word; });
+  kgRender();
+  kgSet('"' + word + '" removed.', '#1a5c2a');
 }
 
 // Draw one picture and remember where it was saved.
@@ -1116,7 +1100,8 @@ async function kgDraw(word, kind, redraw){
   try {
     var r = await fetch('/api/gen-image', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ query: kgPrompt(row), mode: kind === 'colour' ? 'kg-colour' : 'kg-outline' })
+      body: JSON.stringify({ query: kgPrompt(row), mode: kind === 'colour' ? 'kg-colour' : 'kg-outline',
+                             force: !!redraw })
     });
     var d = null;
     try { d = await r.json(); } catch(e){ d = null; }
