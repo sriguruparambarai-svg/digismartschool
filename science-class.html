@@ -19,6 +19,7 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 /* ── TOP BAR ── */
 #topbar{position:fixed;top:0;left:0;right:0;height:58px;background:linear-gradient(180deg,rgba(20,8,6,0.97),rgba(20,8,6,0.9));border-bottom:1.5px solid rgba(201,168,76,0.35);display:flex;align-items:center;gap:10px;padding:0 14px;z-index:100;}
 #topbar .back-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);color:var(--sandal);padding:7px 14px;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.8rem;}
+#topbar #tb-part{background:var(--maroon);color:var(--gold-light);border:1.5px solid var(--gold);padding:5px 10px;border-radius:9px;font-family:inherit;font-weight:700;font-size:0.78rem;cursor:pointer;max-width:180px;}
 #topbar .cls-pill{background:var(--maroon);color:var(--gold-light);border:1.5px solid var(--gold);padding:5px 12px;border-radius:999px;font-weight:800;font-size:0.78rem;}
 #topbar .topic{font-family:'Caveat',cursive;font-size:1.25rem;color:var(--sandal);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0;}
 .ctrl-btn{background:rgba(201,168,76,0.12);border:1.5px solid rgba(201,168,76,0.4);color:var(--sandal);padding:7px 13px;border-radius:9px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.8rem;white-space:nowrap;}
@@ -250,6 +251,7 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 <div id="topbar">
   <button class="back-btn" onclick="scGoBack()">&larr; Back</button>
   <span class="cls-pill" id="tb-cls">Class</span>
+  <select id="tb-part" style="display:none;" onchange="scGoToPart(this.selectedIndex)"></select>
   <div class="topic" id="tb-topic">Science</div>
   <button class="ctrl-btn" id="btn-pause" onclick="scTogglePause()">&#9208; Pause</button>
   <button class="ctrl-btn active" id="btn-voice" onclick="scToggleVoice()">&#128266; Voice</button>
@@ -466,7 +468,7 @@ async function scTopicList(){
 var SC_BATCH_SIZE = 8;
 
 async function scGeneratePlanFresh(){
-  /* Read the headings before planning, so nothing at the end can be dropped. */
+  /* Read the headings of the WHOLE chapter once - the parts are cut from them. */
   if (!LESSON.topics || !LESSON.topics.length){
     scPrepMsg('Reading the chapter headings\u2026');
     try{ LESSON.topics = await scTopicList(); }
@@ -483,6 +485,19 @@ async function scGeneratePlanFresh(){
     scPrepMsg('Could not read the headings \u2014 planning the whole chapter at once\u2026');
   }
 
+  if (!PARTS.length) scBuildParts();
+  var part = PARTS[CUR_PART];
+  if (part && PARTS.length > 1){
+    /* One part is already about a period long, so it is planned in a single
+       request over its own slice of the chapter and its own topics. */
+    SC_BATCH = { n: part.n, of: PARTS.length, topics: part.topics.length ? part.topics : null };
+    if (!SC_BATCH.topics) SC_BATCH = null;
+    try{
+      var steps = await scPlanTry(scPartText());
+      return steps;
+    } finally { SC_BATCH = null; }
+  }
+
   if (LESSON.topics && LESSON.topics.length > SC_BATCH_SIZE){
     var slices = [];
     for (var i = 0; i < LESSON.topics.length; i += SC_BATCH_SIZE){
@@ -493,7 +508,7 @@ async function scGeneratePlanFresh(){
       scPrepMsg('Planning part ' + (b + 1) + ' of ' + slices.length + '\u2026');
       SC_BATCH = { n: b + 1, of: slices.length, topics: slices[b] };
       try{
-        var part = await scPlanTry();
+        var part = await scPlanTry(LESSON.text);
         if (part && part.length) all = all.concat(part);
         else failed++;
       }catch(be){ failed++; }
@@ -505,31 +520,32 @@ async function scGeneratePlanFresh(){
   }
 
   SC_BATCH = null;
-  return await scPlanTry();
+  return await scPlanTry(LESSON.text);
 }
 
 /* A refusal is the model declining, not a size or network problem, and it can
    turn on one passage inside a long extraction. Asking again over a shorter
    window usually gets past it; if it does not, the text itself is worth a look,
    which is what the button on the failure screen is for. */
-async function scPlanTry(){
+async function scPlanTry(text){
+  var t = text || LESSON.text || '';
   try{
-    return await scPlanOnce(200000);
+    return await scPlanOnce(t);
   }catch(e){
     if (!/refusal/i.test(String(e && e.message))) throw e;
-    console.log('[science-class] refused on the full passage, trying a shorter one');
+    console.log('[science-class] refused, trying a shorter passage');
     scPrepMsg('Trying again on a shorter passage\u2026');
-    return await scPlanOnce(16000);
+    return await scPlanOnce(t.substring(0, 16000));
   }
 }
 
-async function scPlanOnce(limit){
+async function scPlanOnce(passage){
   var res = await fetch('/api/ai', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       system: scPlanPrompt(),
-      messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, limit || 200000)}],
+      messages:[{role:'user', content:'LESSON TEXT:\n\n' + String(passage || LESSON.text || '').substring(0, 200000)}],
       max_tokens: 8000
     })
   });
@@ -2064,6 +2080,115 @@ function scBuildSidebar(){
   });
 }
 
+/* ══ THE CHAPTER IN PARTS ══
+   A Samacheer unit runs to forty-odd steps. No teacher gets through that in a
+   forty-five minute period, so the chapter is cut into parts a period long and
+   each one is planned, cached and taught on its own. A teacher who reaches the
+   end of Part 1 today opens Part 2 tomorrow and carries on where the book does.
+
+   The cut follows the topic headings, never a character count, so a part never
+   begins halfway through an idea. Each part is also a much smaller request,
+   which makes preparing faster and means a failure costs one part, not the
+   whole class. */
+var PARTS = [], CUR_PART = 0;
+var SC_TOPICS_PER_PART = 8;      /* about ten to twelve steps once quick checks are added */
+
+/* Where each heading actually sits in the chapter text. */
+function scTopicOffsets(topics, text){
+  var low = text.toLowerCase(), out = [], from = 0;
+  for (var i = 0; i < topics.length; i++){
+    var t = String(topics[i] || '').toLowerCase().trim();
+    var at = t ? low.indexOf(t, from) : -1;
+    if (at === -1 && t){
+      var head = t.split(/\s+/).slice(0, 3).join(' ');    // the book may reword the tail
+      if (head.length > 6) at = low.indexOf(head, from);
+    }
+    out.push(at);
+    if (at !== -1) from = at + 1;
+  }
+  return out;
+}
+
+function scBuildParts(){
+  var text = LESSON.text || '';
+  var topics = LESSON.topics || [];
+
+  if (topics.length > SC_TOPICS_PER_PART + 3){
+    var n = Math.max(2, Math.min(6, Math.round(topics.length / SC_TOPICS_PER_PART)));
+    var per = Math.ceil(topics.length / n);
+    var offs = scTopicOffsets(topics, text);
+    var parts = [];
+    for (var i = 0; i < topics.length; i += per){
+      var slice = topics.slice(i, i + per);
+      /* start at this part's first located heading; end where the next one begins */
+      var from = 0, j;
+      for (j = i; j < i + per && j < offs.length; j++){ if (offs[j] !== -1){ from = offs[j]; break; } }
+      var to = text.length;
+      for (j = i + per; j < offs.length; j++){ if (offs[j] !== -1){ to = offs[j]; break; } }
+      if (i === 0) from = 0;
+      if (to <= from) to = text.length;
+      parts.push({ n: parts.length + 1, topics: slice, from: from, to: to,
+                   label: 'Part ' + (parts.length + 1) });
+    }
+    PARTS = parts;
+  } else if (text.length > 26000){
+    /* No usable headings: cut at paragraph breaks near even marks instead. */
+    var np = Math.max(2, Math.min(5, Math.round(text.length / 11000)));
+    var step = Math.floor(text.length / np), marks = [0];
+    for (var k = 1; k < np; k++){
+      var want = step * k, br = text.indexOf('\n\n', want);
+      marks.push(br === -1 ? want : br + 2);
+    }
+    marks.push(text.length);
+    PARTS = [];
+    for (var m = 0; m < np; m++){
+      PARTS.push({ n: m + 1, topics: [], from: marks[m], to: marks[m + 1], label: 'Part ' + (m + 1) });
+    }
+  } else {
+    PARTS = [{ n: 1, topics: topics, from: 0, to: text.length, label: 'Part 1' }];
+  }
+  for (var q = 0; q < PARTS.length; q++) PARTS[q].label = 'Part ' + (q + 1) + ' of ' + PARTS.length;
+  return PARTS;
+}
+
+function scPartText(){
+  var pt = PARTS[CUR_PART];
+  if (!pt) return LESSON.text || '';
+  return (LESSON.text || '').substring(pt.from, pt.to);
+}
+
+function scBuildPartSelector(){
+  var sel = document.getElementById('tb-part');
+  if (!sel) return;
+  sel.innerHTML = '';
+  if (PARTS.length < 2){ sel.style.display = 'none'; return; }
+  PARTS.forEach(function(pt){
+    var o = document.createElement('option');
+    o.textContent = pt.label;
+    sel.appendChild(o);
+  });
+  sel.selectedIndex = CUR_PART;
+  sel.style.display = 'inline-block';
+}
+
+/* Each part is its own lesson: planned, cached and taught separately. */
+async function scGoToPart(idx){
+  if (idx < 0 || idx >= PARTS.length || idx === CUR_PART) return;
+  CUR_PART = idx;
+  try{ sessionStorage.setItem('sc_part', String(idx)); }catch(e){}
+  var ov = document.getElementById('sc-loading');
+  ov.style.display = 'flex';
+  document.getElementById('sc-loading-msg').textContent = 'Opening ' + PARTS[idx].label + '\u2026';
+  try{
+    STEPS = await scGeneratePlan();
+    scBuildSidebar();
+    ov.style.display = 'none';
+    scRender(0);
+  }catch(e){
+    document.getElementById('sc-loading-msg').textContent = 'Could not open that part \u2014 ' + e.message;
+  }
+}
+
 /* ── INIT ── */
 async function scInit(){
   var ov = document.getElementById('sc-loading');
@@ -2083,6 +2208,25 @@ async function scInit(){
     return;
   }
   try{
+    /* Headings first, so the chapter can be cut into parts before anything is
+       planned. Only the chosen part is then prepared, which is why a long
+       chapter now opens in seconds instead of minutes. */
+    if (!LESSON.topics || !LESSON.topics.length){
+      document.getElementById('sc-loading-msg').textContent = 'Reading the chapter headings\u2026' + scLessonSize();
+      try{ LESSON.topics = await scTopicList(); }
+      catch(tl){ LESSON.topics = []; LESSON.topicError = (tl && tl.message) || 'unknown'; }
+    }
+    scBuildParts();
+    try{
+      var saved = parseInt(sessionStorage.getItem('sc_part'), 10);
+      if (saved >= 0 && saved < PARTS.length) CUR_PART = saved;
+    }catch(e){}
+    scBuildPartSelector();
+    if (PARTS.length > 1){
+      document.getElementById('sc-loading-msg').textContent =
+        'This chapter is long, so it is split into ' + PARTS.length +
+        ' parts of about one period each. Preparing ' + PARTS[CUR_PART].label + '\u2026';
+    }
     STEPS = await scGeneratePlan();
     scBuildSidebar();
     // Warm EVERY photo in parallel while the teacher is still on this screen.
@@ -2120,7 +2264,8 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v9|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v10|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+    'p' + (CUR_PART + 1) + 'of' + Math.max(1, PARTS.length) + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
