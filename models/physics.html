@@ -63,6 +63,7 @@
   <button class="chip" type="button" data-m="rocket">Rocket</button>
   <button class="chip" type="button" data-m="moments">Moments</button>
   <button class="chip" type="button" data-m="impulse">Impulse</button>
+  <button class="chip" type="button" data-m="friction">Friction</button>
 </div>
 
 <div class="pm-stage">
@@ -978,7 +979,237 @@ var Impulse = {
   }
 };
 
-var MODELS = { force: Force, inertia: Inertia, momentum: Momentum, rocket: Rocket, moments: Moments, impulse: Impulse };
+/* ══════════════ MODEL 7 — FRICTION ══════════════
+   Two scenes, because the chapter asks two different things.
+
+   PUSH IT   - why a heavy box on sand will not budge while the same box slides
+               on ice. The friction arrow grows to match your push and the block
+               stays still; that is static friction, and a child can watch it
+               happen. Push past the limiting value and it breaks free, and the
+               friction arrow suddenly SHRINKS - sliding friction is smaller
+               than the static friction that had to be beaten first.
+   THE RACE  - three objects, one shove each, three very different distances.
+               Static is greatest, sliding less, rolling least of all, and the
+               stopping marks make the order impossible to argue with. */
+var Friction = {
+  G:9.8, scene:'push', si:2, x:0, v:0, pushing:false, moving:false,
+  SURF:[
+    { n:'Ice',            s:0.10, k:0.05, c:'#6E93AD' },
+    { n:'Polished wood',  s:0.35, k:0.25, c:'#8A6636' },
+    { n:'Concrete road',  s:0.70, k:0.55, c:'#6B6B6B' },
+    { n:'Sand',           s:0.90, k:0.75, c:'#9C7C42' }
+  ],
+  RACE:[
+    { n:'Block sliding',  k:0.55 },
+    { n:'Block on rollers', k:0.12 },
+    { n:'Wheel',          k:0.05 }
+  ],
+  runners:[],
+
+  build: function(){
+    clear(stage); clear(ctrlBox); clear(readBox);
+    addArrowDefs();
+    if (this.scene === 'push') this.buildPush(); else this.buildRace();
+    this.reset();
+  },
+
+  buildPush: function(){
+    stage.appendChild(txt(500, 34, 'Friction \u2014 \u0BB2\u0BCB\u0B95\u0BC1\u0BAE\u0BC1\u0BB1\u0BC8', 'lbl-gold'));
+    stage.appendChild(txt(500, 62, 'The surfaces push back against whatever slides across them', 'lbl-sm'));
+
+    this.groundS = el('rect', { x:40, y:330, width:920, height:26, rx:4, fill:'#6B6B6B', opacity:0.55 });
+    stage.appendChild(this.groundS);
+    stage.appendChild(el('line', { x1:40, y1:330, x2:960, y2:330, stroke:'#5A2A2A', 'stroke-width':3 }));
+    this.surfTag = txt(50, 376, '', 'lbl-sm', 'start');
+    stage.appendChild(this.surfTag);
+
+    var g = el('g', {}); this.blockG = g;
+    g.appendChild(el('rect', { x:120, y:270, width:80, height:60, rx:6,
+      fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 }));
+    this.wTag = txt(160, 306, '', 'lbl-sm');
+    g.appendChild(this.wTag);
+    stage.appendChild(g);
+
+    this.pArrow = el('line', { x1:0, y1:240, x2:0, y2:240, stroke:'#C9A84C',
+      'stroke-width':7, 'stroke-linecap':'round', 'marker-end':'url(#ah)' });
+    this.pLab = txt(0, 220, 'Your push', 'lbl-sm');
+    this.fArrow = el('line', { x1:0, y1:398, x2:0, y2:398, stroke:'#E8C99A',
+      'stroke-width':7, 'stroke-linecap':'round', 'marker-end':'url(#ah)' });
+    this.fLab = txt(0, 424, 'Friction', 'lbl-sm');
+    stage.appendChild(this.pArrow); stage.appendChild(this.pLab);
+    stage.appendChild(this.fArrow); stage.appendChild(this.fLab);
+
+    this.verdict = txt(500, 120, '', 'lbl');
+    stage.appendChild(this.verdict);
+
+    slider('p', 'Your push', 0, 100, 30, 5, 'N', function(){});
+    slider('w', 'Weight of box', 1, 10, 5, 1, 'kg', function(){ Friction.reset(); });
+    this.sBtn = button('Surface: ', function(){
+      Friction.si = (Friction.si + 1) % Friction.SURF.length; Friction.reset();
+    });
+    button('Push', function(){ Friction.pushing = true; });
+    button('Let go', function(){ Friction.pushing = false; });
+    button('The three kinds', function(){ Friction.scene = 'race'; Friction.build(); });
+    stat('lim', 'Limiting friction  \u03BC\u209B \u00D7 N');
+    stat('fnow', 'Friction acting now');
+    stat('sp', 'Speed');
+    noteBox.textContent = 'Push gently on sand \u2014 the friction arrow grows to match you and nothing moves. '
+      + 'Push harder and it breaks free, and the friction arrow SHRINKS, because sliding friction is less '
+      + 'than the static friction you had to beat. Now try the same push on ice.';
+  },
+
+  buildRace: function(){
+    stage.appendChild(txt(500, 34, 'Static, sliding and rolling friction', 'lbl-gold'));
+    stage.appendChild(txt(500, 62, 'The same shove to all three \u2014 watch how far each one gets', 'lbl-sm'));
+
+    this.runners = [];
+    for (var i = 0; i < this.RACE.length; i++){
+      var y = 150 + i * 92;
+      stage.appendChild(el('line', { x1:120, y1:y + 26, x2:960, y2:y + 26,
+        stroke:'#5A2A2A', 'stroke-width':2.5 }));
+      stage.appendChild(txt(112, y + 20, this.RACE[i].n, 'lbl-sm', 'end'));
+      var shape;
+      if (i === 2){
+        shape = el('circle', { cx:150, cy:y + 8, r:18, fill:'none', stroke:'#C9A84C', 'stroke-width':6 });
+      } else {
+        shape = el('rect', { x:132, y:y - 10, width:44, height:36, rx:4,
+          fill:'#6B1A1A', stroke:'#C9A84C', 'stroke-width':2 });
+      }
+      stage.appendChild(shape);
+      var mark = el('line', { x1:150, y1:y - 22, x2:150, y2:y + 26,
+        stroke:'#E8C99A', 'stroke-width':2, 'stroke-dasharray':'4 4', opacity:0 });
+      stage.appendChild(mark);
+      var dTag = txt(150, y - 30, '', 'lbl-sm');
+      stage.appendChild(dTag);
+      this.runners.push({ shape:shape, mark:mark, dTag:dTag, x:0, v:0, y:y, wheel:(i === 2) });
+    }
+    stage.appendChild(txt(500, 424, 'Rolling friction is the smallest \u2014 which is why wheels and ball bearings exist.', 'lbl-sm'));
+
+    slider('rv', 'The shove', 3, 9, 6, 1, 'm/s', function(){ Friction.reset(); });
+    button('Let them go', function(){ Friction.launch(); });
+    button('Reset', function(){ Friction.reset(); });
+    button('Back to pushing', function(){ Friction.scene = 'push'; Friction.build(); });
+    stat('r0', 'Block sliding');
+    stat('r1', 'On rollers');
+    stat('r2', 'Wheel');
+    noteBox.textContent = 'Every one of them gets exactly the same shove. The block barely moves, '
+      + 'the rollers carry it much further, and the wheel goes furthest of all.';
+  },
+
+  surf: function(){ return this.SURF[this.si]; },
+
+  reset: function(){
+    this.x = 0; this.v = 0; this.pushing = false; this.moving = false;
+    for (var i = 0; i < this.runners.length; i++){
+      var r = this.runners[i];
+      r.x = 0; r.v = 0;
+      r.mark.setAttribute('opacity', 0);
+      r.dTag.textContent = '';
+    }
+    if (this.sBtn) this.sBtn.textContent = 'Surface: ' + this.surf().n;
+    this.paint();
+  },
+
+  launch: function(){
+    for (var i = 0; i < this.runners.length; i++){
+      this.runners[i].x = 0; this.runners[i].v = sv('rv');
+      this.runners[i].mark.setAttribute('opacity', 0);
+      this.runners[i].dTag.textContent = '';
+    }
+  },
+
+  /* Stopping distance for a body shoved at v against friction mu: v^2 / (2*mu*g) */
+  stopDist: function(v, mu){ return (v * v) / (2 * mu * this.G); },
+
+  step: function(dt){
+    if (this.scene === 'race'){
+      for (var i = 0; i < this.runners.length; i++){
+        var r = this.runners[i];
+        if (r.v > 0){
+          /* Exact for constant deceleration: step with the midpoint velocity, and
+             on the last step add the true remaining distance v^2/(2a) instead of
+             letting the clock overshoot and swallow it. */
+          var a = this.RACE[i].k * this.G, dv = a * dt;
+          if (r.v <= dv){
+            r.x += (r.v * r.v) / (2 * a);
+            r.v = 0; r.mark.setAttribute('opacity', 1);
+          } else {
+            r.x += (r.v - dv / 2) * dt;
+            r.v -= dv;
+          }
+        }
+      }
+      this.paint(); return;
+    }
+
+    var m = sv('w'), N = m * this.G, s = this.surf();
+    var P = this.pushing ? sv('p') : 0;
+    var limit = s.s * N, kf = s.k * N;
+
+    if (!this.moving){
+      if (P > limit) this.moving = true;
+    }
+    if (this.moving){
+      var net = P - kf;
+      this.v += (net / m) * dt;
+      if (this.v <= 0){ this.v = 0; this.moving = false; }
+      this.x += this.v * 26 * dt;
+      if (this.x > 640){ this.x = 0; this.v = 0; this.moving = false; }
+    }
+    this.paint();
+  },
+
+  paint: function(){
+    if (this.scene === 'race'){
+      var maxD = this.stopDist(sv('rv'), this.RACE[2].k);
+      var sc = 790 / Math.max(0.001, maxD);
+      for (var i = 0; i < this.runners.length; i++){
+        var r = this.runners[i], px = Math.min(790, r.x * sc);
+        if (r.wheel) r.shape.setAttribute('cx', (150 + px).toFixed(1));
+        else r.shape.setAttribute('x', (132 + px).toFixed(1));
+        r.mark.setAttribute('x1', (150 + px).toFixed(1));
+        r.mark.setAttribute('x2', (150 + px).toFixed(1));
+        r.dTag.setAttribute('x', (150 + px).toFixed(1));
+        if (r.v === 0 && r.x > 0) r.dTag.textContent = r.x.toFixed(1) + ' m';
+        setStat('r' + i, r.x > 0 ? r.x.toFixed(1) + ' m' : '\u2014');
+      }
+      return;
+    }
+
+    var m = sv('w'), N = m * this.G, s = this.surf();
+    var P = this.pushing ? sv('p') : 0;
+    var limit = s.s * N, kf = s.k * N;
+    var acting = this.moving ? kf : Math.min(P, limit);
+
+    this.groundS.setAttribute('fill', s.c);
+    this.surfTag.textContent = s.n + '    \u03BC\u209B = ' + s.s.toFixed(2) + '   \u03BC\u2096 = ' + s.k.toFixed(2);
+    this.wTag.textContent = m + ' kg';
+    this.blockG.setAttribute('transform', 'translate(' + this.x.toFixed(1) + ',0)');
+
+    var cx = 160 + this.x;
+    var pl = P * 1.9, fl = acting * 1.9;
+    this.pArrow.setAttribute('x1', cx.toFixed(1));
+    this.pArrow.setAttribute('x2', (cx + pl).toFixed(1));
+    this.pArrow.setAttribute('opacity', P > 0 ? 1 : 0);
+    this.pLab.setAttribute('x', (cx + pl / 2).toFixed(1));
+    this.pLab.setAttribute('opacity', P > 0 ? 1 : 0);
+    this.fArrow.setAttribute('x1', cx.toFixed(1));
+    this.fArrow.setAttribute('x2', (cx - fl).toFixed(1));
+    this.fArrow.setAttribute('opacity', acting > 0 ? 1 : 0);
+    this.fLab.setAttribute('x', (cx - fl / 2).toFixed(1));
+    this.fLab.setAttribute('opacity', acting > 0 ? 1 : 0);
+
+    setStat('lim', limit.toFixed(0) + ' N');
+    setStat('fnow', acting.toFixed(0) + ' N' + (this.moving ? '   (sliding)' : '   (static)'));
+    setStat('sp', this.v.toFixed(1) + ' m/s');
+
+    if (this.moving) this.verdict.textContent = 'Moving \u2014 now only sliding friction acts, and it is smaller';
+    else if (P <= 0) this.verdict.textContent = 'Press Push';
+    else this.verdict.textContent = 'Still not moving \u2014 static friction is matching your push';
+  }
+};
+
+var MODELS = { force: Force, inertia: Inertia, momentum: Momentum, rocket: Rocket, moments: Moments, impulse: Impulse, friction: Friction };
 var current = null, last = 0;
 
 function show(name){
