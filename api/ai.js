@@ -25,7 +25,7 @@ const ALLOWED_HOSTS = [
 // Only these models may be used, whatever the caller asks for.
 const ALLOWED_MODELS = ['claude-sonnet-4-5'];
 
-const MAX_TOKENS_CAP = 8000;   // highest any of our tools legitimately needs
+const MAX_TOKENS_CAP = 16000;  // a full chapter plan is the long one; the rest ask for far less
 const MAX_MESSAGES   = 40;     // a normal conversation never comes near this
 const RATE_PER_MIN   = 40;     // calls allowed per address per minute
 
