@@ -1427,9 +1427,14 @@ async function solveAndTeach(){
       + '    "Now that remainder 108 becomes the divisor, and 396 becomes the dividend."\n'
       + '    "We divide 396 by 108. It goes 3 times, remainder 72."\n'
       + '    "We keep going until the remainder is 0. The last divisor is the HCF."\n'
-      + '  NEVER describe the move as a subtraction. Saying "we subtract 396 from 504"\n'
-      + '  tells a student the wrong operation \u2014 the move is a DIVISION, and the\n'
-      + '  subtraction is only how the remainder is found inside it.\n\n'
+      + '  SAY THE FOUR MOVES IN THIS ORDER, every single division:\n'
+      + '    1 divide  \u2014 "Now we divide 504 by 396."\n'
+      + '    2 multiply \u2014 "1 into 396 is 396. Write it below."\n'
+      + '    3 subtract \u2014 "Subtracting, 504 minus 396 gives 108."\n'
+      + '    4 carry on \u2014 "That 108 becomes the divisor, and 396 becomes the dividend."\n'
+      + '  The subtraction belongs at move 3 and nowhere else. Never OPEN with it \u2014\n'
+      + '  saying "we subtract 396 from 504" as the whole move tells a student the\n'
+      + '  wrong operation. The move is a division; the subtraction happens inside it.\n\n'
       + '  In the rough work each division must give the true quotient, NOT the\n'
       + '  remainder. In "396 ) 504 ( 1" the 1 is the quotient and 108 is the remainder\n'
       + '  written underneath. Check every division with\n'
@@ -1989,9 +1994,7 @@ function computeDivisionRows(dividend, divisor, quotient){
   rows.push({
     text: String(divs) + ' ) ' + divdStr + ' ( ' + quot,
     type: 'header',
-    narrate: 'Divide ' + divd + ' by ' + divs + '. ' + divs + ' goes ' + quot + ' time' +
-             (String(quot) === '1' ? '' : 's') +
-             ((divd % divs) ? ', and the remainder is ' + (divd % divs) : ', with no remainder')
+    narrate: 'Now we divide ' + divd + ' by ' + divs + '.'
   });
 
   for(var i = 0; i < divdStr.length; i++){
@@ -2009,7 +2012,7 @@ function computeDivisionRows(dividend, divisor, quotient){
     rows.push({
       text: spaces(indent) + String(multiplied),
       type: 'sub',
-      narrate: divs + ' into ' + q + ' equals ' + multiplied
+      narrate: q + ' into ' + divs + ' is ' + multiplied + '. Write it below.'
     });
     // Divider under the subtracted number
     rows.push({
@@ -2031,17 +2034,19 @@ function computeDivisionRows(dividend, divisor, quotient){
           ? 'Bring down ' + next
           : 'Remainder ' + current + ', bring down ' + next + ' to get ' + remStr
       });
-    } else if(current === 0){
-      rows.push({
-        text: spaces(headerLen + i + 1) + '0',
-        type: 'remainder',
-        narrate: 'Remainder zero. Division complete.'
-      });
     } else {
+      /* The remainder used to be indented from the LEFT, so a three-digit 108
+         sat a column right of the 396 it came from. It has to END in the same
+         column as the number above it, the way it does on paper. */
+      var remTxt = String(current);
+      var remCol = headerLen + i + 1 - remTxt.length;
+      if(remCol < 0) remCol = 0;
       rows.push({
-        text: spaces(headerLen + i + 1) + String(current),
+        text: spaces(remCol) + remTxt,
         type: 'remainder',
-        narrate: 'Remainder ' + current
+        narrate: (current === 0)
+          ? 'Subtracting, we get 0. The division is exact.'
+          : 'Subtracting, ' + divd + ' minus ' + multiplied + ' gives ' + current + '.'
       });
     }
   }
@@ -2053,8 +2058,19 @@ function computeDivisionRows(dividend, divisor, quotient){
   for(var rr = 0; rr < rows.length; rr++){ if(rows[rr].type === 'remainder') hasRem = true; }
   if(!hasRem){
     var finalRem = divd % divs;
+    /* Align it under whatever was actually subtracted last, rather than working
+       the column out again - the two calculations can disagree, and the one on
+       the board is the one that matters. */
+    var fRem = String(divd % divs);
+    var lastEnd = 0;
+    for(var lr = rows.length - 1; lr >= 0; lr--){
+      if(rows[lr].type === 'sub'){ lastEnd = rows[lr].text.length; break; }
+    }
+    if(!lastEnd) lastEnd = headerLen + divdStr.length;
+    var fCol = lastEnd - fRem.length;
+    if(fCol < 0) fCol = 0;
     rows.push({
-      text: spaces(headerLen + divdStr.length) + String(finalRem),
+      text: spaces(fCol) + fRem,
       type: 'remainder',
       narrate: finalRem === 0 ? 'Remainder zero. Division complete.' : 'Remainder ' + finalRem
     });
@@ -4283,8 +4299,11 @@ async function warmVoices(sol){
   // Two parallel workers — fast, but stays within ElevenLabs concurrency limits
   await Promise.all([worker(headTotal), worker(headTotal)]);
   if(texts.length > headTotal){
-    // Deliberately NOT awaited: the class begins now and these arrive behind it.
-    worker(texts.length); worker(texts.length);
+    /* Deliberately NOT awaited: the class begins now and these arrive behind it.
+       Three workers rather than two, because the lesson is CONSUMING lines while
+       these produce them - at two it was being caught up with, and a step that
+       reaches an unwarmed line has to stop and generate it. */
+    worker(texts.length); worker(texts.length); worker(texts.length);
   }
 }
 
