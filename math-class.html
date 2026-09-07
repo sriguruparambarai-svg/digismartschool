@@ -1773,6 +1773,9 @@ async function solveAndTeach(){
           var mA = parseInt(mulMatch[1], 10);
           var mB = parseInt(mulMatch[2], 10);
           if(!isNaN(mA) && !isNaN(mB)){
+            /* "396 x 1" inside a lemma line is not a multiplication anyone works
+               out. Manufacturing rough work from it fills the panel with noise. */
+            if(mA <= 1 || mB <= 1 || (mA < 10 && mB < 10)) continue;
             var expectedMulResult = mA * mB;
             // Check if current step contains the multiplied number (anywhere)
             var curNumbers = (curMain.match(/\d+/g) || []).map(function(n){ return parseInt(n, 10); });
@@ -1789,6 +1792,25 @@ async function solveAndTeach(){
         }
       }
     }
+
+    /* ── ONE NOTATION, NOT TWO ──
+       A step written "504 = 396 x 1 + 108" is Euclid's lemma. The rough panel
+       was then drawing the SAME division as a bracket, so the class saw one
+       division in two notations at once and a teacher without maths had to
+       reconcile them live. The lemma line is turned into the division working
+       itself - the layout the child must reproduce in the exam - and the rough
+       panel is left out of it. */
+    (solution.steps || []).forEach(function(st){
+      var m = String(st.main || '').replace(/\s+/g, '')
+        .match(/^(\d+)=(\d+)[\u00d7x*](\d+)\+(\d+)$/);
+      if(!m) return;
+      var A = +m[1], B = +m[2], q = +m[3], r = +m[4];
+      if(B * q + r !== A) return;          // only if the arithmetic actually holds
+      if(B <= 0 || r < 0 || r >= B) return;
+      st.boardDiv = { a: A, b: B };
+      st.roughType = 'none';               // the board already carries it
+      st.roughLabel = '';
+    });
 
     SOLUTION = solution;
     try{ mcRefreshModelBtn(); }catch(e){}
@@ -3369,7 +3391,11 @@ async function showStep(idx){
   if(whyEl && whyText) whyEl.classList.add('show');
   var whyPromise = whyText ? speakStep(whyText) : null;
   if(contentEl){
-    if(hasMatrixNotation(step.main)){
+    if(step.boardDiv){
+      contentEl.innerHTML = renderDivision(step.boardDiv.a, step.boardDiv.b);
+      contentEl.classList.add('mx-fade');
+      await sleep(500);
+    } else if(hasMatrixNotation(step.main)){
       renderMathWithMatrices(contentEl, step.main || '');
       contentEl.classList.add('mx-fade');
       await sleep(650);
@@ -4139,7 +4165,9 @@ function showStepInstant(idx){
     if(i <= idx){
       el.classList.add('show');
       if(contentEl && SOLUTION.steps[i]){
-        if(hasMatrixNotation(SOLUTION.steps[i].main)){
+        if(SOLUTION.steps[i].boardDiv){
+          contentEl.innerHTML = renderDivision(SOLUTION.steps[i].boardDiv.a, SOLUTION.steps[i].boardDiv.b);
+        } else if(hasMatrixNotation(SOLUTION.steps[i].main)){
           renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
         } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || '', (mkSlots(SOLUTION.steps[i]) || []).concat(ptrSlots(SOLUTION.steps[i]) || [])))){
           contentEl.textContent = SOLUTION.steps[i].main || '';
