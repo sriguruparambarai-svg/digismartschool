@@ -404,9 +404,19 @@ function scPlanPrompt(){
 
 /* The checklist the planner is not allowed to shorten. Empty when the topic
    pass failed, so the plan still builds the old way rather than not at all. */
+var SC_BATCH = null;   /* set while planning one slice of a long chapter */
+
 function scTopicChecklistRule(){
-  if (!LESSON.topics || !LESSON.topics.length) return '';
-  var list = LESSON.topics.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\n');
+  var topics = SC_BATCH ? SC_BATCH.topics : LESSON.topics;
+  if (!topics || !topics.length) return '';
+  var list = topics.map(function(t, i){ return (i + 1) + '. ' + t; }).join('\n');
+  if (SC_BATCH){
+    return '\n\nYou are planning PART ' + SC_BATCH.n + ' OF ' + SC_BATCH.of + ' of this chapter. ' +
+      (SC_BATCH.n === 1 ? 'Begin with the title step.' : 'Do NOT include a title step \u2014 the class has already begun.') +
+      '\nCover ONLY these topics, in this order, one step each at least:\n' + list +
+      '\n\nIgnore every other part of the lesson text; another part of the plan covers it. ' +
+      'Never leave out a topic from the list above.';
+  }
   return '\n\nTOPIC CHECKLIST \u2014 this lesson teaches the following topics, in book order:\n' + list +
     '\n\nEVERY topic above must appear as at least one step, in this order. Never leave out a topic that sits near the END of the chapter \u2014 those are the ones most often forgotten, and students are examined on them.';
 }
@@ -446,29 +456,67 @@ async function scTopicList(){
             .filter(Boolean).slice(0, 30);
 }
 
+/* A Samacheer unit runs to thirty-odd topics, and asking for the whole plan in
+   one reply pushes past what a single answer can hold - which came back as an
+   empty response rather than a short plan. The chapter is planned in slices of
+   eight topics instead. Each reply is a comfortable size, and one slice failing
+   costs eight topics rather than the entire class. */
+var SC_BATCH_SIZE = 8;
+
 async function scGeneratePlanFresh(){
   /* Read the headings before planning, so nothing at the end can be dropped. */
   if (!LESSON.topics || !LESSON.topics.length){
     scPrepMsg('Reading the chapter headings\u2026');
     try{ LESSON.topics = await scTopicList(); }catch(tl){ LESSON.topics = []; }
   }
+
+  if (LESSON.topics && LESSON.topics.length > SC_BATCH_SIZE){
+    var slices = [];
+    for (var i = 0; i < LESSON.topics.length; i += SC_BATCH_SIZE){
+      slices.push(LESSON.topics.slice(i, i + SC_BATCH_SIZE));
+    }
+    var all = [], failed = 0;
+    for (var b = 0; b < slices.length; b++){
+      scPrepMsg('Planning part ' + (b + 1) + ' of ' + slices.length + '\u2026');
+      SC_BATCH = { n: b + 1, of: slices.length, topics: slices[b] };
+      try{
+        var part = await scPlanOnce();
+        if (part && part.length) all = all.concat(part);
+        else failed++;
+      }catch(be){ failed++; }
+    }
+    SC_BATCH = null;
+    if (!all.length) throw new Error('The class could not be prepared. Please press Try Again.');
+    if (failed) console.log('[science-class] ' + failed + ' of ' + slices.length + ' parts came back empty');
+    return all;
+  }
+
+  SC_BATCH = null;
+  return await scPlanOnce();
+}
+
+async function scPlanOnce(){
   var res = await fetch('/api/ai', {
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify({
       system: scPlanPrompt(),
       messages:[{role:'user', content:'LESSON TEXT:\n\n' + LESSON.text.substring(0, 200000)}],
-      max_tokens: 12000
+      max_tokens: 8000
     })
   });
-  var d = await res.json();
+  var d = null;
+  try{ d = await res.json(); }catch(pe){ d = null; }
   var raw = '';
   if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type==='text' ? b.text : ''; }).join('');
   else if (d && d.text) raw = String(d.text);
   if (!raw){
-    var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || 'empty AI response';
-    if (typeof why !== 'string') why = JSON.stringify(why);
-    throw new Error(why.substring(0, 200));
+    /* Say what actually came back, so a failure can be diagnosed from the screen
+       instead of guessed at. */
+    var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || '';
+    if (why && typeof why !== 'string') why = JSON.stringify(why);
+    if (!why) why = 'no answer (HTTP ' + res.status + ', stop: ' + ((d && d.stop_reason) || 'unknown') + ')';
+    throw new Error(String(why).substring(0, 200));
   }
   var plan = scParseJSON(raw);
   if (!plan || !Array.isArray(plan.steps) || plan.steps.length === 0) throw new Error('the AI reply was incomplete \u2014 please press Try Again');
@@ -2039,7 +2087,7 @@ async function scInit(){
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
 async function scPlanKey(){
-  var data = 'v8|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'v9|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
