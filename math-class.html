@@ -1168,6 +1168,33 @@ document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') mcCloseModel();
 });
 
+/* ── ONE NOTATION, NOT TWO ──
+   A step written "504 = 396 x 1 + 108" is Euclid's lemma. The rough panel was
+   then drawing the SAME division as a bracket, so a class saw one division in
+   two notations at once and a teacher without maths had to reconcile them live.
+   The lemma line becomes the division working itself - the layout the child
+   reproduces in the exam - and the rough panel is left out of it.
+
+   This MUST run on every solution however it arrived. It used to run only when
+   a solution was generated, so a cached one kept the old two-notation board and
+   no fix could reach it. */
+function normaliseBoardDivisions(sol){
+  if(!sol || !Array.isArray(sol.steps)) return sol;
+  sol.steps.forEach(function(st){
+    if(!st) return;
+    var m = String(st.main || '').replace(/\s+/g, '')
+      .match(/^(\d+)=(\d+)[\u00d7x*](\d+)\+(\d+)$/);
+    if(!m) return;
+    var A = +m[1], B = +m[2], q = +m[3], r = +m[4];
+    if(B * q + r !== A) return;            // only when the arithmetic actually holds
+    if(B <= 0 || r < 0 || r >= B) return;
+    st.boardDiv = { a: A, b: B };
+    st.roughType = 'none';                 // the board already carries it
+    st.roughA = ''; st.roughB = ''; st.roughResult = ''; st.roughLabel = '';
+  });
+  return sol;
+}
+
 var SOLUTION = null;      // The full problem solution from AI
 var STEP_IDX = -1;        // Current step (-1 = not started, 0 = first step)
 var IS_PLAYING = false;
@@ -1298,7 +1325,7 @@ async function solveAndTeach(){
         var savedData = await savedRes.json();
         if(savedData && savedData.found && savedData.solution &&
            Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0){
-          SOLUTION = savedData.solution;
+          SOLUTION = normaliseBoardDivisions(savedData.solution);
           try{ mcRefreshModelBtn(); }catch(e){}
           await warmVoices(SOLUTION);
           $('loading').classList.remove('show');
@@ -1793,25 +1820,7 @@ async function solveAndTeach(){
       }
     }
 
-    /* ── ONE NOTATION, NOT TWO ──
-       A step written "504 = 396 x 1 + 108" is Euclid's lemma. The rough panel
-       was then drawing the SAME division as a bracket, so the class saw one
-       division in two notations at once and a teacher without maths had to
-       reconcile them live. The lemma line is turned into the division working
-       itself - the layout the child must reproduce in the exam - and the rough
-       panel is left out of it. */
-    (solution.steps || []).forEach(function(st){
-      var m = String(st.main || '').replace(/\s+/g, '')
-        .match(/^(\d+)=(\d+)[\u00d7x*](\d+)\+(\d+)$/);
-      if(!m) return;
-      var A = +m[1], B = +m[2], q = +m[3], r = +m[4];
-      if(B * q + r !== A) return;          // only if the arithmetic actually holds
-      if(B <= 0 || r < 0 || r >= B) return;
-      st.boardDiv = { a: A, b: B };
-      st.roughType = 'none';               // the board already carries it
-      st.roughLabel = '';
-    });
-
+    normaliseBoardDivisions(solution);
     SOLUTION = solution;
     try{ mcRefreshModelBtn(); }catch(e){}
 
