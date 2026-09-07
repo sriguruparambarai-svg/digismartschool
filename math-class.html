@@ -4469,19 +4469,24 @@ function mcSpellNumbers(text){
    ceiling: if it has not finished by then the class carries on. Silence for one
    line is recoverable, a frozen blackboard is not. */
 function speakStep(text){
-  return new Promise(function(resolve){
+  return new Promise(function(settle){
+    /* "settle" is the promise's real resolver and is called exactly once.
+       Everything below calls "resolve", which is the guarded wrapper. Keeping
+       the two separately named matters: overwriting the resolver with a
+       function that calls the resolver makes it call itself, and every spoken
+       line then never finishes. */
     var settled = false;
-    var done = function(){
+    var guardTimer = null;
+    function resolve(){
       if(settled) return;
       settled = true;
-      clearTimeout(guardTimer);
-      resolve();
-    };
-    var guardTimer = setTimeout(function(){
+      if(guardTimer) clearTimeout(guardTimer);
+      settle();
+    }
+    guardTimer = setTimeout(function(){
       console.log('[voice] line took too long, carrying on: ' + String(text).substring(0, 60));
-      done();
+      resolve();
     }, 30000);
-    resolve = done;
     if(!IS_PLAYING && !text){ resolve(); return; }
     // Convert math symbols/expressions into spoken words BEFORE voice generation
     var cleanText = mathToSpeech(text);
