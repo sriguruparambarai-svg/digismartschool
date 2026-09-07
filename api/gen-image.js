@@ -30,20 +30,6 @@ const IMG_QUALITY = 'medium';         // bright & clean without paying premium
 // Each style has its own cache folder key, so the same word can exist as both
 // a colour picture and an outline without one overwriting the other.
 const STYLES = {
-  // Classroom scene for a science lesson. No text in the picture: generated
-  // lettering comes out garbled, and any labelling belongs on the diagram or
-  // the 3D model instead. Indian setting, because a child in Mayiladuthurai
-  // should recognise what he is looking at.
-  'science-scene': {
-    size: '1024x1024',
-    quality: 'medium',
-    prefix: 'A clear educational illustration for a school science lesson in India. '
-      + 'Realistic, well lit, clean uncluttered background with nothing irrelevant in the frame. '
-      + 'Show the subject large and central so it reads clearly on a classroom projector. '
-      + 'Indian people, clothing and surroundings where people or places appear. '
-      + 'No text, no letters, no numbers, no labels, no arrows, no watermarks anywhere in the image. '
-      + 'Do not draw a diagram or a chart. Show the real thing or the real situation. Show: '
-  },
   'kg-colour': {
     size: '1024x1024',
     quality: 'medium',
@@ -243,14 +229,18 @@ module.exports = async function handler(req, res) {
   const style = STYLES[mode] || null;
   if (query.length < 3) return res.json({ images: [] });
 
-  const fileName = cacheKey(query, context, mode) + '.png';
+  // A forced redraw writes to a new name, otherwise the cache check below
+  // would return the very picture we are trying to get rid of.
+  const force = !!body.force;
+  const fileName = cacheKey(query, context, mode)
+                 + (force ? ('-' + Date.now().toString(36)) : '') + '.png';
   const url = publicUrl(fileName);
   const wrap = function (u) { return { images: [{ url: u, title: query, source: 'AI illustration' }] }; };
 
   try {
     // 1) already drawn before? return instantly.
     console.log('[gen-image] request mode=' + mode + ' key=' + fileName.substring(0, 12));
-    if (await cacheExists(fileName)) {
+    if (!force && await cacheExists(fileName)) {
       return res.json(Object.assign(wrap(url), { cached: true }));
     }
 
