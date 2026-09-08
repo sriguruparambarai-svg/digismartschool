@@ -2752,6 +2752,13 @@ Draw your school bag</textarea>
       if (style === "colour" && KG_PIC[k].colour_url) n++;
       if (style === "outline" && KG_PIC[k].outline_url) n++;
     }
+    if (kgLoadError && style !== "line"){
+      el.textContent = "Picture library not loaded (" + kgLoadError
+        + "). Simple line drawings are being used instead.";
+      el.style.color = "#b03030";
+      return;
+    }
+    el.style.color = "";
     if (style === "line"){
       el.textContent = Object.keys(ICONS_BUILTIN).length + " simple drawings, printed in outline.";
     } else if (n === 0){
@@ -2762,6 +2769,7 @@ Draw your school bag</textarea>
     }
   }
 
+  var kgLoadError = '';        // why the library did not load, if it did not
   async function kgLoadPictures(){
     try {
       var r = await fetch('/api/auth', {
@@ -2769,8 +2777,13 @@ Draw your school bag</textarea>
         body: JSON.stringify({ action:'tbl_get', table:'kg_pictures',
                                params:'select=word,en,ta,hi,cat,colour_url,outline_url&order=word' })
       });
+      if (!r.ok) throw new Error('the server said ' + r.status);
       var rows = await r.json();
-      if (!Array.isArray(rows)) rows = [];
+      if (!Array.isArray(rows)) {
+        throw new Error(rows && rows.error ? rows.error : 'the reply was not a list of words');
+      }
+      if (!rows.length) kgLoadError = 'the picture library is empty';
+      console.log('[pictures] loaded ' + rows.length + ' words from the library');
       rows.forEach(function(row){
         if (!row || !row.word) return;
         if (!row.colour_url && !row.outline_url && !ICONS[row.word]) return;  // nothing to show yet
@@ -2785,7 +2798,10 @@ Draw your school bag</textarea>
           if (!ic.cat && row.cat) ic.cat = row.cat;
         }
       });
-    } catch(e) { /* library optional - built-in drawings still work */ }
+    } catch(e) {
+      kgLoadError = e.message || 'could not reach the picture library';
+      console.error('[pictures] ' + kgLoadError);
+    }
     kgApplyPicStyle();
     kgPicHint();
     try { cpFillLists(); } catch(e) {}
