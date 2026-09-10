@@ -2726,6 +2726,35 @@ Draw your school bag</textarea>
     kgRebuildCats();
   }
 
+  // Offer every category that has pictures inside the Count and write dropdown
+  function kgFillCountShapes(){
+    var sel = $("cShape");
+    if (!sel) return;
+    var keep = sel.value;
+    var seen = {};
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      if (!ICONS[k].img) continue;              // only drawn pictures
+      if (ICONS[k].cat) seen[ICONS[k].cat] = true;
+    }
+    var base = '<option value="circle">Circles</option>'
+             + '<option value="star">Stars</option>'
+             + '<option value="apple">Apples</option>'
+             + '<option value="ball">Balls</option>'
+             + '<option value="mixed">Mixed</option>';
+    var cats = Object.keys(seen).sort();
+    if (cats.length){
+      base += '<optgroup label="From the picture library">'
+            + cats.map(function(c){
+                return '<option value="lib:' + c + '">' + esc(CAT_LABELS[c] || c) + '</option>';
+              }).join('')
+            + '</optgroup>';
+    }
+    sel.innerHTML = base;
+    if (keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;
+    else sel.value = "mixed";
+  }
+
   function kgRebuildCats(){
     var seen = {};
     for (var i=0;i<ICON_KEYS.length;i++){
@@ -2740,6 +2769,7 @@ Draw your school bag</textarea>
   function kgPicStyleChanged(){
     kgApplyPicStyle();
     kgPicHint();
+    kgFillCountShapes();
     try { render(); } catch(e) {}
   }
 
@@ -2804,6 +2834,7 @@ Draw your school bag</textarea>
     }
     kgApplyPicStyle();
     kgPicHint();
+    kgFillCountShapes();
     try { cpFillLists(); } catch(e) {}
     try { ctFillLists(); } catch(e) {}
     try { kcFillLists(); } catch(e) {}
@@ -3432,11 +3463,30 @@ Draw your school bag</textarea>
     var pick = val("cShape");
     var colour = $("colour").checked;
     var out = "";
+    // A "lib:" choice means a category from the picture library. Each question
+    // gets its own word so a sheet is not eight rows of the same thing.
+    var libPool = null;
+    if (pick && pick.indexOf("lib:") === 0){
+      var wantCat = pick.substring(4);
+      libPool = [];
+      for (var lk in ICONS){
+        if (!ICONS.hasOwnProperty(lk)) continue;
+        if (!ICONS[lk].img && !ICONS[lk].d) continue;
+        if (wantCat !== "any" && ICONS[lk].cat !== wantCat) continue;
+        libPool.push(lk);
+      }
+      if (!libPool.length) libPool = null;
+    }
     for(var i=0;i<counts.length;i++){
       var q = counts[i];
       var shape = (pick==="mixed") ? q.s : pick;
       var pics = "";
-      for(var p=0;p<q.n;p++){ pics += svg(shape, colour); }
+      if (libPool){
+        var word = libPool[i % libPool.length];
+        for(var lp=0; lp<q.n; lp++){ pics += iconSvg(word, 26); }
+      } else {
+        for(var p=0;p<q.n;p++){ pics += svg(shape, colour); }
+      }
       out += '<div class="cq"><div class="no">'+(i+1)+'.</div>'+
              '<div class="pics">'+pics+'</div>'+
              '<div class="box'+(showAns?" ansbox":"")+'">'+(showAns?q.n:"")+'</div></div>';
