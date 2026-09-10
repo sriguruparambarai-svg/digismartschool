@@ -2881,9 +2881,23 @@ Draw your school bag</textarea>
     kgRebuildCats();
   }
 
-  // Offer every category that has pictures inside the Count and write dropdown
-  function kgFillCountShapes(){
-    var sel = $("cShape");
+  // Words we can draw from a chosen library category, or null if the choice
+  // is one of the four built-in shapes.
+  function kgLibPool(pick){
+    if (!pick || pick.indexOf("lib:") !== 0) return null;
+    var wantCat = pick.substring(4), pool = [];
+    for (var k in ICONS){
+      if (!ICONS.hasOwnProperty(k)) continue;
+      if (!ICONS[k].img && !ICONS[k].d) continue;
+      if (wantCat !== "any" && ICONS[k].cat !== wantCat) continue;
+      pool.push(k);
+    }
+    return pool.length ? pool : null;
+  }
+
+  // Offer every category that has pictures inside a shape dropdown
+  function kgFillShapeSelect(id){
+    var sel = $(id);
     if (!sel) return;
     var keep = sel.value;
     var seen = {};
@@ -2908,6 +2922,11 @@ Draw your school bag</textarea>
     sel.innerHTML = base;
     if (keep && sel.querySelector('option[value="' + keep + '"]')) sel.value = keep;
     else sel.value = "mixed";
+  }
+
+  function kgFillCountShapes(){
+    kgFillShapeSelect("cShape");
+    kgFillShapeSelect("pShape");
   }
 
   function kgRebuildCats(){
@@ -3620,18 +3639,7 @@ Draw your school bag</textarea>
     var out = "";
     // A "lib:" choice means a category from the picture library. Each question
     // gets its own word so a sheet is not eight rows of the same thing.
-    var libPool = null;
-    if (pick && pick.indexOf("lib:") === 0){
-      var wantCat = pick.substring(4);
-      libPool = [];
-      for (var lk in ICONS){
-        if (!ICONS.hasOwnProperty(lk)) continue;
-        if (!ICONS[lk].img && !ICONS[lk].d) continue;
-        if (wantCat !== "any" && ICONS[lk].cat !== wantCat) continue;
-        libPool.push(lk);
-      }
-      if (!libPool.length) libPool = null;
-    }
+    var libPool = kgLibPool(pick);
     for(var i=0;i<counts.length;i++){
       var q = counts[i];
       var shape = (pick==="mixed") ? q.s : pick;
@@ -6030,14 +6038,18 @@ Draw your school bag</textarea>
   function buildMpic(ans){
     if(!mpic.length){ makeMpic(); }
     var pick=val("pShape"), colour=$("colour").checked, out="";
+    var libPool = kgLibPool(pick);
     for(var i=0;i<mpic.length;i++){
       var q=mpic[i];
       var shape = (pick==="mixed") ? q.s : pick;
+      // A library category gives each question its own word
+      var libWord = libPool ? libPool[i % libPool.length] : null;
+      var one = function(){ return libWord ? iconSvg(libWord, 26) : svg(shape, colour); };
       var g1="", g2="", k;
-      for(k=0;k<q.a;k++){ g1 += svg(shape,colour); }
+      for(k=0;k<q.a;k++){ g1 += one(); }
       var row='<div class="mrow"><div class="no">'+(i+1)+'.</div>';
       if(q.k==="add"){
-        for(k=0;k<q.b;k++){ g2 += svg(shape,colour); }
+        for(k=0;k<q.b;k++){ g2 += one(); }
         row += '<div class="pics">'+g1+'</div><span class="op">+</span>'+
                '<div class="pics">'+g2+'</div><span class="op">=</span>'+
                box(ans?(q.a+q.b):"",ans);
@@ -6399,6 +6411,7 @@ Draw your school bag</textarea>
       if(this.id.indexOf("hi")===0){ hiSync(); }
       if(this.id==="cpCat"){ cpFillLists(); }
       if(this.id==="cQty" || this.id==="cMax"){ makeCounts(); }
+      if(this.id==="pShape"){ render(); }
       if(this.id.charAt(0)==="g" && this.id!=="gRows0"){ makeGrid(); }
       if("nFrom nTo nGap".indexOf(this.id)>=0){ makeMnum(); }
       if("bType bQty bMax".indexOf(this.id)>=0){ makeMbaf(); }
