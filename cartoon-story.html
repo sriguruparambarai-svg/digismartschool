@@ -1562,7 +1562,7 @@ function beginPlayback(sc){
   startWordHighlight(narrText);
 
   // Speak
-  speak(fullText,'en',function(){
+  speak(fullText,storyLang||'en',function(){
     if(playing){
       ptimer=setTimeout(function(){
         if(playing){
@@ -1572,7 +1572,7 @@ function beginPlayback(sc){
             playing=false;
             document.getElementById('btn-play').innerHTML='▶ Play';
             document.getElementById('moral-box').classList.add('show');
-            if(moral)speak('The moral of this story is: '+moral,'en',null);
+            if(moral)speak((storyLang==='ta'?'\u0b87\u0b95\u0bcd\u0b95\u0ba4\u0bc8\u0baf\u0bbf\u0ba9\u0bcd \u0baa\u0b9f\u0bbf\u0baa\u0bcd\u0baa\u0bbf\u0ba9\u0bc8: ':'The moral of this story is: ')+moral,storyLang||'en',null);
           }
         }
       },1800);
@@ -1582,11 +1582,13 @@ function beginPlayback(sc){
   });
 }
 
-function startWordHighlight(txt){
+var hlText='';
+function startWordHighlight(txt,durMs){
+  hlText=String(txt||'');
   var el=document.getElementById('sub-text');
   el.innerHTML=wrapWords(txt);
   var words=txt.split(/\s+/);
-  var dur=(txt.length/13)/spd*1000;
+  var dur=durMs||((txt.length/13)/spd*1000);
   var wint=Math.max(100,dur/Math.max(words.length,1));
   var wi=0;
   clearInterval(hlInterval);
@@ -1596,6 +1598,16 @@ function startWordHighlight(txt){
     if(w){w.classList.add('hl');}
     wi++;if(wi>=words.length)clearInterval(hlInterval);
   },wint);
+}
+
+// Called once the narration audio reports its true length, so the
+// highlighted word keeps pace with the voice instead of drifting.
+function retimeWordHighlight(durMs){
+  if(!hlText||!durMs)return;
+  // The narration audio may also contain the dialogue line, which is not
+  // highlighted. Give the highlight only its own share of the running time.
+  var share=(spokenLen>0)?Math.min(1,hlText.length/spokenLen):1;
+  startWordHighlight(hlText,durMs*share);
 }
 
 function wrapWords(txt){
@@ -1640,7 +1652,51 @@ function togglePlay(){
 // ═══════════════════════════════════════════════════════
 // SPEECH
 // ═══════════════════════════════════════════════════════
+// ── ELEVENLABS NARRATION ───────────────────────────────
+// The storyteller voice comes from /api/voice-story. If that is ever
+// unavailable the browser voice takes over automatically, so a story
+// never plays silently in front of a class.
+var storyAudio=null;
+var storyAudioSeq=0;
+var spokenLen=0;
+
 function speak(txt,lang,onEnd){
+  var clean=String(txt||'').replace(/\*\*/g,'').replace(/\*/g,'').trim();
+  if(!clean){if(onEnd)onEnd();return;}
+  var useLang=lang||storyLang||'en';
+  stopSpeech();
+  var seq=++storyAudioSeq;
+  spokenLen=clean.length;
+
+  fetch('/api/voice-story',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({text:clean,lang:useLang})
+  }).then(function(r){return r.json();}).then(function(d){
+    if(seq!==storyAudioSeq)return;               // a newer scene started; drop this
+    if(!d||!d.audio_b64)throw new Error('no audio');
+    var a=new Audio('data:audio/mpeg;base64,'+d.audio_b64);
+    a.playbackRate=Math.max(.5,Math.min(1.4,spd));
+    storyAudio=a;
+    a.addEventListener('loadedmetadata',function(){
+      // Re-time the word highlighting to the REAL length of the narration
+      // instead of the old character-count guess.
+      if(seq===storyAudioSeq&&isFinite(a.duration)&&a.duration>0){
+        retimeWordHighlight(a.duration*1000/a.playbackRate);
+      }
+    });
+    a.onended=function(){if(seq===storyAudioSeq){storyAudio=null;if(onEnd)onEnd();}};
+    a.onerror=function(){if(seq===storyAudioSeq){storyAudio=null;speakBrowser(clean,useLang,onEnd);}};
+    a.play().catch(function(){
+      if(seq===storyAudioSeq){storyAudio=null;speakBrowser(clean,useLang,onEnd);}
+    });
+  }).catch(function(){
+    if(seq===storyAudioSeq)speakBrowser(clean,useLang,onEnd);
+  });
+}
+
+// ── FALLBACK: the old browser voice, unchanged ─────────
+function speakBrowser(txt,lang,onEnd){
   if(typeof speechSynthesis==='undefined'){if(onEnd)onEnd();return;}
   speechSynthesis.cancel();
   var clean=String(txt||'').replace(/\*\*/g,'').replace(/\*/g,'').trim();
@@ -1672,7 +1728,11 @@ function speak(txt,lang,onEnd){
   u.onerror=function(){if(onEnd)onEnd();};
   speechSynthesis.speak(u);
 }
-function stopSpeech(){if(typeof speechSynthesis!=='undefined')speechSynthesis.cancel();}
+function stopSpeech(){
+  storyAudioSeq++;                       // cancel any narration still downloading
+  if(storyAudio){try{storyAudio.pause();}catch(e){}storyAudio=null;}
+  if(typeof speechSynthesis!=='undefined')speechSynthesis.cancel();
+}
 
 // ═══════════════════════════════════════════════════════
 // ╔══════════════════════════════════════════════════════╗
