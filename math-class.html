@@ -492,13 +492,7 @@ html,body{
   color:var(--chalk-white);
   flex:1;
   line-height:1.6;
-  /* A table or an arrow diagram comes as several lines in one string.
-     Without this they were all printed on top of each other as one line. */
-  white-space:pre-wrap;
 }
-/* Printed maths keeps its own spacing rules inside the step. */
-.step-content .katex,
-.step-content .katex *{white-space:normal;}
 .step-explanation{
   display:block;
   font-size:1rem;
@@ -3376,7 +3370,15 @@ async function runPlayback(){
     // Show formula if exists
     if(isRealFormula(SOLUTION.formula, SOLUTION)){
       $('formula-block').classList.add('show');
-      await chalkWrite($('formula-text'), SOLUTION.formula, 90);
+      /* The formula is the one line a class copies down, so it is drawn as
+         real maths - x above the line, 2 below - not as "x/2". Falls back
+         to the chalk writer if anything cannot be drawn. */
+      var fWrote = null;
+      if(needsPrintMath(SOLUTION.formula)){
+        try{ fWrote = katexWrite($('formula-text'), SOLUTION.formula, 90); }catch(e){ fWrote = null; }
+      }
+      if(fWrote){ await fWrote; }
+      else { await chalkWrite($('formula-text'), SOLUTION.formula, 90); }
       if(!IS_PLAYING) return;
       var formulaIntro = SOLUTION.formulaScript || ("First, let us remember the formula we need. " + SOLUTION.formula);
       await speakStep(formulaIntro);
@@ -4356,7 +4358,9 @@ function replayStep(){
 function showStepInstant(idx){
   // Show all steps up to idx without speech but with proper chalk text
   if(isRealFormula(SOLUTION.formula, SOLUTION)){
-    $('formula-text').textContent = SOLUTION.formula;
+    if(!(needsPrintMath(SOLUTION.formula) && katexSet($('formula-text'), SOLUTION.formula))){
+      $('formula-text').textContent = SOLUTION.formula;
+    }
     $('formula-block').classList.add('show');
   }
   // Reset rough work
@@ -4368,12 +4372,18 @@ function showStepInstant(idx){
     if(i <= idx){
       el.classList.add('show');
       if(contentEl && SOLUTION.steps[i]){
+        contentEl.style.whiteSpace = '';
         if(SOLUTION.steps[i].boardDiv){
           contentEl.innerHTML = renderDivision(SOLUTION.steps[i].boardDiv.a, SOLUTION.steps[i].boardDiv.b);
         } else if(hasMatrixNotation(SOLUTION.steps[i].main)){
           renderMathWithMatrices(contentEl, SOLUTION.steps[i].main || '');
         } else if(!(needsPrintMath(SOLUTION.steps[i].main) && katexSet(contentEl, SOLUTION.steps[i].main || '', (mkSlots(SOLUTION.steps[i]) || []).concat(ptrSlots(SOLUTION.steps[i]) || [])))){
-          contentEl.textContent = SOLUTION.steps[i].main || '';
+          var mainTxt = SOLUTION.steps[i].main || '';
+          /* A table or an arrow diagram is several lines in one string. Here
+             the text is set in one go instead of being written character by
+             character, so the element itself has to keep the line breaks. */
+          contentEl.style.whiteSpace = (mainTxt.indexOf('\n') !== -1) ? 'pre-wrap' : '';
+          contentEl.textContent = mainTxt;
         }
         var wEl = $('step-why-' + i);
         if(wEl) wEl.classList.add('show');
