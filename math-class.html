@@ -1760,7 +1760,7 @@ async function solveAndTeach(){
       + '      "roughAddends": "ONLY for place-value sums of 2-6 numbers: comma list of the expanded values, e.g. 400,60,8 or 300,0,5. Empty otherwise. When set, the stacked column working is drawn and narrated by place names automatically.",\n'
       + '      "roughCustom": "only used if roughType is custom",\n'
       + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
-      + '      ,\"marks\": [ OPTIONAL - usually absent. See MARKER PEN section below ]\n'
+      + '      ,\"marks\": [ OPTIONAL - include one wherever the mark teaches. See MARKER PEN section below ]\n'
       + '    }\n'
       + '  ],\n'
       + '  "figures": [ OPTIONAL - line geometry, triangles, circles, coordinate graphs, solids. See FIGURES section below ],\n'
@@ -1770,15 +1770,18 @@ async function solveAndTeach(){
       + '  "practiceQuestion": "ONE practice question of the SAME pattern with DIFFERENT numbers, for students to solve on their own (e.g. after sum 1 to 20, give sum 1 to 30). Similar difficulty, never harder. Empty string if no natural variant exists (e.g. proofs).",\n'
       + '  "practiceAnswer": "final answer ONLY of the practice question, no steps (e.g. Sum = 465). Empty if practiceQuestion is empty."\n'
       + '}\n\n'
-      + '════════ MARKER PEN (use RARELY) ════════\n'
-      + 'A step may carry a "marks" array so the teacher draws on the board with a marker, the way a real teacher points while explaining. MOST STEPS MUST HAVE NO MARKS AT ALL. Use one only where the mark itself teaches something a student could otherwise miss.\n'
-      + 'Use a mark ONLY for these four situations:\n'
+      + '════════ MARKER PEN ════════\n'
+      + 'A step may carry a "marks" array so the teacher draws on the board with a marker, the way a real teacher holds the chalk against a piece of the working while explaining it. Mark every step where the mark itself teaches something a student could otherwise miss, and leave every other step unmarked.\n'
+      + 'Use a mark for these situations:\n'
       + '  - something CANCELS on both sides  -> {"type":"strike","target":"(x²+1)"}  (every copy of that text on the line is struck, which is exactly right for cancelling)\n'
       + '  - a term MOVES to the other side or a factor multiplies into a bracket -> {"type":"arrow","target":"3","to":"(2x - 11)"}\n'
       + '  - one term is the SUBJECT of this step and must be picked out -> {"type":"underline","target":"y - z"}\n'
       + '  - a whole group must be seen as ONE thing before the next move -> {"type":"circle","target":"2x - 11"}\n'
+      + '  - a SIGN CHANGE: two minus signs becoming a plus, or a minus taken into a bracket -> {"type":"circle","target":"- (-48)"}. This is the move a class most often loses. Mark it EVERY time it happens, circling the piece exactly as it stands on THIS line, before it is simplified.\n'
+      + '  - a value being SUBSTITUTED in place of a letter -> {"type":"underline","target":"40"} on the line where that number first takes the letter\u2019s place. Underline the value that was put in, not the whole expression.\n'
       + 'MARKER RULES:\n'
-      + '  - At most ONE mark per step, and at most 3 marks in the WHOLE solution. A board covered in marks teaches nothing.\n'
+      + '  - At most ONE mark per step - a step is ONE move, so it has at most one thing worth pointing at.\n'
+      + '  - There is NO limit across the solution. Mark every step that genuinely needs it and none of the ones that do not. Ten steps carrying three real marks is right; ten steps carrying ten marks means you are marking for the sake of it.\n'
       + '  - "target" (and "to") must be copied EXACTLY, character for character, from THIS step’s own "main" text. If it is not an exact substring of main, the mark is dropped.\n'
       + '  - Never mark a step just because you can. If in doubt, leave marks out.\n'
       + '  - Never mark the final answer step.\n\n'
@@ -2117,6 +2120,12 @@ function computeMultiplicationRows(a, b, result){
   if(isNaN(aNum) || isNaN(bNum)){
     return [{ text: a + ' × ' + b + ' = ' + result, type: 'simple', narrate: a + ' into ' + b + ' equals ' + result }];
   }
+  /* The longer number goes on top, the way it is written on paper. Without
+     this, "4 x 12" put the single digit on top and produced two partial
+     product lines for a sum a child does in one. */
+  if(String(bNum).length > String(aNum).length){
+    var swapTmp = aNum; aNum = bNum; bNum = swapTmp;
+  }
   var aStr = String(aNum);
   var bStr = String(bNum);
   var digitsB = bStr.split('').reverse(); // units first
@@ -2125,8 +2134,14 @@ function computeMultiplicationRows(a, b, result){
     return { value: val, shift: i, digit: parseInt(d, 10) };
   });
   var finalRes = result || String(aNum * bNum);
+  /* Every row is padded to this width, so it must be wide enough for ALL of
+     them. The multiplier row is written as "x " plus the number, so it needs
+     two columns more than the number itself. Leaving it out made that row
+     stick out past the divider and threw the whole block out of line. */
   var maxWidth = Math.max(
     String(finalRes).length,
+    aStr.length,
+    bStr.length + 2,
     Math.max.apply(null, partials.map(function(p){ return String(p.value).length + p.shift; }))
   );
 
