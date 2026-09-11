@@ -210,6 +210,7 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
 .cls-logo-wrap { position:relative; flex-shrink:0; }
 .cls-speak-ring { position:absolute; inset:-6px; border-radius:50%; border:3px solid var(--yellow); opacity:0; }
 .cls-speak-ring.on { animation:ring 1.3s ease-out infinite; }
+#read-aloud-hint { display:none; position:absolute; top:100%; left:50%; transform:translateX(-50%); margin-top:12px; white-space:nowrap; background:rgba(255,215,0,0.14); border:1.5px solid var(--yellow); color:var(--yellow); font-weight:700; font-size:0.82rem; padding:6px 14px; border-radius:999px; z-index:60; }
 @keyframes tamPop{0%{transform:scale(1)}50%{transform:scale(1.08)}100%{transform:scale(1)}}
 @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 @keyframes ring{0%{transform:scale(1);opacity:0.9}100%{transform:scale(1.28);opacity:0}}
@@ -337,7 +338,7 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
     </div>
 
     <div class="voice-check-bar" id="voice-warn-bar">
-      ⚠️ Tamil voice not found on this device. Install it: Settings → Time &amp; Language → Speech → Add Voices → Tamil (India). Using English voice for now.
+      📖 This computer has no Tamil reading voice. Tamil lines will be shown in large letters on the screen for you to read aloud. English lines will be spoken as usual.
     </div>
 
     <button class="btn-start-class" id="btn-start" onclick="startClass()">
@@ -365,6 +366,7 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
     <div class="cls-logo-wrap">
       <img class="cls-logo" src="assets/ark-logo.png" onerror="this.style.background='#6B0F1A'" alt=""/>
       <div class="cls-speak-ring" id="speak-ring"></div>
+      <div id="read-aloud-hint">👩‍🏫 வாசித்துக் காட்டுங்கள் &nbsp;·&nbsp; Read the Tamil line aloud</div>
     </div>
     <div class="cls-lesson-info">
       <div class="cls-lesson-title" id="cls-title">—</div>
@@ -477,6 +479,13 @@ function loadVoices() {
 
 window.speechSynthesis.onvoiceschanged = loadVoices;
 setTimeout(loadVoices, 500);
+
+// Small on-screen nudge for the teacher while a Tamil line is showing silently.
+function showReadAloudHint(on) {
+  var el = document.getElementById('read-aloud-hint');
+  if (!el) return;
+  el.style.display = on ? 'block' : 'none';
+}
 
 // ══════════════════════════════════════════
 // LANG MODE SELECTION
@@ -973,6 +982,25 @@ function playFromSegment(idx) {
     }
   }
 
+  // ── NO TAMIL VOICE ON THIS COMPUTER ──
+  // Windows on most Indian laptops has no Tamil reading voice, and reading Tamil
+  // letters with an English voice sounds like nonsense in class. So instead of
+  // speaking it, we hold the Tamil line on screen in large letters and give the
+  // teacher time to read it aloud herself, then move on.
+  if (seg.type === 'ta' && !taVoice) {
+    document.getElementById('speak-ring').classList.remove('on');
+    showReadAloudHint(true);
+    isSpeaking = false;
+    var words = String(seg.text || '').trim().split(/\s+/).length;
+    var readTime = Math.min(6000, Math.max(2400, 1600 + words * 500));
+    speakTimeout = setTimeout(function() {
+      showReadAloudHint(false);
+      if (!isPaused) playFromSegment(idx + 1);
+    }, readTime);
+    return;
+  }
+  showReadAloudHint(false);
+
   // Speaking ring on
   document.getElementById('speak-ring').classList.add('on');
 
@@ -1075,6 +1103,7 @@ function stopClass() {
   clearTimeout(speakTimeout);
   isPaused = false; isSpeaking = false;
   document.getElementById('speak-ring').classList.remove('on');
+  showReadAloudHint(false);
   showScreen('setup');
 }
 
