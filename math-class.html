@@ -2495,6 +2495,15 @@ function mrLeft(s, i){
     if(/[A-Za-z0-9._]/.test(c)){ j--; absorbed = true; continue; }
     break;
   }
+  /* A numerator may be negative: -10/-4. The minus counts as a SIGN only when
+     nothing it could subtract from sits in front of it, so "5 - 10/4" still
+     takes 10 as the numerator, not -10. */
+  if(absorbed && s.charAt(j) === '-'){
+    var pj = j - 1;
+    while(pj >= 0 && s.charAt(pj) === ' ') pj--;
+    var pc = (pj >= 0) ? s.charAt(pj) : '';
+    if(pc === '' || '(=+-*/,<>\u00d7\u00f7'.indexOf(pc) >= 0) j--;
+  }
   return absorbed ? { start: j + 1, end: end } : null;
 }
 
@@ -2503,6 +2512,9 @@ function mrRight(s, i){
   var j = i + 1, absorbed = false, d, k;
   while(j < s.length && s.charAt(j) === ' ') j++;
   var start = j;
+  /* A denominator may be negative: 10/-4. A minus straight after the slash is
+     always a sign, never a subtraction. */
+  if(s.charAt(j) === '-' && /[0-9A-Za-z(]/.test(s.charAt(j + 1))){ j++; absorbed = true; }
   while(j < s.length){
     var c = s.charAt(j);
     if(c === '('){
@@ -2704,6 +2716,33 @@ function katexWrite(el, text, charDelayMs, slots){
   return new Promise(function(resolve){ setTimeout(resolve, ms + 60); });
 }
 
+/* A formula box sometimes carries TWO lines - the slope formula and the
+   point-slope form beneath it. A multi-line string is not one expression, so
+   it was handed to the chalk writer whole and its fractions stayed as
+   slashes. Each line is now drawn on its own, stacked with a line break. */
+function katexSetLines(el, text){
+  if(!el) return false;
+  var raw = String(text || '');
+  if(!raw.trim()) return false;
+  if(raw.indexOf('\n') === -1) return needsPrintMath(raw) && katexSet(el, raw);
+
+  var parts = raw.split('\n');
+  var frag = document.createDocumentFragment();
+  var drewAny = false;
+  for(var i = 0; i < parts.length; i++){
+    var t = parts[i];
+    if(i > 0) frag.appendChild(document.createElement('br'));
+    var span = document.createElement('span');
+    if(t.trim() && needsPrintMath(t) && katexSet(span, t)) drewAny = true;
+    else span.textContent = t;
+    frag.appendChild(span);
+  }
+  if(!drewAny) return false;      // nothing worth drawing - leave it to chalk
+  el.innerHTML = '';
+  el.appendChild(frag);
+  return true;
+}
+
 // Same, but with no animation — used when jumping straight to a step.
 function katexSet(el, text, slots){
   if(!el) return false;
@@ -2815,10 +2854,15 @@ function mkDraw(svg, p, animate, ms){
 }
 
 function mkStrike(svg, b, seed, animate){
-  var y = b.y + b.h * 0.56;
-  var d = 'M ' + (b.x - 3) + ' ' + (y + mkJit(seed, 1.5)) +
-          ' Q ' + (b.x + b.w * 0.5) + ' ' + (y + mkJit(seed + 1, 2.5)) +
-          ' ' + (b.x + b.w + 3) + ' ' + (y + mkJit(seed + 2, 1.5));
+  /* A cancel is a slanting stroke from the bottom left to the top right, not
+     a horizontal line through the middle. On a narrow target - a minus sign,
+     a single factor - the slant is what makes it read as "cancelled". */
+  var x1 = b.x - 4, y1 = b.y + b.h + 3;
+  var x2 = b.x + b.w + 4, y2 = b.y - 3;
+  var d = 'M ' + x1 + ' ' + (y1 + mkJit(seed, 1.3)) +
+          ' Q ' + ((x1 + x2) / 2 + mkJit(seed + 1, 2.2)) + ' ' +
+          ((y1 + y2) / 2 + mkJit(seed + 2, 2.2)) + ' ' +
+          x2 + ' ' + (y2 + mkJit(seed + 3, 1.3));
   mkDraw(svg, mkPath(d, 2.6), animate, 380);
 }
 
@@ -2891,8 +2935,11 @@ function mkTargets(stepIdx, slot){
   var vis = host.querySelector('.katex-html') || host;
   var tagged = vis.querySelectorAll('.mk-t' + slot);
   if(tagged && tagged.length) return Array.prototype.slice.call(tagged);
-  var line = host.querySelector('.mr-line') || host;
-  return line ? [line] : [];
+  /* The target could not be found on the line - usually because tagging it
+     would have cut a fraction in half. It used to fall back to the WHOLE
+     line, so asking to cancel two minus signs struck the entire step out.
+     A mark that cannot point at the right piece points at nothing. */
+  return [];
 }
 
 // Draw every mark a step asks for. Silent no-op when there are none.
@@ -3540,11 +3587,20 @@ async function runPlayback(){
          real maths - x above the line, 2 below - not as "x/2". Falls back
          to the chalk writer if anything cannot be drawn. */
       var fWrote = null;
-      if(needsPrintMath(SOLUTION.formula)){
-        try{ fWrote = katexWrite($('formula-text'), SOLUTION.formula, 90); }catch(e){ fWrote = null; }
+      var fMulti = (String(SOLUTION.formula || '').indexOf('\n') !== -1);
+      if(fMulti){
+        // Two lines: drawn together rather than written letter by letter.
+        var fDrew = false;
+        try{ fDrew = katexSetLines($('formula-text'), SOLUTION.formula); }catch(e){ fDrew = false; }
+        if(fDrew) await sleep(420);
+        else await chalkWrite($('formula-text'), SOLUTION.formula, 90);
+      } else {
+        if(needsPrintMath(SOLUTION.formula)){
+          try{ fWrote = katexWrite($('formula-text'), SOLUTION.formula, 90); }catch(e){ fWrote = null; }
+        }
+        if(fWrote){ await fWrote; }
+        else { await chalkWrite($('formula-text'), SOLUTION.formula, 90); }
       }
-      if(fWrote){ await fWrote; }
-      else { await chalkWrite($('formula-text'), SOLUTION.formula, 90); }
       if(!IS_PLAYING) return;
       var formulaIntro = SOLUTION.formulaScript || ("First, let us remember the formula we need. " + SOLUTION.formula);
       await speakStep(formulaIntro);
@@ -4553,7 +4609,11 @@ function replayStep(){
 function showStepInstant(idx){
   // Show all steps up to idx without speech but with proper chalk text
   if(isRealFormula(SOLUTION.formula, SOLUTION)){
-    if(!(needsPrintMath(SOLUTION.formula) && katexSet($('formula-text'), SOLUTION.formula))){
+    var fOk = false;
+    try{ fOk = katexSetLines($('formula-text'), SOLUTION.formula); }catch(e){ fOk = false; }
+    if(!fOk){
+      $('formula-text').style.whiteSpace =
+        (String(SOLUTION.formula || '').indexOf('\n') !== -1) ? 'pre-wrap' : '';
       $('formula-text').textContent = SOLUTION.formula;
     }
     $('formula-block').classList.add('show');
