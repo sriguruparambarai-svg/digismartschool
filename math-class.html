@@ -429,6 +429,14 @@ html,body{
   transform-origin:center bottom;
 }
 .chalk-char.space{width:.35em;}
+/* Column arithmetic lines up by COUNTING CHARACTERS: a subtraction line is
+   pushed into place with leading spaces. The chalk writer gives every space a
+   fixed .35em, but a digit in the monospace column font is about .6em wide, so
+   each space was only a little over half a column. Seven leading spaces then
+   fell nearly three columns short and the working drifted out of its place
+   value. Inside a column block a space takes its natural monospace width,
+   which is exactly one digit. */
+.calc-vertical .chalk-char.space{width:auto;}
 /* subtle chalk dust flash on each character */
 @keyframes chalk-dust{
   0%{box-shadow:0 0 0 rgba(255,255,255,0);}
@@ -2424,10 +2432,10 @@ function mrPowers(s){
    and keeps "at + b" and "ax + b" as products. */
 function mrSubscripts(s){
   // Any letter carrying a number: a8, S20, t5, x1, y1
-  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z])(\d+)(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/g,
+  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z])(\d+)(?=\s*(?:[=)\]},+\-*\/\u00d7\u00f7]|$))/g,
     function(m, pre, base, digits){ return pre + base + '_{' + digits + '}'; });
   // The sequence names a class actually meets: an, Sn, tn, Tn, An, ak, Sk
-  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([aAStTd])([nk])(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/g,
+  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([aAStTd])([nk])(?=\s*(?:[=)\]},+\-*\/\u00d7\u00f7]|$))/g,
     function(m, pre, base, sub){ return pre + base + '_{' + sub + '}'; });
   return s;
 }
@@ -2435,7 +2443,7 @@ function mrSubscripts(s){
 // True when a line carries a subscript shape worth drawing properly.
 function mrHasSubscript(t){
   var s = String(t || '');
-  return /(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z]\d+|[aAStTd][nk])(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/.test(s);
+  return /(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z]\d+|[aAStTd][nk])(?=\s*(?:[=)\]},+\-*\/\u00d7\u00f7]|$))/.test(s);
 }
 
 // Walk backwards from a slash to find the whole numerator.
@@ -2458,6 +2466,10 @@ function mrLeft(s, i){
       if(j >= 0 && s.charAt(j) === '^') j--;
       absorbed = true; continue;
     }
+    /* A power written without braces - ar^8, 2^3 - is part of the number,
+       so keep walking past the caret to pick up the base as well. Without
+       this, "ar^8/ar^5" took only the 8 as the numerator. */
+    if(c === '^' && absorbed){ j--; continue; }
     if(/[A-Za-z0-9._]/.test(c)){ j--; absorbed = true; continue; }
     break;
   }
@@ -2480,6 +2492,10 @@ function mrRight(s, i){
       j += 2; d = 1;
       while(j < s.length && d > 0){ k = s.charAt(j); if(k === '{') d++; else if(k === '}') d--; j++; }
       absorbed = true; continue;
+    }
+    // A power written without braces: the 5 in ar^5 belongs to the ar.
+    if(c === '^' && /[A-Za-z0-9]/.test(s.charAt(j + 1))){
+      j += 2; absorbed = true; continue;
     }
     if(/[A-Za-z0-9._]/.test(c)){ j++; absorbed = true; continue; }
     break;
