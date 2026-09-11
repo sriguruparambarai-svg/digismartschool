@@ -1527,6 +1527,7 @@ function scShowComplete(){
       '<p>Wonderful work, class! Keep speaking these new words today. The Practice Studio has reading, writing and the speaking microphone waiting for you.</p>' +
       '<button class="sc-done-btn" onclick="scStartSpeak()" style="background:linear-gradient(135deg,#c9a84c,#a8863a);color:#2a1505;">\uD83C\uDFA4 Speaking Practice</button>' +
       '<button class="sc-done-btn" onclick="scStartWrite()" style="background:linear-gradient(135deg,#4a6fa5,#2f4a73);color:#eaf2ff;">\u270D\uFE0F Writing Coach</button>' +
+      '<button class="sc-done-btn" onclick="scStartRead()" style="background:linear-gradient(135deg,#7a4a86,#4e2c5c);color:#f4e6fb;">\uD83D\uDCD6 Read &amp; Answer</button>' +
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
       '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
@@ -1862,6 +1863,315 @@ function scWrPrint(){
     (d.key_suggestion ? '<h2>Main thing to improve</h2><p>' + esc(d.key_suggestion) + '</p>' : '') +
     (d.improved_version ? '<h2>Model version</h2><div class="mv">' + esc(d.improved_version) + '</div>' : '') +
     '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function(){ try{ w.print(); }catch(e){} }, 400);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   READ & ANSWER  —  merged in from the English Teacher tool.
+   The comprehension questions come from TODAY'S chapter, not from a
+   made-up passage. Children write their answers, Claude marks all
+   five in one go and shows the ideal answer beside each one.
+   ══════════════════════════════════════════════════════════════════ */
+var RD_STYLED = false;
+var RD_QS     = null;
+var RD_ANS    = {};
+var RD_MARKED = null;
+
+var RD_KINDS = {
+  fact:        { label:'Straight from the lesson', col:'#5aa9d6' },
+  inference:   { label:'Think and work it out',    col:'#c98fd6' },
+  vocabulary:  { label:'Word from the lesson',     col:'#d6b45a' },
+  opinion:     { label:'Your own view',            col:'#6fc98a' },
+  imagination: { label:'Use your imagination',     col:'#d68f6f' }
+};
+
+function scRdStyles(){
+  if (RD_STYLED) return;
+  RD_STYLED = true;
+  var st = document.createElement('style');
+  st.textContent =
+    '.rd-wrap{width:100%;max-width:940px;text-align:center;animation:scFadeUp 0.6s ease both;}' +
+    '.rd-prog{font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:14px;}' +
+    '.rd-pass{display:none;max-width:860px;margin:0 auto 16px;background:rgba(18,12,10,0.62);border:1.5px solid rgba(201,168,76,0.32);border-radius:13px;padding:15px 18px;font-family:Lora,serif;font-size:0.95rem;color:var(--sandal);line-height:1.9;text-align:left;max-height:300px;overflow-y:auto;white-space:pre-wrap;}' +
+    '.rd-pass.on{display:block;}' +
+    '.rd-q{max-width:860px;margin:0 auto 14px;background:linear-gradient(160deg,rgba(122,74,134,0.22),rgba(24,14,26,0.7));border:1.5px solid rgba(176,128,190,0.45);border-radius:14px;padding:14px 17px;text-align:left;}' +
+    '.rd-q .kd{font-size:0.62rem;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;margin-bottom:6px;}' +
+    '.rd-q .qt{font-family:Lora,serif;font-size:1.02rem;color:var(--text-light);line-height:1.65;margin-bottom:9px;}' +
+    '.rd-in{width:100%;min-height:76px;background:rgba(12,8,8,0.6);border:1.5px solid rgba(201,168,76,0.35);border-radius:10px;padding:11px 13px;font-family:Lora,serif;font-size:0.97rem;color:var(--text-light);line-height:1.75;resize:vertical;outline:none;}' +
+    '.rd-in:focus{border-color:var(--gold);}' +
+    '.rd-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;border-radius:13px;padding:12px 24px;font-family:Cinzel,serif;font-weight:700;font-size:0.92rem;cursor:pointer;margin:4px 5px;}' +
+    '.rd-btn.ghost{background:transparent;border:1.5px solid rgba(201,168,76,0.55);color:var(--sandal);}' +
+    '.rd-btn.plum{background:linear-gradient(135deg,#7a4a86,#4e2c5c);color:#f4e6fb;}' +
+    '.rd-score{display:inline-block;border-radius:50%;width:106px;height:106px;line-height:106px;font-size:1.6rem;font-weight:800;margin-bottom:12px;}' +
+    '.rd-s3{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}' +
+    '.rd-s2{background:linear-gradient(135deg,#d9a530,#b3841f);color:#2a1c05;}' +
+    '.rd-s1{background:linear-gradient(135deg,#b33a3a,#8a2525);color:#ffe4de;}' +
+    '.rd-fb{max-width:860px;margin:0 auto 12px;border-radius:12px;border-left:5px solid;padding:13px 16px;text-align:left;background:rgba(201,168,76,0.06);}' +
+    '.rd-fb.ok{border-color:#2f9e57;}.rd-fb.part{border-color:#d9a530;}.rd-fb.no{border-color:#b33a3a;}' +
+    '.rd-fb .fq{font-family:Lora,serif;font-size:0.97rem;color:var(--text-light);line-height:1.6;margin-bottom:7px;}' +
+    '.rd-fb .fv{font-size:0.68rem;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;margin-bottom:7px;}' +
+    '.rd-fb .fy{background:rgba(0,0,0,0.26);border-radius:8px;padding:8px 12px;font-size:0.9rem;color:var(--sandal);line-height:1.6;margin-bottom:7px;}' +
+    '.rd-fb .fw{font-size:0.87rem;color:rgba(232,201,154,0.85);line-height:1.6;margin-bottom:7px;}' +
+    '.rd-fb .fi{background:rgba(60,150,80,0.14);border-radius:8px;padding:8px 12px;font-size:0.91rem;color:#d8f5e0;line-height:1.65;}';
+  document.head.appendChild(st);
+}
+
+/* ── cache key, same pattern as the class quiz ── */
+async function scRdKey(){
+  var data = 'read1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+async function scRdGetQs(){
+  if (RD_QS && RD_QS.length) return RD_QS;
+  var key = null;
+  try{
+    key = await scRdKey();
+    var r = await fetch('/api/lesson-plan?key=' + key);
+    if (r.ok){
+      var cached = await r.json();
+      if (cached && Array.isArray(cached.steps) && cached.steps.length){
+        RD_QS = cached.steps;
+        return RD_QS;
+      }
+    }
+  }catch(e){}
+
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: 'You set English comprehension questions for ' + (LESSON.cls || 'school') +
+        ' Tamil-medium students in a Tamil Nadu CBSE school, from the chapter they have just been taught. ' +
+        'Give exactly 5 questions, one of each kind, in this order:\n' +
+        '1 fact \u2014 the answer is stated plainly in the chapter.\n' +
+        '2 inference \u2014 the child must work it out from what happened.\n' +
+        '3 vocabulary \u2014 find the word in the chapter that means something given.\n' +
+        '4 opinion \u2014 connect the chapter to the child\u2019s own life in Tamil Nadu.\n' +
+        '5 imagination \u2014 what would have happened if something had been different.\n' +
+        'Simple classroom English, one question each, answerable in 1 to 3 sentences. ' +
+        'Reply ONLY with JSON: [{"kind":"fact","q":"the question"}] \u2014 exactly 5 items, nothing else.',
+      messages:[{ role:'user', content:'CHAPTER TEXT:\n' + String(LESSON.text || '').substring(0, 9000) }],
+      max_tokens: 900
+    })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) throw new Error('the questions could not be prepared \u2014 please try again');
+  raw = raw.replace(/```json|```/g, '').trim();
+  var s = raw.indexOf('['), e = raw.lastIndexOf(']');
+  if (s === -1 || e <= s) throw new Error('the questions could not be read \u2014 please try again');
+  var arr = JSON.parse(raw.substring(s, e + 1));
+  RD_QS = arr.slice(0, 5).map(function(x){
+    var k = String((x && x.kind) || 'fact').toLowerCase();
+    if (!RD_KINDS[k]) k = 'fact';
+    return { kind: k, q: String((x && x.q) || '').substring(0, 300) };
+  }).filter(function(x){ return x.q; });
+  if (!RD_QS.length) throw new Error('no questions came back \u2014 please try again');
+
+  if (key){
+    try{
+      fetch('/api/lesson-plan', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ key: key, steps: RD_QS, meta:{ kind:'read-answer', topic: LESSON.topic } })
+      });
+    }catch(e2){}
+  }
+  return RD_QS;
+}
+
+/* ── START ── */
+function scStartRead(){
+  scRdStyles();
+  scStopAudio(); scSpkStopSay(); clearTimeout(scAdvanceTimer);
+  RD_MARKED = null;
+  var inner = document.getElementById('stage-inner');
+  document.getElementById('narr-text').textContent =
+    '\uD83D\uDCD6 Read and Answer \u2014 preparing the questions.';
+  if (!LESSON.text || LESSON.text.trim().length < 60){
+    inner.innerHTML = '<div class="rd-wrap"><div style="color:#ffb0a5;">The chapter text is not available for comprehension questions.</div>' +
+      '<button class="rd-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+    return;
+  }
+  inner.innerHTML = '<div class="rd-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+    '<div style="color:var(--sandal);">Setting questions from today\u2019s chapter\u2026</div></div>';
+  scRdGetQs().then(scRdShowSheet).catch(function(e){
+    inner.innerHTML = '<div class="rd-wrap"><div style="color:#ffb0a5;">' + escHtmlWr(e.message || e) + '</div>' +
+      '<button class="rd-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+  });
+}
+
+/* ── the answer sheet ── */
+function scRdShowSheet(){
+  scRdStyles();
+  document.getElementById('narr-text').textContent =
+    '\uD83D\uDCD6 Answer all five, then press Check Our Answers.';
+  var html = '<div class="rd-wrap">' +
+    '<div class="rd-prog">READ &amp; ANSWER \u00B7 ' + RD_QS.length + ' QUESTIONS</div>' +
+    '<button class="rd-btn ghost" onclick="scRdTogglePassage()" id="rd-ptog">\uD83D\uDCC4 Show the chapter</button>' +
+    '<div class="rd-pass" id="rd-pass"></div>';
+  RD_QS.forEach(function(item, i){
+    var k = RD_KINDS[item.kind] || RD_KINDS.fact;
+    html += '<div class="rd-q">' +
+              '<div class="kd" style="color:' + k.col + ';">Q' + (i + 1) + ' \u00B7 ' + k.label + '</div>' +
+              '<div class="qt" id="rd-qt' + i + '"></div>' +
+              '<textarea class="rd-in" id="rd-in' + i + '" placeholder="Write the answer here\u2026"></textarea>' +
+            '</div>';
+  });
+  html += '<div style="margin-top:14px;">' +
+            '<button class="rd-btn plum" onclick="scRdCheck()">\u2705 Check Our Answers</button>' +
+            '<button class="rd-btn ghost" onclick="scRdRead()">\uD83D\uDD0A Read the questions</button>' +
+            '<button class="rd-btn ghost" onclick="scShowComplete()">\u2190 End</button>' +
+          '</div></div>';
+  document.getElementById('stage-inner').innerHTML = html;
+  document.getElementById('rd-pass').textContent = String(LESSON.text || '');
+  RD_QS.forEach(function(item, i){
+    document.getElementById('rd-qt' + i).textContent = item.q;
+    var box = document.getElementById('rd-in' + i);
+    if (RD_ANS[i]) box.value = RD_ANS[i];
+  });
+}
+
+function scRdTogglePassage(){
+  var p = document.getElementById('rd-pass');
+  var b = document.getElementById('rd-ptog');
+  if (!p || !b) return;
+  p.classList.toggle('on');
+  b.textContent = p.classList.contains('on') ? '\uD83D\uDCC4 Hide the chapter' : '\uD83D\uDCC4 Show the chapter';
+}
+
+function scRdRead(){
+  if (!RD_QS) return;
+  var say = RD_QS.map(function(x, i){ return 'Question ' + (i + 1) + '. ' + x.q; }).join(' ');
+  scSpkSay(say.substring(0, 600));
+}
+
+/* ── Claude marks all five in one call ── */
+async function scRdCheck(){
+  var list = [];
+  RD_QS.forEach(function(item, i){
+    var box = document.getElementById('rd-in' + i);
+    var v = box ? box.value.trim() : '';
+    RD_ANS[i] = v;
+    list.push({ q: item.q, kind: item.kind, a: v });
+  });
+  var written = list.filter(function(x){ return x.a.length > 1; });
+  if (!written.length){
+    document.getElementById('narr-text').textContent = 'Please write at least one answer before checking.';
+    return;
+  }
+
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML = '<div class="rd-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+    '<div style="color:var(--sandal);">Checking every answer against the chapter\u2026</div></div>';
+
+  var body = list.map(function(x, i){
+    return (i + 1) + '. [' + x.kind + '] Q: ' + x.q + '\n   Child wrote: ' + (x.a || '(left blank)');
+  }).join('\n\n');
+
+  try{
+    var res = await fetch('/api/ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'You are a kind English teacher marking comprehension answers written by a ' +
+          (LESSON.cls || 'school') + ' Tamil-medium student in Tamil Nadu, against the chapter given. ' +
+          'Mark fairly. An opinion or imagination answer is correct if it is sensible and connected to the ' +
+          'chapter \u2014 there is no single right answer for those. A blank answer is incorrect. ' +
+          'Explain in simple classroom English, never harshly. ' +
+          'Reply ONLY with JSON, one item per question in the same order:\n' +
+          '[{"verdict":"correct","why":"one short line on why","ideal":"the ideal answer in 1 to 3 sentences"}]\n' +
+          'verdict must be exactly one of: correct, partly, incorrect.',
+        messages:[{ role:'user', content:
+          'CHAPTER:\n' + String(LESSON.text || '').substring(0, 7000) +
+          '\n\nANSWERS TO MARK:\n' + body }],
+        max_tokens: 2200
+      })
+    });
+    var d = await res.json();
+    var raw = '';
+    if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+    else if (d && d.text) raw = String(d.text);
+    if (!raw) throw new Error('the marking did not come back \u2014 please press Check again');
+    raw = raw.replace(/```json|```/g, '').trim();
+    var s = raw.indexOf('['), e = raw.lastIndexOf(']');
+    if (s === -1 || e <= s) throw new Error('the marking could not be read \u2014 please press Check again');
+    RD_MARKED = JSON.parse(raw.substring(s, e + 1));
+    scRdShowResult();
+  }catch(err){
+    inner.innerHTML = '<div class="rd-wrap"><div style="color:#ffb0a5;">' + escHtmlWr(err.message || err) + '</div>' +
+      '<button class="rd-btn" style="margin-top:16px;" onclick="scRdShowSheet()">\u2190 Back to our answers</button></div>';
+  }
+}
+
+function scRdShowResult(){
+  document.getElementById('narr-text').textContent = '\uD83D\uDCD6 Answers checked \u2014 read the ideal answers together.';
+  var right = 0;
+  var cards = RD_QS.map(function(item, i){
+    var m = RD_MARKED[i] || {};
+    var v = String(m.verdict || '').toLowerCase();
+    var cls, tag, col;
+    if (v === 'correct'){ cls = 'ok';   tag = '\u2705 Correct';       col = '#a5eab8'; right += 1; }
+    else if (v === 'partly'){ cls = 'part'; tag = '\u25D0 Partly right'; col = '#f0d38a'; right += 0.5; }
+    else { cls = 'no'; tag = '\u2718 Not yet'; col = '#ffb0a5'; }
+    var mine = RD_ANS[i] && RD_ANS[i].length ? RD_ANS[i] : '(left blank)';
+    return '<div class="rd-fb ' + cls + '">' +
+             '<div class="fv" style="color:' + col + ';">Q' + (i + 1) + ' \u00B7 ' + tag + '</div>' +
+             '<div class="fq">' + escHtmlWr(item.q) + '</div>' +
+             '<div class="fy">\u270D\uFE0F We wrote: ' + escHtmlWr(mine) + '</div>' +
+             (m.why ? '<div class="fw">' + escHtmlWr(m.why) + '</div>' : '') +
+             (m.ideal ? '<div class="fi">\u2728 Ideal answer: ' + escHtmlWr(m.ideal) + '</div>' : '') +
+           '</div>';
+  }).join('');
+
+  var total = RD_QS.length;
+  var pct = total ? (right / total) * 100 : 0;
+  var badge = pct >= 75 ? 'rd-s3' : pct >= 45 ? 'rd-s2' : 'rd-s1';
+  var shown = (Math.round(right * 2) / 2);
+
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="rd-wrap">' +
+      '<div class="rd-prog">READ &amp; ANSWER \u00B7 RESULT</div>' +
+      '<div class="rd-score ' + badge + '">' + shown + '/' + total + '</div>' +
+      '<div style="font-family:Caveat,cursive;font-size:1.3rem;color:var(--sandal);margin-bottom:16px;">' +
+        (pct >= 75 ? 'Excellent reading, class!' : pct >= 45 ? 'Good try \u2014 read the ideal answers together.' : 'Let us read the chapter once more together.') +
+      '</div>' +
+      cards +
+      '<div style="margin-top:16px;">' +
+        '<button class="rd-btn ghost" onclick="scRdPrint()">\uD83D\uDDA8 Print</button>' +
+        '<button class="rd-btn plum" onclick="scRdShowSheet()">\u270F\uFE0F Answer again</button>' +
+        '<button class="rd-btn ghost" onclick="scShowComplete()">\u2190 End</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function scRdPrint(){
+  if (!RD_MARKED) return;
+  var esc = escHtmlWr;
+  var rows = RD_QS.map(function(item, i){
+    var m = RD_MARKED[i] || {};
+    return '<tr><td>' + (i + 1) + '</td><td>' + esc(item.q) + '</td>' +
+           '<td>' + esc(RD_ANS[i] || '(blank)') + '</td>' +
+           '<td>' + esc(m.verdict || '') + '</td>' +
+           '<td>' + esc(m.ideal || '') + '</td></tr>';
+  }).join('');
+  var html =
+    '<html><head><title>Read and Answer</title><style>' +
+    'body{font-family:Georgia,serif;color:#1a1a1a;margin:24px;line-height:1.6;}' +
+    'h1{font-size:18px;color:#6B1A1A;border-bottom:2px solid #6B1A1A;padding-bottom:6px;}' +
+    'table{border-collapse:collapse;width:100%;font-size:12px;margin-top:10px;}' +
+    'td,th{border:1px solid #999;padding:6px 8px;text-align:left;vertical-align:top;}' +
+    '</style></head><body>' +
+    '<h1>' + esc(LESSON.cls || '') + ' \u00B7 Read and Answer \u2014 ' + esc(LESSON.topic || '') + '</h1>' +
+    '<table><tr><th>#</th><th>Question</th><th>Our answer</th><th>Result</th><th>Ideal answer</th></tr>' +
+    rows + '</table></body></html>';
   var w = window.open('', '_blank');
   if (!w) return;
   w.document.write(html);
