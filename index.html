@@ -1697,7 +1697,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
     <div class="form-row">
       <div class="form-group">
         <label>Class</label>
-        <select id="qp-class"><option value="">Select</option>
+        <select id="qp-class" onchange="qpLoadBooks()"><option value="">Select</option>
           <option>Pre KG</option><option>LKG</option><option>UKG</option>
           <option>Class 1</option><option>Class 2</option><option>Class 3</option>
           <option>Class 4</option><option>Class 5</option><option>Class 6</option>
@@ -1706,17 +1706,30 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
       <div class="form-group">
         <label>Subject</label>
-        <select id="qp-subject"><option value="">Select</option>
+        <select id="qp-subject" onchange="qpLoadBooks()"><option value="">Select</option>
           <option>English</option><option>Tamil</option><option>Maths</option>
           <option>Science</option><option>Social Science</option>
           <option>EVS</option><option>Computer Science</option><option>Hindi</option>
         </select>
       </div>
     </div>
+    <div class="form-group">
+      <label>📖 Book (from your library)</label>
+      <select id="qp-book" onchange="qpBookChanged()">
+        <option value="">Select class and subject first</option>
+      </select>
+      <div id="qp-book-msg" style="font-size:0.8rem;color:#888;margin-top:6px;line-height:1.6;"></div>
+    </div>
+    <div class="form-group" id="qp-chwrap" style="display:none;">
+      <label>📑 Lessons in this exam</label>
+      <div style="font-size:0.78rem;color:#888;margin-bottom:6px;">Tick every lesson that comes in this exam, then type how many marks each lesson should carry. Leave a box empty and the AI shares out whatever is left.</div>
+      <div id="qp-chlist" style="border:2px solid #E8C99A;border-radius:10px;padding:10px;max-height:280px;overflow-y:auto;background:#FFFDF8;"></div>
+      <div id="qp-marks-check" style="font-size:0.85rem;margin-top:8px;font-weight:700;"></div>
+    </div>
     <div class="form-row-3">
       <div class="form-group">
         <label>Total Marks</label>
-        <select id="qp-marks">
+        <select id="qp-marks" onchange="qpMarksCheck()">
           <option value="25">25 Marks</option>
           <option value="50" selected>50 Marks</option>
           <option value="100">100 Marks</option>
@@ -1767,6 +1780,14 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
         <span style="color:#666;">to</span>
         <input type="number" id="qp-end-page" min="1" placeholder="End page" style="width:100px;padding:8px;"/>
       </div>
+    </div>
+    <div class="form-group">
+      <label>Paper Format</label>
+      <select id="qp-format">
+        <option value="paper">Question Paper only — students write in a separate answer sheet</option>
+        <option value="qcum">Question-cum-Answer Sheet — students write in the space given on the paper</option>
+      </select>
+      <div style="font-size:0.78rem;color:#888;margin-top:5px;">Choose the second one for Class 1 and Class 2, where the same sheet is the question paper and the answer sheet.</div>
     </div>
     <div class="form-group">
       <label>Include Answer Key?</label>
@@ -2771,13 +2792,72 @@ function renderDiary(text) {
   return html;
 }
 
+// The printed heading block: school logo, school name, exam details and the
+// pupil's Name / Roll No / Date lines. Built here from the form, not by the AI,
+// so it is always correct. data-dss-head tells the print window not to add its
+// own letterhead on top of this one.
+function qpPaperHead() {
+  function v(id){ var e = document.getElementById(id); return e ? String(e.value || '') : ''; }
+  var logo   = (typeof schoolLogoUrl === 'function') ? schoolLogoUrl() : '';
+  var school = (typeof schoolNameForPrint === 'function') ? (schoolNameForPrint() || '') : '';
+  var cls = v('qp-class'), sub = v('qp-subject');
+  var mk  = v('qp-marks'), dur = v('qp-duration'), typ = v('qp-type');
+
+  var h = '<div data-dss-head="1" style="border-bottom:2px solid #C9A84C;padding-bottom:10px;margin-bottom:14px;">';
+  h +=   '<div style="display:flex;align-items:center;gap:14px;justify-content:center;text-align:center;">';
+  if (logo) h += '<img src="' + logo + '" alt="" style="height:58px;width:58px;object-fit:contain;flex:0 0 auto;">';
+  h +=     '<div><div style="font-family:Georgia,serif;font-size:1.25rem;font-weight:700;color:#6B1A1A;letter-spacing:0.5px;">'
+       +   escHtml(school || 'School Name') + '</div>'
+       +   '<div style="font-size:0.95rem;font-weight:700;margin-top:3px;letter-spacing:1px;">' + escHtml(typ || 'Examination') + '</div></div>';
+  h +=   '</div>';
+  h +=   '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font-size:0.9rem;margin-top:10px;font-weight:700;">'
+       +   '<span>Class: ' + escHtml(cls) + '</span>'
+       +   '<span>Subject: ' + escHtml(sub) + '</span>'
+       +   '<span>Max Marks: ' + escHtml(mk) + '</span>'
+       +   '<span>Time: ' + escHtml(dur) + '</span>'
+       + '</div>';
+  h +=   '<div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;font-size:0.88rem;margin-top:10px;">'
+       +   '<span style="flex:1;min-width:190px;">Name: ______________________________</span>'
+       +   '<span style="min-width:120px;">Roll No: ____________</span>'
+       +   '<span style="min-width:120px;">Date: ______________</span>'
+       +   '<span style="border:1px solid #333;padding:2px 14px;font-weight:700;">Marks: ______</span>'
+       + '</div>';
+  h += '</div>';
+  return h;
+}
+
+// Writing space for a question-cum-answer sheet. Little ones need taller lines.
+function qpWriteSpace(kind, n) {
+  var clsEl = document.getElementById('qp-class');
+  var cls = clsEl ? clsEl.value : '';
+  var young = ['Pre KG','LKG','UKG','Class 1','Class 2','Class 3'].indexOf(cls) !== -1;
+  if (kind === 'BOX') {
+    var hpx = Math.max(60, Math.min(400, n || 120));
+    return '<div style="border:1px solid #999;border-radius:4px;height:' + hpx + 'px;margin:8px 0 14px 20px;"></div>';
+  }
+  var lh = young ? 34 : 26;
+  var count = Math.max(1, Math.min(20, n || 2));
+  var out = '<div style="margin:6px 0 12px 20px;">';
+  for (var i = 0; i < count; i++) {
+    out += '<div style="border-bottom:1px solid #aaa;height:' + lh + 'px;"></div>';
+  }
+  return out + '</div>';
+}
+
 function renderQPaper(text) {
   var html = '<div style="font-family:Georgia,serif;max-width:720px;margin:0 auto;border:2px solid #333;padding:28px;background:white;color:#111;">';
+  html += qpPaperHead();
   var lines = text.split('\n');
   var inTable = false;
   lines.forEach(function(line) {
     var l = line.trim();
     if (!l) { html += '<div style="height:10px;"></div>'; return; }
+    var sp = l.match(/^\[\[(LINES|BOX):(\d+)\]\]$/i);
+    if (sp) {
+      if (inTable) { html += '</table>'; inTable = false; }
+      html += qpWriteSpace(sp[1].toUpperCase(), parseInt(sp[2], 10));
+      return;
+    }
     if (l.includes('|') && l.split('|').length > 2) {
       if (!inTable) { html += '<table style="width:100%;border-collapse:collapse;margin:10px 0;">'; inTable = true; }
       var cells = l.split('|').filter(function(c){return c.trim();});
@@ -3017,6 +3097,122 @@ function bbLoadBooks(){ return dssPickBooks('bb'); }
 function bbBookChanged(){ return dssPickBookChanged('bb'); }
 function bbApplyChapter(){ return dssPickChapter('bb'); }
 
+// ══ QUESTION PAPER — MULTI LESSON PICKER ══
+// A term exam covers more than one lesson, so this panel uses tick boxes
+// instead of the single-chapter dropdown the other tools use. Book loading
+// is the shared one; only the chapter list is different.
+function qpLoadBooks(){ return dssPickBooks('qp'); }
+
+async function qpBookChanged(){
+  var sel  = document.getElementById('qp-book');
+  var chw  = document.getElementById('qp-chwrap');
+  var list = document.getElementById('qp-chlist');
+  var msg  = document.getElementById('qp-book-msg');
+  _pickChapters['qp'] = []; _pickBook['qp'] = null;
+  if (list) list.innerHTML = '';
+  if (chw) chw.style.display = 'none';
+  if (msg) msg.textContent = '';
+  qpMarksCheck();
+  if (!sel || sel.value === '') return;
+  var b = (_pickBooks['qp'] || [])[parseInt(sel.value, 10)];
+  if (!b) return;
+  _pickBook['qp'] = b;
+
+  try {
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'tbl_get',
+        table: (b.source === 'private' ? 'school_book_chapters' : 'textbook_chapters'),
+        params:'book_id=eq.' + encodeURIComponent(b.id)
+             + '&order=page_from&select=chapter_number,chapter_title,page_from,page_to' }) });
+    var d = await r.json();
+    var rows = Array.isArray(d) ? d : (d.chapters || []);
+    rows = rows.filter(function(ch){ return ch && ch.page_from && ch.page_to; });
+    if (!rows.length) {
+      if (msg) msg.textContent = 'This book has no lessons detected yet \u2014 you can still paste the lesson or upload the PDF below.';
+      return;
+    }
+    _pickChapters['qp'] = rows;
+    var html = '';
+    rows.forEach(function(ch, i){
+      var chNo  = (ch.chapter_number || (i + 1));
+      var title = wsCleanTitle(ch.chapter_title, chNo) || 'Untitled';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:7px 2px;border-bottom:1px dotted #eee;">'
+           +   '<input type="checkbox" class="qp-ch" data-i="' + i + '" onchange="qpMarksCheck()" style="width:18px;height:18px;flex:0 0 auto;">'
+           +   '<span style="flex:1;font-size:0.88rem;line-height:1.4;">Ch.' + chNo + ' \u2014 ' + wsEsc(title)
+           +     ' <span style="color:#999;">(p.' + ch.page_from + '-' + ch.page_to + ')</span></span>'
+           +   '<input type="number" min="0" class="qp-chm" data-i="' + i + '" placeholder="Marks" oninput="qpMarksCheck()"'
+           +     ' style="width:80px;padding:6px;border:1px solid #C9A84C;border-radius:6px;font-size:0.85rem;flex:0 0 auto;">'
+           + '</div>';
+    });
+    list.innerHTML = html;
+    if (chw) chw.style.display = 'block';
+    qpMarksCheck();
+  } catch(e) {
+    console.error('Could not load lessons for this book:', e);
+    if (msg) msg.textContent = 'Could not load the lesson list. Please paste the lesson or upload the PDF below.';
+  }
+}
+
+// Which lessons are ticked, and what marks the teacher typed against each
+function qpSelectedLessons(){
+  var out = [];
+  var boxes = document.querySelectorAll('#qp-chlist input.qp-ch');
+  Array.prototype.forEach.call(boxes, function(cb){
+    if (!cb.checked) return;
+    var i  = parseInt(cb.getAttribute('data-i'), 10);
+    var ch = (_pickChapters['qp'] || [])[i];
+    if (!ch) return;
+    var mEl = document.querySelector('#qp-chlist input.qp-chm[data-i="' + i + '"]');
+    var mv  = mEl ? String(mEl.value).trim() : '';
+    var m   = (mv !== '' && !isNaN(Number(mv))) ? Number(mv) : null;
+    var chNo = (ch.chapter_number || (i + 1));
+    out.push({ no: chNo, title: (wsCleanTitle(ch.chapter_title, chNo) || 'Untitled'),
+               from: ch.page_from, to: ch.page_to, marks: m });
+  });
+  return out;
+}
+
+// Running total, plus it fills the Chapters box and the page range for the AI
+function qpMarksCheck(){
+  var box = document.getElementById('qp-marks-check');
+  if (!box) return;
+  var picked = qpSelectedLessons();
+
+  var chBox = document.getElementById('qp-chapters');
+  var sEl = document.getElementById('qp-start-page');
+  var eEl = document.getElementById('qp-end-page');
+  if (picked.length) {
+    if (chBox) chBox.value = picked.map(function(p){ return 'Ch.' + p.no + ' - ' + p.title; }).join(', ');
+    var froms = picked.map(function(p){ return Number(p.from); });
+    var tos   = picked.map(function(p){ return Number(p.to); });
+    if (sEl) sEl.value = Math.min.apply(null, froms);
+    if (eEl) eEl.value = Math.max.apply(null, tos);
+  }
+
+  if (!picked.length) { box.textContent = ''; return; }
+  var typed = picked.filter(function(p){ return p.marks !== null; });
+  var sum   = typed.reduce(function(a, p){ return a + p.marks; }, 0);
+  var mEl   = document.getElementById('qp-marks');
+  var total = mEl ? Number(mEl.value || 0) : 0;
+
+  if (typed.length < picked.length) {
+    box.style.color = '#8a6d1a';
+    box.textContent = picked.length + ' lesson(s) ticked \u00b7 ' + sum + ' of ' + total
+      + ' marks given. The rest will be shared out automatically.';
+  } else if (sum === total) {
+    box.style.color = '#2e7d32';
+    box.textContent = '\u2713 ' + sum + ' of ' + total + ' marks \u2014 adds up correctly.';
+  } else if (sum < total) {
+    box.style.color = '#b3261e';
+    box.textContent = '\u26a0 Only ' + sum + ' marks shared out of ' + total + '. ' + (total - sum) + ' marks short.';
+  } else {
+    box.style.color = '#b3261e';
+    box.textContent = '\u26a0 ' + sum + ' marks shared but the paper is only ' + total + '. ' + (sum - total) + ' marks too many.';
+  }
+}
+
+function qpFetchBookPdf(){ return dssPickPdf('qp'); }
+
 // ══ WORKSHEET STYLE ══
 function wsGetStyle(){
   var r = document.querySelector('input[name="ws-style"]:checked');
@@ -3198,34 +3394,99 @@ Keep the language clear and age-appropriate for ${cls} students.`;
     const marks = document.getElementById('qp-marks').value;
     const duration = document.getElementById('qp-duration').value;
     const type = document.getElementById('qp-type').value;
-    const chapters = document.getElementById('qp-chapters').value;
     const content = document.getElementById('qp-content').value;
     const anskey = document.getElementById('qp-anskey').value;
+    const fmtEl = document.getElementById('qp-format');
+    const fmt = fmtEl ? fmtEl.value : 'paper';
     const qpFileInput = document.getElementById('qp-file');
     pdfFile = qpFileInput && qpFileInput.files && qpFileInput.files[0] ? qpFileInput.files[0] : null;
+
+    // Lessons ticked in the book list. qpMarksCheck() has already copied the
+    // lesson names into the Chapters box and the page range into the page boxes.
+    const picked = (typeof qpSelectedLessons === 'function') ? qpSelectedLessons() : [];
+    if (picked.length) qpMarksCheck();
+    const chapters = document.getElementById('qp-chapters').value;
+
+    if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
+
+    // Marks typed against lessons must not exceed the paper total
+    const typedSum = picked.filter(function(p){ return p.marks !== null; })
+                           .reduce(function(a, p){ return a + p.marks; }, 0);
+    if (typedSum > Number(marks)) {
+      alert('The marks you shared between the lessons come to ' + typedSum
+          + ', but the paper is only ' + marks + ' marks. Please correct it first.');
+      return;
+    }
+
+    // Nothing pasted, nothing uploaded, but lessons are chosen -> use the book
+    if (!pdfFile && !content.trim() && picked.length && dssPickedBook('qp')) {
+      document.getElementById(loadId).classList.add('show');
+      pdfFile = await qpFetchBookPdf();
+      document.getElementById(loadId).classList.remove('show');
+      if (!pdfFile) {
+        alert('Could not open the book file. Please paste the lesson or upload the PDF instead.');
+        return;
+      }
+    }
+
     pdfStart = document.getElementById('qp-start-page').value;
     pdfEnd = document.getElementById('qp-end-page').value;
-    if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
+
+    // Lesson-wise marks weightage (the blueprint)
+    let lessonBlock = '';
+    if (picked.length) {
+      const leftover = Number(marks) - typedSum;
+      const blanks = picked.filter(function(p){ return p.marks === null; }).length;
+      lessonBlock = 'LESSONS IN THIS PAPER AND THE MARKS EACH ONE MUST CARRY:\n'
+        + picked.map(function(p){
+            return '- Chapter ' + p.no + ': ' + p.title + ' (book pages ' + p.from + ' to ' + p.to + ') \u2014 '
+                 + (p.marks !== null ? p.marks + ' marks' : 'share the remaining marks');
+          }).join('\n')
+        + (blanks ? '\nShare the remaining ' + leftover + ' marks evenly across the lessons marked "share the remaining marks".' : '')
+        + '\nEvery lesson listed above must appear in the paper. Do not give any lesson more or fewer marks than stated. Do not take questions from any other lesson.\n';
+    }
+
+    // Question-cum-answer sheet: the AI marks where writing space is needed and
+    // the paper renderer draws the actual ruled lines and boxes.
+    const spaceBlock = (fmt === 'qcum')
+      ? `THIS IS A QUESTION-CUM-ANSWER SHEET. The student writes the answer on this same paper, in the space given under each question.
+After EVERY question, on its own line, put a writing-space marker:
+- [[LINES:1]] for a one-word, fill-in-the-blank or true/false answer
+- [[LINES:2]] for a 1-mark answer
+- [[LINES:4]] for a 2-mark answer
+- [[LINES:6]] for a 3-mark answer
+- [[LINES:10]] for a 5-mark answer
+- [[BOX:120]] instead of lines when the child must draw, colour, match or tick
+Never write the answer itself in that space. Put the marker on a line by itself with nothing else on it.
+Keep the wording very short and simple so a young child can read it alone.`
+      : 'This is a question paper only. The students write in a separate answer sheet, so do NOT leave writing space and do NOT add any writing-space markers.';
+
     prompt = `You are a CBSE school teacher in Tamil Nadu, India.
 Create a formal ${type} question paper for:
 Class: ${cls} | Subject: ${sub} | Total Marks: ${marks} | Duration: ${duration}
 Chapters: ${chapters || 'As per syllabus'}
 
+${lessonBlock}
 Lesson Content:
 ${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge.')}
 
 Format Requirements:
-- School name header area (leave blank)
-- Formal heading with Class, Subject, Marks, Duration, Date
+- Do NOT write any school name, logo line, title block, or Name/Roll No/Date lines. Those are printed automatically at the top of the paper. Begin straight with the General Instructions.
 - General Instructions (4-5 points)
 - Section A: Objective (1 mark each)
 - Section B: Short Answer (2-3 marks each)
 - Section C: Long Answer (5 marks each)
-- Marks should add up to exactly ${marks}
+- Show the marks for every question in brackets at the end of the question, like (2)
+- Show the section total in the section heading, like SECTION A - Objective (10 marks)
+- Marks must add up to exactly ${marks}
 
-${anskey === 'yes' ? 'After the question paper, add a complete ANSWER KEY section.' : ''}
+${spaceBlock}
+
+${anskey === 'yes' ? 'After the question paper, on a new line write exactly ANSWER KEY and then give the complete answer key. Never put writing-space markers inside the answer key.' : ''}
 
 ${type === 'Daily Test' ? 'IMPORTANT: This is a short DAILY TEST of only ' + marks + ' marks. Keep it brief and simple. Do NOT force three sections — use one or two small sections suitable for a quick daily class test.' : ''}
+
+${(cls === 'Pre KG' || cls === 'LKG' || cls === 'UKG' || cls === 'Class 1' || cls === 'Class 2') ? 'This is for very young children. Use short simple sentences, picture-free instructions a child can follow, and mostly match/tick/fill/one-word questions rather than long writing.' : ''}
 
 Make it professional like a real Indian school exam paper.`;
   }
@@ -3680,7 +3941,10 @@ function schoolLogoUrl(){
 function schoolNameForPrint(){
   try {
     var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
-    return u.name || u.school_name || '';
+    // A teacher login nests the school under .schools, and u.name is then the
+    // TEACHER's name - never the school. School name always comes first.
+    var src = (u.schools && typeof u.schools === 'object') ? u.schools : u;
+    return src.school_name || u.school_name || src.name || '';
   } catch(e) { return ''; }
 }
 
@@ -3932,16 +4196,20 @@ function printOutput(id) {
   }
 
   // Letterhead, unless the teacher turned it off for rough work
-  var logoUrl = (box.getAttribute('data-ot-logo') !== '0') ? schoolLogoUrl() : '';
+  // The letterhead has to go into `content`, not `body` - `content` was already
+  // built above, so writing to `body` here never reached the printed page.
+  // Skipped when the output already carries its own heading block (question paper).
+  var hasOwnHead = box.innerHTML.indexOf('data-dss-head') !== -1;
+  var logoUrl = (box.getAttribute('data-ot-logo') !== '0' && !hasOwnHead) ? schoolLogoUrl() : '';
   if (logoUrl) {
     var head = '<div class="lhead">'
              + '<img src="' + logoUrl + '" alt="">'
              + '<div class="lname">' + (schoolNameForPrint() || '') + '</div>'
              + '</div>';
     if (page === 'twoup') {
-      body = body.replace(/<div class="inner">/g, '<div class="inner">' + head);
+      content = content.replace(/<div class="inner">/g, '<div class="inner">' + head);
     } else {
-      body = head + body;
+      content = content.replace('<div class="sheet">', '<div class="sheet">' + head);
     }
   }
 
