@@ -38,6 +38,10 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 
 /* ── STAGE ── */
 #stage{position:fixed;top:58px;left:238px;right:0;bottom:52px;background:var(--stage-bg);overflow:hidden;}
+#stage-inner{overflow-y:auto;overflow-x:hidden;justify-content:safe center;scrollbar-width:thin;scrollbar-color:rgba(201,168,76,0.45) transparent;}
+#stage-inner::-webkit-scrollbar{width:9px;}
+#stage-inner::-webkit-scrollbar-thumb{background:rgba(201,168,76,0.4);border-radius:5px;}
+#stage-inner::-webkit-scrollbar-track{background:transparent;}
 #stage-inner{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:26px 220px 26px 40px;}
 
 /* Title step */
@@ -554,6 +558,7 @@ function scRender(idx){
   CUR = idx;
   var step = STEPS[idx];
   var inner = document.getElementById('stage-inner');
+  try{ inner.scrollTop = 0; }catch(e){}
   document.getElementById('narr-prog').textContent = 'Step ' + (idx + 1) + ' / ' + STEPS.length;
   document.getElementById('narr-text').textContent = step.speech || step.title;
   document.getElementById('btn-prev').disabled = idx === 0;
@@ -1532,6 +1537,7 @@ function scShowComplete(){
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
       '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
+      '<button class="sc-done-btn ghost" onclick="scRebuildLesson()">\u267B\uFE0F Rebuild Lesson</button>' +
       '<button class="sc-done-btn ghost" onclick="scGoBack()">\u2190 Back to TeachBot</button>' +
     '</div>';
 }
@@ -1646,6 +1652,7 @@ async function scWrGetTasks(){
 }
 
 function scWrShowTasks(){
+  scStageTop();
   document.getElementById('narr-text').textContent =
     '\u270D\uFE0F Writing Coach \u2014 tap a task to begin writing.';
   var inner = document.getElementById('stage-inner');
@@ -1683,6 +1690,7 @@ function scWrPick(i){
 
 function scWrShowEditor(){
   scWrStyles();
+  scStageTop();
   document.getElementById('narr-text').textContent =
     '\u270D\uFE0F Write the answer, then press Check My Writing.';
   var inner = document.getElementById('stage-inner');
@@ -1773,6 +1781,7 @@ async function scWrCheck(){
 }
 
 function scWrShowFeedback(d){
+  scStageTop();
   document.getElementById('narr-text').textContent = '\u270D\uFE0F Writing checked \u2014 read the corrections together.';
   var total = Number(d.overall_marks) || 0;
   var outOf = Number(d.out_of) || 20;
@@ -2013,6 +2022,7 @@ function scStartRead(){
 /* ── the answer sheet ── */
 function scRdShowSheet(){
   scRdStyles();
+  scStageTop();
   document.getElementById('narr-text').textContent =
     '\uD83D\uDCD6 Answer all five, then press Check Our Answers.';
   var html = '<div class="rd-wrap">' +
@@ -2113,6 +2123,7 @@ async function scRdCheck(){
 }
 
 function scRdShowResult(){
+  scStageTop();
   document.getElementById('narr-text').textContent = '\uD83D\uDCD6 Answers checked \u2014 read the ideal answers together.';
   var right = 0;
   var cards = RD_QS.map(function(item, i){
@@ -2346,6 +2357,7 @@ async function scTsGenerate(){
 
 /* ── show the paper on screen ── */
 function scTsShow(){
+  scStageTop();
   var d = TS_PAPER;
   document.getElementById('narr-text').textContent =
     '\uD83D\uDCDD Paper ready \u2014 print the question paper, and the answer key separately.';
@@ -2450,6 +2462,66 @@ function scTsPrint(withKey){
   w.document.write(html);
   w.document.close();
   setTimeout(function(){ try{ w.print(); }catch(e){} }, 450);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   REBUILD LESSON
+   A lesson saved before the answer-length fix still holds the short,
+   cut-off answers, because the plan is saved AFTER trimming. Raising
+   the limit only helps new lessons. This throws the saved copy away
+   and builds the chapter again with full answers.
+   ══════════════════════════════════════════════════════════════════ */
+async function scRebuildLesson(){
+  if (!confirm('Build this lesson again from the chapter?\n\nThe saved copy is replaced, and it takes about a minute.')) return;
+  scStopAudio();
+  if (typeof scSpkStopSay === 'function') scSpkStopSay();
+  clearTimeout(scAdvanceTimer);
+
+  /* clear anything built from the old plan */
+  QUIZ_QS = null;
+  if (typeof RD_QS  !== 'undefined') RD_QS  = null;
+  if (typeof WR_TASKS !== 'undefined') WR_TASKS = null;
+  if (typeof TS_PAPER !== 'undefined') TS_PAPER = null;
+  if (typeof SPK_LINES !== 'undefined') SPK_LINES = [];
+
+  var ov    = document.getElementById('sc-loading');
+  var err   = document.getElementById('sc-loading-err');
+  var retry = document.getElementById('sc-retry-btn');
+  var head  = document.querySelector('#sc-loading h2');
+  if (err){ err.classList.remove('on'); }
+  if (retry){ retry.style.display = 'none'; }
+  if (head){ head.textContent = 'Building this lesson again\u2026'; }
+  scPrepMsg('Reading the chapter and writing full answers\u2026');
+  if (ov){ ov.style.display = 'flex'; }
+
+  var wasFresh = FRESH_MODE;
+  FRESH_MODE = true;                       /* make scGeneratePlan skip the saved copy */
+  try{
+    STEPS = await scGeneratePlan();        /* generates, and overwrites the saved copy */
+    scBuildSidebar();
+    var photoSteps = STEPS.filter(function(s){ return s.type === 'photo'; });
+    photoSteps.forEach(function(s){ scFetchImages(s.search, s.title + '. ' + s.speech); });
+    if (ov){ ov.style.display = 'none'; }
+    CUR = 0;
+    scRender(0);
+  }catch(e){
+    if (err){
+      err.textContent = 'Could not rebuild the lesson \u2014 ' + (e.message || e);
+      err.classList.add('on');
+    }
+    if (retry){ retry.style.display = 'inline-block'; }
+  }finally{
+    FRESH_MODE = wasFresh;                 /* back to normal for the rest of the session */
+  }
+}
+/* Long panels are taller than the screen. Scroll the stage back to the top
+   so the teacher always starts at question 1, not half way down. */
+function scStageTop(){
+  try{
+    var el = document.getElementById('stage-inner');
+    if (el) setTimeout(function(){ el.scrollTop = 0; }, 0);
+  }catch(e){}
 }
 
 function scOpenRevision(){
@@ -2570,6 +2642,7 @@ function scStartSpeak(){
 }
 
 function scSpkShow(){
+  scStageTop();
   scSpkStopSay();
   var inner = document.getElementById('stage-inner');
   document.getElementById('narr-text').textContent =
@@ -2699,6 +2772,7 @@ function scSpkNext(){
 }
 
 function scSpkFinish(){
+  scStageTop();
   scSpkStopSay(); clearTimeout(scAdvanceTimer);
   var done = SPK_SCORES.filter(function(r){ return r.pct >= 0; });
   var avg = done.length ? Math.round(done.reduce(function(a, r){ return a + r.pct; }, 0) / done.length) : 0;
@@ -2938,6 +3012,10 @@ async function scInit(){
    Tomorrow the same lesson loads instantly and never generates live. */
 var PREPARE_MODE = /[?&]prepare=1/.test(location.search);
 
+/* Rebuild a lesson that was saved BEFORE the answer-length fix.
+   Open with ?fresh=1, or press Rebuild on the Lesson Complete screen. */
+var FRESH_MODE = /[?&]fresh=1/.test(location.search);
+
 async function scPlanKey(){
   var data = 'v1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
@@ -2950,6 +3028,7 @@ async function scGeneratePlan(){
   var key = null;
   try{
     key = await scPlanKey();
+    if (FRESH_MODE) throw new Error('force fresh');
     var r = await fetch('/api/lesson-plan?key=' + key);
     if (r.ok){
       var d = await r.json();
