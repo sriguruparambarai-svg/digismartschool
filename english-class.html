@@ -1520,11 +1520,347 @@ function scShowComplete(){
       '<div class="big">\uD83C\uDF89 Lesson Complete!</div>' +
       '<p>Wonderful work, class! Keep speaking these new words today. The Practice Studio has reading, writing and the speaking microphone waiting for you.</p>' +
       '<button class="sc-done-btn" onclick="scStartSpeak()" style="background:linear-gradient(135deg,#c9a84c,#a8863a);color:#2a1505;">\uD83C\uDFA4 Speaking Practice</button>' +
+      '<button class="sc-done-btn" onclick="scStartWrite()" style="background:linear-gradient(135deg,#4a6fa5,#2f4a73);color:#eaf2ff;">\u270D\uFE0F Writing Coach</button>' +
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
       '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
       '<button class="sc-done-btn ghost" onclick="scGoBack()">\u2190 Back to TeachBot</button>' +
     '</div>';
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   WRITING COACH  —  merged in from the English Teacher tool.
+   Writing tasks are built from TODAY'S lesson. The child writes,
+   Claude marks it out of 20, lists every mistake with the rule,
+   and rewrites a model version at CBSE standard.
+   ══════════════════════════════════════════════════════════════════ */
+var WR_STYLED = false;
+var WR_TASKS  = null;
+var WR_TASK   = '';
+var WR_TYPE   = '';
+var WR_TEXT   = '';
+var WR_DATA   = null;
+
+function scWrStyles(){
+  if (WR_STYLED) return;
+  WR_STYLED = true;
+  var st = document.createElement('style');
+  st.textContent =
+    '.wr-wrap{width:100%;max-width:920px;text-align:center;animation:scFadeUp 0.6s ease both;}' +
+    '.wr-prog{font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:14px;}' +
+    '.wr-task{background:linear-gradient(160deg,rgba(74,111,165,0.28),rgba(20,26,40,0.72));border:1.5px solid rgba(140,175,225,0.55);border-radius:14px;padding:16px 18px;margin:0 auto 11px;max-width:780px;text-align:left;cursor:pointer;transition:transform 0.14s ease,border-color 0.14s ease;}' +
+    '.wr-task:hover{transform:translateY(-2px);border-color:#9fc2f0;}' +
+    '.wr-task .tp{font-size:0.64rem;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:#9fc2f0;margin-bottom:5px;}' +
+    '.wr-task .tq{font-family:Lora,serif;font-size:1.02rem;color:var(--text-light);line-height:1.6;}' +
+    '.wr-brief{background:rgba(74,111,165,0.16);border-left:4px solid #7ba7de;border-radius:0 10px 10px 0;padding:11px 15px;margin:0 auto 12px;max-width:820px;text-align:left;font-family:Lora,serif;font-size:0.97rem;color:var(--sandal);line-height:1.6;}' +
+    '.wr-ta{width:100%;max-width:820px;min-height:230px;background:rgba(18,12,10,0.72);border:1.5px solid rgba(201,168,76,0.42);border-radius:13px;padding:15px 17px;font-family:Lora,serif;font-size:1.02rem;color:var(--text-light);line-height:1.85;resize:vertical;outline:none;}' +
+    '.wr-ta:focus{border-color:var(--gold);}' +
+    '.wr-count{font-size:0.78rem;color:var(--sandal);margin:7px 0 12px;}' +
+    '.wr-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;border-radius:13px;padding:12px 24px;font-family:Cinzel,serif;font-weight:700;font-size:0.92rem;cursor:pointer;margin:4px 5px;}' +
+    '.wr-btn.ghost{background:transparent;border:1.5px solid rgba(201,168,76,0.55);color:var(--sandal);}' +
+    '.wr-btn.blue{background:linear-gradient(135deg,#4a6fa5,#2f4a73);color:#eaf2ff;}' +
+    '.wr-badge{display:inline-block;border-radius:50%;width:112px;height:112px;line-height:112px;font-size:1.7rem;font-weight:800;margin-bottom:8px;}' +
+    '.wr-g3{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}' +
+    '.wr-g2{background:linear-gradient(135deg,#d9a530,#b3841f);color:#2a1c05;}' +
+    '.wr-g1{background:linear-gradient(135deg,#b33a3a,#8a2525);color:#ffe4de;}' +
+    '.wr-grade{font-family:Cinzel,serif;font-size:1.05rem;font-weight:700;color:var(--gold);margin-bottom:10px;}' +
+    '.wr-bars{max-width:760px;margin:0 auto 16px;text-align:left;}' +
+    '.wr-bar{margin-bottom:10px;}' +
+    '.wr-bar .bl{display:flex;justify-content:space-between;font-size:0.82rem;font-weight:700;color:var(--sandal);margin-bottom:4px;}' +
+    '.wr-bar .bt{height:9px;background:rgba(201,168,76,0.14);border-radius:6px;overflow:hidden;}' +
+    '.wr-bar .bf{height:100%;background:linear-gradient(90deg,var(--gold),#e0c574);border-radius:6px;}' +
+    '.wr-bar .bc{font-size:0.79rem;color:rgba(232,201,154,0.78);margin-top:4px;line-height:1.5;}' +
+    '.wr-sec{max-width:800px;margin:0 auto 15px;text-align:left;}' +
+    '.wr-hd{font-family:Cinzel,serif;font-size:0.86rem;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;color:var(--gold);margin:16px 0 8px;}' +
+    '.wr-good{background:rgba(60,150,80,0.14);border-left:4px solid #2f9e57;border-radius:0 9px 9px 0;padding:9px 13px;margin-bottom:7px;font-size:0.88rem;color:#d8f5e0;line-height:1.55;}' +
+    '.wr-err{background:rgba(179,58,58,0.12);border-left:4px solid #b33a3a;border-radius:0 9px 9px 0;padding:10px 13px;margin-bottom:8px;font-size:0.88rem;line-height:1.6;}' +
+    '.wr-err .x{color:#ffb0a5;text-decoration:line-through;}' +
+    '.wr-err .v{color:#a5eab8;font-weight:700;}' +
+    '.wr-err .r{display:block;font-size:0.78rem;color:rgba(232,201,154,0.75);margin-top:3px;}' +
+    '.wr-model{background:rgba(201,168,76,0.09);border:1.5px solid rgba(201,168,76,0.35);border-radius:12px;padding:14px 17px;font-family:Lora,serif;font-size:0.98rem;color:var(--text-light);line-height:1.9;white-space:pre-wrap;}' +
+    '.wr-key{background:linear-gradient(135deg,rgba(217,165,48,0.2),rgba(30,12,8,0.5));border:1.5px solid rgba(217,165,48,0.5);border-radius:12px;padding:13px 17px;font-size:0.95rem;color:#f4e3b8;line-height:1.65;margin:0 auto 14px;max-width:800px;text-align:left;}';
+  document.head.appendChild(st);
+}
+
+/* ── STEP 1 — writing tasks built from today's lesson ── */
+function scStartWrite(){
+  scWrStyles();
+  scStopAudio(); scSpkStopSay(); clearTimeout(scAdvanceTimer);
+  WR_DATA = null; WR_TEXT = '';
+  document.getElementById('narr-text').textContent =
+    '\u270D\uFE0F Writing Coach \u2014 choose today\u2019s writing task.';
+  var inner = document.getElementById('stage-inner');
+  if (WR_TASKS && WR_TASKS.length){ scWrShowTasks(); return; }
+  inner.innerHTML = '<div class="wr-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+    '<div style="color:var(--sandal);">Preparing writing tasks from today\u2019s lesson\u2026</div></div>';
+  scWrGetTasks().then(scWrShowTasks).catch(function(e){
+    inner.innerHTML = '<div class="wr-wrap"><div style="color:#ffb0a5;">' + (e.message || e) + '</div>' +
+      '<button class="wr-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+  });
+}
+
+async function scWrGetTasks(){
+  var material = (STEPS || []).map(function(s){
+    return (s && (s.title || '')) + '. ' + (s && (s.speech || ''));
+  }).join('\n').substring(0, 5000);
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: 'You set English writing tasks for ' + (LESSON.cls || 'school') +
+        ' Tamil-medium students in a Tamil Nadu CBSE school. From the lesson just taught, give exactly 3 ' +
+        'writing tasks of DIFFERENT types, in increasing difficulty. Each task must clearly connect to the ' +
+        'lesson and be doable in 15 minutes. Use simple classroom English. ' +
+        'Reply ONLY with JSON: [{"type":"Paragraph Writing","task":"the task in one or two lines","words":"60-80 words"}] ' +
+        '\u2014 exactly 3 items, nothing else.',
+      messages:[{ role:'user', content:'LESSON JUST TAUGHT:\n' + material }],
+      max_tokens: 700
+    })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) throw new Error('writing tasks could not be prepared \u2014 please try again');
+  raw = raw.replace(/```json|```/g, '').trim();
+  var s = raw.indexOf('['), e = raw.lastIndexOf(']');
+  if (s === -1 || e <= s) throw new Error('writing tasks could not be read \u2014 please try again');
+  var arr = JSON.parse(raw.substring(s, e + 1));
+  WR_TASKS = arr.slice(0, 3).map(function(x){
+    return {
+      type:  String((x && x.type)  || 'Writing').substring(0, 60),
+      task:  String((x && x.task)  || '').substring(0, 400),
+      words: String((x && x.words) || '').substring(0, 40)
+    };
+  }).filter(function(x){ return x.task; });
+  if (!WR_TASKS.length) throw new Error('no writing tasks came back \u2014 please try again');
+  return WR_TASKS;
+}
+
+function scWrShowTasks(){
+  document.getElementById('narr-text').textContent =
+    '\u270D\uFE0F Writing Coach \u2014 tap a task to begin writing.';
+  var inner = document.getElementById('stage-inner');
+  var html = '<div class="wr-wrap"><div class="wr-prog">WRITING COACH \u00B7 CHOOSE A TASK</div>';
+  WR_TASKS.forEach(function(t, i){
+    html += '<div class="wr-task" onclick="scWrPick(' + i + ')">' +
+              '<div class="tp">' + escHtmlWr(t.type) + (t.words ? ' \u00B7 ' + escHtmlWr(t.words) : '') + '</div>' +
+              '<div class="tq">' + escHtmlWr(t.task) + '</div>' +
+            '</div>';
+  });
+  html += '<div style="margin-top:12px;">' +
+            '<button class="wr-btn ghost" onclick="scWrPick(-1)">\u270F\uFE0F Our own topic</button>' +
+            '<button class="wr-btn ghost" onclick="scShowComplete()">\u2190 Back</button>' +
+          '</div></div>';
+  inner.innerHTML = html;
+}
+
+function escHtmlWr(t){
+  return String(t == null ? '' : t)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/* ── STEP 2 — the writing page ── */
+function scWrPick(i){
+  if (i === -1){
+    WR_TYPE = 'Writing';
+    WR_TASK = '';
+  } else {
+    WR_TYPE = WR_TASKS[i].type;
+    WR_TASK = WR_TASKS[i].task + (WR_TASKS[i].words ? '  (' + WR_TASKS[i].words + ')' : '');
+  }
+  scWrShowEditor();
+}
+
+function scWrShowEditor(){
+  scWrStyles();
+  document.getElementById('narr-text').textContent =
+    '\u270D\uFE0F Write the answer, then press Check My Writing.';
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML =
+    '<div class="wr-wrap">' +
+      '<div class="wr-prog">WRITING COACH \u00B7 ' + escHtmlWr((WR_TYPE || 'WRITING').toUpperCase()) + '</div>' +
+      (WR_TASK ? '<div class="wr-brief" id="wr-brief"></div>'
+               : '<input id="wr-own" class="wr-ta" style="min-height:0;height:46px;margin-bottom:10px;" ' +
+                 'placeholder="Type the topic here\u2026" />') +
+      '<textarea class="wr-ta" id="wr-text" placeholder="Write here\u2026"></textarea>' +
+      '<div class="wr-count" id="wr-count">0 words</div>' +
+      '<button class="wr-btn blue" onclick="scWrCheck()">\u2728 Check My Writing</button>' +
+      '<button class="wr-btn ghost" onclick="scWrShowTasks()">\u2190 Other tasks</button>' +
+      '<button class="wr-btn ghost" onclick="scShowComplete()">\u2190 End</button>' +
+    '</div>';
+  if (WR_TASK) document.getElementById('wr-brief').textContent = WR_TASK;
+  var ta = document.getElementById('wr-text');
+  ta.value = WR_TEXT || '';
+  ta.addEventListener('input', scWrCount);
+  scWrCount();
+  try{ ta.focus(); }catch(e){}
+}
+
+function scWrCount(){
+  var ta = document.getElementById('wr-text');
+  var el = document.getElementById('wr-count');
+  if (!ta || !el) return;
+  var n = ta.value.trim().split(/\s+/).filter(Boolean).length;
+  el.textContent = n + (n === 1 ? ' word' : ' words');
+}
+
+/* ── STEP 3 — Claude marks it ── */
+async function scWrCheck(){
+  var ta = document.getElementById('wr-text');
+  var text = ta ? ta.value.trim() : '';
+  if (text.split(/\s+/).filter(Boolean).length < 20){
+    document.getElementById('wr-count').textContent =
+      'Please write at least 20 words before checking.';
+    return;
+  }
+  WR_TEXT = text;
+  var own = document.getElementById('wr-own');
+  if (own && own.value.trim()) WR_TASK = own.value.trim();
+
+  var inner = document.getElementById('stage-inner');
+  inner.innerHTML = '<div class="wr-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+    '<div style="color:var(--sandal);">The writing coach is reading it carefully\u2026</div></div>';
+
+  try{
+    var res = await fetch('/api/ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'You are an experienced CBSE English writing examiner marking the work of a ' +
+          (LESSON.cls || 'school') + ' Tamil-medium student in Tamil Nadu. Mark fairly but kindly \u2014 ' +
+          'never crush the child. Point out real mistakes with the rule broken, in simple words. ' +
+          'The improved version must keep the child\u2019s own ideas and only lift the language. ' +
+          'Reply ONLY with valid JSON, no markdown, no commentary, in exactly this shape:\n' +
+          '{"overall_marks":15,"out_of":20,"grade":"B+",' +
+          '"scores":{"content":{"marks":4,"out_of":5,"feedback":"one short line"},' +
+          '"grammar":{"marks":4,"out_of":5,"feedback":"one short line"},' +
+          '"vocabulary":{"marks":3,"out_of":5,"feedback":"one short line"},' +
+          '"format":{"marks":4,"out_of":5,"feedback":"one short line"}},' +
+          '"strengths":["short point","short point"],' +
+          '"errors":[{"original":"the wrong phrase","correction":"the right phrase","rule":"the rule in simple words"}],' +
+          '"improved_version":"the full improved writing",' +
+          '"key_suggestion":"the ONE most important thing to improve",' +
+          '"encouragement":"one warm line"}',
+        messages:[{ role:'user', content:
+          'Writing type: ' + (WR_TYPE || 'Writing') + '\n' +
+          (WR_TASK ? 'Task: ' + WR_TASK + '\n' : '') +
+          '\nSTUDENT\u2019S WRITING (between the markers):\n<<<\n' + text.substring(0, 6000) + '\n>>>' }],
+        max_tokens: 2400
+      })
+    });
+    var d = await res.json();
+    var raw = '';
+    if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+    else if (d && d.text) raw = String(d.text);
+    if (!raw) throw new Error('the coach did not reply \u2014 please press Check again');
+    var got = scParseJSON(raw);
+    if (!got || typeof got.overall_marks === 'undefined') throw new Error('the reply was incomplete \u2014 please press Check again');
+    WR_DATA = got;
+    scWrShowFeedback(got);
+  }catch(e){
+    inner.innerHTML = '<div class="wr-wrap"><div style="color:#ffb0a5;">' + escHtmlWr(e.message || e) + '</div>' +
+      '<button class="wr-btn" style="margin-top:16px;" onclick="scWrShowEditor()">\u2190 Back to my writing</button></div>';
+  }
+}
+
+function scWrShowFeedback(d){
+  document.getElementById('narr-text').textContent = '\u270D\uFE0F Writing checked \u2014 read the corrections together.';
+  var total = Number(d.overall_marks) || 0;
+  var outOf = Number(d.out_of) || 20;
+  var pct   = outOf ? (total / outOf) * 100 : 0;
+  var badge = pct >= 75 ? 'wr-g3' : pct >= 50 ? 'wr-g2' : 'wr-g1';
+
+  var bars = '';
+  var order = ['content', 'grammar', 'vocabulary', 'format'];
+  var sc = d.scores || {};
+  order.forEach(function(k){
+    var s = sc[k];
+    if (!s) return;
+    var m = Number(s.marks) || 0, o = Number(s.out_of) || 5;
+    bars += '<div class="wr-bar">' +
+              '<div class="bl"><span>' + k.charAt(0).toUpperCase() + k.slice(1) + '</span>' +
+              '<span>' + m + ' / ' + o + '</span></div>' +
+              '<div class="bt"><div class="bf" style="width:' + Math.round((m / o) * 100) + '%;"></div></div>' +
+              (s.feedback ? '<div class="bc">' + escHtmlWr(s.feedback) + '</div>' : '') +
+            '</div>';
+  });
+
+  var good = (d.strengths || []).slice(0, 4).map(function(t){
+    return '<div class="wr-good">\u2714 ' + escHtmlWr(t) + '</div>';
+  }).join('');
+
+  var errs = (d.errors || []).slice(0, 8).map(function(x){
+    if (!x) return '';
+    return '<div class="wr-err"><span class="x">' + escHtmlWr(x.original) + '</span> \u2192 ' +
+           '<span class="v">' + escHtmlWr(x.correction) + '</span>' +
+           (x.rule ? '<span class="r">' + escHtmlWr(x.rule) + '</span>' : '') + '</div>';
+  }).join('');
+
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="wr-wrap">' +
+      '<div class="wr-prog">WRITING COACH \u00B7 RESULT</div>' +
+      '<div class="wr-badge ' + badge + '">' + total + '/' + outOf + '</div>' +
+      '<div class="wr-grade">Grade ' + escHtmlWr(d.grade || '') + '</div>' +
+      (d.encouragement ? '<div style="font-family:Caveat,cursive;font-size:1.3rem;color:var(--sandal);margin-bottom:14px;">' +
+        escHtmlWr(d.encouragement) + '</div>' : '') +
+      '<div class="wr-bars">' + bars + '</div>' +
+      (d.key_suggestion ? '<div class="wr-key">\uD83D\uDCA1 ' + escHtmlWr(d.key_suggestion) + '</div>' : '') +
+      (good ? '<div class="wr-sec"><div class="wr-hd">What was done well</div>' + good + '</div>' : '') +
+      (errs ? '<div class="wr-sec"><div class="wr-hd">Corrections</div>' + errs + '</div>' : '') +
+      (d.improved_version ? '<div class="wr-sec"><div class="wr-hd">Model version</div>' +
+        '<div class="wr-model" id="wr-model"></div></div>' : '') +
+      '<div style="margin-top:16px;">' +
+        '<button class="wr-btn ghost" onclick="scWrHearFeedback()">\uD83D\uDD0A Read it out</button>' +
+        '<button class="wr-btn ghost" onclick="scWrPrint()">\uD83D\uDDA8 Print</button>' +
+        '<button class="wr-btn blue" onclick="scWrShowEditor()">\u270F\uFE0F Improve and check again</button>' +
+        '<button class="wr-btn ghost" onclick="scWrShowTasks()">Next task \u2192</button>' +
+        '<button class="wr-btn ghost" onclick="scShowComplete()">\u2190 End</button>' +
+      '</div>' +
+    '</div>';
+  if (d.improved_version){
+    var mv = document.getElementById('wr-model');
+    if (mv) mv.textContent = String(d.improved_version);
+  }
+}
+
+function scWrHearFeedback(){
+  if (!WR_DATA) return;
+  var say = 'You scored ' + (WR_DATA.overall_marks || 0) + ' out of ' + (WR_DATA.out_of || 20) + '. ' +
+            (WR_DATA.encouragement || '') + ' ' + (WR_DATA.key_suggestion || '');
+  scSpkSay(say.substring(0, 300));
+}
+
+function scWrPrint(){
+  if (!WR_DATA) return;
+  var d = WR_DATA;
+  var esc = escHtmlWr;
+  var errRows = (d.errors || []).map(function(x){
+    return '<tr><td>' + esc(x.original) + '</td><td>' + esc(x.correction) + '</td><td>' + esc(x.rule || '') + '</td></tr>';
+  }).join('');
+  var html =
+    '<html><head><title>Writing Feedback</title><style>' +
+    'body{font-family:Georgia,serif;color:#1a1a1a;margin:26px;line-height:1.65;}' +
+    'h1{font-size:19px;border-bottom:2px solid #6B1A1A;padding-bottom:6px;color:#6B1A1A;}' +
+    'h2{font-size:14px;margin-top:18px;color:#6B1A1A;}' +
+    'table{border-collapse:collapse;width:100%;font-size:12px;margin-top:6px;}' +
+    'td,th{border:1px solid #999;padding:6px 8px;text-align:left;}' +
+    '.mv{border:1px solid #999;padding:10px;white-space:pre-wrap;font-size:13px;}' +
+    '.sc{font-size:15px;font-weight:bold;}' +
+    '</style></head><body>' +
+    '<h1>' + esc(LESSON.cls || '') + ' \u00B7 English Writing Feedback</h1>' +
+    '<p><b>Lesson:</b> ' + esc(LESSON.topic || '') + '<br/><b>Task:</b> ' + esc(WR_TASK || WR_TYPE) + '</p>' +
+    '<p class="sc">Score: ' + (d.overall_marks || 0) + ' / ' + (d.out_of || 20) + '  \u00B7  Grade ' + esc(d.grade || '') + '</p>' +
+    '<h2>Student\u2019s writing</h2><div class="mv">' + esc(WR_TEXT) + '</div>' +
+    (errRows ? '<h2>Corrections</h2><table><tr><th>Written</th><th>Correct</th><th>Rule</th></tr>' + errRows + '</table>' : '') +
+    (d.key_suggestion ? '<h2>Main thing to improve</h2><p>' + esc(d.key_suggestion) + '</p>' : '') +
+    (d.improved_version ? '<h2>Model version</h2><div class="mv">' + esc(d.improved_version) + '</div>' : '') +
+    '</body></html>';
+  var w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function(){ try{ w.print(); }catch(e){} }, 400);
 }
 
 function scOpenRevision(){
