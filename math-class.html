@@ -2415,6 +2415,29 @@ function mrPowers(s){
   return out;
 }
 
+/* Subscripts: a8, S20, an, Sn, tn, x1
+   A term of a sequence is written a with a small n under it, not "an" flat
+   on the line. The AI writes it flat, so the board recognises the shape.
+   A match needs the pair to stand on its own - the next thing after it must
+   be an operator, a bracket, an equals or the end of the line. That is what
+   keeps the English word "an" in "an object" from turning into a subscript,
+   and keeps "at + b" and "ax + b" as products. */
+function mrSubscripts(s){
+  // Any letter carrying a number: a8, S20, t5, x1, y1
+  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z])(\d+)(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/g,
+    function(m, pre, base, digits){ return pre + base + '_{' + digits + '}'; });
+  // The sequence names a class actually meets: an, Sn, tn, Tn, An, ak, Sk
+  s = s.replace(/(^|[\s(\[{+\-=,\u00d7\u00b7])([aAStTd])([nk])(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/g,
+    function(m, pre, base, sub){ return pre + base + '_{' + sub + '}'; });
+  return s;
+}
+
+// True when a line carries a subscript shape worth drawing properly.
+function mrHasSubscript(t){
+  var s = String(t || '');
+  return /(^|[\s(\[{+\-=,\u00d7\u00b7])([A-Za-z]\d+|[aAStTd][nk])(?=\s*(?:[=)\],+\-*\/\u00d7\u00f7]|$))/.test(s);
+}
+
 // Walk backwards from a slash to find the whole numerator.
 // Absorbs bracket groups, exponent groups and identifier characters,
 // and stops at + - = space etc. so "x + 1/x" gives 1, not "x + 1".
@@ -2583,6 +2606,7 @@ function mrConvert(src){
   s = mrRoots(s);
   s = mrFractions(s);
   s = mrPowers(s);
+  s = mrSubscripts(s);
   for(var i = 0; i < MR_SYM.length; i++){
     s = s.split(MR_SYM[i][0]).join(MR_SYM[i][1]);
   }
@@ -2608,7 +2632,8 @@ function needsPrintMath(text){
   /* A caret is how the AI writes a power: r^(n-1), 3^7, x^2. It was not in
      this list, so a formula like "an = ar^(n-1)" went to the chalk writer
      and the caret was printed as a literal symbol on the board. */
-  return /[\^\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t);
+  if(/[\^\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t)) return true;
+  return mrHasSubscript(t);
 }
 
 // Render one line as real maths, revealed left to right like writing.
