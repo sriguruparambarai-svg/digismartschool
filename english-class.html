@@ -1519,6 +1519,7 @@ function scShowComplete(){
     '<div class="sc-done-wrap">' +
       '<div class="big">\uD83C\uDF89 Lesson Complete!</div>' +
       '<p>Wonderful work, class! Keep speaking these new words today. The Practice Studio has reading, writing and the speaking microphone waiting for you.</p>' +
+      '<button class="sc-done-btn" onclick="scStartSpeak()" style="background:linear-gradient(135deg,#c9a84c,#a8863a);color:#2a1505;">\uD83C\uDFA4 Speaking Practice</button>' +
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
       '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
@@ -1528,6 +1529,271 @@ function scShowComplete(){
 
 function scOpenRevision(){
   window.location.href = 'english.html';
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   SPEAKING PRACTICE  —  merged in from the English Teacher tool.
+   Uses TODAY'S lesson sentences, the class ElevenLabs voice, the
+   microphone, and Claude for pronunciation + fluency feedback.
+   ══════════════════════════════════════════════════════════════════ */
+var SPK_STYLED  = false;
+var SPK_LINES   = [];
+var SPK_IDX     = 0;
+var SPK_REC     = null;
+var SPK_LISTEN  = false;
+var SPK_AUDIO   = null;
+var SPK_SCORES  = [];
+
+function scSpkStyles(){
+  if (SPK_STYLED) return;
+  SPK_STYLED = true;
+  var st = document.createElement('style');
+  st.textContent =
+    '.spk-wrap{width:100%;max-width:900px;text-align:center;animation:scFadeUp 0.6s ease both;}' +
+    '.spk-prog{font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:14px;}' +
+    '.spk-line{background:linear-gradient(160deg,rgba(107,26,26,0.45),rgba(30,12,8,0.7));border:1.5px solid var(--gold);border-radius:16px;padding:24px 22px;font-family:Lora,serif;font-size:clamp(1.1rem,2.4vw,1.7rem);color:var(--text-light);line-height:1.75;margin-bottom:16px;box-shadow:0 10px 30px rgba(0,0,0,0.4);}' +
+    '.spk-hint{font-family:Caveat,cursive;font-size:1.25rem;color:var(--sandal);margin-bottom:14px;}' +
+    '.spk-mic{width:104px;height:104px;border-radius:50%;margin:6px auto 10px;display:flex;align-items:center;justify-content:center;font-size:2.6rem;cursor:pointer;border:3px solid var(--gold);background:radial-gradient(circle at 50% 35%,rgba(201,168,76,0.28),rgba(30,12,8,0.75));box-shadow:0 8px 26px rgba(0,0,0,0.45);transition:transform 0.15s ease;}' +
+    '.spk-mic:hover{transform:scale(1.05);}' +
+    '.spk-mic.live{border-color:#ff6b5a;animation:spkPulse 1.1s ease-in-out infinite;}' +
+    '@keyframes spkPulse{0%,100%{box-shadow:0 0 0 0 rgba(255,107,90,0.55);}50%{box-shadow:0 0 0 18px rgba(255,107,90,0);}}' +
+    '.spk-status{font-size:0.88rem;color:var(--sandal);min-height:22px;margin-bottom:12px;}' +
+    '.spk-said{background:rgba(201,168,76,0.09);border-left:4px solid var(--gold);border-radius:0 10px 10px 0;padding:10px 14px;font-size:0.92rem;color:var(--sandal);margin:0 auto 12px;max-width:720px;text-align:left;}' +
+    '.spk-score{display:inline-block;border-radius:30px;padding:8px 22px;font-weight:800;font-size:1.05rem;margin-bottom:12px;}' +
+    '.spk-s3{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}' +
+    '.spk-s2{background:linear-gradient(135deg,#d9a530,#b3841f);color:#2a1c05;}' +
+    '.spk-s1{background:linear-gradient(135deg,#b33a3a,#8a2525);color:#ffe4de;}' +
+    '.spk-fb{background:linear-gradient(135deg,rgba(60,150,80,0.16),rgba(30,12,8,0.5));border:1.5px solid rgba(90,200,120,0.45);border-radius:13px;padding:14px 18px;font-size:0.95rem;color:#d8f5e0;line-height:1.65;margin:0 auto 16px;max-width:760px;text-align:left;}' +
+    '.spk-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;border-radius:13px;padding:12px 24px;font-family:Cinzel,serif;font-weight:700;font-size:0.92rem;cursor:pointer;margin:4px 5px;}' +
+    '.spk-btn.ghost{background:transparent;border:1.5px solid rgba(201,168,76,0.55);color:var(--sandal);}' +
+    '.spk-row{display:flex;gap:10px;align-items:flex-start;background:rgba(201,168,76,0.07);border-left:4px solid;border-radius:0 10px 10px 0;padding:10px 14px;margin-bottom:9px;font-size:0.86rem;color:var(--sandal);line-height:1.5;text-align:left;}' +
+    '.spk-row.g{border-color:#2f9e57;}.spk-row.a{border-color:#d9a530;}.spk-row.m{border-color:#b33a3a;}';
+  document.head.appendChild(st);
+}
+
+/* ── Build the practice sentences from TODAY'S lesson ── */
+function scSpkBuildLines(){
+  var out = [];
+  function add(t){
+    t = String(t || '').replace(/\s+/g, ' ').trim();
+    if (t.length >= 12 && t.length <= 140 && out.indexOf(t) === -1) out.push(t);
+  }
+  (STEPS || []).forEach(function(s){
+    if (!s) return;
+    if (s.type === 'word' && Array.isArray(s.sentences)) s.sentences.forEach(add);
+    if (s.type === 'homophones' && Array.isArray(s.pair)) s.pair.forEach(function(p){ if (p) add(p.sentence); });
+    if (s.type === 'grammar' && Array.isArray(s.pairs)) s.pairs.forEach(function(p){ if (p) add(p.right); });
+  });
+  if (out.length < 4 && LESSON.text){
+    LESSON.text.replace(/\s+/g, ' ').split(/[.!?]+/).forEach(add);
+  }
+  return out.slice(0, 6);
+}
+
+/* ── Own voice player: does NOT schedule lesson auto-advance ── */
+function scSpkStopSay(){
+  if (SPK_AUDIO){ try{ SPK_AUDIO.pause(); }catch(e){} SPK_AUDIO = null; }
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+}
+function scSpkBrowserSay(text){
+  if (!('speechSynthesis' in window)) return;
+  var u = new SpeechSynthesisUtterance(String(text));
+  u.lang = 'en-IN'; u.rate = scRate(); u.pitch = 1.05;
+  window.speechSynthesis.speak(u);
+}
+function scSpkSay(text){
+  scSpkStopSay();
+  if (!voiceOn || !text) return;
+  fetch('/api/voice-class', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ text: String(text), cls: LESSON.cls })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    if (d && d.audio_b64){
+      SPK_AUDIO = new Audio('data:audio/mpeg;base64,' + d.audio_b64);
+      SPK_AUDIO.playbackRate = scRate();
+      SPK_AUDIO.play().catch(function(){ scSpkBrowserSay(text); });
+    } else { scSpkBrowserSay(text); }
+  }).catch(function(){ scSpkBrowserSay(text); });
+}
+function scSpkHear(){ scSpkSay(SPK_LINES[SPK_IDX]); }
+
+/* ── Instant local word-match score (before the AI replies) ── */
+function scSpkMatch(target, said){
+  function norm(t){
+    return String(t || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').split(/\s+/).filter(Boolean);
+  }
+  var a = norm(target), b = norm(said);
+  if (!a.length) return 0;
+  var pool = b.slice(), hit = 0;
+  a.forEach(function(w){ var i = pool.indexOf(w); if (i > -1){ hit++; pool.splice(i, 1); } });
+  return Math.round(hit / a.length * 100);
+}
+
+/* ── START ── */
+function scStartSpeak(){
+  scSpkStyles();
+  scStopAudio(); scSpkStopSay(); clearTimeout(scAdvanceTimer);
+  SPK_LINES = scSpkBuildLines();
+  SPK_IDX = 0; SPK_SCORES = [];
+  var inner = document.getElementById('stage-inner');
+  if (!SPK_LINES.length){
+    inner.innerHTML = '<div class="spk-wrap"><div style="color:#ffb0a5;">No practice sentences could be taken from this lesson.</div>' +
+      '<button class="spk-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+    return;
+  }
+  scSpkShow();
+}
+
+function scSpkShow(){
+  scSpkStopSay();
+  var inner = document.getElementById('stage-inner');
+  document.getElementById('narr-text').textContent =
+    '\uD83C\uDFA4 Speaking practice \u2014 one child reads the sentence into the microphone.';
+  inner.innerHTML =
+    '<div class="spk-wrap">' +
+      '<div class="spk-prog">SPEAKING PRACTICE \u00B7 SENTENCE ' + (SPK_IDX + 1) + ' OF ' + SPK_LINES.length + '</div>' +
+      '<div class="spk-line" id="spk-line"></div>' +
+      '<button class="spk-btn ghost" onclick="scSpkHear()">\uD83D\uDD0A Hear it first</button>' +
+      '<div class="spk-hint">\uD83D\uDDE3 Now say it clearly into the microphone</div>' +
+      '<div class="spk-mic" id="spk-mic" onclick="scSpkMic()">\uD83C\uDFA4</div>' +
+      '<div class="spk-status" id="spk-status">Tap the microphone to start</div>' +
+      '<div id="spk-out"></div>' +
+      '<div style="margin-top:10px;">' +
+        '<button class="spk-btn ghost" onclick="scSpkSkip()">Skip \u2192</button>' +
+        '<button class="spk-btn ghost" onclick="scShowComplete()">\u2190 End Practice</button>' +
+      '</div>' +
+    '</div>';
+  document.getElementById('spk-line').textContent = SPK_LINES[SPK_IDX];
+}
+
+/* ── Microphone ── */
+function scSpkMic(){
+  var stEl = document.getElementById('spk-status');
+  var mic  = document.getElementById('spk-mic');
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)){
+    stEl.textContent = 'Microphone not supported in this browser \u2014 please use Chrome.';
+    return;
+  }
+  if (SPK_LISTEN){
+    if (SPK_REC){ try{ SPK_REC.stop(); }catch(e){} }
+    SPK_LISTEN = false; mic.classList.remove('live');
+    stEl.textContent = 'Stopped. Tap again to record.';
+    return;
+  }
+  scSpkStopSay();
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  SPK_REC = new SR();
+  SPK_REC.lang = 'en-IN';
+  SPK_REC.continuous = false;
+  SPK_REC.interimResults = false;
+  SPK_REC.onstart = function(){
+    SPK_LISTEN = true; mic.classList.add('live');
+    stEl.textContent = '\uD83D\uDD34 Listening\u2026 speak now';
+  };
+  SPK_REC.onresult = function(e){
+    SPK_LISTEN = false; mic.classList.remove('live');
+    var said = e.results[0][0].transcript;
+    scSpkAnalyse(said);
+  };
+  SPK_REC.onerror = function(e){
+    SPK_LISTEN = false; mic.classList.remove('live');
+    var msg = (e && e.error === 'not-allowed')
+      ? 'Microphone blocked \u2014 allow microphone access for this site, then tap again.'
+      : 'Could not hear clearly \u2014 tap the microphone and try again.';
+    stEl.textContent = msg;
+  };
+  SPK_REC.onend = function(){
+    SPK_LISTEN = false; mic.classList.remove('live');
+  };
+  try{ SPK_REC.start(); }
+  catch(e){ stEl.textContent = 'Could not start the microphone \u2014 tap again.'; }
+}
+
+/* ── AI pronunciation + fluency feedback ── */
+async function scSpkAnalyse(said){
+  var target = SPK_LINES[SPK_IDX];
+  var pct = scSpkMatch(target, said);
+  SPK_SCORES.push({ line: target, said: said, pct: pct });
+
+  document.getElementById('spk-status').textContent = 'Checking\u2026';
+  var out = document.getElementById('spk-out');
+  var cls = pct >= 80 ? 'spk-s3' : pct >= 50 ? 'spk-s2' : 'spk-s1';
+  out.innerHTML =
+    '<div class="spk-said" id="spk-said"></div>' +
+    '<div class="spk-score ' + cls + '">' + pct + '% match</div>' +
+    '<div class="spk-fb" id="spk-fb"><div class="sc-spin" style="margin:0 auto;"></div></div>';
+  document.getElementById('spk-said').textContent = '\uD83C\uDF99 You said: ' + said;
+
+  try{
+    var res = await fetch('/api/ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'You are a warm English pronunciation and fluency coach for ' + (LESSON.cls || 'school') +
+                ' Tamil-medium students in Tamil Nadu. Reply in plain text, 3 short sentences maximum, ' +
+                'no markdown, no emojis. Say (1) how close the child was, (2) ONE specific pronunciation ' +
+                'tip on the word they got wrong, (3) one short line of encouragement. Simple classroom English.',
+        messages:[{ role:'user', content:'Target sentence: "' + target + '"\nChild said: "' + said + '"' }],
+        max_tokens: 300
+      })
+    });
+    var d = await res.json();
+    var raw = '';
+    if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+    else if (d && d.text) raw = String(d.text);
+    if (!raw) throw new Error('no feedback came back \u2014 tap the microphone to try again');
+    var fb = document.getElementById('spk-fb');
+    if (fb) fb.textContent = raw.trim();
+    if (voiceOn) scSpkSay(raw.trim().substring(0, 280));
+  }catch(e){
+    var fb2 = document.getElementById('spk-fb');
+    if (fb2) fb2.textContent = 'Could not get coach feedback: ' + (e.message || e);
+  }
+
+  var stEl = document.getElementById('spk-status');
+  if (stEl) stEl.innerHTML = '';
+  var o = document.getElementById('spk-out');
+  if (o){
+    var nx = document.createElement('div');
+    nx.style.marginTop = '6px';
+    nx.innerHTML = '<button class="spk-btn ghost" onclick="scSpkMic()">\u21BA Try Again</button>' +
+                   '<button class="spk-btn" onclick="scSpkNext()">Next Sentence \u2192</button>';
+    o.appendChild(nx);
+  }
+}
+
+function scSpkSkip(){
+  SPK_SCORES.push({ line: SPK_LINES[SPK_IDX], said: '(skipped)', pct: -1 });
+  scSpkNext();
+}
+
+function scSpkNext(){
+  scSpkStopSay();
+  SPK_IDX++;
+  if (SPK_IDX < SPK_LINES.length) scSpkShow();
+  else scSpkFinish();
+}
+
+function scSpkFinish(){
+  scSpkStopSay(); clearTimeout(scAdvanceTimer);
+  var done = SPK_SCORES.filter(function(r){ return r.pct >= 0; });
+  var avg = done.length ? Math.round(done.reduce(function(a, r){ return a + r.pct; }, 0) / done.length) : 0;
+  var rows = SPK_SCORES.map(function(r){
+    var c = r.pct < 0 ? 'a' : r.pct >= 80 ? 'g' : r.pct >= 50 ? 'a' : 'm';
+    var lbl = r.pct < 0 ? 'skipped' : r.pct + '%';
+    var d = document.createElement('div');
+    d.className = 'spk-row ' + c;
+    d.textContent = lbl + '  \u00B7  ' + r.line;
+    return d.outerHTML;
+  }).join('');
+  document.getElementById('narr-text').textContent = '\uD83C\uDFA4 Speaking practice finished \u2014 well done, class!';
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="spk-wrap">' +
+      '<div class="spk-prog">SPEAKING PRACTICE \u00B7 RESULT</div>' +
+      '<div class="spk-score ' + (avg >= 80 ? 'spk-s3' : avg >= 50 ? 'spk-s2' : 'spk-s1') + '">Class average ' + avg + '%</div>' +
+      '<div style="max-width:760px;margin:10px auto 16px;">' + rows + '</div>' +
+      '<button class="spk-btn" onclick="scStartSpeak()">\u21BA Practise Again</button>' +
+      '<button class="spk-btn ghost" onclick="scShowComplete()">\u2190 Back</button>' +
+    '</div>';
 }
 function scPrev(){ if (CUR > 0) scRender(CUR - 1); }
 
