@@ -1528,6 +1528,7 @@ function scShowComplete(){
       '<button class="sc-done-btn" onclick="scStartSpeak()" style="background:linear-gradient(135deg,#c9a84c,#a8863a);color:#2a1505;">\uD83C\uDFA4 Speaking Practice</button>' +
       '<button class="sc-done-btn" onclick="scStartWrite()" style="background:linear-gradient(135deg,#4a6fa5,#2f4a73);color:#eaf2ff;">\u270D\uFE0F Writing Coach</button>' +
       '<button class="sc-done-btn" onclick="scStartRead()" style="background:linear-gradient(135deg,#7a4a86,#4e2c5c);color:#f4e6fb;">\uD83D\uDCD6 Read &amp; Answer</button>' +
+      '<button class="sc-done-btn" onclick="scStartTest()" style="background:linear-gradient(135deg,#2f7a6e,#1c4a44);color:#e2fbf6;">\uD83D\uDCDD Test Paper</button>' +
       '<button class="sc-done-btn" onclick="scOpenRevision()">\uD83C\uDF99 Practice Studio</button>' +
       '<button class="sc-done-btn" onclick="scStartQuiz()" style="background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;">\uD83C\uDFAF Class Quiz \u2014 3 min</button>' +
       '<button class="sc-done-btn ghost" onclick="scRender(0)">\u21BA Replay Lesson</button>' +
@@ -2177,6 +2178,278 @@ function scRdPrint(){
   w.document.write(html);
   w.document.close();
   setTimeout(function(){ try{ w.print(); }catch(e){} }, 400);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   TEST PAPER  —  merged in from the English Teacher tool.
+   Builds a full CBSE-style question paper from TODAY'S chapter,
+   with sections, marks and a separate answer key, ready to print
+   and photocopy.
+   ══════════════════════════════════════════════════════════════════ */
+var TS_STYLED = false;
+var TS_PAPER  = null;
+var TS_MARKS  = 25;
+var TS_TIME   = '1 hour';
+
+function scTsStyles(){
+  if (TS_STYLED) return;
+  TS_STYLED = true;
+  var st = document.createElement('style');
+  st.textContent =
+    '.ts-wrap{width:100%;max-width:940px;text-align:center;animation:scFadeUp 0.6s ease both;}' +
+    '.ts-prog{font-size:0.72rem;font-weight:800;letter-spacing:2px;color:var(--gold);margin-bottom:16px;}' +
+    '.ts-ask{font-family:Cinzel,serif;font-size:0.86rem;letter-spacing:1.2px;text-transform:uppercase;color:var(--sandal);margin:18px 0 9px;}' +
+    '.ts-opt{display:inline-block;border:1.5px solid rgba(47,122,110,0.7);background:rgba(47,122,110,0.14);color:#bfeee5;border-radius:12px;padding:11px 22px;margin:4px 5px;font-family:Cinzel,serif;font-weight:700;font-size:0.92rem;cursor:pointer;transition:transform 0.14s ease;}' +
+    '.ts-opt:hover{transform:translateY(-2px);}' +
+    '.ts-opt.on{background:linear-gradient(135deg,#2f7a6e,#1c4a44);color:#e2fbf6;border-color:#5fbfae;}' +
+    '.ts-btn{background:linear-gradient(135deg,var(--gold),#a8863a);color:#2a1505;border:none;border-radius:13px;padding:12px 24px;font-family:Cinzel,serif;font-weight:700;font-size:0.92rem;cursor:pointer;margin:4px 5px;}' +
+    '.ts-btn.ghost{background:transparent;border:1.5px solid rgba(201,168,76,0.55);color:var(--sandal);}' +
+    '.ts-btn.teal{background:linear-gradient(135deg,#2f7a6e,#1c4a44);color:#e2fbf6;}' +
+    '.ts-paper{max-width:880px;margin:0 auto;background:rgba(18,12,10,0.62);border:1.5px solid rgba(201,168,76,0.3);border-radius:14px;padding:20px 24px;text-align:left;max-height:56vh;overflow-y:auto;}' +
+    '.ts-hd{text-align:center;border-bottom:1.5px solid rgba(201,168,76,0.4);padding-bottom:11px;margin-bottom:14px;}' +
+    '.ts-hd .t1{font-family:Cinzel,serif;font-size:1.08rem;font-weight:700;color:var(--gold-light);}' +
+    '.ts-hd .t2{font-size:0.84rem;color:var(--sandal);margin-top:5px;}' +
+    '.ts-ins{background:rgba(201,168,76,0.08);border-left:4px solid rgba(201,168,76,0.6);border-radius:0 9px 9px 0;padding:9px 13px;margin-bottom:15px;font-size:0.83rem;color:var(--sandal);line-height:1.65;}' +
+    '.ts-sec{font-family:Cinzel,serif;font-size:0.93rem;font-weight:700;color:var(--gold);border-bottom:1px solid rgba(201,168,76,0.28);padding-bottom:5px;margin:17px 0 10px;display:flex;justify-content:space-between;gap:10px;}' +
+    '.ts-q{margin-bottom:12px;font-family:Lora,serif;font-size:0.95rem;color:var(--text-light);line-height:1.7;}' +
+    '.ts-q .qn{color:var(--gold);font-weight:700;margin-right:6px;}' +
+    '.ts-q .qm{float:right;font-size:0.78rem;color:var(--sandal);font-family:Cinzel,serif;}' +
+    '.ts-q .qh{display:block;font-size:0.78rem;color:rgba(232,201,154,0.7);margin-top:3px;font-style:italic;}' +
+    '.ts-q .qo{display:block;font-size:0.9rem;color:var(--sandal);margin-top:4px;line-height:1.75;}' +
+    '.ts-key{display:block;margin-top:5px;background:rgba(60,150,80,0.14);border-radius:7px;padding:5px 10px;font-size:0.86rem;color:#d8f5e0;}';
+  document.head.appendChild(st);
+}
+
+/* ── STEP 1 — pick marks and time ── */
+function scStartTest(){
+  scTsStyles();
+  scStopAudio(); scSpkStopSay(); clearTimeout(scAdvanceTimer);
+  document.getElementById('narr-text').textContent =
+    '\uD83D\uDCDD Test Paper \u2014 choose the marks and the time.';
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="ts-wrap">' +
+      '<div class="ts-prog">TEST PAPER \u00B7 ' + escHtmlWr((LESSON.topic || '').toUpperCase()) + '</div>' +
+      '<div class="ts-ask">Total marks</div>' +
+      '<div id="ts-marks">' +
+        '<span class="ts-opt on" data-v="25" onclick="scTsPick(this,\'marks\')">25 marks</span>' +
+        '<span class="ts-opt" data-v="50" onclick="scTsPick(this,\'marks\')">50 marks</span>' +
+        '<span class="ts-opt" data-v="80" onclick="scTsPick(this,\'marks\')">80 marks</span>' +
+      '</div>' +
+      '<div class="ts-ask">Time allowed</div>' +
+      '<div id="ts-time">' +
+        '<span class="ts-opt" data-v="30 minutes" onclick="scTsPick(this,\'time\')">30 minutes</span>' +
+        '<span class="ts-opt on" data-v="1 hour" onclick="scTsPick(this,\'time\')">1 hour</span>' +
+        '<span class="ts-opt" data-v="3 hours" onclick="scTsPick(this,\'time\')">3 hours</span>' +
+      '</div>' +
+      '<div style="margin-top:22px;">' +
+        '<button class="ts-btn teal" onclick="scTsBuild()">\uD83D\uDCDD Make the paper</button>' +
+        '<button class="ts-btn ghost" onclick="scShowComplete()">\u2190 Back</button>' +
+      '</div>' +
+    '</div>';
+}
+
+function scTsPick(el, which){
+  var box = document.getElementById(which === 'marks' ? 'ts-marks' : 'ts-time');
+  if (!box) return;
+  var all = box.querySelectorAll('.ts-opt');
+  for (var i = 0; i < all.length; i++) all[i].classList.remove('on');
+  el.classList.add('on');
+  if (which === 'marks') TS_MARKS = parseInt(el.getAttribute('data-v'), 10) || 25;
+  else TS_TIME = el.getAttribute('data-v') || '1 hour';
+}
+
+/* ── cache key includes the marks, so each size is stored separately ── */
+async function scTsKey(){
+  var data = 'test1|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+             TS_MARKS + '|' + LESSON.text.substring(0, 8000);
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+function scTsBuild(){
+  scTsStyles();
+  var inner = document.getElementById('stage-inner');
+  if (!LESSON.text || LESSON.text.trim().length < 60){
+    inner.innerHTML = '<div class="ts-wrap"><div style="color:#ffb0a5;">The chapter text is not available, so a paper cannot be set.</div>' +
+      '<button class="ts-btn ghost" style="margin-top:16px;" onclick="scShowComplete()">\u2190 Back</button></div>';
+    return;
+  }
+  document.getElementById('narr-text').textContent = '\uD83D\uDCDD Setting the question paper\u2026';
+  inner.innerHTML = '<div class="ts-wrap"><div class="sc-spin" style="margin:0 auto 14px;"></div>' +
+    '<div style="color:var(--sandal);">Setting a ' + TS_MARKS + '-mark paper from today\u2019s chapter\u2026</div></div>';
+  scTsGenerate().then(scTsShow).catch(function(e){
+    inner.innerHTML = '<div class="ts-wrap"><div style="color:#ffb0a5;">' + escHtmlWr(e.message || e) + '</div>' +
+      '<button class="ts-btn" style="margin-top:16px;" onclick="scStartTest()">\u2190 Try again</button></div>';
+  });
+}
+
+async function scTsGenerate(){
+  var key = null;
+  try{
+    key = await scTsKey();
+    var r = await fetch('/api/lesson-plan?key=' + key);
+    if (r.ok){
+      var cached = await r.json();
+      if (cached && cached.steps && cached.steps.sections){
+        TS_PAPER = cached.steps;
+        return TS_PAPER;
+      }
+    }
+  }catch(e){}
+
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: 'You are a CBSE English paper setter. Set a ' + TS_MARKS + '-mark question paper for ' +
+        (LESSON.cls || 'school') + ' Tamil-medium students in a Tamil Nadu CBSE school, entirely from the ' +
+        'chapter given. Time allowed: ' + TS_TIME + '.\n' +
+        'Build it in sections that suit the total marks \u2014 for example Reading, Writing, Grammar and ' +
+        'Literature. The section marks must add up exactly to ' + TS_MARKS + '. Number the questions ' +
+        'continuously from 1. Mix question sizes: objective, short answer and long answer. ' +
+        'Every question must be answerable from the chapter. Simple classroom English.\n' +
+        'Give the correct answer for EVERY question in "ans" \u2014 for long answers a model answer in ' +
+        '2 to 4 sentences. For objective questions put the choices in "opts".\n' +
+        'Reply ONLY with valid JSON, no markdown, no commentary:\n' +
+        '{"title":"English \u2014 Chapter Test","instructions":["short instruction","short instruction"],' +
+        '"sections":[{"name":"Section A \u2014 Reading","marks":10,' +
+        '"questions":[{"num":"1","q":"the question","marks":2,"opts":["a) ...","b) ..."],' +
+        '"hint":"format hint if needed","ans":"the correct answer"}]}]}',
+      messages:[{ role:'user', content:
+        'CLASS: ' + (LESSON.cls || '') + '\nCHAPTER: ' + (LESSON.topic || '') +
+        '\n\nCHAPTER TEXT:\n' + String(LESSON.text || '').substring(0, 9000) }],
+      max_tokens: 4000
+    })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw) throw new Error('the paper could not be set \u2014 please try again');
+  var got = scParseJSON(raw);
+  if (!got || !Array.isArray(got.sections) || !got.sections.length){
+    throw new Error('the paper came back incomplete \u2014 please try again');
+  }
+  TS_PAPER = got;
+
+  if (key){
+    try{
+      fetch('/api/lesson-plan', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ key: key, steps: got, meta:{ kind:'test-paper', topic: LESSON.topic, marks: TS_MARKS } })
+      });
+    }catch(e2){}
+  }
+  return TS_PAPER;
+}
+
+/* ── show the paper on screen ── */
+function scTsShow(){
+  var d = TS_PAPER;
+  document.getElementById('narr-text').textContent =
+    '\uD83D\uDCDD Paper ready \u2014 print the question paper, and the answer key separately.';
+
+  var body = '';
+  (d.instructions || []).length && (body +=
+    '<div class="ts-ins">' + (d.instructions || []).map(function(x, i){
+      return (i + 1) + '. ' + escHtmlWr(x);
+    }).join('<br/>') + '</div>');
+
+  (d.sections || []).forEach(function(sec){
+    body += '<div class="ts-sec"><span>' + escHtmlWr(sec.name || '') + '</span>' +
+            '<span>' + (sec.marks != null ? '(' + sec.marks + ' marks)' : '') + '</span></div>';
+    (sec.questions || []).forEach(function(q){
+      body += '<div class="ts-q">' +
+                (q.marks != null ? '<span class="qm">[' + q.marks + ']</span>' : '') +
+                '<span class="qn">' + escHtmlWr(q.num || '') + '.</span>' + escHtmlWr(q.q || '') +
+                (Array.isArray(q.opts) && q.opts.length
+                  ? '<span class="qo">' + q.opts.map(escHtmlWr).join('<br/>') + '</span>' : '') +
+                (q.hint ? '<span class="qh">' + escHtmlWr(q.hint) + '</span>' : '') +
+                '<span class="ts-key">\u2705 ' + escHtmlWr(q.ans || '') + '</span>' +
+              '</div>';
+    });
+  });
+
+  document.getElementById('stage-inner').innerHTML =
+    '<div class="ts-wrap">' +
+      '<div class="ts-prog">TEST PAPER \u00B7 ' + TS_MARKS + ' MARKS \u00B7 ' + escHtmlWr(TS_TIME.toUpperCase()) + '</div>' +
+      '<div class="ts-paper">' +
+        '<div class="ts-hd">' +
+          '<div class="t1">' + escHtmlWr(d.title || 'English \u2014 Chapter Test') + '</div>' +
+          '<div class="t2">' + escHtmlWr(LESSON.cls || '') + ' \u00B7 ' + escHtmlWr(LESSON.topic || '') +
+            ' \u00B7 Time: ' + escHtmlWr(TS_TIME) + ' \u00B7 Maximum marks: ' + TS_MARKS + '</div>' +
+        '</div>' + body +
+      '</div>' +
+      '<div style="margin-top:16px;">' +
+        '<button class="ts-btn teal" onclick="scTsPrint(false)">\uD83D\uDDA8 Print question paper</button>' +
+        '<button class="ts-btn ghost" onclick="scTsPrint(true)">\uD83D\uDD11 Print answer key</button>' +
+        '<button class="ts-btn ghost" onclick="scStartTest()">\u21BA Different marks</button>' +
+        '<button class="ts-btn ghost" onclick="scShowComplete()">\u2190 End</button>' +
+      '</div>' +
+      '<div style="font-size:0.78rem;color:rgba(232,201,154,0.6);margin-top:9px;">' +
+        'The answers shown above are for the teacher only \u2014 they are left out of the printed question paper.' +
+      '</div>' +
+    '</div>';
+}
+
+/* ── print: question paper, or answer key ── */
+function scTsPrint(withKey){
+  if (!TS_PAPER) return;
+  var d = TS_PAPER, esc = escHtmlWr;
+  var body = '';
+
+  if (!withKey && (d.instructions || []).length){
+    body += '<div class="ins"><b>General instructions</b><ol>' +
+            (d.instructions || []).map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') +
+            '</ol></div>';
+  }
+
+  (d.sections || []).forEach(function(sec){
+    body += '<h2>' + esc(sec.name || '') + (sec.marks != null ? ' <span class="sm">(' + sec.marks + ' marks)</span>' : '') + '</h2>';
+    (sec.questions || []).forEach(function(q){
+      body += '<div class="q"><span class="m">[' + (q.marks != null ? q.marks : '') + ']</span>' +
+              '<b>' + esc(q.num || '') + '.</b> ' + esc(q.q || '');
+      if (!withKey){
+        if (Array.isArray(q.opts) && q.opts.length) body += '<div class="o">' + q.opts.map(esc).join('<br/>') + '</div>';
+        if (q.hint) body += '<div class="h">' + esc(q.hint) + '</div>';
+        body += '<div class="rule"></div>';
+      } else {
+        body += '<div class="a">' + esc(q.ans || '') + '</div>';
+      }
+      body += '</div>';
+    });
+  });
+
+  var html =
+    '<html><head><title>' + (withKey ? 'Answer Key' : 'Question Paper') + '</title><style>' +
+    'body{font-family:Georgia,serif;color:#111;margin:26px 30px;line-height:1.6;}' +
+    '.top{text-align:center;border-bottom:2px solid #6B1A1A;padding-bottom:9px;margin-bottom:14px;}' +
+    '.top h1{font-size:17px;margin:0 0 4px;color:#6B1A1A;}' +
+    '.top .meta{font-size:12px;}' +
+    'h2{font-size:13px;color:#6B1A1A;border-bottom:1px solid #bbb;padding-bottom:3px;margin:16px 0 8px;}' +
+    '.sm{font-weight:normal;font-size:11px;color:#555;}' +
+    '.q{font-size:12.5px;margin-bottom:9px;page-break-inside:avoid;}' +
+    '.m{float:right;font-size:11px;color:#555;}' +
+    '.o{margin:3px 0 0 16px;font-size:12px;}' +
+    '.h{margin-left:16px;font-size:11px;font-style:italic;color:#555;}' +
+    '.a{margin:3px 0 0 16px;font-size:12px;background:#f0f0f0;padding:5px 8px;border-left:3px solid #2f7a6e;}' +
+    '.rule{border-bottom:1px dotted #999;height:26px;margin:4px 0 0 16px;}' +
+    '.ins{font-size:11.5px;border:1px solid #999;padding:7px 11px;margin-bottom:12px;}' +
+    '.ins ol{margin:4px 0 0 16px;padding:0;}' +
+    '</style></head><body>' +
+    '<div class="top"><h1>' + esc(d.title || 'English \u2014 Chapter Test') +
+      (withKey ? ' \u2014 ANSWER KEY' : '') + '</h1>' +
+      '<div class="meta">' + esc(LESSON.cls || '') + ' \u00B7 ' + esc(LESSON.topic || '') +
+      ' \u00B7 Time: ' + esc(TS_TIME) + ' \u00B7 Maximum marks: ' + TS_MARKS + '</div>' +
+      (withKey ? '' : '<div class="meta">Name: ____________________   Roll No: ________   Date: __________</div>') +
+    '</div>' + body + '</body></html>';
+
+  var w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(html);
+  w.document.close();
+  setTimeout(function(){ try{ w.print(); }catch(e){} }, 450);
 }
 
 function scOpenRevision(){
