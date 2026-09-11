@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>AI Teacher — DigiSmartSchool</title>
+<title>Quick Class — DigiSmartSchool</title>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 <style>
 :root {
@@ -245,6 +245,33 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
 .done-btn-primary { background:linear-gradient(135deg,var(--gold-dark),var(--yellow)); color:var(--maroon-dark); }
 .done-btn-sec { background:rgba(255,255,255,0.1); color:#fff; border:1px solid rgba(255,255,255,0.2); }
 </style>
+<script>
+/* ══ SESSION TOKEN ══
+   auth.js seals the school code into a signed token at login and stores it as
+   dss_session. This attaches it to every /api/ai call, so the server can tell
+   a real logged-in school from anyone else poking at the endpoint. */
+(function(){
+  if (window.__dssSessionWrapped) return;
+  window.__dssSessionWrapped = true;
+  var _fetch = window.fetch;
+  window.fetch = function(input, init){
+    try{
+      var url = (typeof input === 'string') ? input : ((input && input.url) || '');
+      if (url.indexOf('/api/ai') !== -1){
+        var token = '';
+        try { token = localStorage.getItem('dss_session') || ''; } catch(e){}
+        if (token){
+          init = init || {};
+          var h = new Headers((init && init.headers) || {});
+          h.set('x-dss-session', token);
+          init.headers = h;
+        }
+      }
+    }catch(e){ /* never let this stop a request going out */ }
+    return _fetch.call(this, input, init);
+  };
+})();
+</script>
 </head>
 <body>
 
@@ -256,8 +283,8 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
     <div class="setup-logo">
       <img src="assets/ark-logo.png" onerror="this.style.display='none'" alt="School Logo"/>
     </div>
-    <div class="setup-title">🎓 AI Teacher</div>
-    <div class="setup-sub">Classroom Mode — Premium Bilingual Teaching</div>
+    <div class="setup-title">⚡ Quick Class</div>
+    <div class="setup-sub">Type any topic — taught in Tamil + English</div>
 
     <div class="setup-field">
       <label>Class</label>
@@ -314,7 +341,7 @@ body{font-family:"Nunito",sans-serif;background:#0a0005;min-height:100vh;overflo
     </div>
 
     <button class="btn-start-class" id="btn-start" onclick="startClass()">
-      🎓 Start AI Teacher Class
+      ⚡ Start Quick Class
     </button>
   </div>
 </div>
@@ -584,19 +611,17 @@ Subject: ${subject}
 
 Generate the complete bilingual teaching script now. Return ONLY the JSON array.`;
 
-  // Use same format as callAI() in learnbot — wraps payload key
+  // /api/ai expects a flat body: { model, max_tokens, system, messages }
   var rawText = '';
   try {
     var resp = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        payload: {
-          model: 'claude-sonnet-4-5',
-          max_tokens: 3000,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: userPrompt }]
-        }
+        model: 'claude-sonnet-4-5',
+        max_tokens: 3000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: userPrompt }]
       })
     });
     rawText = await resp.text();
@@ -853,7 +878,7 @@ function showTitleCard(onDone) {
     '<div style="font-size:0.9rem;color:var(--gold);letter-spacing:3px;text-transform:uppercase;opacity:0.7;">' + lessonClass + ' · ' + lessonSubject + '</div>' +
     '<div style="font-family:Cinzel,serif;font-size:clamp(1.6rem,4vw,2.8rem);color:var(--gold-light);text-align:center;padding:0 24px;line-height:1.3;text-shadow:0 0 40px rgba(201,168,76,0.4);">' + lessonTitle + '</div>' +
     '<div style="width:60px;height:3px;background:linear-gradient(90deg,transparent,var(--gold),transparent);margin:8px 0;"></div>' +
-    '<div style="font-size:0.85rem;color:var(--sandal);opacity:0.6;">AI Teacher · Bilingual Class</div>';
+    '<div style="font-size:0.85rem;color:var(--sandal);opacity:0.6;">Quick Class · Tamil + English</div>';
   document.body.appendChild(overlay);
 
   setTimeout(function() {
