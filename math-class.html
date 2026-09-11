@@ -492,7 +492,13 @@ html,body{
   color:var(--chalk-white);
   flex:1;
   line-height:1.6;
+  /* A table or an arrow diagram comes as several lines in one string.
+     Without this they were all printed on top of each other as one line. */
+  white-space:pre-wrap;
 }
+/* Printed maths keeps its own spacing rules inside the step. */
+.step-content .katex,
+.step-content .katex *{white-space:normal;}
 .step-explanation{
   display:block;
   font-size:1rem;
@@ -1953,6 +1959,10 @@ function showClassroom(){
   // Render problem title and text
   $('problem-text').textContent = SOLUTION.problem || $('problem-input').value;
 
+  // Bring the figure area back under the problem before the steps list is
+  // rebuilt — last class may have parked it inside the steps.
+  mcFigureHome();
+
   // Draw line-geometry figures if the solution includes them
   clearFigures();
   if(SOLUTION.figures && SOLUTION.figures.length){
@@ -2003,6 +2013,14 @@ function showClassroom(){
       $('steps-list').appendChild(div);
     }
   });
+
+  // Work out where this lesson's figure belongs, and keep it out of sight
+  // until the class reaches that step.
+  FIG_STEP_IDX = mcPickFigureStep();
+  if(FIG_STEP_IDX >= 0){
+    var figArea = $('figure-area');
+    if(figArea) figArea.style.display = 'none';
+  }
 
   STEP_IDX = -1;
   updateStepIndicator();
@@ -2249,6 +2267,8 @@ function chalkWrite(el, text, charDelayMs){
     var chars = String(text).split('');
     var frag = document.createDocumentFragment();
     chars.forEach(function(ch, i){
+      // A new line starts a new row on the board rather than a chalk mark.
+      if(ch === '\n'){ frag.appendChild(document.createElement('br')); return; }
       var span = document.createElement('span');
       span.className = 'chalk-char' + (ch === ' ' ? ' space' : '');
       span.textContent = ch === ' ' ? '\u00a0' : ch;
@@ -2487,6 +2507,11 @@ function mrConvert(src){
 // True when a line has something worth drawing properly.
 function needsPrintMath(text){
   var t = String(text || '');
+  /* Anything written on more than one line (a table, an arrow diagram, a
+     set of ordered pairs listed down the board) is a layout, not a single
+     maths expression. KaTeX would flatten it back into one line, so it is
+     left to the chalk writer, which now keeps the line breaks. */
+  if(t.indexOf('\n') !== -1) return false;
   return /[\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t);
 }
 
@@ -3405,6 +3430,8 @@ async function showStep(idx){
 
   // Glow the figure / angle this step talks about
   applyStepFigRef(step);
+  // Bring the figure down to this step if it belongs here
+  try{ mcPlaceFigure(idx); }catch(e){}
 
   // Wait for parent fade-in to finish so chalk animation isn't masked
   await sleep(100);
@@ -4370,6 +4397,7 @@ function showStepInstant(idx){
       if(wHide) wHide.classList.remove('show');
     }
   });
+  try{ mcPlaceFigure(idx); }catch(e){}
   var stepEl = $('step-' + idx);
   if(stepEl){
     stepEl.classList.add('current');
@@ -5693,7 +5721,12 @@ function renderLineFigure(fig, keyPrefix){
       g8.appendChild(_figEl('circle', { cx: pp2.x, cy: pp2.y, r: 3.6, fill: '#FFD86A' }));
       var lt8 = _figEl('text', { x: pp2.x + 7, y: pp2.y - 7, 'font-family': 'Caveat, cursive',
         'font-size': 15.5, fill: 'rgba(245,245,240,.95)', 'text-anchor': 'start' });
-      lt8.textContent = L + '(' + pp2.wx + ',' + pp2.wy + ')';
+      /* The AI sometimes names a point by its own coordinates, e.g. "(10,4)".
+         Adding the coordinates again printed "(10,4)(10,4)" on the graph. */
+      var nameTxt = String(L || '').trim();
+      lt8.textContent = (nameTxt.charAt(0) === '(')
+        ? nameTxt
+        : (nameTxt + '(' + pp2.wx + ',' + pp2.wy + ')');
       g8.appendChild(lt8);
       svg.appendChild(g8);
     });
@@ -5842,6 +5875,58 @@ function clearFigures(){
   var area = $('figure-area');
   if(area){ area.innerHTML = ''; area.style.display = 'none'; }
 }
+
+/* \u2500\u2500 WHERE THE FIGURE SITS \u2500\u2500
+   A geometry figure is given data and belongs beside the whole working.
+   A graph is usually the ANSWER to one part, and printing it at the top
+   from the first minute gives that part away. So a lesson that carries a
+   single figure now parks it under the step that actually uses it.
+   Multiple figures (option (a)-(d) questions) keep the old behaviour,
+   because the class compares them against each other throughout. */
+
+// Puts the figure area back in its home slot under the problem text.
+// Called before the steps list is rebuilt, so it is never wiped away.
+function mcFigureHome(){
+  var area = $('figure-area');
+  var board = document.querySelector('.board-main');
+  var anchor = $('formula-block');
+  if(!area || !board || !anchor) return;
+  if(area.parentNode !== board || area.nextSibling !== anchor){
+    try{ board.insertBefore(area, anchor); }catch(e){}
+  }
+}
+
+// Decides which step the figure belongs to. -1 means leave it at the top.
+function mcPickFigureStep(){
+  if(!SOLUTION || !SOLUTION.figures || SOLUTION.figures.length !== 1) return -1;
+  var steps = SOLUTION.steps || [];
+  var i;
+  for(i = 0; i < steps.length; i++){
+    if(steps[i] && steps[i].figRef) return i;
+  }
+  for(i = 0; i < steps.length; i++){
+    if(steps[i] && /graph|diagram|plot|sketch|draw|number\s*line/i.test(String(steps[i].main || ''))) return i;
+  }
+  return -1;
+}
+
+// Shows or hides the figure as the class moves through the steps.
+function mcPlaceFigure(idx){
+  var area = $('figure-area');
+  if(!area) return;
+  if(FIG_STEP_IDX < 0) return;              // multi-figure lesson — untouched
+  if(idx < FIG_STEP_IDX){ area.style.display = 'none'; return; }
+  var host = $('step-' + FIG_STEP_IDX);
+  if(host && host.parentNode){
+    var after = host.nextSibling;
+    // A turning-point sentence may sit right under the step — go below it.
+    if(after && after.className === 'step-why') after = after.nextSibling;
+    if(area !== host.nextSibling && area !== after){
+      try{ host.parentNode.insertBefore(area, after); }catch(e){}
+    }
+  }
+  area.style.display = 'flex';
+}
 // Highlight helpers (used by step playback in the next build step)
 function highlightFigureCard(label){
   document.querySelectorAll('#figure-area .fig-card').forEach(function(c){
@@ -5890,6 +5975,7 @@ function applyStepFigRef(step){
 var QUESTION_QUEUE = [];   // Selected questions from the review screen
 var QUEUE_IDX = 0;         // Which question is currently being taught
 var TAUGHT_FLAGS = {};     // Which questions have already been taught this class
+var FIG_STEP_IDX = -1;     // Step the single figure belongs under (-1 = keep it at the top)
 var MC_LESSON = null;      // Activated Maths lesson from Teacher Panel (mc_activated)
 
 // Split the activated lesson text into individual questions via AI,
