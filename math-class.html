@@ -796,6 +796,42 @@ html,body{
 }
 .speed-btn.active{background:var(--maroon);color:var(--gold-light);}
 
+/* ═══ COPY VIEW — the finished sum, laid out to be written down ═══
+   Teaching view scrolls, because each step arrives one at a time. Once the
+   sum is done the class has to copy it, and scrolling a board three times
+   while thirty children write is the slowest part of the lesson. Copy view
+   folds away everything that is not the sum, takes the full width, and runs
+   the steps in two columns so the whole thing sits on one screen.
+   Nothing is deleted - press the button again and the teaching board is back. */
+.board-wrap.copy-mode .board-rough{display:none;}
+.board-wrap.copy-mode .board-main{padding:20px 30px;}
+.board-wrap.copy-mode .problem-title{font-size:1.1rem;margin-bottom:4px;}
+.board-wrap.copy-mode .problem-text{font-size:1.05rem;line-height:1.4;}
+/* Spoken commentary is what the teacher says, not what the class writes. */
+.board-wrap.copy-mode .step-why{display:none !important;}
+.board-wrap.copy-mode .your-turn,
+.board-wrap.copy-mode .make-it{display:none !important;}
+.board-wrap.copy-mode .formula-block{margin:8px 0;}
+.board-wrap.copy-mode .steps-list{
+  column-count:2;column-gap:40px;
+  column-rule:1px dashed rgba(232,201,154,.16);
+}
+.board-wrap.copy-mode .step-item{
+  margin-bottom:5px;
+  break-inside:avoid;-webkit-column-break-inside:avoid;page-break-inside:avoid;
+}
+.board-wrap.copy-mode .step-item.current{background:transparent;}
+.board-wrap.copy-mode .step-content{font-size:1.06rem;line-height:1.38;}
+.board-wrap.copy-mode .step-num{min-width:0;}
+.board-wrap.copy-mode .figure-area{
+  break-inside:avoid;-webkit-column-break-inside:avoid;margin:8px 0;
+}
+.board-wrap.copy-mode .final-answer{margin-top:10px;padding:12px 16px;}
+@media (max-width:768px){
+  /* One column on a phone - two would be unreadable. */
+  .board-wrap.copy-mode .steps-list{column-count:1;}
+}
+
 /* ═══ QUESTION PANEL — loaded questions stay for the whole class ═══ */
 .qp-overlay{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;display:none;}
 .qp-overlay.show{display:block;}
@@ -1162,6 +1198,7 @@ html,body{
     <button class="ctrl-btn tamil" onclick="explainTamil()">🇮🇳 Tamil</button>
     <button class="ctrl-btn" onclick="restartSetup()">📝 New</button>
     <button class="ctrl-btn" id="btn-qlist" onclick="openQuestionPanel()" style="display:none;">📋 Questions</button>
+    <button class="ctrl-btn" id="btn-copy" onclick="toggleCopyView()">📓 Copy</button>
     <button class="ctrl-btn" id="btn-nextq" onclick="nextQueuedQuestion()" style="display:none;">➡ Next Q</button>
   </div>
 </div>
@@ -1955,6 +1992,7 @@ function showClassroom(){
 
   // Bring the figure area back under the problem before the steps list is
   // rebuilt — last class may have parked it inside the steps.
+  mcExitCopyView();
   mcFigureHome();
 
   // Draw line-geometry figures if the solution includes them
@@ -6472,6 +6510,38 @@ function updateQPButton(){
   var b = $('btn-qlist');
   if(!b) return;
   b.style.display = (QUESTION_QUEUE.length > 1) ? '' : 'none';
+}
+
+/* ── COPY VIEW ──
+   Folds the rough pad and the spoken commentary away, widens the board and
+   runs the steps in two columns, so the finished sum can be copied without
+   the teacher scrolling. Only the steps already taught are on the board, so
+   pressing this in the middle of a class cannot give the answer away. */
+function toggleCopyView(){
+  var wrap = document.querySelector('.board-wrap');
+  if(!wrap) return;
+  var on = !wrap.classList.contains('copy-mode');
+  if(on){
+    if(IS_PLAYING){ try{ pausePlayback(); }catch(e){} }
+    // Pointer and marker sit at measured positions on the teaching layout;
+    // they would land in the wrong place once the board is re-flowed.
+    try{ mkClear(); ptrHide(); }catch(e){}
+    wrap.classList.add('copy-mode');
+    var bm = $('board-main');
+    if(bm) bm.scrollTop = 0;
+  } else {
+    wrap.classList.remove('copy-mode');
+  }
+  var b = $('btn-copy');
+  if(b) b.innerHTML = on ? '\u270F\uFE0F Teach view' : '\uD83D\uDCD3 Copy';
+}
+
+// Any new question always opens in the normal teaching board.
+function mcExitCopyView(){
+  var wrap = document.querySelector('.board-wrap');
+  if(wrap) wrap.classList.remove('copy-mode');
+  var b = $('btn-copy');
+  if(b) b.innerHTML = '\uD83D\uDCD3 Copy';
 }
 
 function updateNextQButton(){
