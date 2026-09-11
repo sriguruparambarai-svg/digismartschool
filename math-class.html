@@ -2047,6 +2047,7 @@ function showClassroom(){
   $('verification').classList.remove('show');
   resetYourTurn();
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
+  resetRoughMemory();
 
   // Pre-build step DOM (hidden initially)
   SOLUTION.steps.forEach(function(s, i){
@@ -3476,6 +3477,7 @@ function stopClass(){
   $('verification').classList.remove('show');
   resetYourTurn();
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
+  resetRoughMemory();
   updateStepIndicator();
   updateNavButtons();
   showStatusToast('⏹ Class stopped. Click ▶ Play to start again.');
@@ -3940,7 +3942,29 @@ function printActivity(file, name){
   w.document.close();
 }
 
+/* The AI sometimes hangs the SAME rough working on two steps in a row, so the
+   pad showed "Simplifying 44 x 35 / 7" twice, identically. A repeat teaches
+   nothing and pushes the real working off the pad. The signature of the last
+   block written is kept, and an identical one straight after it is skipped.
+   Only an immediate repeat is skipped - the same calculation genuinely needed
+   again later in the sum still gets written. */
+var MC_LAST_ROUGH = '';
+
+function roughSignature(label, roughData){
+  var body;
+  try{ body = (typeof roughData === 'string') ? roughData : JSON.stringify(roughData); }
+  catch(e){ body = String(roughData); }
+  return String(label || '') + '||' + body;
+}
+
+// Called wherever the pad is cleared, so the first block after a reset is
+// never mistaken for a repeat of the one before it.
+function resetRoughMemory(){ MC_LAST_ROUGH = ''; }
+
 function addRoughWork(label, roughData){
+  var sig = roughSignature(label, roughData);
+  if(sig === MC_LAST_ROUGH) return;
+  MC_LAST_ROUGH = sig;
   var rc = $('rough-content');
   // Remove "empty" placeholder if present
   var empty = rc.querySelector('.rough-empty');
@@ -4421,6 +4445,9 @@ async function drawDivisionOnBoard(contentEl, a, b){
 }
 
 async function addRoughWorkAnimated(label, roughData, narrateFn){
+  var sigA = roughSignature(label, roughData);
+  if(sigA === MC_LAST_ROUGH) return;
+  MC_LAST_ROUGH = sigA;
   var rc = $('rough-content');
   var empty = rc.querySelector('.rough-empty');
   if(empty) empty.remove();
@@ -4433,8 +4460,12 @@ async function addRoughWorkAnimated(label, roughData, narrateFn){
     rows = computeDivisionRows(roughData.a, roughData.b, roughData.result);
   }
 
-  // Fallback to instant render for non-mul/div types
+  // Fallback to instant render for non-mul/div types.
+  // The repeat-guard signature was already recorded above, so it is cleared
+  // here - otherwise addRoughWork would see its own signature and skip the
+  // block it was just asked to draw.
   if(!rows){
+    MC_LAST_ROUGH = '';
     addRoughWork(label, roughData);
     return;
   }
@@ -4529,6 +4560,7 @@ function showStepInstant(idx){
   }
   // Reset rough work
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
+  resetRoughMemory();
   try { mkClear(); ptrHide(); } catch(e){}
   document.querySelectorAll('.step-item').forEach(function(el, i){
     el.classList.remove('current');
