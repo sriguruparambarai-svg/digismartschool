@@ -2465,12 +2465,42 @@ function padRight(s, width){
 }
 
 
+/* Splits a line into the characters a READER sees, not the units a computer
+   stores. Three things break a naive split:
+     - an emoji (a picture of an apple) is stored as TWO halves; splitting
+       between them gives two broken boxes instead of one apple
+     - a Tamil vowel sign is stored after its consonant and belongs ON it
+     - an emoji joiner glues several pictures into one
+   Each chalk mark has to be a whole character or the board writes rubbish. */
+function mcChars(text){
+  var src = String(text || '');
+  var arr;
+  try{ arr = Array.from(src); }         // walks whole characters, not halves
+  catch(e){ arr = src.split(''); }      // very old browser - old behaviour
+  var out = [];
+  // Marks that hang onto the character before them: Devanagari and Tamil
+  // vowel signs, emoji style selectors, keycaps, and the joiner itself.
+  var JOINS = /[\u0300-\u036F\u0900-\u0903\u093A-\u094F\u0951-\u0957\u0962\u0963\u0B82\u0BBE-\u0BCD\u0BD7\uFE00-\uFE0F\u20E3\u200D]/;
+  for(var i = 0; i < arr.length; i++){
+    var ch = arr[i];
+    var prev = out.length ? out[out.length - 1] : '';
+    // After a joiner, whatever comes next is part of the same picture.
+    var afterJoin = prev && prev.charAt(prev.length - 1) === '\u200D';
+    if(out.length && (afterJoin || JOINS.test(ch))){
+      out[out.length - 1] = prev + ch;
+    } else {
+      out.push(ch);
+    }
+  }
+  return out;
+}
+
 function chalkWrite(el, text, charDelayMs){
   return new Promise(function(resolve){
     if(!el || !text){ resolve(); return; }
     var delay = charDelayMs || 90;  // 90ms per char = clearly visible writing motion
     el.innerHTML = ''; // clear
-    var chars = String(text).split('');
+    var chars = mcChars(text);
     var frag = document.createDocumentFragment();
     chars.forEach(function(ch, i){
       // A new line starts a new row on the board rather than a chalk mark.
