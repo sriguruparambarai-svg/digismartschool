@@ -804,6 +804,52 @@ html,body{
 }
 .speed-btn.active{background:var(--maroon);color:var(--gold-light);}
 
+/* ═══ REAL OBJECTS — for junior shape questions ═══
+   A Class 1 child cannot read "Drum → Cylinder". They CAN look at a drum and
+   look at a cylinder and see that they are the same thing. The objects named
+   in the question are drawn here; which shape each one is stays hidden until
+   the class has said it out loud. */
+.obj-strip{
+  margin:14px 0 6px;padding:14px 16px;
+  background:rgba(255,255,255,.035);
+  border:1.5px dashed rgba(232,201,154,.3);border-radius:14px;
+}
+.obj-strip-head{
+  display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;margin-bottom:12px;
+}
+.obj-strip-title{
+  font-family:'Caveat',cursive;font-size:1.3rem;font-weight:700;
+  color:var(--chalk-yellow);
+}
+.obj-reveal-btn{
+  background:linear-gradient(135deg,var(--gold),#b8963f);
+  color:#2a0f08;border:none;border-radius:10px;
+  padding:8px 16px;font-family:'Nunito',sans-serif;
+  font-size:.86rem;font-weight:800;cursor:pointer;
+}
+.obj-reveal-btn:hover{filter:brightness(1.08);}
+.obj-row{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;}
+.obj-card{
+  width:128px;padding:10px 8px;text-align:center;
+  background:rgba(0,0,0,.28);
+  border:1.5px solid rgba(232,201,154,.24);border-radius:12px;
+}
+.obj-card svg{width:76px;height:76px;display:block;margin:0 auto 6px;}
+.obj-name{
+  font-family:'Caveat',cursive;font-size:1.15rem;font-weight:700;
+  color:var(--chalk-white);line-height:1.15;
+}
+.obj-name-ta{font-size:.95rem;color:var(--sandal);opacity:.85;}
+.obj-solid{
+  margin-top:7px;padding-top:6px;
+  border-top:1px dashed rgba(232,201,154,.3);
+  font-family:'Caveat',cursive;font-size:1.1rem;font-weight:700;
+  color:var(--chalk-yellow);
+  visibility:hidden;                 /* holds its space, so nothing jumps */
+}
+.obj-card.revealed .obj-solid{visibility:visible;}
+
 /* ═══ COPY VIEW — the finished sum, laid out to be written down ═══
    Teaching view scrolls, because each step arrives one at a time. Once the
    sum is done the class has to copy it, and scrolling a board three times
@@ -817,6 +863,7 @@ html,body{
 .board-wrap.copy-mode .problem-text{font-size:1.05rem;line-height:1.4;}
 /* Spoken commentary is what the teacher says, not what the class writes. */
 .board-wrap.copy-mode .step-why{display:none !important;}
+.board-wrap.copy-mode .obj-strip,
 .board-wrap.copy-mode .your-turn,
 .board-wrap.copy-mode .make-it{display:none !important;}
 .board-wrap.copy-mode .formula-block{margin:8px 0;}
@@ -995,6 +1042,9 @@ html,body{
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
+<!-- Shared picture library (also used by the KG worksheet generator). If it
+     fails to load, every shape lesson carries on exactly as before. -->
+<script defer src="kg-icons.js"></script>
 <script>
 /* ══ SESSION TOKEN ══
    auth.js seals the school code into a signed token at login and stores it as
@@ -1152,6 +1202,7 @@ html,body{
     <div class="board-main" id="board-main">
       <div class="problem-title" id="problem-title">Problem</div>
       <div class="problem-text" id="problem-text"></div>
+      <div class="obj-strip" id="obj-strip" style="display:none;"></div>
       <div class="figure-area" id="figure-area" style="display:none;"></div>
       <div class="formula-block" id="formula-block">
         <strong>Formula:</strong> <span id="formula-text"></span>
@@ -1563,6 +1614,63 @@ async function solveAndTeach(){
         + '  - For n(n+1): write "n into n plus 1"\n'
         + '  - For 40(41): write "40 into 41"';
     }
+
+
+    /* ── AGE, not language ──
+       The block above decides WHICH LANGUAGE the teacher speaks in. This one
+       decides WHO is listening. A six year old is not a Class 10 student with
+       a smaller vocabulary; the whole shape of the lesson is different - the
+       child counts out loud, the teacher waits, nothing is written down to be
+       read. It is APPENDED to the language block, so Tamil-mix and English
+       both keep their own rules, and the senior path is untouched: for Class 5
+       and above not a single character of the prompt changes. */
+    var jrClassNum = (String(SCHOOL_CLASS || '').match(/\d+/) || [0])[0];
+    jrClassNum = parseInt(jrClassNum, 10) || 0;   // 0 covers KG / LKG / UKG
+    if(isJuniorClass()){
+      styleGuide += '\n\n════════ TEACHING A SMALL CHILD (' + (SCHOOL_CLASS || 'KG') + ') ════════\n'
+        + 'This class cannot read fluently yet. Anything you WRITE on the board is\n'
+        + 'decoration to them; only what you SAY, and what they SAY BACK, teaches.\n'
+        + 'That one fact changes every rule below.\n\n'
+        + 'COUNT WITH THE CLASS, NEVER FOR THEM.\n'
+        + '  WRONG - the answer handed over in writing:\n'
+        + '    main: "Count: 1, 2, 3"   then   main: "(a) has 3 dots"\n'
+        + '  RIGHT - the child does the counting:\n'
+        + '    main: "(a)", readScript: "Look here. How many dots? Come, count with me."\n'
+        + '    then a step with "askText":"Count them out loud with me - one... two..."\n'
+        + '    then main: "3", readScript: "Three. (a) has three dots."\n'
+        + '  Any step where something is COUNTED, MEASURED or COMPARED must use\n'
+        + '  "askText" so the teacher stops and the class answers first. This is the\n'
+        + '  single most important rule for a junior class.\n\n'
+        + 'ONE IDEA PER STEP, AND FEW STEPS.\n'
+        + '  Six steps is a long lesson at this age. Never more than eight.\n'
+        + '  If the working needs more, the method is too advanced - pick another.\n\n'
+        + 'SPEAK SHORT.\n'
+        + '  Every readScript line under about twelve words. One instruction each.\n'
+        + '  Say "Now the tens" - never "Now we shall proceed to the tens place".\n\n'
+        + 'NO FORMAL VOCABULARY unless the question itself uses the word.\n'
+        + '  Not: sum, difference, product, quotient, digit sum, place value, vertex,\n'
+        + '  edge, face, corner, expression, equation, therefore, hence.\n'
+        + '  Say: how many altogether, how many are left, this side, the pointy bit,\n'
+        + '  the flat part, so the answer is.\n\n'
+        + 'WHAT GOES ON THE BOARD is the picture and the number, not the sentence.\n'
+        + '  A main line here is "3" or "(a)" or "7 + 2 = 9" - never a sentence for\n'
+        + '  a child to read. Explanations live in readScript, spoken.\n\n'
+        + 'PRAISE, THEN MOVE ON. One short word - "Good." "Correct." - then the next\n'
+        + '  idea. Never a paragraph of encouragement.\n\n'
+        + 'PICTURE QUESTIONS. When the question is dots, objects or shapes, the lesson\n'
+        + '  is: look, count together, say the number, check. Nothing else.\n\n';
+      if(jrClassNum <= 2){
+        styleGuide += 'CLASS 1-2 - LEAN HARDEST HERE.\n'
+          + '  Numbers only on the board. No written words at all beyond a label like\n'
+          + '  (a) or (i). Four to six steps. Count everything out loud, every time,\n'
+          + '  even when the answer looks obvious to an adult.\n\n';
+      } else {
+        styleGuide += 'CLASS 3-4 - the same shape, slightly more on the board.\n'
+          + '  Short written steps are allowed now (a column sum, "7 + 2 = 9"), but the\n'
+          + '  counting and the checking are still done out loud with the class.\n\n';
+      }
+    }
+
 
     var userPrompt = 'Solve this math problem for ' + SCHOOL_CLASS + ' students' + (chapter ? ' (' + chapter + ')' : '') + ':\n\n"' + problem + '"\n\n'
       + styleGuide + '\n\n'
@@ -2080,6 +2188,9 @@ function showClassroom(){
       $('steps-list').appendChild(div);
     }
   });
+
+  // Real objects for a junior shape question
+  try{ renderObjectStrip(); }catch(eObj){}
 
   // Work out where this lesson's figure belongs, and keep it out of sight
   // until the class reaches that step.
@@ -6382,6 +6493,21 @@ async function extractQuestionsFromPhoto(base64, mediaType){
       + '- Read every number VERY carefully digit by digit — never swap digits (134 is NOT 143, 43 is NOT 34).\n'
       + '- IGNORE page numbers, headers, footers, decorative icons, answers and worked solutions.\n'
       + '- If a question has sub-parts (a), (b), keep them together as ONE question.\n'
+      + '- PICTURE QUESTIONS. A page for small children shows dots, tally marks,\n'
+      + '  groups of objects or shapes in boxes instead of numbers. These must come\n'
+      + '  in as COUNTS, or the question cannot be taught at all: write "(a) 3 dots"\n'
+      + '  - never "(a) some dots", and never a row of dot characters. COUNT EVERY\n'
+      + '  GROUP one by one and keep the printed label exactly as it appears\n'
+      + '  ((a), (b), (i), (ii)).\n'
+      + '  Example: "Match the equal numbers. (a) 3 dots, (b) 5 dots, (c) 2 dots.\n'
+      + '  Options: (i) 5 dots, (ii) 3 dots, (iii) 2 dots. Already done as an\n'
+      + '  example: (a) matches (ii)."\n'
+      + '- Miscounting a group of dots ruins a question exactly as swapping digits\n'
+      + '  does. Count each group twice before writing its number.\n'
+      + '- If one pair is ALREADY MATCHED on the page as a worked example, give the\n'
+      + '  real pairing printed in the book. Never invent it. And if the instruction\n'
+      + '  is to match EQUAL numbers but the pairing you read has two different\n'
+      + '  counts, you have miscounted - look again before answering.\n'
       + '- If no maths questions are visible, return {"questions":[]}';
 
     var resp = await fetch('/api/ai', {
@@ -6728,6 +6854,147 @@ function updateQPButton(){
   var b = $('btn-qlist');
   if(!b) return;
   b.style.display = (QUESTION_QUEUE.length > 1) ? '' : 'none';
+}
+
+/* ── REAL OBJECTS FOR SHAPE QUESTIONS ──
+   The objects come from the QUESTION TEXT, not from the AI: the picture
+   library knows its own names in English, Tamil and Hindi, so the question is
+   simply searched for words it recognises. Nothing to get wrong, nothing to
+   generate, no cost.
+   Shown only for junior classes, and only when the lesson already draws
+   solids - otherwise a word like "ball" in an ordinary sum would pull up a
+   picture for no reason. */
+function objLibrary(){
+  return (typeof window !== 'undefined' && window.KG_ICONS) ? window.KG_ICONS : null;
+}
+
+function objFindInText(text){
+  var lib = objLibrary();
+  var names = (typeof window !== 'undefined') ? window.KG_ICON_NAMES : null;
+  if(!lib || !names) return [];
+
+  /* Every name from every picture, LONGEST FIRST. Order matters: "party hat"
+     has to be tried before "hat", or one party hat in the question puts two
+     pictures on the board - a party hat and an ordinary brimmed hat. */
+  var cands = [];
+  for(var i = 0; i < names.length; i++){
+    for(var n = 0; n < names[i].names.length; n++){
+      var w = String(names[i].names[n] || '').trim();
+      if(w.length >= 3) cands.push({ key: names[i].key, word: w });
+    }
+  }
+  cands.sort(function(a, b){ return b.word.length - a.word.length; });
+
+  var hay = String(text || '');
+  var found = [], seen = {};
+  for(var ci = 0; ci < cands.length; ci++){
+    if(found.length >= 6) break;            // a strip, not a gallery
+    var word = cands[ci].word, key = cands[ci].key;
+    if(seen[key]) continue;
+    var re;
+    if(/^[a-z ]+$/i.test(word)){
+      // English: whole word only, so "ball" does not match "football"
+      re = new RegExp('(^|[^a-zA-Z])(' + word.replace(/ /g, '[ -]?') + ')([^a-zA-Z]|$)', 'i');
+    } else {
+      re = new RegExp('(' + word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')');
+    }
+    var m = hay.match(re);
+    if(!m) continue;
+    seen[key] = 1;
+    found.push(key);
+    /* The matched words are taken out of the text before the next name is
+       tried, so a shorter name cannot match the same object again. */
+    hay = hay.replace(re, function(whole, pre, mid, post){
+      if(typeof pre === 'undefined') return ' ';
+      return (pre || '') + ' ' + (post || '');
+    });
+  }
+  return found;
+}
+
+// The pips inside a picture are filled black for white paper; on a blackboard
+// they have to take the chalk colour or they vanish.
+function objSvg(item){
+  var d = String(item.d || '').replace(/fill="#000"/g, 'fill="currentColor"');
+  return '<svg viewBox="0 0 64 64" fill="none" stroke="currentColor" '
+       + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" '
+       + 'style="color:var(--chalk-white)">' + d + '</svg>';
+}
+
+function renderObjectStrip(){
+  var strip = $('obj-strip');
+  if(!strip) return;
+  strip.style.display = 'none';
+  strip.innerHTML = '';
+  var lib = objLibrary();
+  if(!lib || !isJuniorClass()) return;
+
+  // Only when the lesson is actually about solids.
+  var hasSolid = false;
+  if(SOLUTION && SOLUTION.figures){
+    for(var f = 0; f < SOLUTION.figures.length; f++){
+      if(SOLUTION.figures[f] && SOLUTION.figures[f].type === 'solid'){ hasSolid = true; break; }
+    }
+  }
+  if(!hasSolid) return;
+
+  var keys = objFindInText((SOLUTION && SOLUTION.problem) || $('problem-input').value);
+  if(!keys.length) return;
+
+  var head = document.createElement('div');
+  head.className = 'obj-strip-head';
+  var title = document.createElement('div');
+  title.className = 'obj-strip-title';
+  title.textContent = '\uD83D\uDC40 Look at these things';
+  var btn = document.createElement('button');
+  btn.className = 'obj-reveal-btn';
+  btn.id = 'obj-reveal-btn';
+  btn.textContent = 'Show the shapes';
+  btn.onclick = revealObjectShapes;
+  head.appendChild(title);
+  head.appendChild(btn);
+  strip.appendChild(head);
+
+  var row = document.createElement('div');
+  row.className = 'obj-row';
+  var anyPairing = false;
+  keys.forEach(function(k){
+    var item = lib[k];
+    if(!item) return;
+    var card = document.createElement('div');
+    card.className = 'obj-card';
+    var pic = document.createElement('div');
+    pic.innerHTML = objSvg(item);
+    card.appendChild(pic);
+    var nm = document.createElement('div');
+    nm.className = 'obj-name';
+    nm.textContent = item.en || k;
+    card.appendChild(nm);
+    if(item.ta){
+      var ta = document.createElement('div');
+      ta.className = 'obj-name obj-name-ta';
+      ta.textContent = item.ta;
+      card.appendChild(ta);
+    }
+    var sol = document.createElement('div');
+    sol.className = 'obj-solid';
+    if(item.solid){ sol.textContent = item.solid; anyPairing = true; }
+    else { sol.textContent = '?'; }
+    card.appendChild(sol);
+    row.appendChild(card);
+  });
+  strip.appendChild(row);
+  // With no pairing to reveal there is nothing for the button to do.
+  if(!anyPairing) btn.style.display = 'none';
+  strip.style.display = '';
+}
+
+// Held back until the class has answered out loud.
+function revealObjectShapes(){
+  var cards = document.querySelectorAll('#obj-strip .obj-card');
+  for(var i = 0; i < cards.length; i++) cards[i].classList.add('revealed');
+  var btn = $('obj-reveal-btn');
+  if(btn) btn.style.display = 'none';
 }
 
 /* ── COPY VIEW ──
