@@ -1746,6 +1746,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
           <option>1 Hour</option>
           <option selected>1.5 Hours</option>
           <option>2 Hours</option>
+          <option>2.5 Hours</option>
           <option>3 Hours</option>
         </select>
       </div>
@@ -1753,10 +1754,16 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
         <label>Exam Type</label>
         <select id="qp-type">
           <option>Unit Test</option>
+          <option>Daily Test</option>
+          <option>Weekly Test</option>
+          <option>Monthly Test</option>
+          <option>Quarterly Examination</option>
+          <option>Half Yearly Examination</option>
+          <option>Annual Examination</option>
           <option>Mid Term</option>
           <option>Final Exam</option>
-          <option>Weekly Test</option>
-          <option>Daily Test</option>
+          <option>Revision Test</option>
+          <option>Model Examination</option>
         </select>
       </div>
     </div>
@@ -2704,7 +2711,22 @@ async function callAI(prompt, loadId, maxTok, pdfFile) {
       })
     });
     const rawText = await res.text();
-    const data = JSON.parse(rawText);
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (parseErr) {
+      // The server sent back something that is not JSON at all. Say what it was
+      // instead of failing silently.
+      document.getElementById(loadId).classList.remove('show');
+      if (res.status === 413) {
+        return '\u274c Error: the attached pages are too large to send. Please paste the lesson text into the Lesson Content box, or choose fewer lessons.';
+      }
+      if (res.status === 504 || res.status === 408) {
+        return '\u274c Error: the server took too long and gave up. Please try again, or choose fewer lessons for one paper.';
+      }
+      return '\u274c Error: server replied with status ' + res.status + '. '
+           + (rawText ? rawText.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 280) : 'Empty reply.');
+    }
     document.getElementById(loadId).classList.remove('show');
     if (data.error) return '❌ Error: ' + data.error.message;
     if (data.content && data.content[0]) return data.content[0].text;
@@ -3269,6 +3291,30 @@ function qpMarksCheck(){
 
 function qpFetchBookPdf(){ return dssPickPdf('qp'); }
 
+// A term exam covers three or more lessons, which is thirty or more book pages.
+// Sending that many pages up as a PDF goes past the upload size the server
+// accepts and the whole request fails. So for the question paper we read the
+// WORDS off those pages here in the browser and send only the text \u2014 a few
+// kilobytes instead of many megabytes, and enough to set questions from.
+async function qpPageText(file, startVal, endVal){
+  await bbEnsurePdfJs();
+  var buf = await file.arrayBuffer();
+  var pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  var from = parseInt(startVal, 10); if (!from || from < 1) from = 1;
+  var to   = parseInt(endVal, 10);   if (!to) to = pdf.numPages;
+  if (to > pdf.numPages) to = pdf.numPages;
+  if (to < from) to = from;
+  var out = '';
+  for (var p = from; p <= to; p++) {
+    var pg = await pdf.getPage(p);
+    var tc = await pg.getTextContent();
+    var txt = tc.items.map(function(it){ return it.str; }).join(' ').replace(/\s+/g, ' ').trim();
+    if (txt) out += '\n\n----- Book page ' + p + ' -----\n' + txt;
+    if (out.length > 120000) break;   // more than enough for any one exam
+  }
+  return out.trim();
+}
+
 // \u2550\u2550 QUESTION PAPER \u2014 ADVANCED SETTINGS \u2550\u2550
 // Everything in here is optional. Untouched, the paper comes out exactly as
 // it did before, so a teacher in a hurry never has to open this section.
@@ -3562,19 +3608,45 @@ Keep the language clear and age-appropriate for ${cls} students.`;
       return;
     }
 
-    // Nothing pasted, nothing uploaded, but lessons are chosen -> use the book
-    if (!pdfFile && !content.trim() && picked.length && dssPickedBook('qp')) {
-      document.getElementById(loadId).classList.add('show');
-      pdfFile = await qpFetchBookPdf();
-      document.getElementById(loadId).classList.remove('show');
-      if (!pdfFile) {
-        alert('Could not open the book file. Please paste the lesson or upload the PDF instead.');
-        return;
-      }
-    }
-
     pdfStart = document.getElementById('qp-start-page').value;
     pdfEnd = document.getElementById('qp-end-page').value;
+
+    // Read the lesson pages as TEXT rather than uploading them as a PDF.
+    // Only a scanned book with no text in it still needs the pages sent up.
+    let bookText = '';
+    if (!content.trim() && (pdfFile || (picked.length && dssPickedBook('qp')))) {
+      var srcFile = pdfFile;
+      var readErr = '';
+      document.getElementById(loadId).classList.add('show');
+      try {
+        if (!srcFile) srcFile = await qpFetchBookPdf();
+        if (srcFile) bookText = await qpPageText(srcFile, pdfStart, pdfEnd);
+      } catch (e) {
+        readErr = (e && e.message) ? e.message : String(e);
+        console.error('Could not read the book pages:', e);
+      }
+      document.getElementById(loadId).classList.remove('show');
+
+      if (!srcFile) {
+        alert('Could not open the book file.' + (readErr ? '\n\n(' + readErr + ')' : '')
+            + '\n\nPlease paste the lesson into the Lesson Content box, or upload the PDF.');
+        return;
+      }
+      if (bookText && bookText.length > 400) {
+        pdfFile = null;            // the text is enough, nothing needs uploading
+      } else {
+        // No text layer \u2014 this is a scanned book, so the pages must go up as pictures.
+        pdfFile = srcFile;
+        var pgCount = (parseInt(pdfEnd, 10) - parseInt(pdfStart, 10)) + 1;
+        if (!(pgCount > 0)) pgCount = 1;
+        if (pgCount > 14) {
+          alert('These ' + pgCount + ' pages are scanned pictures with no readable text, which is '
+              + 'too much to send in one go.\n\nPlease either paste the lesson text into the Lesson '
+              + 'Content box, or choose fewer lessons for this paper.');
+          return;
+        }
+      }
+    }
 
     // Lesson-wise marks weightage (the blueprint)
     let lessonBlock = '';
@@ -3646,8 +3718,8 @@ Class: ${cls} | Subject: ${sub} | Total Marks: ${marks} | Duration: ${duration}
 Chapters: ${chapters || 'As per syllabus'}
 
 ${lessonBlock}
-Lesson Content:
-${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge.')}
+Lesson Content (taken straight from the school's own book — set every question from this and nothing else):
+${content || bookText || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions on its actual content.' : 'Use standard CBSE curriculum knowledge.')}
 
 Format Requirements:
 - Do NOT write any school name, logo line, title block, or Name/Roll No/Date lines. Those are printed automatically at the top of the paper. Begin straight with the General Instructions.
