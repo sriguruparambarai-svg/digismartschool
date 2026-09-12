@@ -1258,6 +1258,7 @@ html,body{
     <button class="ctrl-btn" onclick="restartSetup()">📝 New</button>
     <button class="ctrl-btn" id="btn-qlist" onclick="openQuestionPanel()" style="display:none;">📋 Questions</button>
     <button class="ctrl-btn" id="btn-copy" onclick="toggleCopyView()">📓 Copy</button>
+    <button class="ctrl-btn" id="btn-fresh" onclick="teachFresh()" title="Teach this question again from scratch">♻ Fresh</button>
     <button class="ctrl-btn" id="btn-nextq" onclick="nextQueuedQuestion()" style="display:none;">➡ Next Q</button>
   </div>
 </div>
@@ -1468,6 +1469,12 @@ function startFromPasteBox(){
 }
 
 async function solveAndTeach(){
+  /* A taught class is replayed from Supabase, which is what makes replays free.
+     It also means a question keeps the teaching it was FIRST taught with - a
+     better lesson can never reach it. "Fresh" lifts that for one run only, so
+     an ordinary class still costs nothing. */
+  var freshRun = FORCE_FRESH;
+  FORCE_FRESH = false;
   var problem = $('problem-input').value.trim();
   if(!problem || problem.length < 5){
     showError('Please paste a math problem first.');
@@ -1495,6 +1502,9 @@ async function solveAndTeach(){
     // load the saved class from Supabase instantly — no AI cost, and every
     // voice line matches the already-saved audio, so replays are free.
     try{
+      // Inside the try on purpose: the catch below is what falls through to a
+      // new solve. Thrown outside it, this would break solving altogether.
+      if(freshRun) throw new Error('fresh');
       var savedRes = await fetch('/api/math-solutions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6352,6 +6362,7 @@ function applyStepFigRef(step){
 var QUESTION_QUEUE = [];   // Selected questions from the review screen
 var QUEUE_IDX = 0;         // Which question is currently being taught
 var TAUGHT_FLAGS = {};     // Which questions have already been taught this class
+var FORCE_FRESH = false;   // Ignore the saved class once, and replace it
 var FIG_STEP_IDX = -1;     // Step the single figure belongs under (-1 = keep it at the top)
 var MC_LESSON = null;      // Activated Maths lesson from Teacher Panel (mc_activated)
 
@@ -7019,6 +7030,36 @@ function toggleCopyView(){
   }
   var b = $('btn-copy');
   if(b) b.innerHTML = on ? '\u270F\uFE0F Teach view' : '\uD83D\uDCD3 Copy';
+}
+
+/* Teaches the CURRENT question again from scratch, ignoring the saved class
+   and replacing it. Behind a confirm because it costs an AI call and a fresh
+   set of voice lines, unlike every other button on this toolbar. */
+function teachFresh(){
+  var q = ($('problem-input').value || '').trim();
+  if(!q){ return; }
+  var ok = window.confirm(
+    'Teach this question again from scratch?\n\n'
+    + 'The saved class is ignored and replaced with a new one. This costs one AI '
+    + 'call and the voice lines are made again.\n\n'
+    + 'Use this after changing how the AI teacher works \u2014 an ordinary replay is free.'
+  );
+  if(!ok) return;
+  FORCE_FRESH = true;
+  if(IS_PLAYING){ try{ pausePlayback(); }catch(e){} }
+  if(QUESTION_QUEUE.length && QUEUE_IDX >= 0 && QUEUE_IDX < QUESTION_QUEUE.length){
+    teachQuestionAt(QUEUE_IDX);           // same question, new lesson
+    return;
+  }
+  SOLUTION = null;
+  STEP_IDX = -1;
+  try{ mcRefreshModelBtn(); }catch(e){}
+  $('classroom').classList.remove('show');
+  $('toolbar').style.display = 'none';
+  $('setup').classList.remove('hidden');
+  $('solve-btn').disabled = false;
+  clearFigures();
+  solveAndTeach();
 }
 
 // Any new question always opens in the normal teaching board.
