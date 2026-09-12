@@ -651,6 +651,11 @@ html,body{
   font-family:'Caveat',cursive;font-size:1.35rem;font-weight:700;
   color:var(--chalk-yellow,#f5e87a);margin:8px 0 6px;
 }
+.ask-box{
+  /* Sits under the line being discussed, aligned with it - a question for the
+     class is not a side note. */
+  text-align:left;margin:6px 0 2px;
+}
 .ask-reveal-btn{
   padding:8px 18px;margin-bottom:6px;
   background:linear-gradient(135deg,#C9A84C,#a8893a);color:#3d1010;
@@ -1645,11 +1650,16 @@ async function solveAndTeach(){
         + '  WRONG - the answer handed over in writing:\n'
         + '    main: "Count: 1, 2, 3"   then   main: "(a) has 3 dots"\n'
         + '  RIGHT - the child does the counting:\n'
-        + '    ONE step: main "(a)", askText "How many apples are here? Come, count\n'
-        + '    with me", readScript "Three. So we write three."\n'
-        + '    The board shows the picture, the class counts out loud, the teacher taps,\n'
-        + '    and only THEN does the 3 appear. askText goes on the SAME step as the\n'
-        + '    answer - never on a step of its own.\n'
+        + '    TWO steps, in this order:\n'
+        + '      step 1: main "3 apples"   (the picture goes up FIRST, no askText)\n'
+        + '      step 2: askText "How many apples are here? Count with me",\n'
+        + '              main "3", readScript "Three. So we write three."\n'
+        + '    The class must be LOOKING at the apples while they count, so the\n'
+        + '    picture is already on the board when the question is asked. Then the\n'
+        + '    board waits, the class answers out loud, the teacher taps, and only\n'
+        + '    THEN does the 3 appear.\n'
+        + '    NEVER put the answer in the same line as the picture ("3 apples = 3"),\n'
+        + '    and never write a dash in askText - write commas.\n'
         + '  Any step where something is COUNTED, MEASURED or COMPARED must use\n'
         + '  "askText" so the teacher stops and the class answers first. This is the\n'
         + '  single most important rule for a junior class.\n\n'
@@ -3820,8 +3830,11 @@ async function showStep(idx){
      the answer is written. It runs here, BEFORE the rough work and before the
      line is drawn, because a question asked after the answer is on the board
      is not a question. Honours the Ask toggle, exactly like column arithmetic. */
-  if(ASK_MODE && step.askText && stepEl){
-    await askPauseText(stepEl, step.askText);
+  if(ASK_MODE && step.askText && (contentEl || stepEl)){
+    /* Into the step's CONTENT, not the step row. A step row is laid out side
+       by side, so a box added to the row was pushed out to the right of the
+       board, far from the picture the class is counting. */
+    await askPauseText(contentEl || stepEl, step.askText);
     if(!IS_PLAYING) return;
   }
 
@@ -4337,6 +4350,15 @@ async function askPause(entry, askText){
 async function askPauseText(entry, question){
   var q = String(question || '').trim();
   if(!entry || !q) return;
+  /* The voice is built for maths, so it reads a dash between two things as
+     "minus": "Count them with me - one... two..." came out as "count them
+     with me MINUS one". In a question written in words a dash is a pause, so
+     it becomes a comma before anything is spoken or shown. */
+  q = q.replace(/(\S)\s+[-\u2013\u2014]\s+(\S)/g, function(whole, before, after){
+    // A dash BETWEEN TWO NUMBERS really is a minus - "5 - 3" keeps it.
+    if(/\d/.test(before) && /\d/.test(after)) return whole;
+    return before + ', ' + after;
+  }).replace(/\s{2,}/g, ' ').trim();
   await speakStep(q);
   if(!IS_PLAYING) return;
   var box = document.createElement('div');
@@ -4348,11 +4370,14 @@ async function askPauseText(entry, question){
   btn.textContent = '\u270B Tap to reveal';
   var tapped = false;
   btn.onclick = function(){ tapped = true; };
+  box.className = 'ask-box';
   box.appendChild(line);
   box.appendChild(btn);
   entry.appendChild(box);
   try{
-    var scroller = entry.parentElement && entry.parentElement.parentElement;
+    // The board itself is the scrolling element - walking up two parents
+    // landed on the steps list, which does not scroll.
+    var scroller = $('board-main');
     if(scroller) scroller.scrollTop = scroller.scrollHeight;
   }catch(e){}
   while(!tapped && IS_PLAYING){ await sleep(150); }
