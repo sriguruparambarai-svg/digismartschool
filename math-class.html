@@ -1645,9 +1645,11 @@ async function solveAndTeach(){
         + '  WRONG - the answer handed over in writing:\n'
         + '    main: "Count: 1, 2, 3"   then   main: "(a) has 3 dots"\n'
         + '  RIGHT - the child does the counting:\n'
-        + '    main: "(a)", readScript: "Look here. How many dots? Come, count with me."\n'
-        + '    then a step with "askText":"Count them out loud with me - one... two..."\n'
-        + '    then main: "3", readScript: "Three. (a) has three dots."\n'
+        + '    ONE step: main "(a)", askText "How many apples are here? Come, count\n'
+        + '    with me", readScript "Three. So we write three."\n'
+        + '    The board shows the picture, the class counts out loud, the teacher taps,\n'
+        + '    and only THEN does the 3 appear. askText goes on the SAME step as the\n'
+        + '    answer - never on a step of its own.\n'
         + '  Any step where something is COUNTED, MEASURED or COMPARED must use\n'
         + '  "askText" so the teacher stops and the class answers first. This is the\n'
         + '  single most important rule for a junior class.\n\n'
@@ -1879,6 +1881,7 @@ async function solveAndTeach(){
       + '      "roughCustom": "only used if roughType is custom",\n'
       + '      "figRef": "OPTIONAL - only for line-geometry questions, see FIGURES section below"\n'
       + '      ,\"marks\": [ OPTIONAL - include one wherever the mark teaches. See MARKER PEN section below ]\n'
+      + '      ,\"askText\": \"OPTIONAL - a question in plain words the CLASS answers out loud BEFORE this step is written, e.g. How many apples are here? The board stops, the teacher taps to reveal, then the line appears. Leave it out unless the class should answer first.\"\n'
       + '    }\n'
       + '  ],\n'
       + '  "figures": [ OPTIONAL - line geometry, triangles, circles, coordinate graphs, solids. See FIGURES section below ],\n'
@@ -3812,6 +3815,16 @@ async function showStep(idx){
   await sleep(100);
   if(!IS_PLAYING) return;
 
+  /* ── ASK BEFORE TELLING ──
+     A step may carry "askText": a question the class answers out loud before
+     the answer is written. It runs here, BEFORE the rough work and before the
+     line is drawn, because a question asked after the answer is on the board
+     is not a question. Honours the Ask toggle, exactly like column arithmetic. */
+  if(ASK_MODE && step.askText && stepEl){
+    await askPauseText(stepEl, step.askText);
+    if(!IS_PLAYING) return;
+  }
+
   // ── PHASE 1: Rough working FIRST — the teacher works it out at the side,
   // THEN writes the step line on the board as its conclusion.
   var hasRough = (step.roughType && step.roughType !== 'none' && step.roughType !== '') || (step.roughAddends && parseAddends(step.roughAddends));
@@ -4312,6 +4325,36 @@ async function askPause(entry, askText){
   box.appendChild(line); box.appendChild(btn);
   entry.appendChild(box);
   entry.parentElement.parentElement.scrollTop = entry.parentElement.parentElement.scrollHeight;
+  while(!tapped && IS_PLAYING){ await sleep(150); }
+  box.remove();
+}
+
+/* Stops the class on a question written in ordinary words, and waits for the
+   teacher's tap. The pause above is built for column arithmetic - it appends
+   "equals?" and prints "<sum> = ?", which is wrong for "How many apples are
+   here?". A junior lesson needs this one: the child answers out loud, the
+   teacher taps, and only THEN does the number appear on the board. */
+async function askPauseText(entry, question){
+  var q = String(question || '').trim();
+  if(!entry || !q) return;
+  await speakStep(q);
+  if(!IS_PLAYING) return;
+  var box = document.createElement('div');
+  var line = document.createElement('div');
+  line.className = 'ask-line';
+  line.textContent = '\u2753 ' + q;
+  var btn = document.createElement('button');
+  btn.className = 'ask-reveal-btn';
+  btn.textContent = '\u270B Tap to reveal';
+  var tapped = false;
+  btn.onclick = function(){ tapped = true; };
+  box.appendChild(line);
+  box.appendChild(btn);
+  entry.appendChild(box);
+  try{
+    var scroller = entry.parentElement && entry.parentElement.parentElement;
+    if(scroller) scroller.scrollTop = scroller.scrollHeight;
+  }catch(e){}
   while(!tapped && IS_PLAYING){ await sleep(150); }
   box.remove();
 }
