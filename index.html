@@ -1789,6 +1789,16 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
     </div>
     <div class="form-group">
+      <label>\u2753 Where should the questions come from?</label>
+      <select id="qp-source">
+        <option value="bookback">Book back exercises only \u2014 the questions printed at the end of the lesson</option>
+        <option value="mostly">Mostly book back, a few fresh questions</option>
+        <option value="mix" selected>A mix \u2014 half book back, half from the lesson</option>
+        <option value="within">From within the lesson only \u2014 all fresh questions</option>
+      </select>
+      <div style="font-size:0.78rem;color:#888;margin-top:5px;">Book back suits lower classes and revision. Fresh questions stop children passing by memorising the book back answers alone.</div>
+    </div>
+    <div class="form-group">
       <div onclick="qpToggleAdv()" style="cursor:pointer;background:#FFF6E6;border:2px solid #E8C99A;border-radius:10px;padding:11px 14px;font-weight:700;color:#6B1A1A;display:flex;justify-content:space-between;align-items:center;">
         <span>\u2699\ufe0f Advanced settings \u2014 question types, difficulty, choice, sets, language</span>
         <span id="qp-adv-arrow">\u25bc</span>
@@ -3396,8 +3406,13 @@ function qpBlueprint(){
     h += '</table>';
   }
 
+  var srcLabel = { bookback:'Book back exercises only', mostly:'Mostly book back, a few fresh',
+                   mix:'Half book back, half from the lesson', within:'From within the lesson only' };
+  h += '<div style="font-size:0.84rem;color:#666;margin-top:14px;">Questions taken from: '
+     + escHtml(srcLabel[qpVal('qp-source', 'mix')] || 'Half book back, half from the lesson') + '</div>';
+
   var diffLabel = { auto:'Normal mix', easy:'Easier (60/30/10)', balanced:'Balanced (40/40/20)', hard:'Challenging (25/40/35)' };
-  h += '<div style="font-size:0.84rem;color:#666;margin-top:14px;">Difficulty: '
+  h += '<div style="font-size:0.84rem;color:#666;margin-top:4px;">Difficulty: '
      + escHtml(diffLabel[qpVal('qp-difficulty', 'auto')] || 'Normal mix') + '</div>';
   h += '</div>';
   return h;
@@ -3677,12 +3692,34 @@ Never write the answer itself in that space. Put the marker on a line by itself 
 Keep the wording very short and simple so a young child can read it alone.`
       : 'This is a question paper only. The students write in a separate answer sheet, so do NOT leave writing space and do NOT add any writing-space markers.';
 
+    // Book back questions can only be copied out of a real lesson. Without the
+    // book or pasted text the AI would have to invent them, which is the one
+    // thing a book back paper must not do.
+    const qsrc = qpVal('qp-source', 'mix');
+    if (qsrc !== 'within' && !content.trim() && !bookText && !pdfFile) {
+      alert('To use book back questions the app needs the lesson itself.\n\n'
+          + 'Please pick the book and tick the lessons above, or paste the lesson into the '
+          + 'Lesson Content box. Otherwise choose "From within the lesson only".');
+      return;
+    }
+
     // ── Advanced settings (all optional) ──
     const chosenTypes = (typeof qpSelectedTypes === 'function') ? qpSelectedTypes() : [];
     const diff   = qpVal('qp-difficulty', 'auto');
     const choice = qpVal('qp-choice', 'none');
     const lang   = qpVal('qp-lang', 'en');
     const sets   = qpVal('qp-sets', '1');
+
+    // Book back means the exercises already printed at the end of a lesson.
+    // Within the lesson means fresh questions set from the lesson body.
+    const sourceBlock =
+      (qsrc === 'bookback')
+        ? '\nWHERE THE QUESTIONS MUST COME FROM: Use ONLY the book back exercises \u2014 the questions already printed at the end of each lesson in the text above, usually under a heading such as Exercises, Let us do, Answer the following, Think and answer, Practice or Assessment. Copy those questions, keeping the wording as close to the book as you can. Do NOT invent any new question. If a lesson has more exercise questions than its marks allow, choose the most important ones. If it has too few, split a longer exercise question into parts (a) and (b) rather than making one up.'
+      : (qsrc === 'mostly')
+        ? '\nWHERE THE QUESTIONS MUST COME FROM: About three quarters of the marks must come from the book back exercises printed at the end of each lesson, with the wording kept close to the book. The remaining quarter may be fresh questions set from the body of the lesson. Never repeat the same idea in both parts.'
+      : (qsrc === 'within')
+        ? '\nWHERE THE QUESTIONS MUST COME FROM: Set FRESH questions from the body of the lesson itself \u2014 its paragraphs, examples, definitions, pictures and tables. Do NOT copy or reword the exercise questions already printed at the end of the lesson. A child who has only memorised the book back answers should not be able to score full marks on this paper.'
+      : '\nWHERE THE QUESTIONS MUST COME FROM: Use a mix \u2014 about half the marks from the book back exercises printed at the end of each lesson (wording kept close to the book), and about half fresh questions set from the body of the lesson. Never ask the same idea twice across the two halves.';
 
     // Sections: the teacher's chosen types win, otherwise the usual three sections
     const sectionBlock = chosenTypes.length
@@ -3730,6 +3767,7 @@ ${sectionBlock}
 - Marks must add up to exactly ${marks}
 
 ${spaceBlock}
+${sourceBlock}
 ${diffBlock}${choiceBlock}${langBlock}${setBlock}
 
 ${anskey === 'yes' ? 'After the question paper, on a new line write exactly ANSWER KEY and then give the complete answer key. Never put writing-space markers inside the answer key.' : ''}
