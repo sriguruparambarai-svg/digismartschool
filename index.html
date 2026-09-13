@@ -11,6 +11,26 @@
 <meta property="og:type" content="website"/>
 <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Nunito:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Tamil:wght@400;600;700&display=swap" rel="stylesheet"/>
 <style>
+/* ── Homework question picker ── */
+#ws-pick{display:none;margin-top:14px;border:1.5px solid #e0cfa0;border-radius:10px;padding:14px;background:#fffdf7;}
+#ws-pick.on{display:block;}
+.wsp-tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+.wsp-tab{background:#f3e9d2;border:1.5px solid #e0cfa0;color:#7a1f1f;padding:7px 14px;border-radius:8px;cursor:pointer;font-family:inherit;font-weight:700;font-size:0.84rem;}
+.wsp-tab.on{background:#7a1f1f;border-color:#7a1f1f;color:#fff;}
+.wsp-tab .n{opacity:0.75;font-weight:600;font-size:0.78rem;}
+.wsp-daybar{display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px;padding-bottom:12px;border-bottom:1px dashed #e0cfa0;}
+.wsp-daybar .fg{display:flex;flex-direction:column;gap:4px;}
+.wsp-daybar label{font-size:0.78rem;color:#7a1f1f;font-weight:700;}
+.wsp-daybar input{padding:7px 10px;border:1.5px solid #e0cfa0;border-radius:7px;font-family:inherit;}
+.wsp-q{display:flex;gap:10px;align-items:flex-start;padding:9px 8px;border-radius:8px;border:1px solid transparent;}
+.wsp-q:hover{background:#f9f2e2;}
+.wsp-q.picked{background:#f3e9d2;border-color:#e0cfa0;}
+.wsp-q input{margin-top:4px;flex-shrink:0;width:17px;height:17px;}
+.wsp-q .tx{flex:1;line-height:1.6;font-size:0.9rem;}
+.wsp-q .meta{font-size:0.72rem;color:#a07830;margin-top:3px;}
+.wsp-q .also{font-size:0.72rem;color:#7a1f1f;font-weight:700;margin-top:3px;}
+.wsp-parts{font-size:0.84rem;color:#666;margin-top:4px;line-height:1.7;}
+.wsp-sum{font-size:0.82rem;color:#666;margin-top:12px;padding-top:10px;border-top:1px dashed #e0cfa0;line-height:1.7;}
 /* Indian-script answers (Hindi / Tamil) must render and print properly */
 .output-box, .output-box *{font-family:'Nunito','Noto Sans Devanagari','Noto Sans Tamil',sans-serif;}
 </style>
@@ -1659,7 +1679,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
       <div id="ws-hw-wrap" style="display:none;margin-top:12px;">
         <label>How many days of homework?</label>
-        <select id="ws-days">
+        <select id="ws-days" onchange="if (typeof wspRender === 'function' && WSP.questions.length) wspRender();">
           <option value="1">1 day</option>
           <option value="2">2 days</option>
           <option value="3">3 days</option>
@@ -1676,6 +1696,16 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
           signature line. Print once for the whole lesson and staple. The answer key for
           every day comes at the end, for the teacher.
         </div>
+        <label style="margin-top:14px;display:block;">Who picks the questions?</label>
+        <div class="check-group">
+          <label class="check-item"><input type="radio" name="ws-pickmode" value="auto" checked onchange="wsApplyPickMode()"> Automatic</label>
+          <label class="check-item"><input type="radio" name="ws-pickmode" value="manual" onchange="wsApplyPickMode()"> Let me choose the questions</label>
+        </div>
+        <div id="ws-pickbtn-wrap" style="display:none;margin-top:10px;">
+          <button type="button" class="btn btn-outline btn-sm" onclick="wsReadExercises()">&#128214; Read the exercises from this chapter</button>
+          <div id="ws-pick-msg" style="font-size:0.8rem;color:#a07830;margin-top:6px;line-height:1.6;"></div>
+        </div>
+        <div id="ws-pick"></div>
       </div>
     </div>
     <div class="form-group">
@@ -3518,6 +3548,412 @@ function qpBlueprint(){
 }
 
 // ══ WORKSHEET STYLE ══
+/* ══════════════════════════════════════════════════════════════
+   HOMEWORK WORKBOOK — MANUAL QUESTION PICKER
+   The teacher ticks the questions for each day. The day pages are then
+   built here in the browser, so there is no long AI generation to wait
+   for and the number of days is exactly what she asked for. Only the
+   answer key needs the AI.
+   A question may be ticked on more than one day on purpose — a teacher
+   often repeats the same exercise for practice — so repeats are allowed
+   and simply shown, not blocked.
+   ══════════════════════════════════════════════════════════════ */
+var WSP = { questions: [], days: {}, tab: 1 };
+
+function wsPickMode(){
+  var r = document.querySelector('input[name="ws-pickmode"]:checked');
+  return r ? r.value : 'auto';
+}
+
+function wsApplyPickMode(){
+  var on = (wsPickMode() === 'manual');
+  var w = document.getElementById('ws-pickbtn-wrap');
+  if (w) w.style.display = on ? 'block' : 'none';
+  var p = document.getElementById('ws-pick');
+  if (p && !on) p.classList.remove('on');
+  if (p && on && WSP.questions.length) p.classList.add('on');
+}
+
+/* Make sure a day slot exists for every day the teacher chose. */
+function wspSyncDays(){
+  var n = wsDays();
+  for (var i = 1; i <= n; i++){
+    if (!WSP.days[i]) WSP.days[i] = { title: '', times: 1, picked: {} };
+  }
+  Object.keys(WSP.days).forEach(function(k){
+    if (parseInt(k, 10) > n) delete WSP.days[k];
+  });
+  if (WSP.tab > n) WSP.tab = 1;
+}
+
+/* ── the lesson text, from whichever source the teacher used ── */
+async function wspLessonText(){
+  var typed = document.getElementById('ws-content').value;
+  if (typed && typed.trim()) return typed.trim();
+
+  var f = document.getElementById('ws-file');
+  var file = (f && f.files && f.files[0]) ? f.files[0] : null;
+  if (!file && dssPickedBook('ws')) file = await wsFetchBookPdf();
+  if (!file) return '';
+
+  var from = document.getElementById('ws-start-page').value;
+  var to   = document.getElementById('ws-end-page').value;
+  return await qpPageText(file, from, to);
+}
+
+function wspExtractPrompt(cls, sub){
+  return 'You are reading a ' + cls + ' ' + sub + ' textbook chapter.\n\n'
+    + 'Find the EXERCISE section printed at the END of the chapter (it may be headed '
+    + 'Exercises, Abhyas, \u0905\u092D\u094D\u092F\u093E\u0938, Let us do, Answer the following, Practice or similar).\n\n'
+    + 'List EVERY question in it, exactly as printed. Copy the wording from the book. '
+    + 'Do NOT invent, reword, translate or skip any question. Keep the book\u2019s own numbering '
+    + 'and the book\u2019s own language and script.\n\n'
+    + 'Reply with ONLY this JSON, no explanation and no code fences:\n'
+    + '{"questions":[{"no":"1","type":"word-meaning","text":"the question exactly as printed",'
+    + '"parts":["(a) ...","(b) ..."],"lines":2}]}\n\n'
+    + 'type is one of: word-meaning, fill, mcq, truefalse, match, short, long, other.\n'
+    + 'parts is the sub-parts if the question has any, otherwise an empty array.\n'
+    + 'lines is how many ruled lines a child needs for each answer: 1 for a word, '
+    + '2 for a sentence, 4 for a short answer, 6 for a long answer.\n'
+    + 'If the chapter has no exercise section at all, reply {"questions":[]}.';
+}
+
+async function wspCacheKey(cls, sub, topic, text){
+  var data = 'wshw1|' + cls + '|' + sub + '|' + topic + '|' + text.substring(0, 8000);
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20)
+    .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+async function wsReadExercises(){
+  var cls   = document.getElementById('ws-class').value;
+  var sub   = document.getElementById('ws-subject').value;
+  var topic = document.getElementById('ws-topic').value;
+  var msg   = document.getElementById('ws-pick-msg');
+
+  if (!cls || !sub){ alert('Please select Class and Subject first.'); return; }
+
+  msg.textContent = 'Reading the chapter\u2026';
+  var text = '';
+  try { text = await wspLessonText(); }
+  catch (e){ console.error(e); }
+
+  if (!text || text.length < 200){
+    msg.textContent = 'Could not read the lesson. Please pick the book and chapter, or paste '
+                    + 'the lesson into the Lesson Content box.';
+    return;
+  }
+
+  /* the same chapter is read once, ever — after that it loads instantly */
+  var key = null;
+  try {
+    key = await wspCacheKey(cls, sub, topic, text);
+    var cached = await fetch('/api/lesson-plan?key=' + key);
+    if (cached.ok){
+      var cd = await cached.json();
+      if (cd && Array.isArray(cd.steps) && cd.steps.length){
+        WSP.questions = cd.steps;
+        msg.textContent = WSP.questions.length + ' questions found in this chapter.';
+        wspSyncDays();
+        wspRender();
+        return;
+      }
+    }
+  } catch (e){}
+
+  msg.textContent = 'Reading the exercises\u2026 this takes a few seconds.';
+  try {
+    var res = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        max_tokens: 4000,
+        system: wspExtractPrompt(cls, sub),
+        messages: [{ role: 'user', content: 'CHAPTER TEXT:\n\n' + text.substring(0, 60000) }]
+      })
+    });
+    var d = await res.json();
+    var raw = '';
+    if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+    raw = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+    var s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+    if (s === -1 || e <= s) throw new Error('the reply could not be read');
+    var parsed = JSON.parse(raw.substring(s, e + 1));
+    var qs = (parsed && parsed.questions) || [];
+
+    if (!qs.length){
+      msg.textContent = 'No exercise section was found in these pages. The exercises may be on '
+                      + 'later pages \u2014 please widen the page range and try again.';
+      return;
+    }
+
+    WSP.questions = qs.map(function(q, i){
+      return {
+        id: 'q' + (i + 1),
+        no: String(q.no || (i + 1)),
+        type: String(q.type || 'other'),
+        text: String(q.text || ''),
+        parts: Array.isArray(q.parts) ? q.parts.map(String) : [],
+        lines: parseInt(q.lines, 10) > 0 ? parseInt(q.lines, 10) : 2
+      };
+    }).filter(function(q){ return q.text; });
+
+    msg.textContent = WSP.questions.length + ' questions found. Tick the ones for each day below.';
+    if (key){
+      try {
+        fetch('/api/lesson-plan', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: key, steps: WSP.questions.slice(0, 40),
+                                 meta: { kind: 'hw-exercises', cls: cls, sub: sub, topic: topic } })
+        });
+      } catch (e2){}
+    }
+    wspSyncDays();
+    wspRender();
+  } catch (err){
+    msg.textContent = 'Could not read the exercises \u2014 ' + (err.message || err) + '. Please try again.';
+  }
+}
+
+/* ── the picker ── */
+function wspRender(){
+  wspSyncDays();
+  var box = document.getElementById('ws-pick');
+  if (!box) return;
+  box.classList.add('on');
+  box.innerHTML = '';
+  var n = wsDays();
+  var day = WSP.days[WSP.tab];
+
+  var tabs = document.createElement('div');
+  tabs.className = 'wsp-tabs';
+  for (var i = 1; i <= n; i++){
+    (function(i){
+      var cnt = Object.keys(WSP.days[i].picked).length;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'wsp-tab' + (i === WSP.tab ? ' on' : '');
+      b.innerHTML = 'Day ' + i + ' <span class="n">(' + cnt + ')</span>';
+      b.onclick = function(){ WSP.tab = i; wspRender(); };
+      tabs.appendChild(b);
+    })(i);
+  }
+  box.appendChild(tabs);
+
+  var bar = document.createElement('div');
+  bar.className = 'wsp-daybar';
+  bar.innerHTML = '<div class="fg"><label>Title for Day ' + WSP.tab + '</label>'
+    + '<input type="text" id="wsp-title" style="min-width:240px;" placeholder="e.g. Word meanings"/></div>'
+    + '<div class="fg"><label>Write each answer how many times?</label>'
+    + '<input type="number" id="wsp-times" min="1" max="5" style="width:90px;"/></div>';
+  box.appendChild(bar);
+  var tEl = document.getElementById('wsp-title');
+  var xEl = document.getElementById('wsp-times');
+  tEl.value = day.title;
+  xEl.value = day.times;
+  tEl.oninput = function(){ day.title = tEl.value; };
+  xEl.oninput = function(){
+    var v = parseInt(xEl.value, 10);
+    day.times = (v > 0 && v <= 5) ? v : 1;
+  };
+
+  WSP.questions.forEach(function(q){
+    var row = document.createElement('div');
+    row.className = 'wsp-q' + (day.picked[q.id] ? ' picked' : '');
+    var cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = !!day.picked[q.id];
+    cb.onchange = function(){
+      if (cb.checked) day.picked[q.id] = true; else delete day.picked[q.id];
+      wspRender();
+    };
+    var tx = document.createElement('div');
+    tx.className = 'tx';
+    var head = document.createElement('div');
+    head.textContent = q.no + '. ' + q.text;
+    tx.appendChild(head);
+    if (q.parts.length){
+      var pd = document.createElement('div');
+      pd.className = 'wsp-parts';
+      pd.textContent = q.parts.join('   ');
+      tx.appendChild(pd);
+    }
+    var meta = document.createElement('div');
+    meta.className = 'meta';
+    meta.textContent = q.type;
+    tx.appendChild(meta);
+
+    /* the same question on another day is allowed — just say so */
+    var also = [];
+    Object.keys(WSP.days).forEach(function(k){
+      if (parseInt(k, 10) !== WSP.tab && WSP.days[k].picked[q.id]) also.push('Day ' + k);
+    });
+    if (also.length){
+      var al = document.createElement('div');
+      al.className = 'also';
+      al.textContent = '\u21bb also on ' + also.join(', ');
+      tx.appendChild(al);
+    }
+
+    row.appendChild(cb);
+    row.appendChild(tx);
+    box.appendChild(row);
+  });
+
+  var total = 0;
+  Object.keys(WSP.days).forEach(function(k){ total += Object.keys(WSP.days[k].picked).length; });
+  var sum = document.createElement('div');
+  sum.className = 'wsp-sum';
+  sum.textContent = 'Day ' + WSP.tab + ': ' + Object.keys(day.picked).length + ' question(s) ticked. '
+    + 'Across all ' + n + ' days: ' + total + ' in total. '
+    + 'Press Generate Worksheet when every day is ready.';
+  box.appendChild(sum);
+}
+
+/* ── build the pages here, no AI ── */
+function wspRule(n){
+  var line = '_________________________________________________________________';
+  var out = '';
+  for (var i = 0; i < n; i++) out += line + '\n';
+  return out;
+}
+
+function wspQuestionById(id){
+  for (var i = 0; i < WSP.questions.length; i++){
+    if (WSP.questions[i].id === id) return WSP.questions[i];
+  }
+  return null;
+}
+
+function wspBuildPages(cls, topic){
+  var n = wsDays();
+  var out = 'SCHOOL: ______________________________\n\n'
+          + 'NAME: ______________________________\n\n'
+          + 'CLASS: ' + cls + '\n\n'
+          + 'CHAPTER: ' + topic + '\n\n';
+  for (var i = 1; i <= n; i++){
+    var day = WSP.days[i];
+    var ids = Object.keys(day.picked);
+    if (!ids.length) continue;
+    out += '\n\nDAY ' + i + (day.title ? ' - ' + day.title : '') + '\n\n';
+    out += 'Date: ____________     Parent\'s signature: ____________\n\n';
+    if (day.times > 1){
+      out += '(Write each answer ' + day.times + ' times.)\n\n';
+    }
+    var num = 0;
+    ids.forEach(function(id){
+      var q = wspQuestionById(id);
+      if (!q) return;
+      num++;
+      out += num + '. ' + q.text + '\n\n';
+      if (q.parts.length){
+        q.parts.forEach(function(p){
+          out += p + '\n\n';
+          for (var t = 0; t < day.times; t++) out += wspRule(q.lines) + '\n';
+        });
+      } else {
+        for (var t2 = 0; t2 < day.times; t2++) out += wspRule(q.lines) + '\n';
+      }
+    });
+  }
+  return out;
+}
+
+/* ── the answer key, the only part that needs the AI ── */
+async function wspAnswerKey(cls, sub, lessonText){
+  var used = {};
+  Object.keys(WSP.days).forEach(function(k){
+    Object.keys(WSP.days[k].picked).forEach(function(id){ used[id] = true; });
+  });
+  var list = WSP.questions.filter(function(q){ return used[q.id]; });
+  if (!list.length) return '';
+
+  var asked = list.map(function(q){
+    return q.id + ' | ' + q.no + '. ' + q.text
+         + (q.parts.length ? '  ' + q.parts.join('  ') : '');
+  }).join('\n');
+
+  var sys = 'You are an expert school teacher answering the exercise questions of a '
+    + cls + ' ' + sub + ' chapter. Answer each question from the chapter text given, in the '
+    + 'words a ' + cls + ' child would be expected to write. Where the answer depends on the '
+    + 'child\u2019s own opinion or experience, say so plainly instead of inventing one answer.\n\n'
+    + 'Reply with ONLY this JSON, no code fences:\n'
+    + '{"answers":[{"id":"q1","answer":"..."}]}\n'
+    + 'Give one entry for every id you are given, in the same order.'
+    + bbLangBlock(sub, wsLangMode());
+
+  var res = await fetch('/api/ai', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      max_tokens: 8000,
+      system: sys,
+      messages: [{ role: 'user',
+        content: 'CHAPTER TEXT:\n\n' + String(lessonText).substring(0, 40000)
+               + '\n\nQUESTIONS TO ANSWER:\n' + asked }]
+    })
+  });
+  var d = await res.json();
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  raw = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+  var s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+  if (s === -1 || e <= s) throw new Error('the answer key could not be read');
+  var parsed = JSON.parse(raw.substring(s, e + 1));
+
+  var byId = {};
+  (parsed.answers || []).forEach(function(a){ byId[String(a.id)] = String(a.answer || ''); });
+
+  var out = '\nANSWER KEY\n';
+  var n = wsDays();
+  for (var i = 1; i <= n; i++){
+    var ids = Object.keys(WSP.days[i].picked);
+    if (!ids.length) continue;
+    out += '\nDAY ' + i + '\n';
+    var num = 0;
+    ids.forEach(function(id){
+      var q = wspQuestionById(id);
+      if (!q) return;
+      num++;
+      out += num + '. ' + (byId[id] || '(not answered)') + '\n';
+    });
+  }
+  return out;
+}
+
+/* Called by Generate Worksheet when the teacher picked the questions herself. */
+async function wsBuildChosenWorkbook(){
+  var cls   = document.getElementById('ws-class').value;
+  var sub   = document.getElementById('ws-subject').value;
+  var topic = document.getElementById('ws-topic').value;
+
+  var total = 0;
+  Object.keys(WSP.days).forEach(function(k){ total += Object.keys(WSP.days[k].picked).length; });
+  if (!total){
+    alert('Please tick at least one question for one day first.');
+    return;
+  }
+
+  var loadId = 'load-worksheet';
+  document.getElementById(loadId).classList.add('show');
+  try {
+    var pages = wspBuildPages(cls, topic);
+    var text  = '';
+    try { text = await wspLessonText(); } catch (e){}
+    var key = '';
+    try {
+      key = await wspAnswerKey(cls, sub, text);
+    } catch (e2){
+      key = '\nANSWER KEY\n\n(The answer key could not be generated this time. '
+          + 'The question pages above are complete \u2014 press Generate again for the key.)\n';
+    }
+    document.getElementById(loadId).classList.remove('show');
+    showOutput('out-worksheet', 'actions-worksheet', pages + key, 'worksheet');
+  } catch (err){
+    document.getElementById(loadId).classList.remove('show');
+    alert('Could not build the workbook \u2014 ' + (err.message || err));
+  }
+}
+
 /* ══ HOMEWORK WORKBOOK ══
    The same generator, but the output is split into day-sized pages the
    teacher can print once and give out one page a day. Question types and
@@ -3544,6 +3980,7 @@ function wsApplyOut(){
   var wrap = document.getElementById('ws-hw-wrap');
   var on = (wsOutMode() === 'workbook');
   if (wrap) wrap.style.display = on ? 'block' : 'none';
+  if (typeof wsApplyPickMode === 'function') wsApplyPickMode();
   /* Homework is meant to come from the book, so start there. The teacher
      can still switch to Concept or Mixed if that is what she wants. */
   if (on){
@@ -3714,6 +4151,13 @@ Make it practical, engaging and suitable for Indian school children.`;
   }
 
   else if (tool === 'worksheet') {
+    /* The teacher chose the questions herself — the pages are built in the
+       browser, so none of the generation below is needed. */
+    if (typeof wsOutMode === 'function' && wsOutMode() === 'workbook'
+        && typeof wsPickMode === 'function' && wsPickMode() === 'manual') {
+      await wsBuildChosenWorkbook();
+      return;
+    }
     const cls = document.getElementById('ws-class').value;
     const sub = document.getElementById('ws-subject').value;
     const topic = document.getElementById('ws-topic').value;
