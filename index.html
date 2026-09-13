@@ -29,6 +29,9 @@
 .wsp-q .tx{flex:1;line-height:1.6;font-size:0.9rem;}
 .wsp-q .meta{font-size:0.72rem;color:#a07830;margin-top:3px;}
 .wsp-q .also{font-size:0.72rem;color:#7a1f1f;font-weight:700;margin-top:3px;}
+.wsp-fig{font-size:0.72rem;font-weight:700;margin-top:3px;}
+.wsp-fig.ok{color:#2e7d32;}
+.wsp-fig.bad{color:#c62828;}
 .wsp-parts{font-size:0.84rem;color:#666;margin-top:4px;line-height:1.7;}
 .wsp-sum{font-size:0.82rem;color:#666;margin-top:12px;padding-top:10px;border-top:1px dashed #e0cfa0;line-height:1.7;}
 /* Indian-script answers (Hindi / Tamil) must render and print properly */
@@ -2888,6 +2891,17 @@ function renderWorkbook(text) {
       html += '<div style="font-weight:800;margin:4px 0;">' + escHtml(l) + '</div>';
       return;
     }
+    if (!inKey && /^FIGURE SHEET\b/i.test(l)) {
+      html += brk + '<div style="font-weight:800;margin:4px 0;">' + escHtml(l) + '</div>';
+      return;
+    }
+    var fm = l.match(/^\[\[FIGIMG:(\d+)\]\]$/);
+    if (fm) {
+      var src = WSP_PAGEIMG[parseInt(fm[1], 10)] || '';
+      if (src) html += '<img src="' + src + '" style="width:100%;max-width:720px;'
+                     + 'border:1px solid #ccc;margin:6px 0;" alt="">';
+      return;
+    }
     if (inKey && /^DAY\s+\d+$/i.test(l)) {
       html += '<div style="font-weight:700;margin:8px 0 2px;">' + escHtml(l) + '</div>';
       return;
@@ -3635,19 +3649,35 @@ async function wspLessonText(){
 
 function wspExtractPrompt(cls, sub){
   return 'You are reading a ' + cls + ' ' + sub + ' textbook chapter.\n\n'
-    + 'Find the EXERCISE section printed at the END of the chapter (it may be headed '
-    + 'Exercises, Abhyas, \u0905\u092D\u094D\u092F\u093E\u0938, Let us do, Answer the following, Practice or similar).\n\n'
-    + 'List EVERY question in it, exactly as printed. Copy the wording from the book. '
+    + 'Find EVERY exercise block in the chapter. Do NOT assume there is only one at the end. '
+    + 'Many books put a block after each concept. A block may be headed Exercise, Exercises, '
+    + 'Knowledge Check, Abhyas, \u0905\u092D\u094D\u092F\u093E\u0938, Let us do, Try these, Answer the following, '
+    + 'Practice, Assessment or similar. Work through the chapter from the first page to the '
+    + 'last and collect the questions from all of them, in the order they appear.\n\n'
+    + 'Do NOT collect worked examples, solved problems, activities the teacher demonstrates, '
+    + 'or anything already answered in the book.\n\n'
+    + 'List EVERY question, exactly as printed. Copy the wording from the book. '
     + 'Do NOT invent, reword, translate or skip any question. Keep the book\u2019s own numbering '
     + 'and the book\u2019s own language and script.\n\n'
+    + 'The text is marked with lines like "----- Book page 39 -----". Use those to say which '
+    + 'book page each question is printed on.\n\n'
     + 'Reply with ONLY this JSON, no explanation and no code fences:\n'
-    + '{"questions":[{"no":"1","type":"word-meaning","text":"the question exactly as printed",'
-    + '"parts":["(a) ...","(b) ..."],"lines":2}]}\n\n'
-    + 'type is one of: word-meaning, fill, mcq, truefalse, match, short, long, other.\n'
+    + '{"questions":[{"no":"1","section":"Knowledge Check 1","page":39,"type":"short",'
+    + '"text":"the question exactly as printed","parts":["(a) ...","(b) ..."],"lines":2,'
+    + '"needsFigure":true,"figureRef":"Fig. 1"}]}\n\n'
+    + 'section is the heading of the block the question came from, exactly as printed.\n'
+    + 'page is the book page number from the nearest "----- Book page N -----" marker above it.\n'
+    + 'type is one of: word-meaning, fill, mcq, truefalse, match, short, long, draw, other. '
+    + 'Use "draw" when the child has to draw, construct or label something.\n'
     + 'parts is the sub-parts if the question has any, otherwise an empty array.\n'
     + 'lines is how many ruled lines a child needs for each answer: 1 for a word, '
     + '2 for a sentence, 4 for a short answer, 6 for a long answer.\n'
-    + 'If the chapter has no exercise section at all, reply {"questions":[]}.';
+    + 'needsFigure is true when the question cannot be answered without looking at a picture, '
+    + 'diagram, figure, table or map \u2014 for example it says "Use Fig. 3", "the adjoining figure", '
+    + '"the given figure", "the figure below". Otherwise false.\n'
+    + 'figureRef is what the question calls that picture ("Fig. 3", "the adjoining figure"), '
+    + 'or an empty string when needsFigure is false.\n'
+    + 'If the chapter has no exercise questions at all, reply {"questions":[]}.';
 }
 
 async function wspCacheKey(cls, sub, topic, text){
@@ -3655,6 +3685,77 @@ async function wspCacheKey(cls, sub, topic, text){
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
     .map(function(b){ return b.toString(16).padStart(2, '0'); }).join('');
+}
+
+/* Pages of the book that contain at least one picture, worked out from the
+   PDF's own drawing instructions. A page with no image operator has no
+   figure on it, whatever the questions claim. */
+var WSP_PIXPAGES = null;   // { 39: true, 40: false, ... }  null = not checked
+var WSP_PAGEIMG  = {};     // book page -> rendered picture, built on demand
+
+async function wspBookFile(){
+  var f = document.getElementById('ws-file');
+  var file = (f && f.files && f.files[0]) ? f.files[0] : null;
+  if (!file && dssPickedBook('ws')) file = await wsFetchBookPdf();
+  return file;
+}
+
+async function wspCheckFigures(){
+  var wanted = {};
+  WSP.questions.forEach(function(q){ if (q.needsFigure && q.page) wanted[q.page] = true; });
+  var pages = Object.keys(wanted).map(Number);
+  if (!pages.length) { WSP_PIXPAGES = {}; return; }
+
+  var file = await wspBookFile();
+  if (!file) { WSP_PIXPAGES = null; return; }
+
+  await bbEnsurePdfJs();
+  var pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  var found = {};
+  for (var i = 0; i < pages.length; i++){
+    var p = pages[i];
+    if (p < 1 || p > pdf.numPages) { found[p] = false; continue; }
+    try {
+      var pg = await pdf.getPage(p);
+      var ops = await pg.getOperatorList();
+      var has = false;
+      for (var k = 0; k < ops.fnArray.length; k++){
+        var fn = ops.fnArray[k];
+        if (fn === pdfjsLib.OPS.paintImageXObject
+         || fn === pdfjsLib.OPS.paintJpegXObject
+         || fn === pdfjsLib.OPS.paintInlineImageXObject) { has = true; break; }
+      }
+      found[p] = has;
+    } catch (e){ found[p] = false; }
+  }
+  WSP_PIXPAGES = found;
+}
+
+/* Render one book page as a picture, for the reference sheets at the back. */
+async function wspRenderPage(p){
+  if (WSP_PAGEIMG[p]) return WSP_PAGEIMG[p];
+  var file = await wspBookFile();
+  if (!file) return '';
+  await bbEnsurePdfJs();
+  var pdf = await pdfjsLib.getDocument({ data: await file.arrayBuffer() }).promise;
+  if (p < 1 || p > pdf.numPages) return '';
+  var page = await pdf.getPage(p);
+  var vp1 = page.getViewport({ scale: 1 });
+  var vp = page.getViewport({ scale: 1100 / vp1.width });
+  var canvas = document.createElement('canvas');
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  WSP_PAGEIMG[p] = canvas.toDataURL('image/jpeg', 0.75);
+  return WSP_PAGEIMG[p];
+}
+
+/* What to say about a question's figure. */
+function wspFigureState(q){
+  if (!q.needsFigure) return null;
+  if (!q.page) return { ok: false, text: 'needs a figure \u2014 page unknown' };
+  if (WSP_PIXPAGES === null) return { ok: true, text: 'needs the figure on page ' + q.page };
+  if (WSP_PIXPAGES[q.page]) return { ok: true, text: 'figure on book page ' + q.page };
+  return { ok: false, text: 'figure NOT in the book (page ' + q.page + ' has no picture)' };
 }
 
 async function wsReadExercises(){
@@ -3723,12 +3824,21 @@ async function wsReadExercises(){
       return {
         id: 'q' + (i + 1),
         no: String(q.no || (i + 1)),
+        section: String(q.section || ''),
+        page: parseInt(q.page, 10) || 0,
         type: String(q.type || 'other'),
         text: String(q.text || ''),
         parts: Array.isArray(q.parts) ? q.parts.map(String) : [],
-        lines: parseInt(q.lines, 10) > 0 ? parseInt(q.lines, 10) : 2
+        lines: parseInt(q.lines, 10) > 0 ? parseInt(q.lines, 10) : 2,
+        needsFigure: !!q.needsFigure,
+        figureRef: String(q.figureRef || '')
       };
     }).filter(function(q){ return q.text; });
+
+    /* Which book pages actually carry a picture? A question that asks for a
+       figure the book never printed is unanswerable, and the teacher has to
+       know that BEFORE it goes home. */
+    try { await wspCheckFigures(); } catch (e){ console.error(e); }
 
     msg.textContent = WSP.questions.length + ' questions found. Tick the ones for each day below.';
     if (key){
@@ -3812,8 +3922,17 @@ function wspRender(){
     }
     var meta = document.createElement('div');
     meta.className = 'meta';
-    meta.textContent = q.type;
+    meta.textContent = (q.section ? q.section + '  \u00b7  ' : '') + q.type
+                     + (q.page ? '  \u00b7  page ' + q.page : '');
     tx.appendChild(meta);
+
+    var fig = wspFigureState(q);
+    if (fig){
+      var fd = document.createElement('div');
+      fd.className = fig.ok ? 'wsp-fig ok' : 'wsp-fig bad';
+      fd.textContent = (fig.ok ? '\uD83D\uDDBC ' : '\u26A0 ') + fig.text;
+      tx.appendChild(fd);
+    }
 
     /* the same question on another day is allowed — just say so */
     var also = [];
@@ -3836,8 +3955,19 @@ function wspRender(){
   Object.keys(WSP.days).forEach(function(k){ total += Object.keys(WSP.days[k].picked).length; });
   var sum = document.createElement('div');
   sum.className = 'wsp-sum';
+  var missing = 0;
+  Object.keys(WSP.days).forEach(function(k){
+    Object.keys(WSP.days[k].picked).forEach(function(id){
+      var q = wspQuestionById(id);
+      var f = q ? wspFigureState(q) : null;
+      if (f && !f.ok) missing++;
+    });
+  });
   sum.textContent = 'Day ' + WSP.tab + ': ' + Object.keys(day.picked).length + ' question(s) ticked. '
     + 'Across all ' + n + ' days: ' + total + ' in total. '
+    + (missing ? '\u26A0 ' + missing + ' of them need a figure the book does not print \u2014 the child '
+                 + 'cannot answer those. Untick them, or hand out the figure yourself. '
+               : '')
     + 'Press Generate Homework Workbook when every day is ready.';
   box.appendChild(sum);
 }
@@ -3857,7 +3987,8 @@ function wspQuestionById(id){
   return null;
 }
 
-function wspBuildPages(cls, topic){
+function wspBuildPages(cls, topic, figPages){
+  figPages = figPages || {};
   var n = wsDays();
   /* The school name and logo come from the printed letterhead, so there is
      no blank SCHOOL line to fill in by hand. */
@@ -3878,7 +4009,16 @@ function wspBuildPages(cls, topic){
       var q = wspQuestionById(id);
       if (!q) return;
       num++;
-      out += num + '. ' + q.text + '\n\n';
+      out += num + '. ' + q.text + '\n';
+      var f = wspFigureState(q);
+      if (f && f.ok){
+        out += '(' + (q.figureRef || 'Figure') + ' \u2014 see the figure sheet at the back, '
+             + 'book page ' + q.page + '.)\n';
+        figPages[q.page] = true;
+      } else if (f){
+        out += '(Ask your teacher for ' + (q.figureRef || 'the figure') + '.)\n';
+      }
+      out += '\n';
       if (q.parts.length){
         q.parts.forEach(function(p){
           out += p + '\n\n';
@@ -3971,7 +4111,19 @@ async function wsBuildChosenWorkbook(){
   var loadId = 'load-worksheet';
   document.getElementById(loadId).classList.add('show');
   try {
-    var pages = wspBuildPages(cls, topic);
+    var figPages = {};
+    var pages = wspBuildPages(cls, topic, figPages);
+
+    /* The book pages holding the needed figures go at the back, so the child
+       has them beside the questions without carrying the textbook. */
+    var figList = Object.keys(figPages).map(Number).sort(function(a, b){ return a - b; });
+    for (var fi = 0; fi < figList.length; fi++){
+      var img = '';
+      try { img = await wspRenderPage(figList[fi]); } catch (e){}
+      if (img) pages += '\n\nFIGURE SHEET - book page ' + figList[fi] + '\n'
+                      + '[[FIGIMG:' + figList[fi] + ']]\n';
+    }
+
     var text  = '';
     try { text = await wspLessonText(); } catch (e){}
     var key = '';
