@@ -3730,6 +3730,36 @@ Make it practical, engaging and suitable for Indian school children.`;
     pdfStart = document.getElementById('ws-start-page').value;
     pdfEnd = document.getElementById('ws-end-page').value;
 
+    /* ══ READ THE PAGES AS TEXT, DO NOT UPLOAD THE PDF ══
+       A 15 page chapter turned into base64 runs to several megabytes and the
+       server refuses it (error 413). The TEXT of those same pages is a few
+       kilobytes and reads just as well. This is what the Question Paper tool
+       already does. Only a scanned book with no text layer still needs the
+       pages themselves sent up. */
+    var wsBookText = '';
+    if (pdfFile && !content.trim()) {
+      document.getElementById(loadId).classList.add('show');
+      try {
+        wsBookText = await qpPageText(pdfFile, pdfStart, pdfEnd);
+      } catch (e) {
+        console.error('Could not read the book pages as text:', e);
+      }
+      document.getElementById(loadId).classList.remove('show');
+
+      if (wsBookText && wsBookText.length > 400) {
+        pdfFile = null;   // the text is enough — nothing needs uploading
+      } else {
+        var wsPages = (parseInt(pdfEnd, 10) - parseInt(pdfStart, 10)) + 1;
+        if (!(wsPages > 0)) wsPages = 1;
+        if (wsPages > 14) {
+          alert('These ' + wsPages + ' pages are scanned pictures with no readable text, '
+              + 'which is too much to send in one go.\n\nPlease either paste the lesson text '
+              + 'into the Lesson Content box, or give a smaller page range.');
+          return;
+        }
+      }
+    }
+
     const types = [];
     if (document.getElementById('ws-mcq').checked) types.push('MCQ (4 options with answer)');
     if (document.getElementById('ws-fill').checked) types.push('Fill in the Blanks (with answers)');
@@ -3742,6 +3772,7 @@ Make it practical, engaging and suitable for Indian school children.`;
       : 'CBSE';
 
     const sourceLine = content
+      || wsBookText
       || (pdfFile
         ? 'See the attached PDF document - read it carefully and base everything on its actual content.'
         : 'Use standard ' + board + ' curriculum knowledge for this topic.');
