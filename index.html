@@ -1652,6 +1652,45 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       <div id="ws-style-note" style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.6;">Fresh questions covering every concept in the lesson, so the student must read the full chapter.</div>
     </div>
     <div class="form-group">
+      <label>What to Generate</label>
+      <div class="check-group">
+        <label class="check-item"><input type="radio" name="ws-out" value="sheet" checked onchange="wsApplyOut()"> Single Worksheet</label>
+        <label class="check-item"><input type="radio" name="ws-out" value="workbook" onchange="wsApplyOut()"> Homework Workbook (day by day)</label>
+      </div>
+      <div id="ws-hw-wrap" style="display:none;margin-top:12px;">
+        <label>How many days of homework?</label>
+        <select id="ws-days">
+          <option value="1">1 day</option>
+          <option value="2">2 days</option>
+          <option value="3">3 days</option>
+          <option value="4">4 days</option>
+          <option value="5">5 days</option>
+          <option value="6" selected>6 days</option>
+          <option value="7">7 days</option>
+          <option value="8">8 days</option>
+          <option value="9">9 days</option>
+          <option value="10">10 days</option>
+        </select>
+        <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.6;">
+          One page per day, about 15&ndash;20 minutes of work each, with a date and parent
+          signature line. Print once for the whole lesson and staple. The answer key for
+          every day comes at the end, for the teacher.
+        </div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label>Worksheet Language</label>
+      <select id="ws-lang">
+        <option value="auto" selected>Same language as the book (recommended)</option>
+        <option value="ta-help">Book language + Tamil meaning under each answer</option>
+        <option value="en">English</option>
+      </select>
+      <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.6;">
+        Hindi and Tamil lessons come out in their own script. Pick the second option if the
+        teacher correcting the books does not read that language.
+      </div>
+    </div>
+    <div class="form-group">
       <label>Question Types to Include</label>
       <div class="check-group">
         <label class="check-item"><input type="checkbox" id="ws-mcq" checked> MCQ</label>
@@ -3479,6 +3518,116 @@ function qpBlueprint(){
 }
 
 // ══ WORKSHEET STYLE ══
+/* ══ HOMEWORK WORKBOOK ══
+   The same generator, but the output is split into day-sized pages the
+   teacher can print once and give out one page a day. Question types and
+   the book-back rule are still decided by the Worksheet Style radios. */
+function wsOutMode(){
+  var r = document.querySelector('input[name="ws-out"]:checked');
+  return r ? r.value : 'sheet';
+}
+
+function wsLangMode(){
+  var el = document.getElementById('ws-lang');
+  return el ? el.value : 'auto';
+}
+
+function wsDays(){
+  var el = document.getElementById('ws-days');
+  var n = el ? parseInt(el.value, 10) : 6;
+  if (!n || n < 1) n = 6;
+  if (n > 10) n = 10;
+  return n;
+}
+
+function wsApplyOut(){
+  var wrap = document.getElementById('ws-hw-wrap');
+  var on = (wsOutMode() === 'workbook');
+  if (wrap) wrap.style.display = on ? 'block' : 'none';
+  /* Homework is meant to come from the book, so start there. The teacher
+     can still switch to Concept or Mixed if that is what she wants. */
+  if (on){
+    var bb = document.querySelector('input[name="ws-style"][value="bookback"]');
+    if (bb && !bb.checked){
+      bb.checked = true;
+      if (typeof wsApplyStyle === 'function') wsApplyStyle();
+    }
+  }
+}
+
+/* What the finished paper should look like. */
+function wsFormatBlock(cls, sub, style){
+  if (wsOutMode() !== 'workbook'){
+    return `Format it as a proper school worksheet with:
+- School name line, Date line, Name line, Class line at top
+- Clear numbered sections
+- Marks for each question
+
+Put every answer at the VERY END, after a line containing exactly:
+ANSWER KEY
+Nothing but the answers may come after that line.
+
+Keep the language clear and age-appropriate for ${cls} students.`;
+  }
+
+  var days = wsDays();
+  var s = String(sub || '').toLowerCase();
+  var isLang = (s.indexOf('hindi') !== -1 || s.indexOf('tamil') !== -1
+             || s.indexOf('english') !== -1);
+
+  var order = isLang
+    ? `- Day 1: word meanings from the lesson.
+- Day 2: fill in the blanks and match the following.
+- Day 3: one mark questions and true or false.
+- The middle days: answer the following, ONE or TWO questions per day only.
+- The last day: dictation practice \u2014 list the new words of the lesson for the child to
+  write three times each, and ask the teacher to read them aloud.`
+    : `- Day 1: key words and terms from the lesson with their meanings.
+- Day 2: fill in the blanks, true or false, and multiple choice.
+- Day 3: match the following and one mark questions.
+- The middle days: short answer questions, two or three per day.
+- The last day: the longest questions in the exercise, one or two only.`;
+
+  var strict = (style === 'bookback')
+    ? `- Take the questions ONLY from the exercises printed at the end of this chapter.
+- Never invent a question of your own, not even to fill a day.
+- If the chapter's exercises are not enough for ${days} days, give FEWER days instead, and
+  write this as the very first line: NOTE FOR THE TEACHER: this lesson's exercises fill only
+  [number] days of homework.`
+    : `- Spread the questions evenly so no day is much heavier than another.`;
+
+  return `Do NOT write one worksheet. Build a HOMEWORK WORKBOOK split into ${days} separate days.
+
+HOW TO SPLIT THE DAYS:
+${order}
+- That list is the full shape. If ${days} days is fewer than the stages listed, merge the
+  stages in order and keep the same progression. If it is more, split the heavier stages
+  across the extra days.
+- Go from easier to harder across the days.
+- Each day is ONE sitting of about 15 to 20 minutes for a ${cls} child. Never overload a day.
+
+${strict}
+
+WHAT EVERY DAY PAGE MUST HAVE:
+- A heading on its own line: DAY 1, DAY 2 and so on, followed by a short title saying what
+  that day practises.
+- Under the heading: Date: ____________     Parent's signature: ____________
+- The questions numbered from 1 within that day.
+- After each question, ruled writing space as a line of underscores \u2014 one line for a one
+  word answer, two or three lines for a sentence, five or six for a longer answer.
+
+AT THE TOP OF THE WHOLE WORKBOOK, ONCE:
+- School name line, Name line, Class line, and the chapter name.
+
+ANSWER KEY:
+- At the very end, on its own line, write exactly: ANSWER KEY
+- Group the answers under DAY 1, DAY 2 and so on, matching the day numbers.
+- Nothing but the answers may come after that line.
+- Never put writing-space underscores inside the answer key.
+
+Keep the language clear and age-appropriate for ${cls} students.`;
+}
+
 function wsGetStyle(){
   var r = document.querySelector('input[name="ws-style"]:checked');
   return r ? r.value : 'concept';
@@ -3641,16 +3790,7 @@ ${styleBlock}
 Lesson Content to work from:
 ${sourceLine}
 
-Format it as a proper school worksheet with:
-- School name line, Date line, Name line, Class line at top
-- Clear numbered sections
-- Marks for each question
-
-Put every answer at the VERY END, after a line containing exactly:
-ANSWER KEY
-Nothing but the answers may come after that line.
-
-Keep the language clear and age-appropriate for ${cls} students.`;
+${wsFormatBlock(cls, sub, style)}${bbLangBlock(sub, wsLangMode())}`;
   }
 
   else if (tool === 'qpaper') {
@@ -3991,6 +4131,18 @@ Keep it concise, warm and easy for parents to read on their phone.`;
   // A two-set or bilingual question paper is roughly twice the writing, so it
   // needs a bigger answer allowance or it gets cut off half way.
   var tokBudget = tokenMap[tool] || 4000;
+  /* A day-by-day homework workbook is many pages, and Hindi or Tamil script
+     costs more tokens per line than English, so the allowance has to grow
+     or the workbook gets cut off half way through. */
+  if (tool === 'worksheet' && typeof wsOutMode === 'function' && wsOutMode() === 'workbook') {
+    tokBudget = 2500 + (wsDays() * 1200);
+    var wsSub = String(document.getElementById('ws-subject').value || '').toLowerCase();
+    if (wsSub.indexOf('hindi') !== -1 || wsSub.indexOf('tamil') !== -1) {
+      tokBudget = Math.round(tokBudget * 1.5);
+    }
+    if (wsLangMode() === 'ta-help') tokBudget = Math.round(tokBudget * 1.4);
+    if (tokBudget > 16000) tokBudget = 16000;
+  }
   if (tool === 'qpaper') {
     if (qpVal('qp-sets', '1') === '2') tokBudget = tokBudget * 2;
     if (qpVal('qp-lang', 'en') === 'both') tokBudget = Math.round(tokBudget * 1.8);
