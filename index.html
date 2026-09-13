@@ -9,7 +9,11 @@
 <meta property="og:description" content="AI teaching platform for Tamil Nadu schools — AI Teaching Mode, Blackboard AI, Report Cards and LearnBot for PreKG to Class 12."/>
 <meta property="og:url" content="https://digismartschool.com/"/>
 <meta property="og:type" content="website"/>
-<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Nunito:wght@400;600;700;800&family=Noto+Sans+Devanagari:wght@400;600;700&family=Noto+Sans+Tamil:wght@400;600;700&display=swap" rel="stylesheet"/>
+<style>
+/* Indian-script answers (Hindi / Tamil) must render and print properly */
+.output-box, .output-box *{font-family:'Nunito','Noto Sans Devanagari','Noto Sans Tamil',sans-serif;}
+</style>
 <style>
 :root {
   --maroon:       #6B0F1A;
@@ -992,7 +996,7 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
 
   try {
     const qText = questions || 'Generate answers for all exercise questions in this lesson.';
-    const promptText = `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this lesson (attached as PDF or page images), answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the lesson.\nNumber each answer clearly. Use simple language for ${cls} students.`;
+    const promptText = `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this lesson (attached as PDF or page images), answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the lesson.\nNumber each answer clearly. Use simple language for ${cls} students.${bbLangBlock(sub, bbLangMode())}`;
 
     let content;
 
@@ -2026,6 +2030,18 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
         <option value="detailed" selected>Detailed Answers (full paragraph)</option>
         <option value="points">Point-wise Answers</option>
       </select>
+    </div>
+    <div class="form-group">
+      <label>Answer Language</label>
+      <select id="bb-lang">
+        <option value="auto" selected>Same language as the book (recommended)</option>
+        <option value="ta-help">Book language + Tamil meaning under each answer</option>
+        <option value="en">English</option>
+      </select>
+      <div style="font-size:0.8rem;color:#A07830;margin-top:6px;line-height:1.6;">
+        For Hindi and Tamil lessons the answers come in the same script as the book.
+        Pick the second option if the teacher correcting the notebooks does not read that language.
+      </div>
     </div>
     <button class="btn btn-primary btn-full" onclick="generateTool('bookback')">
       📖 Generate Book Back Answers
@@ -3181,6 +3197,50 @@ function wsLoadBooks(){ return dssPickBooks('ws'); }
 function wsBookChanged(){ return dssPickBookChanged('ws'); }
 function wsApplyChapter(){ return dssPickChapter('ws'); }
 function wsFetchBookPdf(){ return dssPickPdf('ws'); }
+/* ══ BOOK BACK — ANSWER LANGUAGE ══
+   A Hindi lesson must be answered in Devanagari, a Tamil lesson in Tamil
+   script. Left to itself the model follows the question language most of
+   the time but not always, and an unpredictable answer is worse than a
+   wrong one for a teacher who cannot read the script. So we say it. */
+function bbLangMode(){
+  var el = document.getElementById('bb-lang');
+  return el ? el.value : 'auto';
+}
+
+function bbLangBlock(sub, mode){
+  var s = String(sub || '').toLowerCase();
+  var isHindi = s.indexOf('hindi') !== -1;
+  var isTamil = s.indexOf('tamil') !== -1;
+  mode = mode || 'auto';
+
+  if (mode === 'en'){
+    return '\n\nLANGUAGE: Write every answer in simple English, whatever language the '
+         + 'questions are written in.';
+  }
+
+  var block;
+  if (isHindi){
+    block = '\n\nLANGUAGE: This is a HINDI lesson. Write every answer in HINDI, in Devanagari '
+          + 'script. Never answer in English. Never write Hindi in Roman letters. Keep the '
+          + 'wording close to the words used in the lesson itself, so the child can find them '
+          + 'in the book.';
+  } else if (isTamil){
+    block = '\n\nLANGUAGE: This is a TAMIL lesson. Write every answer in TAMIL, in Tamil script. '
+          + 'Never answer in English and never write Tamil in Roman letters. Keep the wording '
+          + 'close to the words used in the lesson itself.';
+  } else {
+    block = '\n\nLANGUAGE: Write every answer in the same language and script as the questions.';
+  }
+
+  if (mode === 'ta-help'){
+    block += '\n\nTAMIL HELP LINE: After each answer, on its own next line, write the same answer '
+           + 'again in TAMIL, in Tamil script, beginning with \u0BA4\u0BAE\u0BBF\u0BB4\u0BCD: '
+           + 'This is for a teacher who does not read the lesson\u2019s language and still has to '
+           + 'correct the children\u2019s notebooks. Never mix the two languages inside one line.';
+  }
+  return block;
+}
+
 function bbLoadBooks(){ return dssPickBooks('bb'); }
 function bbBookChanged(){ return dssPickBookChanged('bb'); }
 function bbApplyChapter(){ return dssPickChapter('bb'); }
@@ -3875,7 +3935,7 @@ IMPORTANT: Answers must be accurate, simple language suitable for ${cls} student
 QUESTIONS TO ANSWER:
 ${questions}
 
-Format: Number each answer clearly matching the question number.`;
+Format: Number each answer clearly matching the question number.${bbLangBlock(sub, bbLangMode())}`;
   }
 
   else if (tool === 'reportcard') {
