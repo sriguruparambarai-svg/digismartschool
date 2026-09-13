@@ -1003,6 +1003,54 @@
       <p class="hint" id="c12Hint"></p>
     </div>
 
+    <!-- Class 3 to 5 maths -->
+    <div data-panel="m35" style="display:none">
+      <div class="grp">
+        <label>Topic</label>
+        <select id="m35Kind">
+          <option value="place">Place value and expanded form</option>
+          <option value="multcol">Multiplication in columns</option>
+          <option value="divide">Division &mdash; long division</option>
+          <option value="tables">Multiplication tables</option>
+          <option value="fraction">Fractions</option>
+          <option value="decimal">Decimals</option>
+          <option value="measure">Measurement &mdash; changing units</option>
+          <option value="area">Perimeter and area</option>
+          <option value="time">Time</option>
+          <option value="money">Money &mdash; bill and change</option>
+          <option value="round">Rounding off</option>
+          <option value="factors">Factors and multiples</option>
+          <option value="data">Bar chart &mdash; read and answer</option>
+          <option value="word">Word problems</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>Class</label>
+        <select id="m35Level">
+          <option value="3" selected>Class 3</option>
+          <option value="4">Class 4</option>
+          <option value="5">Class 5</option>
+        </select>
+      </div>
+      <div class="grp" id="m35-table-wrap" style="display:none">
+        <label>Table</label>
+        <select id="m35Table">
+          <option value="0" selected>Mixed</option>
+          <option value="2">2</option><option value="3">3</option><option value="4">4</option>
+          <option value="5">5</option><option value="6">6</option><option value="7">7</option>
+          <option value="8">8</option><option value="9">9</option><option value="10">10</option>
+          <option value="11">11</option><option value="12">12</option><option value="15">15</option>
+          <option value="20">20</option>
+        </select>
+      </div>
+      <div class="grp">
+        <label>How many</label>
+        <input type="number" id="m35Qty" value="8" min="2" max="20">
+      </div>
+      <label class="chk"><input type="checkbox" id="m35Key" checked> Print an answer key page</label>
+      <p class="hint" id="m35Hint"></p>
+    </div>
+
     <!-- cut and paste -->
     <div data-panel="cutpaste" style="display:none">
       <div class="grp">
@@ -1542,6 +1590,21 @@ Draw your school bag</textarea>
             ["c12", "Maths practice", "Place value, carrying, tables, time, money, word problems"]
         ]}
     ]},
+    { id:"c3", name:"Class 3", note:"Primary", subjects:[
+        { id:"c3math", name:"Maths", sheets:[
+            ["m35", "Maths practice", "Tables, division, fractions, measurement, time, money"]
+        ]}
+    ]},
+    { id:"c4", name:"Class 4", note:"Primary", subjects:[
+        { id:"c4math", name:"Maths", sheets:[
+            ["m35", "Maths practice", "Long multiplication, remainders, area, decimals, charts"]
+        ]}
+    ]},
+    { id:"c5", name:"Class 5", note:"Primary", subjects:[
+        { id:"c5math", name:"Maths", sheets:[
+            ["m35", "Maths practice", "Lakhs, two-digit division, HCF and LCM, 24-hour time"]
+        ]}
+    ]},
     { id:"exam", name:"Exam Paper", note:"pictures &amp; marks", subjects:[
         { id:"examall", name:"Exam Paper", sheets:[
             ["exam", "Question paper", "Ready-made paper for PreKG to Class 2, with marks"]
@@ -1666,6 +1729,7 @@ Draw your school bag</textarea>
       if(mode==="phonics"){ phSync(); }
       if(mode==="cutpaste"){ ctFillLists(); }
       if(mode==="c12"){ c12Sync(); }
+      if(mode==="m35"){ m35FromNav(); m35Sync(); }
       if(mode==="c12e"){ ceSync(); }
       if(mode==="kcon"){ kcFillLists(); }
       if(mode==="ta12"){ taSync(); }
@@ -1712,7 +1776,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="exam" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="exam" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="m35" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
     b.style.display = uses ? "" : "none";
   }
 
@@ -3599,6 +3663,17 @@ Draw your school bag</textarea>
 
   /* ---------- maths sections: reuse the maths builders without touching their tabs ---------- */
   function seeded(seed){
+    // Several sheets pass a descriptive string here. A string shifted with >>>
+    // is always 0, so every sheet came out with the same seed and the Shuffle
+    // button changed nothing. Turn a string into a real number first.
+    if(typeof seed === "string"){
+      var hh = 2166136261;
+      for(var si=0; si<seed.length; si++){
+        hh ^= seed.charCodeAt(si);
+        hh = Math.imul(hh, 16777619);
+      }
+      seed = hh >>> 0;
+    }
     var a = (seed>>>0) || 1;
     return function(){
       a += 0x6D2B79F5;
@@ -5687,6 +5762,406 @@ Draw your school bag</textarea>
     }
   }
 
+  /* ══ CLASS 3 TO 5 MATHS ══
+     Built on the same helpers as the Class 1 & 2 sheet (c12Row, c12Ans,
+     c12Grid, c12Clock, c12Shape), so these print and measure identically. */
+  function m35Lev(){ var v = parseInt(val("m35Level"), 10); return (v===4 || v===5) ? v : 3; }
+
+  /* Picking Class 4 in the top row should set the level without a second click */
+  function m35FromNav(){
+    var map = {c3:"3", c4:"4", c5:"5"}, e = $("m35Level");
+    if(e && map[navClass]){ e.value = map[navClass]; }
+  }
+
+  var M35_HINT = {
+    place:"Class 3 works to hundreds, Class 4 to thousands, Class 5 to lakhs.",
+    multcol:"Class 3 multiplies by one digit, Class 5 by two.",
+    divide:"Class 3 divides exactly. Class 4 leaves a remainder. Class 5 divides by two digits.",
+    tables:"Pick one table to practise, or leave it mixed.",
+    fraction:"Class 3 names fractions, Class 4 makes them equal, Class 5 adds them.",
+    decimal:"Decimals begin in Class 4. In Class 3 this stays at tenths.",
+    measure:"Metres and centimetres, kilograms and grams, litres and millilitres.",
+    area:"Class 3 does perimeter only. Class 4 and 5 do area as well.",
+    time:"Reading the clock, working out how long, and 24-hour time in Class 5.",
+    money:"Add up the bill, then work out the change.",
+    round:"Nearest ten in Class 3, hundred in Class 4, thousand in Class 5.",
+    factors:"Multiples in Class 3, factors in Class 4, HCF and LCM in Class 5.",
+    data:"A bar chart with questions under it.",
+    word:"Everyday problems with Indian names."
+  };
+  function m35Sync(){
+    var kind = val("m35Kind") || "place";
+    var e = $("m35-table-wrap");
+    if(e){ e.style.display = (kind==="tables") ? "" : "none"; }
+    var hint = $("m35Hint");
+    if(hint){ hint.textContent = M35_HINT[kind] || ""; }
+  }
+
+  /* Indian grouping: 1,23,456 */
+  function m35Fmt(n){
+    var s = String(n);
+    if(s.length <= 3){ return s; }
+    return s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + s.slice(-3);
+  }
+  function m35Dec(v){ return (v/100).toFixed(2); }
+  function m35Card(inner){
+    return '<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px;text-align:center">' + inner + '</div>';
+  }
+  /* a sum set out in a column, with room underneath to work it out */
+  function m35Col(i, a, op, b, ans, key, space){
+    return '<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px;text-align:right;'
+      + 'font-family:var(--hf);font-size:23px;line-height:1.45">'
+      + '<div style="color:#999;font-size:13px;text-align:left">' + (i+1) + '</div>'
+      + '<div>' + m35Fmt(a) + '</div>'
+      + '<div style="border-bottom:2.5px solid #000;padding-bottom:4px">' + op + ' ' + m35Fmt(b) + '</div>'
+      + '<div style="height:' + (space||46) + 'px;color:#1a5c2a;font-weight:700">' + (key ? m35Fmt(ans) : '') + '</div></div>';
+  }
+  function m35Rect(L, B){
+    return '<svg width="158" height="104" viewBox="0 0 158 104">'
+      + '<rect x="16" y="24" width="120" height="62" fill="none" stroke="#000" stroke-width="2"/>'
+      + '<text x="76" y="16" font-size="12" text-anchor="middle" font-family="sans-serif">' + L + ' cm</text>'
+      + '<text x="148" y="59" font-size="12" text-anchor="middle" font-family="sans-serif">' + B + '</text>'
+      + '</svg>';
+  }
+  function m35Bars(labels, vals){
+    var mx = Math.max.apply(null, vals);
+    var step = Math.max(1, Math.ceil(mx/5));
+    var bw = Math.floor(260/labels.length) - 14;
+    var out = '<svg width="330" height="190" viewBox="0 0 330 190">'
+            + '<line x1="34" y1="10" x2="34" y2="155" stroke="#000" stroke-width="1.6"/>'
+            + '<line x1="34" y1="155" x2="322" y2="155" stroke="#000" stroke-width="1.6"/>';
+    for(var g=0; g<=mx; g+=step){
+      var y = 155 - (g/mx)*140;
+      out += '<line x1="34" y1="'+y.toFixed(1)+'" x2="322" y2="'+y.toFixed(1)+'" stroke="#ccc" stroke-width="1"/>'
+           + '<text x="29" y="'+(y+4).toFixed(1)+'" font-size="10" text-anchor="end" font-family="sans-serif">'+g+'</text>';
+    }
+    for(var i=0;i<vals.length;i++){
+      var bh = (vals[i]/mx)*140, x = 46 + i*(bw+14);
+      out += '<rect x="'+x+'" y="'+(155-bh).toFixed(1)+'" width="'+bw+'" height="'+bh.toFixed(1)+'" fill="none" stroke="#000" stroke-width="1.8"/>'
+           + '<text x="'+(x+bw/2)+'" y="170" font-size="11" text-anchor="middle" font-family="sans-serif">'+labels[i]+'</text>';
+    }
+    return out + '</svg>';
+  }
+  function m35Hcf(x, y){ while(y){ var t=y; y=x%y; x=t; } return x; }
+
+  function buildM35(key){
+    var kind = val("m35Kind") || "place";
+    var lev = m35Lev();
+    var qty = Math.max(2, Math.min(20, num("m35Qty", 8)));
+    var rand = seeded(val("school") + "|m35|" + kind + "|" + lev + "|" + qty + "|" + cpSeed);
+    var i, cells = [], out = "";
+
+    if(kind === "place"){
+      var lo = (lev===3) ? 100 : (lev===4 ? 1000 : 100000);
+      var hi = (lev===3) ? 999 : (lev===4 ? 9999 : 999999);
+      out = c12Say("Write each number in expanded form.");
+      for(i=0;i<qty;i++){
+        var n = q12(rand, lo, hi), s = String(n), parts = [];
+        for(var d=0; d<s.length; d++){
+          var pv = parseInt(s.charAt(d),10) * Math.pow(10, s.length-1-d);
+          if(pv > 0){ parts.push(pv); }
+        }
+        var joined = [];
+        for(var pj=0; pj<parts.length; pj++){ joined.push(c12Ans(m35Fmt(parts[pj]), key)); }
+        out += c12Row('<span style="font-size:23px;font-weight:700">' + m35Fmt(n) + '</span> &nbsp;=&nbsp; ' + joined.join(" + "));
+      }
+      return out;
+    }
+
+    if(kind === "multcol"){
+      out = c12Say("Multiply. Set the work out neatly.");
+      for(i=0;i<qty;i++){
+        var ma, mb;
+        if(lev===3){ ma = q12(rand,12,99);   mb = q12(rand,2,9); }
+        else if(lev===4){ ma = q12(rand,101,999); mb = q12(rand,11,49); }
+        else { ma = q12(rand,1001,9999); mb = q12(rand,12,99); }
+        cells.push(m35Col(i, ma, "\u00D7", mb, ma*mb, key, lev===3 ? 56 : 88));
+      }
+      return out + c12Grid(cells, lev===3 ? 4 : 3);
+    }
+
+    if(kind === "divide"){
+      out = c12Say(lev===3 ? "Divide. Each one divides exactly."
+                           : "Divide. Write the quotient and the remainder.");
+      for(i=0;i<qty;i++){
+        var dv, qu, rm;
+        if(lev===3){ dv = q12(rand,2,9);  qu = q12(rand,11,49);  rm = 0; }
+        else if(lev===4){ dv = q12(rand,2,9);  qu = q12(rand,21,120); rm = q12(rand,0,dv-1); }
+        else { dv = q12(rand,11,25); qu = q12(rand,21,99);  rm = q12(rand,0,dv-1); }
+        var dividend = dv*qu + rm;
+        cells.push('<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px;font-family:var(--hf)">'
+          + '<div style="color:#999;font-size:13px">' + (i+1) + '</div>'
+          + '<div style="font-size:23px;display:flex;align-items:flex-start;gap:2px">'
+          +   '<span>' + dv + '</span>'
+          +   '<span style="border-left:2px solid #000;border-top:2px solid #000;padding:3px 10px 0 9px">' + m35Fmt(dividend) + '</span>'
+          + '</div>'
+          + '<div style="height:72px"></div>'
+          + '<div style="font-size:14px;color:#1a5c2a;font-weight:700">Quotient ' + (key ? m35Fmt(qu) : "________")
+          + (lev===3 ? "" : " &nbsp; Remainder " + (key ? rm : "_____")) + '</div></div>');
+      }
+      return out + c12Grid(cells, 3);
+    }
+
+    if(kind === "tables"){
+      var tsel = num("m35Table", 0);
+      if(tsel){
+        var upto = (lev===3) ? 10 : 12;
+        out = c12Say("The " + tsel + " times table. Fill in the empty boxes.");
+        for(i=1;i<=upto;i++){
+          var hide = (i > 2 && rand() < 0.5);
+          out += c12Row('<span style="font-size:22px">' + tsel + ' \u00D7 ' + i + ' = </span>'
+            + (hide ? c12Ans(tsel*i, key)
+                    : '<span style="font-size:22px;font-weight:700">' + (tsel*i) + '</span>'));
+        }
+        return out;
+      }
+      out = c12Say("Fill in the missing number.");
+      for(i=0;i<qty;i++){
+        var tx = q12(rand, 2, lev===3 ? 10 : 20), ty = q12(rand, 2, 12);
+        if(rand() < 0.5){
+          out += c12Row('<span style="font-size:22px">' + tx + ' \u00D7 </span>' + c12Ans(ty, key)
+                      + '<span style="font-size:22px"> = ' + (tx*ty) + '</span>');
+        } else {
+          out += c12Row(c12Ans(tx, key) + '<span style="font-size:22px"> \u00D7 ' + ty + ' = ' + (tx*ty) + '</span>');
+        }
+      }
+      return out;
+    }
+
+    if(kind === "fraction"){
+      if(lev===3){
+        out = c12Say("Write the fraction that is shaded.");
+        for(i=0;i<qty;i++){
+          var tot = [2,3,4,5,6,8][q12(rand,0,5)], sh = q12(rand,1,tot-1);
+          cells.push(m35Card(c12Shape(rand()<0.5 ? "circle" : "bar", sh, tot)
+            + '<div style="margin-top:6px;font-size:19px">' + c12Ans(sh + "/" + tot, key) + '</div>'));
+        }
+        return out + c12Grid(cells, 3);
+      }
+      if(lev===4){
+        out = c12Say("Fill in the missing number so that the two fractions are equal.");
+        for(i=0;i<qty;i++){
+          var fd = [2,3,4,5][q12(rand,0,3)], fm = q12(rand,2,5), fn = q12(rand,1,fd-1);
+          out += c12Row('<span style="font-size:22px">' + fn + ' / ' + fd + ' &nbsp;=&nbsp; </span>'
+            + c12Ans(fn*fm, key) + '<span style="font-size:22px"> / ' + (fd*fm) + '</span>');
+        }
+        return out;
+      }
+      out = c12Say("Add or subtract. The bottom numbers are the same.");
+      for(i=0;i<qty;i++){
+        var dd = [4,5,6,8,10,12][q12(rand,0,5)];
+        var n1 = q12(rand, 1, dd-2), n2 = q12(rand, 1, dd-n1);
+        var isSub = (rand() < 0.5);
+        var big = isSub ? Math.max(n1,n2) : n1, small = isSub ? Math.min(n1,n2) : n2;
+        var res = isSub ? (big-small) : (big+small);
+        out += c12Row('<span style="font-size:22px">' + big + ' / ' + dd + ' ' + (isSub ? "\u2212" : "+")
+          + ' ' + small + ' / ' + dd + ' &nbsp;=&nbsp; </span>' + c12Ans(res + " / " + dd, key));
+      }
+      return out;
+    }
+
+    if(kind === "decimal"){
+      if(lev===3){
+        out = c12Say("Write each fraction as a decimal.");
+        for(i=0;i<qty;i++){
+          var tn = q12(rand,1,9);
+          out += c12Row('<span style="font-size:22px">' + tn + ' / 10 &nbsp;=&nbsp; </span>' + c12Ans("0." + tn, key));
+        }
+        return out;
+      }
+      out = c12Say("Add or subtract. Keep the decimal points in one line.");
+      for(i=0;i<qty;i++){
+        var A = q12(rand, lev===4 ? 1000 : 10000, lev===4 ? 9999 : 99999);
+        var B = q12(rand, 100, lev===4 ? 999 : 9999);
+        var sb = (rand() < 0.5);
+        if(sb && B > A){ var swp = A; A = B; B = swp; }
+        var rr = sb ? (A-B) : (A+B);
+        cells.push('<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px;text-align:right;'
+          + 'font-family:var(--hf);font-size:22px;line-height:1.45">'
+          + '<div style="color:#999;font-size:13px;text-align:left">' + (i+1) + '</div>'
+          + '<div>' + m35Dec(A) + '</div>'
+          + '<div style="border-bottom:2.5px solid #000;padding-bottom:4px">' + (sb ? "\u2212" : "+") + ' ' + m35Dec(B) + '</div>'
+          + '<div style="height:46px;color:#1a5c2a;font-weight:700">' + (key ? m35Dec(rr) : "") + '</div></div>');
+      }
+      return out + c12Grid(cells, 4);
+    }
+
+    if(kind === "measure"){
+      var PAIRS = [["m","cm",100],["km","m",1000],["kg","g",1000],["l","ml",1000]];
+      out = c12Say("Change each one into the other unit.");
+      for(i=0;i<qty;i++){
+        var p = PAIRS[q12(rand,0,3)], bigv = q12(rand, 2, lev===3 ? 9 : 45);
+        if(lev===3 || rand() < 0.5){
+          out += c12Row('<span style="font-size:22px">' + bigv + ' ' + p[0] + ' &nbsp;=&nbsp; </span>'
+            + c12Ans(m35Fmt(bigv*p[2]), key) + '<span style="font-size:22px"> ' + p[1] + '</span>');
+        } else {
+          var rest = q12(rand, 1, p[2]-1);
+          out += c12Row('<span style="font-size:22px">' + m35Fmt(bigv*p[2] + rest) + ' ' + p[1] + ' &nbsp;=&nbsp; </span>'
+            + c12Ans(bigv, key) + '<span style="font-size:22px"> ' + p[0] + ' </span>'
+            + c12Ans(rest, key) + '<span style="font-size:22px"> ' + p[1] + '</span>');
+        }
+      }
+      return out;
+    }
+
+    if(kind === "area"){
+      out = c12Say(lev===3 ? "Find the perimeter of each shape."
+                           : "Find the perimeter and the area of each shape.");
+      for(i=0;i<qty;i++){
+        var L = q12(rand, 3, lev===3 ? 12 : 25), B = q12(rand, 2, lev===3 ? 9 : 18);
+        cells.push(m35Card(m35Rect(L, B)
+          + '<div style="margin-top:4px;font-size:14px">Perimeter ' + c12Ans(2*(L+B), key) + ' cm</div>'
+          + (lev===3 ? "" : '<div style="margin-top:6px;font-size:14px">Area ' + c12Ans(L*B, key) + ' sq cm</div>')));
+      }
+      return out + c12Grid(cells, 3);
+    }
+
+    if(kind === "time"){
+      if(lev===3){
+        out = c12Say("Write the time shown on each clock.");
+        for(i=0;i<qty;i++){
+          var hh = q12(rand,1,12), mm = [0,15,30,45][q12(rand,0,3)];
+          cells.push(m35Card(c12Clock(hh, mm, true)
+            + '<div style="margin-top:6px;font-size:17px">' + c12Ans(hh + ":" + (mm<10 ? "0" : "") + mm, key) + '</div>'));
+        }
+        return out + c12Grid(cells, 3);
+      }
+      out = c12Say(lev===4 ? "Work out how long each one takes."
+                           : "Work out how long, and write the starting time the 24-hour way.");
+      for(i=0;i<qty;i++){
+        var sh = q12(rand,1,9), sm = [0,10,15,20,30,40,45][q12(rand,0,6)];
+        var dur = q12(rand,1,4)*15 + q12(rand,0,3)*10;
+        var tot = sh*60 + sm + dur;
+        var eh = (Math.floor(tot/60) % 12) || 12, em = tot % 60;
+        var line = 'Starts at ' + sh + ':' + (sm<10 ? "0" : "") + sm
+                 + ' &nbsp; Ends at ' + eh + ':' + (em<10 ? "0" : "") + em
+                 + ' &nbsp; How long? ' + c12Ans(dur + " min", key);
+        if(lev===5){
+          line += ' &nbsp; Starting time in 24-hour ' + c12Ans((sh+12) + ":" + (sm<10 ? "0" : "") + sm, key);
+        }
+        out += c12Row('<span style="font-size:16px">' + line + '</span>');
+      }
+      return out;
+    }
+
+    if(kind === "money"){
+      var ITEMS = ["Notebook","Pencil box","Water bottle","Story book","Geometry box",
+                   "School bag","Lunch box","Colour pencils","Umbrella","Sports shoes"];
+      out = c12Say("Add up the bill, then work out the change.");
+      for(i=0;i<Math.min(qty,8);i++){
+        var i1 = ITEMS[q12(rand,0,ITEMS.length-1)], i2 = ITEMS[q12(rand,0,ITEMS.length-1)];
+        var p1 = q12(rand, 10, lev===3 ? 90 : 450), p2 = q12(rand, 10, lev===3 ? 90 : 450);
+        var paid = Math.ceil((p1+p2)/100)*100 + (lev===3 ? 0 : 100);
+        cells.push('<div style="border:1.5px solid #999;border-radius:9px;padding:12px 10px">'
+          + '<div style="font-size:15px;line-height:2.1">'
+          + '<b>' + (i+1) + '.</b><br>'
+          + i1 + ' &mdash; \u20B9' + p1 + '<br>'
+          + i2 + ' &mdash; \u20B9' + p2 + '<br>'
+          + 'Total ' + c12Ans("\u20B9" + m35Fmt(p1+p2), key) + '<br>'
+          + 'Paid \u20B9' + m35Fmt(paid) + ' &nbsp; Change ' + c12Ans("\u20B9" + m35Fmt(paid-p1-p2), key)
+          + '</div></div>');
+      }
+      return out + c12Grid(cells, 2);
+    }
+
+    if(kind === "round"){
+      var to = (lev===3) ? 10 : (lev===4 ? 100 : 1000);
+      out = c12Say("Round each number to the nearest " + to + ".");
+      for(i=0;i<qty;i++){
+        var rn = q12(rand, to*2, to*(lev===3 ? 9 : 99));
+        out += c12Row('<span style="font-size:22px;font-weight:700">' + m35Fmt(rn) + '</span> &nbsp;\u2192&nbsp; '
+          + c12Ans(m35Fmt(Math.round(rn/to)*to), key));
+      }
+      return out;
+    }
+
+    if(kind === "factors"){
+      if(lev===5){
+        out = c12Say("Write the HCF and the LCM of each pair.");
+        for(i=0;i<Math.min(qty,9);i++){
+          // build the pair around a shared factor, so HCF is never a pointless 1
+          var base = [2,3,4,5,6][q12(rand,0,4)];
+          var fa = base * q12(rand,2,8), fb = base * q12(rand,2,8);
+          if(fb === fa){ fb = fa + base; }
+          var g = m35Hcf(fa, fb);
+          cells.push(m35Card('<div style="font-size:17px;line-height:2.1">'
+            + '<b>' + fa + ' and ' + fb + '</b><br>'
+            + 'HCF ' + c12Ans(g, key) + '<br>LCM ' + c12Ans(fa*fb/g, key) + '</div>'));
+        }
+        return out + c12Grid(cells, 3);
+      }
+      if(lev===3){
+        out = c12Say("Write the first five multiples of each number.");
+        for(i=0;i<qty;i++){
+          var mn = q12(rand,2,12), seq = [];
+          for(var k=1;k<=5;k++){ seq.push(c12Ans(mn*k, key)); }
+          out += c12Row('<span style="font-size:21px;font-weight:700">' + mn + '</span> &nbsp;\u2192&nbsp; ' + seq.join(" "));
+        }
+        return out;
+      }
+      out = c12Say("Write all the factors of each number.");
+      for(i=0;i<qty;i++){
+        var fn2 = q12(rand,12,60), list = [];
+        for(var dd2=1; dd2<=fn2; dd2++){ if(fn2 % dd2 === 0){ list.push(dd2); } }
+        out += c12Row('<span style="font-size:21px;font-weight:700">' + fn2 + '</span> &nbsp;\u2192&nbsp; '
+          + c12Ans(list.join(",  "), key));
+      }
+      return out;
+    }
+
+    if(kind === "data"){
+      var SETS = [[["Mon","Tue","Wed","Thu","Fri"], "Books read each day"],
+                  [["Red","Blue","Green","Yellow"], "Favourite colour in the class"],
+                  [["Class 3","Class 4","Class 5"], "Trees planted by each class"],
+                  [["Rice","Idli","Dosa","Chapati"], "Favourite breakfast"]];
+      var pickSet = SETS[q12(rand,0,SETS.length-1)];
+      var labels = pickSet[0], vals = [], sum = 0;
+      for(i=0;i<labels.length;i++){ vals.push(q12(rand, 4, lev===3 ? 12 : 40)); }
+      for(i=0;i<vals.length;i++){ sum += vals[i]; }
+      var mx = Math.max.apply(null, vals), mn2 = Math.min.apply(null, vals);
+      out = c12Say("Read the chart, then answer the questions.");
+      out += '<div style="text-align:center;font-weight:700;font-size:16px;margin-bottom:4px">' + esc(pickSet[1]) + '</div>';
+      out += '<div style="text-align:center">' + m35Bars(labels, vals) + '</div>';
+      out += c12Row('<span style="font-size:16px">1. Which is the highest? </span>' + c12Ans(labels[vals.indexOf(mx)], key));
+      out += c12Row('<span style="font-size:16px">2. Which is the lowest? </span>' + c12Ans(labels[vals.indexOf(mn2)], key));
+      out += c12Row('<span style="font-size:16px">3. What is the difference between the highest and the lowest? </span>' + c12Ans(mx-mn2, key));
+      out += c12Row('<span style="font-size:16px">4. What is the total? </span>' + c12Ans(sum, key));
+      if(lev!==3){
+        out += c12Row('<span style="font-size:16px">5. How many for ' + labels[0] + ' and ' + labels[1] + ' together? </span>'
+          + c12Ans(vals[0]+vals[1], key));
+      }
+      return out;
+    }
+
+    /* word problems */
+    out = c12Say(lev===3 ? "Read each problem and work it out."
+                         : "Read each problem. Show your working in the space below it.");
+    for(i=0;i<Math.min(qty,10);i++){
+      var nm = C12_NAMES[q12(rand,0,C12_NAMES.length-1)];
+      var th = C12_THINGS[q12(rand,0,C12_THINGS.length-1)];
+      var wa, wb, wans, txt, t = q12(rand,0,3);
+      if(t===0){
+        wa = q12(rand, lev===3 ? 12 : 120, lev===3 ? 99 : 999); wb = q12(rand,2,9); wans = wa*wb;
+        txt = nm[0] + " has " + wb + " boxes. Each box holds " + wa + " " + th[0] + ". How many " + th[0] + " are there in all?";
+      } else if(t===1){
+        wb = q12(rand,2,9); wans = q12(rand, lev===3 ? 5 : 25, lev===3 ? 20 : 120); wa = wb*wans;
+        txt = nm[0] + " shares " + wa + " " + th[0] + " equally among " + wb + " friends. How many does each friend get?";
+      } else if(t===2){
+        wa = q12(rand, lev===3 ? 50 : 500, lev===3 ? 200 : 2000); wb = q12(rand, 10, lev===3 ? 40 : 400); wans = wa-wb;
+        txt = nm[0] + " had \u20B9" + m35Fmt(wa) + ". " + nm[1].charAt(0).toUpperCase() + nm[1].slice(1)
+            + " spent \u20B9" + m35Fmt(wb) + ". How much money is left?";
+      } else {
+        wa = q12(rand, lev===3 ? 20 : 200, lev===3 ? 90 : 900); wb = q12(rand, lev===3 ? 10 : 100, lev===3 ? 90 : 900); wans = wa+wb;
+        txt = nm[0] + " picked " + m35Fmt(wa) + " " + th[0] + " in the morning and " + m35Fmt(wb) + " more in the evening. How many altogether?";
+      }
+      out += '<div style="border-bottom:1px dashed #bbb;padding:10px 4px">'
+        + '<div style="font-size:16px">' + (i+1) + '. ' + txt + '</div>'
+        + '<div style="height:' + (lev===3 ? 46 : 64) + 'px"></div>'
+        + '<div style="font-size:15px">Answer ' + c12Ans(key ? m35Fmt(wans) : wans, key) + '</div></div>';
+    }
+    return out;
+  }
+
   function ctPic(word, size){
     var svg = iconSvg(word, size || 62);
     if (svg) return svg;
@@ -6430,6 +6905,7 @@ Draw your school bag</textarea>
     else if(mode==="phonics"){ body = buildPhonics(); }
     else if(mode==="cutpaste"){ body = buildCutPaste(); }
     else if(mode==="c12"){ body = buildC12(false); }
+    else if(mode==="m35"){ body = buildM35(false); }
     else if(mode==="c12e"){ body = buildC12E(false); }
     else if(mode==="kcon"){ body = buildKCon(false); }
     else if(mode==="ta12"){ body = buildTa12(false); }
@@ -6474,6 +6950,13 @@ Draw your school bag</textarea>
               '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
               '<div style="height:10px"></div>'+
               buildC12E(true)+signature()+footer()+'</div>';
+    }
+
+    if(mode==="m35" && $("m35Key").checked){
+      html += '<div class="paper'+colour+'"'+st+'>'+header()+
+              '<div style="text-align:center"><span class="keytag">Answer key</span></div>'+
+              '<div style="height:10px"></div>'+
+              buildM35(true)+signature()+footer()+'</div>';
     }
 
     if(mode==="c12" && $("c12Key").checked){
@@ -6646,6 +7129,7 @@ Draw your school bag</textarea>
                "phFamily","phTricky","phBlendSet","phQty","phPics",
                "ctKind","ctCat","ctCat2","ctQty","ctLabel",
                "c12Kind","c12Level","c12Skip","c12Table","c12Time","c12Qty","c12Key",
+               "m35Kind","m35Level","m35Table","m35Qty","m35Key",
                "ceKind","ceLevel","ceQty","ceKey",
                "kcKind","kcCat","kcCat2","kcQty","kcKey",
                "taKind","taLevel","taQty","taKey",
@@ -6657,6 +7141,7 @@ Draw your school bag</textarea>
       if(this.id.indexOf("ph")===0){ phSync(); }
       if(this.id.indexOf("ct")===0){ ctSync(); }
       if(this.id.indexOf("c12")===0){ c12Sync(); }
+      if(this.id.indexOf("m35")===0){ m35Sync(); }
       if(this.id.indexOf("ce")===0){ ceSync(); }
       if(this.id.indexOf("kc")===0){ kcSync(); }
       if(this.id.indexOf("ta")===0){ taSync(); }
@@ -6681,6 +7166,7 @@ Draw your school bag</textarea>
   $("shuffle").addEventListener("click", function(){
     if(mode==="mix"){ MIX.reseed(); render(); return; }
     if(mode==="sec"){ LANG.reseed(); render(); return; }
+    if(mode==="exam"){ EXAM.reseed(); render(); return; }
     cpSeed++;
     makeCounts();
     makeGrid();
