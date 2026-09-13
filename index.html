@@ -2844,6 +2844,8 @@ function showOutput(outId, actionsId, text, tool) {
     out.innerHTML = renderQPaper(text);
   } else if (tool === 'objective') {
     out.innerHTML = renderObjective(text);
+  } else if (tool === 'workbook') {
+    out.innerHTML = renderWorkbook(text);
   } else {
     out.innerHTML = renderGeneral(text);
   }
@@ -2863,6 +2865,36 @@ function showOutput(outId, actionsId, text, tool) {
     out.style.display = '';
   }
   out.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/* A homework workbook is one page per day. The plain renderer cannot do that
+   because it has no markup to break on, so day headings get their own block
+   with a page break before them. The answer key starts a fresh page too.
+   Only workbook output comes through here, so no other tool is affected. */
+function renderWorkbook(text) {
+  var brk = '<div class="pbreak" style="page-break-before:always;break-before:page;height:0;"></div>';
+  var html = '<div style="font-size:0.95rem;line-height:1.9;white-space:pre-wrap;font-family:Nunito,sans-serif;">';
+  var inKey = false, seenDay = false;
+  String(text).split('\n').forEach(function(line){
+    var l = line.trim();
+    if (!inKey && /^ANSWER KEY\b/i.test(l)) {
+      inKey = true;
+      html += brk + '<div style="font-weight:800;margin:4px 0;">' + escHtml(l) + '</div>';
+      return;
+    }
+    if (!inKey && /^DAY\s+\d+/i.test(l)) {
+      if (seenDay) html += brk;
+      seenDay = true;
+      html += '<div style="font-weight:800;margin:4px 0;">' + escHtml(l) + '</div>';
+      return;
+    }
+    if (inKey && /^DAY\s+\d+$/i.test(l)) {
+      html += '<div style="font-weight:700;margin:8px 0 2px;">' + escHtml(l) + '</div>';
+      return;
+    }
+    html += escHtml(line) + '\n';
+  });
+  return html + '</div>';
 }
 
 function renderGeneral(text) {
@@ -3827,8 +3859,9 @@ function wspQuestionById(id){
 
 function wspBuildPages(cls, topic){
   var n = wsDays();
-  var out = 'SCHOOL: ______________________________\n\n'
-          + 'NAME: ______________________________\n\n'
+  /* The school name and logo come from the printed letterhead, so there is
+     no blank SCHOOL line to fill in by hand. */
+  var out = 'NAME: ______________________________\n\n'
           + 'CLASS: ' + cls + '\n\n'
           + 'CHAPTER: ' + topic + '\n\n';
   for (var i = 1; i <= n; i++){
@@ -3836,7 +3869,7 @@ function wspBuildPages(cls, topic){
     var ids = Object.keys(day.picked);
     if (!ids.length) continue;
     out += '\n\nDAY ' + i + (day.title ? ' - ' + day.title : '') + '\n\n';
-    out += 'Date: ____________     Parent\'s signature: ____________\n\n';
+    out += 'Date: ____________\n\n';
     if (day.times > 1){
       out += '(Write each answer ' + day.times + ' times.)\n\n';
     }
@@ -3855,6 +3888,8 @@ function wspBuildPages(cls, topic){
         for (var t2 = 0; t2 < day.times; t2++) out += wspRule(q.lines) + '\n';
       }
     });
+    /* Signed after the work is done, so both lines sit at the foot of the page. */
+    out += '\nParent\'s signature: ____________     Teacher\'s signature: ____________\n';
   }
   return out;
 }
@@ -3947,7 +3982,7 @@ async function wsBuildChosenWorkbook(){
           + 'The question pages above are complete \u2014 press Generate again for the key.)\n';
     }
     document.getElementById(loadId).classList.remove('show');
-    showOutput('out-worksheet', 'actions-worksheet', pages + key, 'worksheet');
+    showOutput('out-worksheet', 'actions-worksheet', pages + key, 'workbook');
   } catch (err){
     document.getElementById(loadId).classList.remove('show');
     alert('Could not build the workbook \u2014 ' + (err.message || err));
@@ -4632,8 +4667,12 @@ Keep it concise, warm and easy for parents to read on their phone.`;
     if (qpVal('qp-lang', 'en') === 'both') tokBudget = Math.round(tokBudget * 1.8);
     if (tokBudget > 16000) tokBudget = 16000;
   }
+  var renderAs = tool;
+  if (tool === 'worksheet' && typeof wsOutMode === 'function' && wsOutMode() === 'workbook') {
+    renderAs = 'workbook';
+  }
   const result = await callAI(prompt, loadId, tokBudget, pdfFile);
-  showOutput(outId, actId, result, tool);
+  showOutput(outId, actId, result, renderAs);
 }
 
 // ── OUTPUT ACTIONS ──
@@ -5217,7 +5256,22 @@ function printOutput(id) {
     }
   }
 
+  /* A faint school name behind every page. position:fixed repeats the block
+     on each printed sheet, which a normal flowed element cannot do.
+     It follows the same School logo switch, so rough work can go out plain. */
+  var wmName = (box.getAttribute('data-ot-logo') !== '0') ? (schoolNameForPrint() || '') : '';
+  if (wmName) {
+    content = '<div class="dss-wm">' + escHtml(wmName) + '</div>' + content;
+  }
+
   var css = pageRule
+    + (wmName
+        ? '.dss-wm{position:fixed;top:42%;left:0;right:0;text-align:center;'
+        +   'font-family:Georgia,serif;font-size:54px;font-weight:700;letter-spacing:6px;'
+        +   'color:rgba(107,15,26,0.07);transform:rotate(-26deg);pointer-events:none;'
+        +   'z-index:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}'
+        + '.sheet,.lsheet{position:relative;z-index:1;}'
+        : '')
     + '.lhead{display:flex;align-items:center;gap:12px;border-bottom:2px solid #C9A84C;padding-bottom:8px;margin-bottom:14px;}'
     + '.lhead img{height:52px;width:52px;object-fit:contain;}'
     + '.lhead .lname{font-family:Georgia,serif;font-size:17px;font-weight:700;color:#6B0F1A;}'
