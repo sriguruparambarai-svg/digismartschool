@@ -1151,7 +1151,7 @@ document.addEventListener('DOMContentLoaded', function() {
       <span class="nav-icon">📋</span> Question Paper
     </div>
     <div class="nav-item" onclick="showPanel('objective',this)">
-      <span class="nav-icon">❓</span> Objective Questions
+      <span class="nav-icon">❓</span> Foundation Tests
     </div>
     <div class="nav-item" onclick="showPanel('bookback',this)">
       <span class="nav-icon">📖</span> Book Back Answers
@@ -1219,7 +1219,7 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
     <div class="tool-tile" onclick="showPanel('objective', document.querySelector('[onclick*=objective]'))">
       <div class="tile-icon">❓</div>
-      <div class="tile-label">Objective Questions</div>
+      <div class="tile-label">Foundation Tests</div>
       <div class="tile-desc">MCQ, True/False, Fill blanks</div>
     </div>
     <div class="tool-tile" onclick="showPanel('bookback', document.querySelector('[onclick*=bookback]'))">
@@ -1953,15 +1953,15 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
 
 <!-- ═══════════ OBJECTIVE QUESTIONS ═══════════ -->
 <div id="panel-objective" class="panel">
-  <div class="page-title">❓ Objective Questions Generator</div>
-  <p class="page-subtitle">Generate MCQ, True/False, Fill in the Blanks, Match the Following</p>
+  <div class="page-title">❓ Foundation Test Generator</div>
+  <p class="page-subtitle">Practice sets, and NEET / JEE model papers built from your own syllabus</p>
 
   <div class="card">
     <div class="card-title">📚 Settings</div>
     <div class="form-row">
       <div class="form-group">
         <label>Class</label>
-        <select id="ob-class"><option value="">Select</option>
+        <select id="ob-class" onchange="obApplyPaper()"><option value="">Select</option>
           <option>Pre KG</option><option>LKG</option><option>UKG</option>
           <option>Class 1</option><option>Class 2</option><option>Class 3</option>
           <option>Class 4</option><option>Class 5</option><option>Class 6</option>
@@ -1970,7 +1970,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
       <div class="form-group">
         <label>Subject</label>
-        <select id="ob-subject"><option value="">Select</option>
+        <select id="ob-subject" onchange="obApplyPaper()"><option value="">Select</option>
           <option>English</option><option>Tamil</option><option>Maths</option>
           <option>Science</option><option>Social Science</option>
           <option>EVS</option><option>Computer Science</option><option>Hindi</option>
@@ -1993,6 +1993,26 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
     </div>
     <div class="form-group">
+      <label>Paper Type</label>
+      <div class="check-group">
+        <label class="check-item"><input type="radio" name="ob-paper" value="practice" checked onchange="obApplyPaper()"> Practice set</label>
+        <label class="check-item"><input type="radio" name="ob-paper" value="neet" onchange="obApplyPaper()"> NEET model</label>
+        <label class="check-item"><input type="radio" name="ob-paper" value="jee" onchange="obApplyPaper()"> JEE model</label>
+      </div>
+      <div id="ob-paper-note" style="font-size:0.8rem;color:#A07830;margin-top:8px;line-height:1.6;"></div>
+    </div>
+    <div class="form-group" id="ob-src-wrap">
+      <label>Where do the questions come from?</label>
+      <div class="check-group">
+        <label class="check-item"><input type="radio" name="ob-src" value="lesson" checked onchange="obApplyPaper()"> From a lesson</label>
+        <label class="check-item"><input type="radio" name="ob-src" value="concept" onchange="obApplyPaper()"> From a concept (topic only)</label>
+      </div>
+      <div style="font-size:0.78rem;color:#888;margin-top:6px;line-height:1.6;">
+        A lesson test covers the chapter just taught. A concept test works from the topic
+        alone, the way a real foundation test does.
+      </div>
+    </div>
+    <div class="form-group" id="ob-types-wrap">
       <label>Question Types</label>
       <div class="check-group">
         <label class="check-item"><input type="checkbox" id="ob-mcq" checked> MCQ (4 options)</label>
@@ -2020,7 +2040,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
       </div>
     </div>
     <button class="btn btn-primary btn-full" onclick="generateTool('objective')">
-      ❓ Generate Objective Questions
+      <span id="ob-genlabel">❓ Generate Questions</span>
     </button>
   </div>
 
@@ -3593,6 +3613,145 @@ function qpBlueprint(){
   return h;
 }
 
+/* ══════════════════════════════════════════════════════════════
+   FOUNDATION TESTS
+   NEET is 180 single-correct MCQs with +4 / -1. JEE Main is 20 MCQs
+   plus 5 numerical-value questions per subject, where the child writes
+   a number instead of picking an option. Both are built only from
+   Class 11 and 12 NCERT, so a Class 6 paper is a FOUNDATION paper in
+   that style — never a NEET or JEE paper — and the heading says so.
+   ══════════════════════════════════════════════════════════════ */
+function obPaper(){
+  var r = document.querySelector('input[name="ob-paper"]:checked');
+  return r ? r.value : 'practice';
+}
+
+function obSource(){
+  var r = document.querySelector('input[name="ob-src"]:checked');
+  return r ? r.value : 'lesson';
+}
+
+/* How honest a claim the class allows. */
+function obClassBand(cls){
+  var c = parseInt(String(cls).replace(/[^0-9]/g, ''), 10);
+  if (!c) return 'primary';
+  if (c <= 5)  return 'primary';
+  if (c <= 8)  return 'foundation';   // nothing of NEET/JEE is in this syllabus
+  if (c <= 10) return 'pre';          // genuinely feeds into Class 11
+  return 'real';                      // the actual exam syllabus
+}
+
+function obPaperTitle(cls, sub, paper){
+  var band = obClassBand(cls);
+  var name = (paper === 'neet') ? 'NEET' : 'JEE';
+  if (band === 'real')       return name + ' MODEL TEST \u2014 ' + cls + ' ' + sub;
+  if (band === 'pre')        return 'PRE-' + name + ' FOUNDATION TEST \u2014 ' + cls + ' ' + sub;
+  return 'FOUNDATION TEST, ' + name + ' MODEL \u2014 ' + cls + ' ' + sub;
+}
+
+function obSubjectFits(sub){
+  var s = String(sub || '').toLowerCase();
+  return (s.indexOf('science') !== -1 && s.indexOf('social') === -1)
+      || s.indexOf('maths') !== -1 || s.indexOf('math') !== -1
+      || s.indexOf('physics') !== -1 || s.indexOf('chemistry') !== -1
+      || s.indexOf('biology') !== -1;
+}
+
+function obApplyPaper(){
+  var paper = obPaper();
+  var cls = document.getElementById('ob-class').value;
+  var sub = document.getElementById('ob-subject').value;
+  var note = document.getElementById('ob-paper-note');
+  var types = document.getElementById('ob-types-wrap');
+  var lbl = document.getElementById('ob-genlabel');
+
+  /* NEET and JEE papers have a fixed shape — the type checkboxes do not apply. */
+  if (types) types.style.display = (paper === 'practice') ? '' : 'none';
+  if (lbl) lbl.textContent = (paper === 'practice')
+    ? '\u2753 Generate Questions'
+    : '\u2753 Generate ' + (paper === 'neet' ? 'NEET' : 'JEE') + ' Model Paper';
+
+  if (!note) return;
+  if (paper === 'practice'){ note.textContent = ''; return; }
+
+  var msg = [];
+  if (paper === 'neet'){
+    msg.push('NEET shape: single-correct MCQs, four options, +4 for a correct answer and '
+           + '\u22121 for a wrong one.');
+  } else {
+    msg.push('JEE shape: MCQs plus numerical-value questions where the child writes a number '
+           + 'instead of choosing an option.');
+  }
+
+  var band = obClassBand(cls);
+  if (!cls){
+    msg.push('Pick the class \u2014 the paper is labelled according to it.');
+  } else if (band === 'primary'){
+    msg.push('\u26A0 ' + cls + ' is too early for this. Use a practice set instead.');
+  } else if (band === 'foundation'){
+    msg.push('Nothing in NEET or JEE comes from ' + cls + '. The paper will be headed '
+           + '"Foundation test" in that style, built from your own syllabus \u2014 not '
+           + 'presented as a NEET or JEE paper.');
+  } else if (band === 'pre'){
+    msg.push(cls + ' content genuinely feeds into Class 11, so the paper is headed '
+           + '"Pre-' + (paper === 'neet' ? 'NEET' : 'JEE') + ' foundation test".');
+  } else {
+    msg.push(cls + ' is the real syllabus, so this is a full model paper.');
+  }
+
+  if (sub && !obSubjectFits(sub)){
+    msg.push('\u26A0 ' + sub + ' is not part of NEET or JEE. Only Science and Maths are '
+           + '(Biology for NEET, Maths for JEE, Physics and Chemistry for both).');
+  }
+  note.innerHTML = msg.join('<br>');
+}
+
+/* The wording that makes a question worth setting. */
+function obQualityBlock(cls){
+  return '\n\nWHAT MAKES THESE QUESTIONS DIFFERENT (follow this exactly):\n'
+    + '- Do NOT ask a child to recognise a sentence from the book. Every question must make '
+    + 'them APPLY the idea to a situation that is not in the book.\n'
+    + '- Most questions should need two or three steps of reasoning, not one.\n'
+    + '- Each wrong option must be the answer a child actually arrives at by holding one '
+    + 'specific wrong idea \u2014 a common mistake, a mixed-up definition, a formula applied the '
+    + 'wrong way round. Never use a filler option that nobody would pick.\n'
+    + '- Keep the language plain enough for a ' + cls + ' child. Hard thinking, easy words.';
+}
+
+function obPaperBlock(cls, sub, paper, count){
+  if (paper === 'practice') return '';
+  var band = obClassBand(cls);
+  var head = obPaperTitle(cls, sub, paper);
+
+  var shape = (paper === 'neet')
+    ? '- Every question is a SINGLE-CORRECT multiple choice question with exactly four '
+      + 'options (1), (2), (3), (4). No true/false, no fill in the blanks, no match.\n'
+      + '- Marking: +4 for a correct answer, \u22121 for a wrong one, 0 if left blank. Print '
+      + 'that line under the title.\n'
+    : '- Two sections.\n'
+      + '  SECTION A: single-correct multiple choice questions with four options '
+      + '(1), (2), (3), (4). Marking +4 for correct, \u22121 for wrong.\n'
+      + '  SECTION B: NUMERICAL VALUE questions \u2014 no options at all. The child works out '
+      + 'the answer and writes the number. Marking +4, no negative marking. Make Section B '
+      + 'about one fifth of the paper.\n'
+      + '- Leave a clear answer box after each Section B question.\n';
+
+  var honesty = (band === 'real')
+    ? '- This class is the actual exam syllabus, so set the questions at real exam standard.\n'
+    : '- IMPORTANT: nothing in NEET or JEE is taken from ' + cls + '. Set every question from '
+      + 'the ' + cls + ' syllabus only. Do NOT use Class 11 or 12 material, and do NOT pretend '
+      + 'this is an exam paper. It is a foundation test in that exam\u2019s style.\n';
+
+  return '\n\nPAPER FORMAT:\n'
+    + '- Title the paper exactly: ' + head + '\n'
+    + '- ' + count + ' questions, numbered from 1.\n'
+    + shape
+    + honesty
+    + '- After a line containing exactly ANSWER KEY, give the answer to every question, and '
+      + 'for each one a single short line saying why the other options are wrong. That line is '
+      + 'for the teacher to explain from, so name the mistake plainly.';
+}
+
 // ══ WORKSHEET STYLE ══
 /* ══════════════════════════════════════════════════════════════
    HOMEWORK WORKBOOK — MANUAL QUESTION PICKER
@@ -4670,22 +4829,48 @@ Make it professional like a real Indian school exam paper.`;
     if (document.getElementById('ob-match').checked) types.push('Match the Following');
     if (document.getElementById('ob-onew').checked) types.push('One Word Answer');
     if (!cls || !topic) { alert('Please fill Class and Topic.'); return; }
-    prompt = `You are a CBSE school teacher in Tamil Nadu, India.
+
+    const obP = (typeof obPaper === 'function') ? obPaper() : 'practice';
+    const obSrc = (typeof obSource === 'function') ? obSource() : 'lesson';
+
+    /* A concept test works from the topic alone — no book needed, which is how
+       a real foundation test is set. */
+    const obFromConcept = (obSrc === 'concept');
+    if (obFromConcept) pdfFile = null;
+
+    const obSourceLine = obFromConcept
+      ? 'No lesson text is given. Set the questions from the standard ' + cls + ' syllabus for '
+        + 'this topic, the way a foundation class would teach it.'
+      : (content || (pdfFile
+          ? 'See the attached PDF document — read it carefully and base all questions ONLY on its actual content.'
+          : 'Use standard CBSE curriculum knowledge for this topic.'));
+
+    if (obP === 'practice') {
+      prompt = `You are a CBSE school teacher in Tamil Nadu, India.
 Generate ${count} objective questions for:
 Class: ${cls} | Subject: ${sub} | Topic: ${topic}
 
 Question types to include: ${types.join(', ')}
 
 Lesson Content:
-${content || (pdfFile ? 'See the attached PDF document — read it carefully and base all questions ONLY on its actual content.' : 'Use standard CBSE curriculum knowledge for this topic.')}
+${obSourceLine}
 
 Rules:
-- Questions must be ONLY from the lesson content provided
+- ${obFromConcept ? 'Questions must stay inside the ' + cls + ' syllabus for this topic' : 'Questions must be ONLY from the lesson content provided'}
 - No irrelevant or out-of-syllabus questions
 - Keep language simple and clear for ${cls} students
 - For MCQ, mark the correct answer with ✓
 - Number all questions clearly
 - Add an Answer Key at the end`;
+    } else {
+      prompt = `You are setting a foundation test for a school in Tamil Nadu that runs
+NEET and JEE foundation classes.
+
+Class: ${cls} | Subject: ${sub} | Topic: ${topic}
+
+Content to work from:
+${obSourceLine}${obPaperBlock(cls, sub, obP, count)}${obQualityBlock(cls)}`;
+    }
   }
 
   else if (tool === 'bookback') {
@@ -4816,6 +5001,10 @@ Keep it concise, warm and easy for parents to read on their phone.`;
     }
     if (wsLangMode() === 'ta-help') tokBudget = Math.round(tokBudget * 1.4);
     if (tokBudget > 16000) tokBudget = 16000;
+  }
+  if (tool === 'objective' && typeof obPaper === 'function' && obPaper() !== 'practice') {
+    /* every answer carries a line on why the wrong options are wrong */
+    tokBudget = Math.min(16000, Math.round(tokBudget * 2));
   }
   if (tool === 'qpaper') {
     if (qpVal('qp-sets', '1') === '2') tokBudget = tokBudget * 2;
