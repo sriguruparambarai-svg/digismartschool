@@ -698,6 +698,67 @@
       <button class="btn sec-add" id="mixAdd" type="button">+ Add a section</button>
     </div>
 
+    <!-- exam paper -->
+    <div data-panel="exam" style="display:none">
+      <div class="grp">
+        <label>Ready-made question paper</label>
+        <select id="examPreset">
+          <option value="" selected>&mdash; load a ready-made paper &mdash;</option>
+          <optgroup label="Pre KG">
+            <option value="preKG">Pre KG &mdash; all subjects (25 marks)</option>
+          </optgroup>
+          <optgroup label="LKG">
+            <option value="lkgEng">LKG English (25 marks)</option>
+            <option value="lkgMath">LKG Maths (25 marks)</option>
+            <option value="lkgTam">LKG Tamil (25 marks)</option>
+          </optgroup>
+          <optgroup label="UKG">
+            <option value="ukgEng">UKG English (25 marks)</option>
+            <option value="ukgMath">UKG Maths (25 marks)</option>
+            <option value="ukgTam">UKG Tamil (25 marks)</option>
+            <option value="ukgEvs">UKG General Awareness (25 marks)</option>
+          </optgroup>
+          <optgroup label="Class 1">
+            <option value="c1Eng">Class 1 English (50 marks)</option>
+            <option value="c1Math">Class 1 Maths (50 marks)</option>
+          </optgroup>
+          <optgroup label="Class 2">
+            <option value="c2Eng">Class 2 English (50 marks)</option>
+            <option value="c2Math">Class 2 Maths (50 marks)</option>
+          </optgroup>
+        </select>
+      </div>
+
+      <div class="row2 grp">
+        <div>
+          <label>Examination</label>
+          <select id="exName">
+            <option>Quarterly Examination</option>
+            <option>Half Yearly Examination</option>
+            <option>Annual Examination</option>
+            <option>Unit Test</option>
+            <option>Monthly Test</option>
+            <option>Revision Test</option>
+          </select>
+        </div>
+        <div>
+          <label>Time allowed</label>
+          <select id="exTime">
+            <option>30 Minutes</option>
+            <option>45 Minutes</option>
+            <option selected>1 Hour</option>
+            <option>1.5 Hours</option>
+            <option>2 Hours</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="grp" id="exTotalBox" style="background:#FFF6E6;border:1px solid #E8C99A;border-radius:8px;padding:9px 12px;font-size:0.86rem;"></div>
+
+      <div id="examList"></div>
+      <button class="btn sec-add" id="examAdd" type="button">+ Add a section</button>
+    </div>
+
     <!-- counting -->
     <div data-panel="count" style="display:none">
       <div class="row2 grp">
@@ -1481,6 +1542,11 @@ Draw your school bag</textarea>
             ["c12", "Maths practice", "Place value, carrying, tables, time, money, word problems"]
         ]}
     ]},
+    { id:"exam", name:"Exam Paper", note:"pictures &amp; marks", subjects:[
+        { id:"examall", name:"Exam Paper", sheets:[
+            ["exam", "Question paper", "Ready-made paper for PreKG to Class 2, with marks"]
+        ]}
+    ]},
     { id:"hw", name:"Mixed home work", note:"one sheet, many subjects", subjects:[
         { id:"hwall", name:"Home work", sheets:[
             ["mix", "Mixed home work", "English, Tamil and Maths on one sheet"]
@@ -1578,8 +1644,8 @@ Draw your school bag</textarea>
       var prev = mode;
       mode = t;
       if(prev!==mode){
-        var pl = (prev==="sec") ? LANG : (prev==="mix") ? MIX : OTHER;
-        var nl = (mode==="sec") ? LANG : (mode==="mix") ? MIX : OTHER;
+        var pl = (prev==="sec") ? LANG : (prev==="mix") ? MIX : (prev==="exam") ? EXAM : OTHER;
+        var nl = (mode==="sec") ? LANG : (mode==="mix") ? MIX : (mode==="exam") ? EXAM : OTHER;
         pl.captureHdr(); pl.save();
         nl.applyHdr();
       }
@@ -1589,12 +1655,13 @@ Draw your school bag</textarea>
       }
       var onlyWrite = document.querySelectorAll("[data-only=write]");
       for(var m=0;m<onlyWrite.length;m++){
-        onlyWrite[m].style.display = (mode==="sec"||mode==="mix"||mode==="mseq"||mode==="nname") ? "" : "none";
+        onlyWrite[m].style.display = (mode==="sec"||mode==="mix"||mode==="exam"||mode==="mseq"||mode==="nname") ? "" : "none";
       }
       var onlyMaths = document.querySelectorAll("[data-only=maths]");
       for(var q=0;q<onlyMaths.length;q++){
         onlyMaths[q].style.display = (MATHS.indexOf(mode)>=0) ? "" : "none";
       }
+      if(mode==="exam"){ examSyncTotal(); }
       if(mode==="colourpic"){ cpFillLists(); }
       if(mode==="phonics"){ phSync(); }
       if(mode==="cutpaste"){ ctFillLists(); }
@@ -1618,7 +1685,7 @@ Draw your school bag</textarea>
       t.textContent = btn.firstChild.textContent.replace(/\s+$/,"") + (sm ? " — " + sm.textContent : "");
     }
     var a = $("secAddTop");
-    if(a){ a.style.display = (mode==="sec"||mode==="mix") ? "" : "none"; }
+    if(a){ a.style.display = (mode==="sec"||mode==="mix"||mode==="exam") ? "" : "none"; }
   }
   function syncSums(){
     var sh = $("sumHead");
@@ -1645,7 +1712,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="exam" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
     b.style.display = uses ? "" : "none";
   }
 
@@ -1662,10 +1729,21 @@ Draw your school bag</textarea>
       '<div style="display:flex;align-items:center;gap:10px;">'+
       (_kgLogo ? '<img src="'+esc(_kgLogo)+'" alt="" style="height:46px;width:46px;object-fit:contain;flex-shrink:0;">' : '')+
       '<div><div class="school">'+esc(val("school"))+'</div>'+
-      '<div class="sub">Worksheet</div></div></div>'+
-      '<div class="meta">'+esc(val("cls"))+' &middot; '+esc(val("subj"))+'</div>'+
+      '<div class="sub">'+(mode==="exam" ? esc(val("exName")||"Examination") : "Worksheet")+'</div></div></div>'+
+      '<div class="meta">'+esc(val("cls"))+' &middot; '+esc(val("subj"))+
+      (mode==="exam" ? '<br>Max Marks: '+examTotal()+' &middot; Time: '+esc(val("exTime")||"") : '')+
+      '</div>'+
       '</div>';
-    if($("showNd").checked){
+    if(mode==="exam"){
+      /* an exam paper always carries these, whatever the worksheet setting says */
+      h += '<div class="nd">'+
+           '<div class="f" style="flex:2"><i>Name</i><u></u></div>'+
+           '<div class="f"><i>Roll No</i><u></u></div>'+
+           '<div class="f"><i>Date</i><u></u></div>'+
+           '<div class="f"><i>Marks</i><u></u></div>'+
+           '</div>';
+    }
+    else if($("showNd").checked){
       h += '<div class="nd">'+
            '<div class="f" style="flex:2"><i>Name</i><u></u></div>'+
            '<div class="f"><i>Date</i><u></u></div>'+
@@ -1897,6 +1975,7 @@ Draw your school bag</textarea>
              npQty:4, npMax:30,
              tQty:4, tMax:10, tMode:"fill",
              cnQty:3, cnMax:4, cnSet:"1,2,5",
+             marks:0,
              picSet:"any", picks:"",
              pcQty:4, pcMax:6, pcMode:"circle",
              pfQty:6, pfLang:"en", pfMode:"write",
@@ -2043,6 +2122,140 @@ Draw your school bag</textarea>
       ]}
   };
 
+  /* Ready-made question papers. Each one is a whole paper: the parts, the marks
+     against each part, and the class, subject and time it belongs to. The marks
+     in every paper below add up exactly to its stated total. */
+  var EXAM_PRESETS = {
+    preKG:{ title:"", subj:"All subjects", cls:"Pre KG", time:"45 Minutes",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Trace the patterns", kind:"pattern", pat:"standing", pRows:2, pTrace:1, marks:5},
+        {heading:"Count the pictures and circle the number", kind:"picCount", pcQty:4, pcMax:5, pcMode:"circle", picSet:"fruit", marks:4},
+        {heading:"Circle the big one", kind:"picBig", pbQty:4, picSet:"any", marks:4},
+        {heading:"Circle the odd one out", kind:"picOdd", poQty:4, picSet:"any", marks:4},
+        {heading:"Trace the letters", kind:"trace", layout:"row", set:"capsA", rows:1, trace:1, marks:5},
+        {heading:"Count and write the number", kind:"count", mQty:3, mMax:5, mShape:"mixed", marks:3}
+      ]},
+
+    lkgEng:{ title:"", subj:"English", cls:"LKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Trace the capital letters", kind:"trace", layout:"row", set:"capsA", rows:1, trace:1, marks:5},
+        {heading:"Write the missing letters", kind:"missing", set:"capsA", gapPct:40, marks:5},
+        {heading:"Write the first letter of each picture", kind:"picFirst", pfQty:5, pfLang:"en", pfMode:"write", picSet:"any", marks:5},
+        {heading:"Match the picture with the letter", kind:"picMatch", pmType:"letter", pmLang:"en", pmQty:5, picSet:"any", marks:5},
+        {heading:"Trace the name of each picture", kind:"picWord", pwLang:"en", pwQty:5, pwTimes:1, picSet:"any", marks:5}
+      ]},
+
+    lkgMath:{ title:"", subj:"Maths", cls:"LKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the numbers 1 to 20", kind:"mseq", mFrom:1, mTo:20, mTimes:1, mTraced:0, marks:5},
+        {heading:"Fill in the missing numbers", kind:"mnum", mFrom:1, mTo:20, mPer:10, mGap:40, marks:5},
+        {heading:"Count the pictures and write the number", kind:"picCount", pcQty:5, pcMax:6, pcMode:"write", picSet:"any", marks:5},
+        {heading:"Circle the group that has more", kind:"picMore", pmoQty:3, picSet:"any", marks:3},
+        {heading:"Circle the bigger number", kind:"mcmp", mQty:4, mMax:20, mWhich:"big", marks:4},
+        {heading:"Complete the pattern", kind:"picPattern", ppType:"AB", ppQty:3, picSet:"any", marks:3}
+      ]},
+
+    lkgTam:{ title:"", subj:"Tamil", cls:"LKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Trace the Tamil vowels", kind:"trace", layout:"row", set:"tVowel", rows:1, trace:1, marks:5},
+        {heading:"Write the missing letters", kind:"missing", set:"tVowel", gapPct:40, marks:5},
+        {heading:"Copy each consonant one time", kind:"copy", set:"tCons", copyLines:1, marks:5},
+        {heading:"Write the letter and its word", kind:"letterword", set:"custom", lwTimes:1, marks:5},
+        {heading:"Circle the odd letter in each row", kind:"circle", set:"tVowel", cRows:5, cPer:6, marks:5}
+      ]},
+
+    ukgEng:{ title:"", subj:"English", cls:"UKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the missing small letters", kind:"missing", set:"smallA", gapPct:40, marks:5},
+        {heading:"Write the first letter of each picture", kind:"picFirst", pfQty:5, pfLang:"en", pfMode:"write", picSet:"any", marks:5},
+        {heading:"Match the picture with its name", kind:"picMatch", pmType:"word", pmLang:"en", pmQty:5, picSet:"any", marks:5},
+        {heading:"Fill in the missing vowel", kind:"vowel", set:"custom", vHide:"mid", vPer:3, marks:5},
+        {heading:"Write the name of each picture", kind:"picWord", pwLang:"en", pwQty:5, pwTimes:1, picSet:"any", marks:5}
+      ]},
+
+    ukgMath:{ title:"", subj:"Maths", cls:"UKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the numbers 1 to 50", kind:"mseq", mFrom:1, mTo:50, mTimes:1, mTraced:0, marks:5},
+        {heading:"Fill in the missing numbers", kind:"mnum", mFrom:1, mTo:50, mPer:10, mGap:40, marks:5},
+        {heading:"Write before, after and between", kind:"mbaf", mType:"mixed", mQty:5, mMax:50, marks:5},
+        {heading:"Count the pictures and add", kind:"mpic", mOp:"add", mQty:4, mMax:10, mShape:"mixed", marks:4},
+        {heading:"Write the number names", kind:"nname", mLang:"en", mSet:"1-10", mFmt:"writename", marks:3},
+        {heading:"Complete the number pattern", kind:"numpat", npQty:3, npMax:30, marks:3}
+      ]},
+
+    ukgTam:{ title:"", subj:"Tamil", cls:"UKG", time:"1 Hour",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Trace the Tamil consonants", kind:"trace", layout:"row", set:"tCons", rows:1, trace:1, marks:5},
+        {heading:"Write the missing vowels", kind:"missing", set:"tVowel", gapPct:40, marks:5},
+        {heading:"Copy each letter one time", kind:"copy", set:"tUmA", copyLines:1, marks:5},
+        {heading:"Write the letter and its word", kind:"letterword", set:"custom", lwTimes:1, marks:5},
+        {heading:"Circle the odd letter in each row", kind:"circle", set:"tCons", cRows:5, cPer:6, marks:5}
+      ]},
+
+    ukgEvs:{ title:"", subj:"General Awareness", cls:"UKG", time:"45 Minutes",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Circle the odd one out", kind:"picOdd", poQty:5, picSet:"any", marks:5},
+        {heading:"Circle the big one", kind:"picBig", pbQty:5, picSet:"any", marks:5},
+        {heading:"Count the animals and write the number", kind:"picCount", pcQty:5, pcMax:8, pcMode:"write", picSet:"animal", marks:5},
+        {heading:"Circle the group that has more", kind:"picMore", pmoQty:5, picSet:"fruit", marks:5},
+        {heading:"Write the name of each picture", kind:"picWord", pwLang:"en", pwQty:5, pwTimes:1, picSet:"any", marks:5}
+      ]},
+
+    c1Eng:{ title:"", subj:"English", cls:"Class 1", time:"1.5 Hours",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the missing letters", kind:"missing", set:"smallA", gapPct:40, marks:5},
+        {heading:"Write the first letter of each picture", kind:"picFirst", pfQty:10, pfLang:"en", pfMode:"write", picSet:"any", marks:10},
+        {heading:"Match the picture with its name", kind:"picMatch", pmType:"word", pmLang:"en", pmQty:8, picSet:"any", marks:10},
+        {heading:"Fill in the missing vowel", kind:"vowel", set:"custom", vHide:"mid", vPer:3, marks:10},
+        {heading:"Write each word three times", kind:"words", set:"custom", times:3, wtrace:1, marks:10},
+        {heading:"Write the name of each picture", kind:"picWord", pwLang:"en", pwQty:5, pwTimes:1, picSet:"any", marks:5}
+      ]},
+
+    c1Math:{ title:"", subj:"Maths", cls:"Class 1", time:"1.5 Hours",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the numbers 1 to 100", kind:"mseq", mFrom:1, mTo:100, mTimes:1, mTraced:0, marks:10},
+        {heading:"Fill in the missing numbers", kind:"mnum", mFrom:1, mTo:100, mPer:10, mGap:40, marks:10},
+        {heading:"Write before, after and between", kind:"mbaf", mType:"mixed", mQty:10, mMax:100, marks:10},
+        {heading:"Write in ascending order", kind:"order", oQty:4, oCount:4, oMax:50, oDir:"asc", marks:5},
+        {heading:"Circle the biggest number", kind:"bigsmall", bsQty:5, bsMax:100, bsWhich:"big", marks:5},
+        {heading:"Count the dots and write the number", kind:"tens", tQty:4, tMax:10, tMode:"fill", marks:5},
+        {heading:"Add the coins and write the amount", kind:"coins", cnQty:3, cnMax:3, cnSet:"1,2,5", marks:5}
+      ]},
+
+    c2Eng:{ title:"", subj:"English", cls:"Class 2", time:"1.5 Hours",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the missing letters", kind:"missing", set:"capsA", gapPct:40, marks:5},
+        {heading:"Fill in the missing vowel", kind:"vowel", set:"custom", vHide:"mid", vPer:3, marks:10},
+        {heading:"Match the following", kind:"match", mtType:"capsmall", mtQty:8, mtLang:"en", marks:10},
+        {heading:"Write each word three times", kind:"words", set:"custom", times:3, wtrace:0, marks:10},
+        {heading:"Write the first letter of each picture", kind:"picFirst", pfQty:10, pfLang:"en", pfMode:"write", picSet:"any", marks:10},
+        {heading:"Write the name of each picture", kind:"picWord", pwLang:"en", pwQty:5, pwTimes:1, picSet:"any", marks:5}
+      ]},
+
+    c2Math:{ title:"", subj:"Maths", cls:"Class 2", time:"1.5 Hours",
+      instr:"Write your answers in the space given on this paper itself.",
+      secs:[
+        {heading:"Write the numbers", kind:"mseq", mFrom:100, mTo:150, mTimes:1, mTraced:0, marks:5},
+        {heading:"Fill in the missing numbers", kind:"mnum", mFrom:100, mTo:200, mPer:10, mGap:40, marks:10},
+        {heading:"Write before, after and between", kind:"mbaf", mType:"mixed", mQty:10, mMax:200, marks:10},
+        {heading:"Write in ascending order", kind:"order", oQty:5, oCount:5, oMax:100, oDir:"asc", marks:5},
+        {heading:"Complete the number pattern", kind:"numpat", npQty:5, npMax:100, marks:5},
+        {heading:"Circle the biggest number", kind:"bigsmall", bsQty:5, bsMax:200, bsWhich:"big", marks:5},
+        {heading:"Add the coins and write the amount", kind:"coins", cnQty:5, cnMax:4, cnSet:"1,2,5,10", marks:10}
+      ]}
+  };
+
   /* a section list is bound to a panel: the Letters & words tab and the Mixed home work tab each have one */
   function SecList(cfg){
     this.cfg = cfg;          /* {listId, addId, presetId, key, presets, mixed, defaultPreset}
@@ -2086,6 +2299,10 @@ Draw your school bag</textarea>
     this.secs = [];
     for(var i=0;i<p.secs.length;i++){ var ns = newSec(p.secs[i]); ns.open = (i===0); this.secs.push(ns); }
     this.hdr = {title:p.title, subj:p.subj, instr:p.instr};
+    if(this.cfg.exam){
+      if($("cls") && p.cls){ $("cls").value = p.cls; }
+      if($("exTime") && p.time){ $("exTime").value = p.time; }
+    }
     if(!quiet){ this.applyHdr(); }
     this.save(); this.draw();
     if(!quiet){ render(); }
@@ -2106,7 +2323,7 @@ Draw your school bag</textarea>
     var blocks = [];
     for(var i=0;i<this.secs.length;i++){
       var sc = this.secs[i];
-      var hb = headingBlock(sc.heading);
+      var hb = headingBlock(this.cfg.exam ? examHeading(i, sc) : sc.heading);
       if(hb){ blocks.push(hb); }
       var part;
       if(T1_BUILDERS[sc.kind]){ part = T1_BUILDERS[sc.kind](sc, fs); }
@@ -2217,6 +2434,10 @@ Draw your school bag</textarea>
     h += '<div class="sec-body">';
     h += '<div class="grp"><label>Heading on the sheet</label>'+
          '<input type="text" data-f="heading" value="'+esc(sc.heading)+'" placeholder="leave empty for none"></div>';
+    if(mode==="exam"){
+      h += '<div class="grp"><label>Marks for this part</label>'+
+           '<input type="number" data-f="marks" value="'+(parseInt(sc.marks,10)||0)+'" min="0" max="100"></div>';
+    }
 
     h += '<div class="grp"><label>What the child does</label><select data-f="kind">';
     h += '<optgroup label="Writing">'+opts(WRITE_KINDS, sc.kind)+'</optgroup>'+
@@ -2300,7 +2521,7 @@ Draw your school bag</textarea>
 
   var NUM_FIELDS = ("copyLines rows trace times wtrace blank mFrom mTo mTimes mTraced mPer mGap mQty mMax "+
                     "pRows pTrace gapPct lPer mtQty cRows cPer lwTimes vPer oQty oCount oMax bsQty bsMax npQty npMax tQty tMax cnQty cnMax "+
-                    "pcQty pcMax pfQty pmQty pwQty pwTimes ppQty poQty pmoQty pbQty stTimes").split(" ");
+                    "pcQty pcMax pfQty pmQty pwQty pwTimes ppQty poQty pmoQty pbQty stTimes marks").split(" ");
   var REDRAW_FIELDS = "kind set base layout mtType cMode tMode pfMode shMode".split(" ");
 
   var PAT_LABELS = [["standing","Standing lines |||"],["sleeping","Sleeping lines ———"],["slantR","Slanting lines ///"],
@@ -3368,6 +3589,9 @@ Draw your school bag</textarea>
                           key:"glm_ws_sections_v2", presets:PRESETS, mixed:false, defaultPreset:"tamil3"});
   var MIX  = new SecList({mode:"mix", listId:"mixList", addId:"mixAdd", presetId:"mixPreset",
                           key:"glm_ws_mix_v1", presets:MIX_PRESETS, mixed:true, defaultPreset:"hwUKG"});
+  var EXAM = new SecList({mode:"exam", listId:"examList", addId:"examAdd", presetId:"examPreset",
+                          key:"glm_ws_exam_v1", presets:EXAM_PRESETS, mixed:true,
+                          exam:true, defaultPreset:"ukgEng"});
   /* the maths and activity tabs share one remembered header */
   var OTHER = new SecList({mode:"other", key:"glm_ws_other_v1", presets:{}});
   OTHER.hdr = {title:"Practice sheet", subj:"Maths", instr:""};
@@ -3442,6 +3666,31 @@ Draw your school bag</textarea>
     if(sc.rule && sc.rule!=="auto"){ return sc.rule; }
     if(TAMIL.test(text) || DEVA.test(text)){ return "2"; }
     return val("lines");
+  }
+
+  /* "III. Count the pictures and write the number   (5 marks)" */
+  var EXAM_ROMAN = ["I","II","III","IV","V","VI","VII","VIII","IX","X","XI","XII","XIII","XIV","XV"];
+  function examHeading(i, sc){
+    var t = sc.heading || kindLabel(sc.kind);
+    var m = parseInt(sc.marks, 10);
+    return (EXAM_ROMAN[i] || String(i+1)) + ". " + t
+         + ((m > 0) ? "   (" + m + (m === 1 ? " mark)" : " marks)") : "");
+  }
+  function examTotal(){
+    var t = 0;
+    for(var i=0;i<EXAM.secs.length;i++){
+      var m = parseInt(EXAM.secs[i].marks, 10);
+      if(!isNaN(m)){ t += m; }
+    }
+    return t;
+  }
+  /* Running total under the Examination box, so the teacher sees the paper add up */
+  function examSyncTotal(){
+    var box = $("exTotalBox");
+    if(!box){ return; }
+    var t = examTotal(), n = EXAM.secs.length;
+    box.innerHTML = "<b>Total marks: " + t + "</b> &middot; " + n + " part" + (n===1?"":"s")
+                  + (t === 0 ? " &middot; type the marks against each part below" : "");
   }
 
   function headingBlock(text){
@@ -3605,6 +3854,7 @@ Draw your school bag</textarea>
 
   function buildSections(fsOv){ return LANG.build(fsOv); }
   function buildMix(fsOv){ return MIX.build(fsOv); }
+  function buildExam(fsOv){ return EXAM.build(fsOv); }
 
   /* ---------- counting ---------- */
   var SHAPES = {
@@ -6144,15 +6394,17 @@ Draw your school bag</textarea>
     syncSums();
     if(mode==="sec"){ LANG.captureHdr(); LANG.save(); }
     else if(mode==="mix"){ MIX.captureHdr(); MIX.save(); }
+    else if(mode==="exam"){ EXAM.captureHdr(); EXAM.save(); examSyncTotal(); }
     else { OTHER.captureHdr(); OTHER.save(); }
     var colour = $("colour").checked ? " colour" : "";
     var body;
 
     var nnRuled = (mode==="nname" && (val("wnFmt")==="trace" || val("wnFmt")==="writename"));
 
-    if(mode==="sec" || mode==="mix" || mode==="mseq" || nnRuled){
+    if(mode==="sec" || mode==="mix" || mode==="exam" || mode==="mseq" || nnRuled){
       var mk = (mode==="sec") ? buildSections
              : (mode==="mix") ? buildMix
+             : (mode==="exam") ? buildExam
              : (mode==="mseq" ? buildSeq : buildNnameBlocks);
       var blocks = mk();
       if($("fitOne").checked && blocks.length && total(blocks) > PAGE_CAP){
@@ -6460,7 +6712,7 @@ Draw your school bag</textarea>
   navDraw();
   navFilterPresets();
 
-  bindSecList(LANG); bindSecList(MIX);
+  bindSecList(LANG); bindSecList(MIX); bindSecList(EXAM);
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
   if(!MIX.load()){
@@ -6469,6 +6721,18 @@ Draw your school bag</textarea>
     MIX.hdr = {title:mp.title, subj:mp.subj, instr:mp.instr};
   }
   MIX.draw();
+  if(!EXAM.load()){
+    var ep = EXAM_PRESETS[EXAM.cfg.defaultPreset];
+    for(var s1=0;s1<ep.secs.length;s1++){ EXAM.secs.push(newSec(ep.secs[s1])); }
+    EXAM.hdr = {title:ep.title, subj:ep.subj, instr:ep.instr};
+  }
+  EXAM.draw();
+  examSyncTotal();
+  (function(){
+    var en = $("exName"), et = $("exTime");
+    if(en){ en.addEventListener("change", render); }
+    if(et){ et.addEventListener("change", render); }
+  })();
   LANG.applyHdr();
   syncContentHead(document.querySelector("#tabs .tab.on"));
   syncShuffle();
