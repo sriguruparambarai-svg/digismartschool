@@ -1805,14 +1805,15 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
     <div class="form-row-3">
       <div class="form-group">
         <label>Total Marks</label>
-        <select id="qp-marks" onchange="qpMarksCheck()">
+        <select id="qp-marks" onchange="qpMarksCheck();qpMarksOther()">
           <option value="25">25 Marks</option>
           <option value="50" selected>50 Marks</option>
           <option value="100">100 Marks</option>
+          <option value="other">Other — type the exact marks</option>
         </select>
         <div id="qp-manual-marks-wrap" style="display:none;margin-top:8px;">
-          <input type="number" id="qp-manual-marks" min="1" max="100" placeholder="Enter marks e.g. 10" style="width:100%;padding:10px;border:2px solid #C9A84C;border-radius:8px;font-size:1rem;"/>
-          <div style="font-size:0.75rem;color:#8a6d1a;margin-top:4px;">Daily Test — enter total marks manually</div>
+          <input type="number" id="qp-manual-marks" min="1" max="200" placeholder="Enter marks e.g. 80" style="width:100%;padding:10px;border:2px solid #C9A84C;border-radius:8px;font-size:1rem;"/>
+          <div style="font-size:0.75rem;color:#8a6d1a;margin-top:4px;">Type the exact total marks for this paper — e.g. 30, 80, 90</div>
         </div>
       </div>
       <div class="form-group">
@@ -3075,7 +3076,84 @@ function qpWriteSpace(kind, n) {
   return out + '</div>';
 }
 
+// The AI sometimes carries the numbering on from the General Instructions into
+// the questions, and sometimes prints the marks after every question. Rather
+// than trust the wording of the prompt alone, the paper is tidied here before
+// it is drawn: every section starts again at 1, stray marks at the end of a
+// question are taken off, and the section heading is rewritten as 5 x 5 = 25.
+function qpFixPaper(text){
+  var lines = String(text == null ? '' : text).split('\n');
+  var out = [], secStart = -1, secMarks = [];
+  var started = false, sawInstr = false, instrDone = false;
+  var n = 0, lastOrig = null, inKey = false;
+  var seq = [], keyPos = 0;   // the new numbers in order, replayed over the answer key
+
+  // Marks written at the end of a question: "(2)", "[2]", "(2 marks)", "- 2 marks".
+  // A space is required before the bracket so maths like f(2) is never touched.
+  var MARK_BR = /\s+[\(\[]\s*(\d+(?:\.5)?)\s*(?:marks?|m)?\s*[\)\]]\s*$/i;
+  var MARK_DASH = /\s+[-\u2013\u2014]\s*(\d+(?:\.5)?)\s*marks?\s*$/i;
+
+  function closeSection(){
+    if (secStart >= 0 && secMarks.length) {
+      var first = secMarks[0], same = true, total = 0;
+      for (var i = 0; i < secMarks.length; i++) {
+        if (secMarks[i] !== first) same = false;
+        total += secMarks[i];
+      }
+      var head = out[secStart].replace(/\s*[\(\[][^()\[\]]*marks?[^()\[\]]*[\)\]]\s*$/i, '').trim();
+      out[secStart] = head + (same
+        ? ' (' + secMarks.length + ' x ' + first + ' = ' + total + ' Marks)'
+        : ' (' + total + ' Marks)');
+    }
+    secStart = -1; secMarks = [];
+  }
+
+  function stripMarks(l, isQuestion){
+    var m = l.match(MARK_BR) || l.match(MARK_DASH);
+    if (!m) return l;
+    if (isQuestion) secMarks.push(Number(m[1]));
+    return l.replace(MARK_BR, '').replace(MARK_DASH, '');
+  }
+
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i], t = l.trim();
+
+    if (inKey) {
+      // The key lists the answers in the same order as the questions, so the
+      // new numbers are simply played back over it.
+      if (/^\d+[\.\)]/.test(t) && keyPos < seq.length) {
+        l = l.replace(/^(\s*)(\d+)([\.\)])/, '$1' + seq[keyPos++] + '$3');
+      }
+      out.push(l); continue;
+    }
+    if (/^\[\[SET:B\]\]$/i.test(t)) { closeSection(); started = false; sawInstr = false; instrDone = false; n = 0; lastOrig = null; out.push(l); continue; }
+    if (/^[\s\-=_*]*ANSWERS?\s*KEY\b/i.test(t)) { closeSection(); inKey = true; out.push(l); continue; }
+    if (/^(SECTION|PART)\s+[A-Z0-9]/i.test(t)) { closeSection(); started = true; n = 0; lastOrig = null; secStart = out.length; out.push(l); continue; }
+    if (!t || t.indexOf('|') !== -1 || /^\[\[(LINES|BOX):/i.test(t)) { out.push(l); continue; }
+
+    var qm = t.match(/^(\d+)[\.\)]/);
+    if (qm) {
+      if (!started) {
+        if (instrDone) { started = true; n = 0; lastOrig = null; }
+        else { sawInstr = true; out.push(l); continue; }
+      }
+      var orig = qm[1];
+      if (orig !== lastOrig) { n++; seq.push(n); }   // same number twice = the Tamil copy of the same question
+      lastOrig = orig;
+      l = l.replace(/^(\s*)(\d+)([\.\)])/, '$1' + n + '$3');
+      out.push(stripMarks(l, true));
+      continue;
+    }
+
+    if (sawInstr && !started) instrDone = true;
+    out.push(started ? stripMarks(l, false) : l);
+  }
+  closeSection();
+  return out.join('\n');
+}
+
 function renderQPaper(text) {
+  text = qpFixPaper(text);
   var html = '<div style="font-family:Georgia,serif;max-width:720px;margin:0 auto;border:2px solid #333;padding:28px;background:white;color:#111;">';
   var twoSets = (qpVal('qp-sets', '1') === '2');
   html += qpPaperHead(twoSets ? 'SET A' : '');
@@ -3100,20 +3178,20 @@ function renderQPaper(text) {
       if (!inTable) { html += '<table style="width:100%;border-collapse:collapse;margin:10px 0;">'; inTable = true; }
       var cells = l.split('|').filter(function(c){return c.trim();});
       html += '<tr>';
-      cells.forEach(function(c){ html += '<td style="border:1px solid #999;padding:6px 10px;font-size:0.88rem;">'+escHtml(c.trim())+'</td>'; });
+      cells.forEach(function(c){ html += '<td style="border:1px solid #999;padding:6px 10px;font-size:0.95em;">'+escHtml(c.trim())+'</td>'; });
       html += '</tr>';
     } else {
       if (inTable) { html += '</table>'; inTable = false; }
       if (l.match(/^(SECTION|Section)\s+[A-Z]/)) {
-        html += '<div style="background:#1a1a1a;color:white;padding:8px 14px;margin:16px 0 10px;font-weight:700;letter-spacing:1px;font-size:0.95rem;">'+escHtml(l)+'</div>';
+        html += '<div style="background:#1a1a1a;color:white;padding:8px 14px;margin:16px 0 10px;font-weight:700;letter-spacing:1px;font-size:1.05em;">'+escHtml(l)+'</div>';
       } else if (l.match(/^\d+[\.\)]/)) {
-        html += '<div style="padding:5px 0 5px 4px;font-size:0.92rem;line-height:1.7;border-bottom:1px dotted #eee;">'+escHtml(l)+'</div>';
+        html += '<div style="padding:5px 0 5px 4px;font-size:1em;line-height:1.7;border-bottom:1px dotted #eee;">'+escHtml(l)+'</div>';
       } else if (l.match(/^[a-d][\.\)]/i)) {
-        html += '<div style="padding:3px 0 3px 24px;font-size:0.88rem;color:#333;">'+escHtml(l)+'</div>';
+        html += '<div style="padding:3px 0 3px 24px;font-size:0.95em;color:#333;">'+escHtml(l)+'</div>';
       } else if (l.match(/^(ANSWER KEY|Answer Key)/i)) {
-        html += '<div style="background:#f0f7ff;border-top:2px solid #1565c0;padding:10px 14px;margin-top:20px;font-weight:700;color:#1565c0;font-size:0.95rem;">'+escHtml(l)+'</div>';
+        html += '<div style="background:#f0f7ff;border-top:2px solid #1565c0;padding:10px 14px;margin-top:20px;font-weight:700;color:#1565c0;font-size:1.05em;">'+escHtml(l)+'</div>';
       } else {
-        html += '<div style="padding:4px 0;font-size:0.9rem;line-height:1.7;font-weight:'+((l.length<60&&l===l.toUpperCase())||l.match(/^[A-Z]{3,}/)?'700':'400')+';">'+escHtml(l)+'</div>';
+        html += '<div style="padding:4px 0;font-size:1em;line-height:1.7;font-weight:'+((l.length<60&&l===l.toUpperCase())||l.match(/^[A-Z]{3,}/)?'700':'400')+';">'+escHtml(l)+'</div>';
       }
     }
   });
@@ -4646,6 +4724,7 @@ ${wsFormatBlock(cls, sub, style)}${bbLangBlock(sub, wsLangMode())}`;
     const chapters = document.getElementById('qp-chapters').value;
 
     if (!cls || !sub) { alert('Please select Class and Subject.'); return; }
+    if (!(Number(marks) > 0)) { alert('Please type the total marks for this paper in the box under Total Marks.'); return; }
 
     // Marks typed against lessons must not exceed the paper total
     const typedSum = picked.filter(function(p){ return p.marks !== null; })
@@ -4736,6 +4815,19 @@ Keep the wording very short and simple so a young child can read it alone.`
       return;
     }
 
+    // Book back was asked for, but the pages given may be the lesson body only.
+    // Better to warn now than to let the AI quietly make questions up.
+    if (qsrc === 'bookback' || qsrc === 'mostly') {
+      var exText = (content || '') + ' ' + (bookText || '');
+      var hasEx = /exercise|answer the following|let us|think and|practice|assessment|evaluation|choose the correct|fill in the|match the|true or false/i.test(exText);
+      if (exText.trim().length > 200 && !hasEx) {
+        if (!confirm('The lesson pages given do not seem to include the book back exercises '
+                   + '(the questions printed at the end of the lesson).\n\n'
+                   + 'Add those pages to the page range, or paste them into Lesson Content, '
+                   + 'otherwise the questions may not match the book.\n\nGo ahead anyway?')) return;
+      }
+    }
+
     // ── Advanced settings (all optional) ──
     const chosenTypes = (typeof qpSelectedTypes === 'function') ? qpSelectedTypes() : [];
     const diff   = qpVal('qp-difficulty', 'auto');
@@ -4747,7 +4839,7 @@ Keep the wording very short and simple so a young child can read it alone.`
     // Within the lesson means fresh questions set from the lesson body.
     const sourceBlock =
       (qsrc === 'bookback')
-        ? '\nWHERE THE QUESTIONS MUST COME FROM: Use ONLY the book back exercises \u2014 the questions already printed at the end of each lesson in the text above, usually under a heading such as Exercises, Let us do, Answer the following, Think and answer, Practice or Assessment. Copy those questions, keeping the wording as close to the book as you can. Do NOT invent any new question. If a lesson has more exercise questions than its marks allow, choose the most important ones. If it has too few, split a longer exercise question into parts (a) and (b) rather than making one up.'
+        ? '\nWHERE THE QUESTIONS MUST COME FROM: Use ONLY the book back exercises \u2014 the questions already printed at the end of each lesson in the text above, usually under a heading such as Exercises, Let us do, Answer the following, Think and answer, Practice or Assessment. Copy those questions, keeping the wording as close to the book as you can. Do NOT invent any new question. If a lesson has more exercise questions than its marks allow, choose the most important ones. If it has too few, split a longer exercise question into parts (a) and (b) rather than making one up. This is an absolute rule: every single question must already be printed in the lesson text above. Never write a question of your own, never reword one beyond a small change, and never fill a gap by inventing. If there are still not enough exercise questions, give a shorter paper instead.'
       : (qsrc === 'mostly')
         ? '\nWHERE THE QUESTIONS MUST COME FROM: About three quarters of the marks must come from the book back exercises printed at the end of each lesson, with the wording kept close to the book. The remaining quarter may be fresh questions set from the body of the lesson. Never repeat the same idea in both parts.'
       : (qsrc === 'within')
@@ -4795,8 +4887,11 @@ Format Requirements:
 - Do NOT write any school name, logo line, title block, or Name/Roll No/Date lines. Those are printed automatically at the top of the paper. Begin straight with the General Instructions.
 - General Instructions (4-5 points)
 ${sectionBlock}
-- Show the marks for every question in brackets at the end of the question, like (2)
-- Show the section total in the section heading, like SECTION A - Objective (10 marks)
+- NUMBERING: The General Instructions are NOT questions. Number them on their own as 1, 2, 3, 4, 5.
+- NUMBERING: Question numbering starts again at 1 in EVERY section. The first question of Section A is 1, the first question of Section B is 1, the first question of Section C is 1. Never carry the numbering on from the General Instructions or from the previous section.
+- MARKS: Do NOT write the marks after a question. No (2), no [2], no "2 marks" at the end of any question line.
+- MARKS: Show the marks ONLY in the section heading, written like this: SECTION A - OBJECTIVE (10 x 1 = 10 Marks). Keep every question inside one section worth the same marks, so that multiplication is true.
+- Always write a section heading line before the questions, even for a very short test.
 - Marks must add up to exactly ${marks}
 
 ${spaceBlock}
@@ -5327,7 +5422,7 @@ function schoolNameForPrint(){
 // One toolbar shape for every tool that shows a result, so a teacher learns it
 // once. Settings are kept on the output box itself and read again at print time.
 var OT_TOOLS = ['lesson','annual','monthly','worksheet','qpaper','objective','bookback','reportcard'];
-var OT_SIZES = [['12','Small'],['15','Normal'],['17','Large'],['19','Extra large'],['22','Very large']];
+var OT_SIZES = [['9','9'],['10','10'],['11','11'],['12','12'],['14','14'],['16','16'],['18','18'],['20','20']];
 
 function dssBuildToolbar(tool){
   var actions = document.getElementById('actions-' + tool);
@@ -5335,14 +5430,14 @@ function dssBuildToolbar(tool){
   if (!actions || !box) return;
   if (document.getElementById('ot-' + tool)) return;
 
-  box.setAttribute('data-ot-font', '15');
+  box.setAttribute('data-ot-font', '12');
   box.setAttribute('data-ot-align', 'left');
   box.setAttribute('data-ot-page', 'a4');
   box.setAttribute('data-ot-logo', '1');
 
   var sizeOpts = '';
   OT_SIZES.forEach(function(p){
-    sizeOpts += '<option value="' + p[0] + '"' + (p[0] === '15' ? ' selected' : '') + '>' + p[1] + '</option>';
+    sizeOpts += '<option value="' + p[0] + '"' + (p[0] === '12' ? ' selected' : '') + '>' + p[1] + '</option>';
   });
 
   var bar = document.createElement('div');
@@ -5355,7 +5450,7 @@ function dssBuildToolbar(tool){
     +   '<button class="ot-btn" data-a="center" onclick="dssAlign(\'' + tool + '\',\'center\',this)" title="Centre">\u2630</button>'
     +   '<button class="ot-btn" data-a="right" onclick="dssAlign(\'' + tool + '\',\'right\',this)" title="Right">\u2263</button>'
     + '</span>'
-    + '<span class="ot-grp"><label>Text size</label>'
+    + '<span class="ot-grp"><label>Text size (pt)</label>'
     +   '<select onchange="dssFont(\'' + tool + '\', this.value)">' + sizeOpts + '</select>'
     + '</span>'
     + '<span class="ot-grp" id="ot-keywrap-' + tool + '"><label>Answer key</label>'
@@ -5433,7 +5528,7 @@ function dssAlign(tool, how, btn){
 function dssFont(tool, px){
   var box = document.getElementById('out-' + tool);
   if (!box) return;
-  box.style.fontSize = px + 'px';
+  box.style.fontSize = px + 'pt';
   box.setAttribute('data-ot-font', px);
 }
 
@@ -5533,7 +5628,7 @@ function dssPage(tool, mode){
 function printOutput(id) {
   var box = document.getElementById(id);
   if (!box) return;
-  var font  = box.getAttribute('data-ot-font')  || '15';
+  var font  = box.getAttribute('data-ot-font')  || '12';
   var align = box.getAttribute('data-ot-align') || 'left';
   var page  = box.getAttribute('data-ot-page')  || 'a4';
   var keyMode = box.getAttribute('data-ot-key') || 'both';
@@ -5566,7 +5661,7 @@ function printOutput(id) {
   }
 
   var pageRule, content;
-  var textCss = 'white-space:pre-wrap;font-size:' + font + 'px;line-height:1.7;text-align:' + align + ';';
+  var textCss = 'white-space:pre-wrap;font-size:' + font + 'pt;line-height:1.7;text-align:' + align + ';';
 
   if (page === 'a5') {
     pageRule = '@page{size:A5 portrait;margin:10mm}';
@@ -6334,8 +6429,25 @@ function qpSyncManualMarks(){
     sel.appendChild(opt);
   }
   opt.value = String(Number(mv));
-  opt.textContent = mv + ' Marks (Daily Test)';
+  var tEl = document.getElementById('qp-type');
+  opt.textContent = mv + ' Marks' + (tEl && tEl.value === 'Daily Test' ? ' (Daily Test)' : '');
   sel.value = opt.value;
+}
+
+/* "Other" in the Total Marks list opens the same typing box, for any exam type. */
+function qpMarksOther(){
+  var sel = document.getElementById('qp-marks');
+  var wrap = document.getElementById('qp-manual-marks-wrap');
+  var mm = document.getElementById('qp-manual-marks');
+  var tEl = document.getElementById('qp-type');
+  if (!sel || !wrap) return;
+  if (tEl && tEl.value === 'Daily Test') return;   // Daily Test already keeps the box open
+  if (sel.value === 'other') {
+    wrap.style.display = 'block';
+    if (mm) { try { mm.focus(); } catch(e) {} qpSyncManualMarks(); }
+  } else if (sel.value === '25' || sel.value === '50' || sel.value === '100') {
+    wrap.style.display = 'none';
+  }
 }
 
 function qpTypeChanged(){
@@ -6384,7 +6496,10 @@ function qpRemoveDeleteButtons(paper){
 
 function qpRenumber(paper){
   var n = 0;
-  qpQuestionDivs(paper).forEach(function(q){
+  Array.prototype.forEach.call(paper.querySelectorAll('div'), function(q){
+    var st = q.getAttribute('style') || '';
+    if (st.indexOf('#1a1a1a') !== -1) { n = 0; return; }   // a section heading resets the count
+    if (st.indexOf('1px dotted') === -1) return;
     n++;
     var walker = document.createTreeWalker(q, NodeFilter.SHOW_TEXT, null);
     var t;
@@ -6429,7 +6544,7 @@ function qpAddQuestion(){
   var paper = out.firstElementChild;
   var count = qpQuestionDivs(paper).length;
   var d = document.createElement('div');
-  d.setAttribute('style','padding:5px 0 5px 4px;font-size:0.92rem;line-height:1.7;border-bottom:1px dotted #eee;');
+  d.setAttribute('style','padding:5px 0 5px 4px;font-size:1em;line-height:1.7;border-bottom:1px dotted #eee;');
   d.textContent = (count + 1) + '. Type your question here...  ( ___ marks)';
   paper.appendChild(d);
   qpAddDeleteButtons(paper);
