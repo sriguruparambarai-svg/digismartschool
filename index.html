@@ -5470,6 +5470,8 @@ function dssBuildToolbar(tool){
     +     '<option value="a4">A4 \u2014 full page</option>'
     +     '<option value="a5">Half A4 \u2014 small pages</option>'
     +     '<option value="twoup">Half A4 \u2014 two copies, cut in half</option>'
+    +     '<option value="book">A5 booklet \u2014 fold in half and staple</option>'
+    +     '<option value="cut">A5 pages \u2014 print, cut in half and stack</option>'
     +   '</select>'
     + '</span>'
     + '<div class="ot-note" id="ot-note-' + tool + '"></div>';
@@ -5610,6 +5612,11 @@ function dssLogo(tool, on){
   if (box) box.setAttribute('data-ot-logo', on ? '1' : '0');
 }
 
+function dssFlip(tool, on){
+  var box = document.getElementById('out-' + tool);
+  if (box) box.setAttribute('data-ot-flip', on ? '1' : '0');
+}
+
 function dssPage(tool, mode){
   var box = document.getElementById('out-' + tool);
   var note = document.getElementById('ot-note-' + tool);
@@ -5617,11 +5624,113 @@ function dssPage(tool, mode){
   if (!note) return;
   if (mode === 'a5') {
     note.textContent = 'Prints on half-size (A5) sheets. A long worksheet simply carries on over more sheets.';
+  } else if (mode === 'book' || mode === 'cut') {
+    note.innerHTML = (mode === 'book'
+        ? 'Two A5 pages on each side of an A4 sheet, in folding order. Print on both sides, fold the sheets in half and staple on the fold.'
+        : 'Two A5 pages on each side of an A4 sheet. Print on both sides, cut down the middle and put the halves one after the other.')
+      + ' In the printer window choose A4, Landscape, Print on both sides, and Actual size (not Fit to page). The answer key is left out \u2014 print that separately.'
+      + '<label style="display:block;margin-top:6px;cursor:pointer;">'
+      + '<input type="checkbox" onchange="dssFlip(\'' + tool + '\', this.checked)"> '
+      + 'The pages came out in the wrong order \u2014 my printer turns the sheet the other way</label>';
   } else if (mode === 'twoup') {
     note.textContent = 'Prints the same worksheet twice on one landscape sheet \u2014 cut down the middle for two students. The answer key is left out. Best for short worksheets; anything past one page will not fit.';
   } else {
     note.textContent = '';
   }
+}
+
+// ══ A5 BOOKLET PRINTING ══
+// A question paper is normally printed on A4 folded into two A5 halves. The
+// browser cannot do that on its own, so the paper is first cut into A5-sized
+// pages here (measured off-screen at the real print width), then the pages are
+// placed two to an A4 landscape sheet in the right order for folding or cutting.
+var DSS_MM = 96 / 25.4;
+
+function dssA5Pages(html, fontPt){
+  var host = document.createElement('div');
+  host.style.cssText = 'position:fixed;left:-10000px;top:0;visibility:hidden;width:128mm;';
+  document.body.appendChild(host);
+
+  var src = document.createElement('div');
+  src.innerHTML = html;
+
+  // The question paper arrives inside one bordered box. Flow its contents,
+  // not the box itself, or everything lands on a single page.
+  var flow = src, wrapStyle = '';
+  if (src.children.length === 1 && src.children[0].children.length > 3) {
+    flow = src.children[0];
+    wrapStyle = flow.getAttribute('style') || '';
+  }
+  wrapStyle = wrapStyle.replace(/padding\s*:[^;]*;?/gi, '')
+                       .replace(/max-width\s*:[^;]*;?/gi, '')
+                       .replace(/margin\s*:[^;]*;?/gi, '')
+            + ';padding:0;margin:0;max-width:none;font-size:' + fontPt + 'pt;';
+
+  var limit = 184 * DSS_MM;                 // a little under the 190mm usable height
+  var nodes = Array.prototype.slice.call(flow.childNodes);
+  var pages = [], cur = document.createElement('div');
+  cur.setAttribute('style', wrapStyle);
+  host.appendChild(cur);
+
+  function newPage(){
+    pages.push(cur.innerHTML);
+    cur = document.createElement('div');
+    cur.setAttribute('style', wrapStyle);
+    host.appendChild(cur);
+  }
+
+  nodes.forEach(function(n){
+    // A deliberate page break (Set B) always starts a fresh page.
+    if (n.nodeType === 1 && (n.className || '').indexOf('pbreak') !== -1) {
+      if ((cur.textContent || '').trim()) newPage();
+      return;
+    }
+    cur.appendChild(n);
+    if (cur.scrollHeight > limit && cur.childNodes.length > 1) {
+      cur.removeChild(n);
+      newPage();
+      cur.appendChild(n);
+    }
+  });
+  if ((cur.textContent || '').trim() || cur.querySelector('img,table,hr')) pages.push(cur.innerHTML);
+
+  try { document.body.removeChild(host); } catch(e) {}
+  return { pages: pages, wrapStyle: wrapStyle };
+}
+
+// Which A5 page goes into which half of which A4 side.
+// book = fold in half and staple.  cut = cut down the middle and stack.
+function dssImpose(pages, mode, flip){
+  while (pages.length % 4) pages.push('');
+  var P = pages.length, sheets = [], i, k;
+  if (mode === 'book') {
+    for (i = 1; i <= P / 4; i++) {
+      sheets.push([pages[P - 2 * i + 1], pages[2 * i - 2]]);   // front
+      sheets.push([pages[2 * i - 1], pages[P - 2 * i]]);       // back
+    }
+  } else {
+    for (k = 0; k < P / 4; k++) {
+      sheets.push([pages[4 * k], pages[4 * k + 2]]);           // front
+      sheets.push([pages[4 * k + 3], pages[4 * k + 1]]);       // back
+    }
+  }
+  // Printers differ in which way they turn the sheet over for the second side.
+  if (flip) for (var j = 1; j < sheets.length; j += 2) sheets[j] = [sheets[j][1], sheets[j][0]];
+  return sheets;
+}
+
+function dssBookletSheets(bodyHtml, fontPt, mode, flip){
+  var built = dssA5Pages(bodyHtml, fontPt);
+  if (!built.pages.length) return null;
+  var sheets = dssImpose(built.pages, mode, flip);
+  var out = '';
+  sheets.forEach(function(sh){
+    out += '<div class="bsheet">'
+         +   '<div class="bslot"><div style="' + built.wrapStyle + '">' + sh[0] + '</div></div>'
+         +   '<div class="bslot"><div style="' + built.wrapStyle + '">' + sh[1] + '</div></div>'
+         + '</div>';
+  });
+  return out;
 }
 
 // ══ PRINT (uses whatever the toolbar is set to) ══
@@ -5641,8 +5750,8 @@ function printOutput(id) {
     body = parts.work;
   } else if (keyMode === 'keyonly') {
     body = parts.key;
-  } else if (page === 'twoup') {
-    // Two copies side by side is the students' copy - never hand out the key.
+  } else if (page === 'twoup' || page === 'book' || page === 'cut') {
+    // A handout or a booklet is the students' copy - never hand out the key.
     body = parts.work;
   } else {
     body = parts.work + '<div class="pbreak"></div>' + parts.key;
@@ -5650,7 +5759,7 @@ function printOutput(id) {
 
   // Blocks marked data-dss-teacher (the blueprint) belong to the teacher only,
   // so they never go out on a students' copy or on a two-up handout.
-  if (keyMode === 'nokey' || page === 'twoup') {
+  if (keyMode === 'nokey' || page === 'twoup' || page === 'book' || page === 'cut') {
     if (body.indexOf('data-dss-teacher') !== -1) {
       var _tmp = document.createElement('div');
       _tmp.innerHTML = body;
@@ -5663,7 +5772,17 @@ function printOutput(id) {
   var pageRule, content;
   var textCss = 'white-space:pre-wrap;font-size:' + font + 'pt;line-height:1.7;text-align:' + align + ';';
 
-  if (page === 'a5') {
+  if (page === 'book' || page === 'cut') {
+    var sheetsHtml = dssBookletSheets(body, font, page, box.getAttribute('data-ot-flip') === '1');
+    if (sheetsHtml) {
+      pageRule = '@page{size:A4 landscape;margin:0}';
+      content = sheetsHtml;
+      page = 'booklet';                 // so the letterhead and watermark steps skip it
+    } else {
+      pageRule = '@page{size:A4 portrait;margin:12mm}';
+      content = '<div class="sheet">' + body + '</div>';
+    }
+  } else if (page === 'a5') {
     pageRule = '@page{size:A5 portrait;margin:10mm}';
     content = '<div class="sheet">' + body + '</div>';
   } else if (page === 'twoup') {
@@ -5698,7 +5817,7 @@ function printOutput(id) {
   /* A faint school name behind every page. position:fixed repeats the block
      on each printed sheet, which a normal flowed element cannot do.
      It follows the same School logo switch, so rough work can go out plain. */
-  var wmName = (box.getAttribute('data-ot-logo') !== '0') ? (schoolNameForPrint() || '') : '';
+  var wmName = (box.getAttribute('data-ot-logo') !== '0' && page !== 'booklet') ? (schoolNameForPrint() || '') : '';
   if (wmName) {
     content = '<div class="dss-wm">' + escHtml(wmName) + '</div>' + content;
   }
@@ -5718,6 +5837,11 @@ function printOutput(id) {
     + 'body{font-family:Arial,Helvetica,sans-serif;color:#000;}'
     + '.sheet{' + textCss + '}'
     + '.pbreak{page-break-before:always;break-before:page;height:0;}'
+    + '.bsheet{display:flex;width:297mm;height:210mm;overflow:hidden;}'
+    + '.bsheet + .bsheet{page-break-before:always;break-before:page;}'
+    + '.bslot{flex:0 0 148.5mm;width:148.5mm;height:210mm;overflow:hidden;box-sizing:border-box;'
+    +   'padding:10mm;' + textCss + '}'
+    + '.bslot:first-child{border-right:1px dashed #ccc;}'
     + '.lsheet{display:flex;width:297mm;height:210mm;overflow:hidden;}'
     + '.lslot{flex:0 0 148.5mm;width:148.5mm;height:210mm;overflow:hidden;box-sizing:border-box;}'
     + '.lslot:first-child{border-right:1px dashed #999;}'
