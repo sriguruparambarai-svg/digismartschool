@@ -3253,6 +3253,23 @@ function wsSameClass(a, b){
   return norm(a) === norm(b);
 }
 
+// The Samacheer library stores its own subject names (Mathematics, Social
+// Science) while the dropdowns here say Maths, so an exact database match
+// finds nothing. Compare the two loosely instead.
+function dssSameSubject(a, b){
+  function norm(v){
+    v = String(v == null ? '' : v).toLowerCase().replace(/[^a-z]/g, '');
+    if (v === 'math' || v === 'maths' || v === 'mathematics') return 'maths';
+    if (v === 'ganitha' || v === 'ganitham' || v === 'kanakku') return 'maths';
+    if (v === 'social' || v === 'socialscience' || v === 'socialstudies') return 'social';
+    if (v === 'history' || v === 'geography' || v === 'civics') return 'social';
+    if (v === 'science' || v === 'generalscience') return 'science';
+    if (v === 'computer' || v === 'computers' || v === 'computerscience') return 'computer';
+    return v;
+  }
+  return norm(a) === norm(b);
+}
+
 // Chapter detection sometimes picks up a printer's footer line instead of the
 // real title, e.g. ".indd 78 05-01-2019 20:51:49 78". Don't show that to a
 // teacher or print it on a worksheet - fall back to "Chapter N".
@@ -3303,16 +3320,26 @@ async function dssPickBooks(p){
     });
   } catch(e) { /* private books optional */ }
 
-  // Shared Samacheer library
+  // Shared Samacheer library. Class and subject are matched here in the
+  // browser, not with an exact database filter, because the library and these
+  // dropdowns use different words for the same subject.
   try {
     var r2 = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ action:'tbl_get', table:'textbook_library',
-        params:'class_name=eq.' + encodeURIComponent(cls) + '&subject=eq.' + encodeURIComponent(sub)
-             + '&select=id,title,class_name,subject,pdf_url' }) });
+        params:'select=id,title,class_name,subject,medium,pdf_url&order=class_name' }) });
     var d2 = await r2.json();
     var lib = Array.isArray(d2) ? d2 : (d2.books || []);
-    lib.forEach(function(b){
-      books.push({ id:b.id, name:((b.title || b.subject || 'Book') + ' (Samacheer)'), pdf:(b.pdf_url || ''), source:'library' });
+    var libCls = lib.filter(function(b){ return wsSameClass(b.class_name, cls); });
+    var libSub = libCls.filter(function(b){ return dssSameSubject(b.subject, sub); });
+    // If the subject does not match anything, still offer that class's books
+    // with their own subject shown, instead of an empty dropdown.
+    var libUse = libSub.length ? libSub : libCls;
+    libUse.forEach(function(b){
+      var label = (b.title || b.subject || 'Book');
+      if (!libSub.length && b.subject) label += ' - ' + b.subject;
+      if (b.medium) label += ' - ' + b.medium;
+      label += ' (Samacheer)';
+      books.push({ id:b.id, name:label, pdf:(b.pdf_url || ''), source:'library' });
     });
   } catch(e) { /* library optional */ }
 
