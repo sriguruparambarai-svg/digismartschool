@@ -3185,7 +3185,7 @@ function renderQPaper(text) {
       if (l.match(/^(SECTION|Section)\s+[A-Z]/)) {
         html += '<div style="background:#1a1a1a;color:white;padding:8px 14px;margin:16px 0 10px;font-weight:700;letter-spacing:1px;font-size:1.05em;">'+escHtml(l)+'</div>';
       } else if (l.match(/^\d+[\.\)]/)) {
-        html += '<div style="padding:5px 0 5px 4px;font-size:1em;line-height:1.7;border-bottom:1px dotted #eee;">'+escHtml(l)+'</div>';
+        html += '<div class="qline" style="padding:5px 0 5px 4px;font-size:1em;line-height:1.7;border-bottom:1px dotted #eee;">'+escHtml(l)+'</div>';
       } else if (l.match(/^[a-d][\.\)]/i)) {
         html += '<div style="padding:3px 0 3px 24px;font-size:0.95em;color:#333;">'+escHtml(l)+'</div>';
       } else if (l.match(/^(ANSWER KEY|Answer Key)/i)) {
@@ -5422,6 +5422,7 @@ function schoolNameForPrint(){
 // One toolbar shape for every tool that shows a result, so a teacher learns it
 // once. Settings are kept on the output box itself and read again at print time.
 var OT_TOOLS = ['lesson','annual','monthly','worksheet','qpaper','objective','bookback','reportcard'];
+var OT_GAPS = ['0','2','4','6','8','12','16','20'];
 var OT_SIZES = [['9','9'],['10','10'],['11','11'],['12','12'],['14','14'],['16','16'],['18','18'],['20','20']];
 
 function dssBuildToolbar(tool){
@@ -5432,8 +5433,14 @@ function dssBuildToolbar(tool){
 
   box.setAttribute('data-ot-font', '12');
   box.setAttribute('data-ot-align', 'left');
+  box.setAttribute('data-ot-gap', '4');
   box.setAttribute('data-ot-page', 'a4');
   box.setAttribute('data-ot-logo', '1');
+
+  var gapOpts = '';
+  OT_GAPS.forEach(function(g){
+    gapOpts += '<option value="' + g + '"' + (g === '4' ? ' selected' : '') + '>' + g + '</option>';
+  });
 
   var sizeOpts = '';
   OT_SIZES.forEach(function(p){
@@ -5452,6 +5459,9 @@ function dssBuildToolbar(tool){
     + '</span>'
     + '<span class="ot-grp"><label>Text size (pt)</label>'
     +   '<select onchange="dssFont(\'' + tool + '\', this.value)">' + sizeOpts + '</select>'
+    + '</span>'
+    + '<span class="ot-grp"><label>Gap between questions (pt)</label>'
+    +   '<select onchange="dssGap(\'' + tool + '\', this.value)">' + gapOpts + '</select>'
     + '</span>'
     + '<span class="ot-grp" id="ot-keywrap-' + tool + '"><label>Answer key</label>'
     +   '<select onchange="dssKeyMode(\'' + tool + '\', this.value)">'
@@ -5532,6 +5542,28 @@ function dssFont(tool, px){
   if (!box) return;
   box.style.fontSize = px + 'pt';
   box.setAttribute('data-ot-font', px);
+}
+
+// The space between questions. The generated lines carry their own padding,
+// so the change is made with a style rule that overrides it, both on screen
+// and on the printed page.
+function dssGapRule(scope, pt){
+  return scope + ' .qline{padding-top:' + pt + 'pt !important;padding-bottom:' + pt + 'pt !important;}';
+}
+
+function dssGap(tool, pt){
+  var box = document.getElementById('out-' + tool);
+  if (!box) return;
+  box.setAttribute('data-ot-gap', pt);
+  var st = document.getElementById('ot-gap-style');
+  if (!st) { st = document.createElement('style'); st.id = 'ot-gap-style'; document.head.appendChild(st); }
+  var rules = '';
+  OT_TOOLS.forEach(function(t){
+    var b = document.getElementById('out-' + t);
+    var g = b ? b.getAttribute('data-ot-gap') : null;
+    if (g !== null && g !== '') rules += dssGapRule('#out-' + t, g);
+  });
+  st.textContent = rules;
 }
 
 // ══ ANSWER KEY ══
@@ -5646,10 +5678,16 @@ function dssPage(tool, mode){
 // placed two to an A4 landscape sheet in the right order for folding or cutting.
 var DSS_MM = 96 / 25.4;
 
-function dssA5Pages(html, fontPt){
+function dssA5Pages(html, fontPt, gapPt){
   var host = document.createElement('div');
+  host.id = 'dss-measure';
   host.style.cssText = 'position:fixed;left:-10000px;top:0;visibility:hidden;width:128mm;';
   document.body.appendChild(host);
+  if (gapPt !== null && gapPt !== undefined && gapPt !== '') {
+    var gst = document.createElement('style');
+    gst.textContent = dssGapRule('#dss-measure', gapPt);
+    host.appendChild(gst);
+  }
 
   var src = document.createElement('div');
   src.innerHTML = html;
@@ -5719,8 +5757,8 @@ function dssImpose(pages, mode, flip){
   return sheets;
 }
 
-function dssBookletSheets(bodyHtml, fontPt, mode, flip){
-  var built = dssA5Pages(bodyHtml, fontPt);
+function dssBookletSheets(bodyHtml, fontPt, mode, flip, gapPt){
+  var built = dssA5Pages(bodyHtml, fontPt, gapPt);
   if (!built.pages.length) return null;
   var sheets = dssImpose(built.pages, mode, flip);
   var out = '';
@@ -5741,6 +5779,7 @@ function printOutput(id) {
   var align = box.getAttribute('data-ot-align') || 'left';
   var page  = box.getAttribute('data-ot-page')  || 'a4';
   var keyMode = box.getAttribute('data-ot-key') || 'both';
+  var gap   = box.getAttribute('data-ot-gap');
 
   var parts = dssSplitAnswerKey(box);
   var body;
@@ -5773,7 +5812,7 @@ function printOutput(id) {
   var textCss = 'white-space:pre-wrap;font-size:' + font + 'pt;line-height:1.7;text-align:' + align + ';';
 
   if (page === 'book' || page === 'cut') {
-    var sheetsHtml = dssBookletSheets(body, font, page, box.getAttribute('data-ot-flip') === '1');
+    var sheetsHtml = dssBookletSheets(body, font, page, box.getAttribute('data-ot-flip') === '1', gap);
     if (sheetsHtml) {
       pageRule = '@page{size:A4 landscape;margin:0}';
       content = sheetsHtml;
@@ -5837,6 +5876,7 @@ function printOutput(id) {
     + 'body{font-family:Arial,Helvetica,sans-serif;color:#000;}'
     + '.sheet{' + textCss + '}'
     + '.pbreak{page-break-before:always;break-before:page;height:0;}'
+    + ((gap !== null && gap !== '') ? dssGapRule('body', gap) : '')
     + '.bsheet{display:flex;width:297mm;height:210mm;overflow:hidden;}'
     + '.bsheet + .bsheet{page-break-before:always;break-before:page;}'
     + '.bslot{flex:0 0 148.5mm;width:148.5mm;height:210mm;overflow:hidden;box-sizing:border-box;'
@@ -6668,6 +6708,7 @@ function qpAddQuestion(){
   var paper = out.firstElementChild;
   var count = qpQuestionDivs(paper).length;
   var d = document.createElement('div');
+  d.className = 'qline';
   d.setAttribute('style','padding:5px 0 5px 4px;font-size:1em;line-height:1.7;border-bottom:1px dotted #eee;');
   d.textContent = (count + 1) + '. Type your question here...  ( ___ marks)';
   paper.appendChild(d);
