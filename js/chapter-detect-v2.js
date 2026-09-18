@@ -66,8 +66,13 @@
     var votes = {}, best = 0, bestN = 0;
     pages.forEach(function (p) {
       if (!p.text) return;
-      var firstLine = p.text.split('\n')[0];
-      var lastLine = p.text.split('\n').slice(-1)[0];
+      var lines = p.text.split('\n');
+      var firstLine = lines[0];
+      var lastLine = lines[lines.length - 1];
+      if (lines.length === 1) {              // flat page - use both ends
+        firstLine = p.text.substring(0, 40);
+        lastLine = p.text.substring(Math.max(0, p.text.length - 40));
+      }
       [firstLine, lastLine].forEach(function (line) {
         if (!line) return;
         var a = /^(\d{1,3})\b/.exec(line.trim());
@@ -91,24 +96,43 @@
   var TOC_LINE = /^\s*(\d{1,2})[.)]?\s+([^\d\n][^\n]*?)\s+(\d{1,3})\s*[-–—]\s*(\d{1,3})\s*$/;
   // Matches "1 Algebra 85" (start page only, no range)
   var TOC_LINE_START = /^\s*(\d{1,2})[.)]?\s+([^\d\n][^\n]*?)\s+(\d{1,3})\s*$/;
+  // Flat version of TOC_LINE for page text that has no line breaks at all
+  var TOC_FLAT = /(?:^|\s)(\d{1,2})\s+([A-Za-z\u0B80-\u0BFF][A-Za-z\u0B80-\u0BFF '&,\-]{2,60}?)\s+(\d{1,3})\s*[-\u2013\u2014]\s*(\d{1,3})(?=\s|$)/g;
 
   function fromContents(pages, map, totalPages, say) {
     var scan = pages.filter(function (p) { return p.n <= Math.min(25, totalPages); });
     var rows = [], usedRange = false;
 
+    // (a) one entry per line - works when the PDF reader kept line breaks
     scan.forEach(function (p) {
       p.text.split('\n').forEach(function (line) {
         var m = TOC_LINE.exec(line);
-        if (m) {
-          var title = cleanTitle(m[2]);
-          if (title.length < 3 || title.length > 70) return;
-          if (/^\d+\.\d/.test(title)) return;                 // sub-section like 3.2
-          rows.push({ number: parseInt(m[1], 10), title: title,
-                      pStart: parseInt(m[3], 10), pEnd: parseInt(m[4], 10) });
+        if (!m) return;
+        var title = cleanTitle(m[2]);
+        if (title.length < 3 || title.length > 70) return;
+        if (/^\d+\.\d/.test(title)) return;                 // sub-section like 3.2
+        rows.push({ number: parseInt(m[1], 10), title: title,
+                    pStart: parseInt(m[3], 10), pEnd: parseInt(m[4], 10) });
+        usedRange = true;
+      });
+    });
+
+    // (b) same thing on flat text - some PDF readers return a whole page as
+    // one long line with no breaks, so line-by-line above finds nothing
+    if (!rows.length) {
+      scan.forEach(function (p) {
+        var flat = p.text.replace(/\s+/g, ' ');
+        var m2;
+        TOC_FLAT.lastIndex = 0;
+        while ((m2 = TOC_FLAT.exec(flat)) !== null) {
+          var t2 = cleanTitle(m2[2]);
+          if (t2.length < 3 || t2.length > 70) continue;
+          rows.push({ number: parseInt(m2[1], 10), title: t2,
+                      pStart: parseInt(m2[3], 10), pEnd: parseInt(m2[4], 10) });
           usedRange = true;
         }
       });
-    });
+    }
 
     if (!rows.length) {
       scan.forEach(function (p) {
