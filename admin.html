@@ -1408,6 +1408,216 @@ async function tblRedetect(id, title, btn) {
   } finally { btn.disabled = false; }
 }
 
+// ============================================================
+//  EXERCISES AND EXAMPLES INSIDE A CHAPTER  (textbook_sections)
+//  Detected once here by the Super Admin. Every school's Math
+//  Class then reads this list instead of detecting it again, and
+//  a wrong page range fixed here is fixed for every school.
+// ============================================================
+var TBL_SEC_TABLE = 'textbook_sections';
+var TBL_SEC_KINDS = [['exercise', 'Exercise'], ['example', 'Examples'],
+                     ['unit_exercise', 'Unit Exercise'], ['mcq', 'Multiple Choice']];
+var TBL_SEC_SELECT = 'id,chapter_number,kind,label,sort_order,page_from,page_to';
+var TBL_SEC_ORDER = 'book_id=eq.';
+
+function tblExSay(id, text, colour) {
+  var el = document.getElementById('tbl-ex-' + id);
+  if (!el) return;
+  el.innerHTML = '';
+  var d = document.createElement('div');
+  d.style.cssText = 'font-size:.72rem;font-weight:700;color:' + (colour || '#888') + ';';
+  d.textContent = text;
+  el.appendChild(d);
+}
+
+async function tblExToggle(id) {
+  var el = document.getElementById('tbl-ex-' + id);
+  if (el.style.display === 'block') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  tblExSay(id, 'Loading...');
+  try {
+    var rows = await tblDB(TBL_SEC_TABLE, 'GET', null,
+      TBL_SEC_ORDER + id + '&order=chapter_number,sort_order&select=' + TBL_SEC_SELECT);
+    tblExRender(id, rows || []);
+  } catch(e) { tblExSay(id, 'Error: ' + e.message, '#c0392b'); }
+}
+
+// Reads the stored PDF once, then walks every chapter and finds the
+// Exercise / Examples / Unit Exercise blocks inside it.
+async function tblExDetect(id, title, btn) {
+  if (typeof window.tblBuildSections !== 'function') {
+    alert('This page is using an old copy of the chapter detector.\n\nHard refresh with Ctrl+Shift+R and try again.');
+    return;
+  }
+  if (!confirm('Find the exercises and examples in "' + title + '"?\n\nThe current exercise list for this book will be replaced.')) return;
+  var el = document.getElementById('tbl-ex-' + id);
+  el.style.display = 'block';
+  btn.disabled = true;
+  try {
+    tblExSay(id, 'Loading chapter list...');
+    var chs = await tblDB('textbook_chapters', 'GET', null,
+      'book_id=eq.' + id + '&order=chapter_number&select=chapter_number,page_from,page_to');
+    if (!chs || !chs.length) throw new Error('Detect the chapters first, then come back here.');
+    var bk = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=pdf_url&limit=1');
+    var pdfUrl = (bk && bk[0] && bk[0].pdf_url) || '';
+    if (!pdfUrl) throw new Error('This book has no stored PDF. Re-upload it first.');
+    tblExSay(id, 'Reading the PDF...');
+    var raw = await tblExtractPdfUrl(pdfUrl);
+    if (!raw || raw.length < 100) throw new Error('Could not read text from the stored PDF.');
+
+    var all = [];
+    for (var i = 0; i < chs.length; i++) {
+      tblExSay(id, 'Chapter ' + chs[i].chapter_number + ' of ' + chs.length + '...');
+      var secs = window.tblBuildSections(raw, { number: chs[i].chapter_number,
+        pageFrom: chs[i].page_from, pageTo: chs[i].page_to }) || [];
+      for (var j = 0; j < secs.length; j++) {
+        all.push({ book_id: id, source: 'library', chapter_number: chs[i].chapter_number,
+          kind: secs[j].kind, label: secs[j].label, sort_order: secs[j].sort_order,
+          page_from: secs[j].page_from, page_to: secs[j].page_to,
+          extracted_text: (secs[j].text || '').substring(0, 60000) });
+      }
+    }
+    if (!all.length) throw new Error('No exercises or examples were found. This book may use different headings.');
+
+    await tblDB(TBL_SEC_TABLE, 'DELETE', null, 'book_id=eq.' + id);
+    // Saved ten at a time - one call per row would take minutes on a big book.
+    for (var k = 0; k < all.length; k += 10) {
+      tblExSay(id, 'Saving ' + Math.min(k + 10, all.length) + ' of ' + all.length + '...');
+      await tblDB(TBL_SEC_TABLE, 'POST', all.slice(k, k + 10));
+    }
+    var fresh = await tblDB(TBL_SEC_TABLE, 'GET', null,
+      TBL_SEC_ORDER + id + '&order=chapter_number,sort_order&select=' + TBL_SEC_SELECT);
+    tblExRender(id, fresh || []);
+    var m = document.getElementById('tbl-exmsg-' + id);
+    if (m) { m.style.color = '#1a5c2a'; m.textContent = 'Found ' + all.length + ' blocks across ' + chs.length + ' chapters.'; }
+  } catch(e) {
+    tblExSay(id, 'Error: ' + e.message, '#c0392b');
+  } finally { btn.disabled = false; }
+}
+
+// Editable list, same idea as the chapter editor above.
+function tblExRender(id, rows) {
+  var el = document.getElementById('tbl-ex-' + id);
+  el.innerHTML = '';
+  var hint = document.createElement('div');
+  hint.style.cssText = 'font-size:.68rem;color:#888;margin-bottom:6px;line-height:1.5;';
+  hint.textContent = 'Chapter / Kind / Name / From page / To page. This is the list teachers pick from in Math Class. If you change the pages by hand, press Detect Exercises afterwards so the stored text matches.';
+  el.appendChild(hint);
+  var box = document.createElement('div');
+  box.id = 'tbl-exbox-' + id;
+  el.appendChild(box);
+  window._tblExOrig = window._tblExOrig || {};
+  window._tblExOrig[id] = rows.map(function(r) { return r.id; }).filter(Boolean);
+  if (!rows.length) tblExAddRow(id, {});
+  else rows.forEach(function(r) { tblExAddRow(id, r); });
+  var bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap;';
+  var addB = document.createElement('button');
+  addB.className = 'btn bp bsm'; addB.textContent = '+ Add';
+  addB.addEventListener('click', function() { tblExAddRow(id, {}); });
+  bar.appendChild(addB);
+  var saveB = document.createElement('button');
+  saveB.className = 'btn bp bsm'; saveB.textContent = 'Save Exercises';
+  saveB.addEventListener('click', function() { tblExSave(id, this); });
+  bar.appendChild(saveB);
+  var msg = document.createElement('span');
+  msg.id = 'tbl-exmsg-' + id;
+  msg.style.cssText = 'font-size:.7rem;font-weight:700;';
+  bar.appendChild(msg);
+  el.appendChild(bar);
+}
+
+function tblExAddRow(id, r) {
+  var box = document.getElementById('tbl-exbox-' + id);
+  if (!box) return;
+  var row = document.createElement('div');
+  row.className = 'tbl-exedit-row';
+  row.setAttribute('data-rowid', r.id || '');
+  row.style.cssText = 'display:grid;grid-template-columns:34px 80px 1fr 46px 46px 24px;gap:4px;margin-bottom:4px;align-items:center;';
+  function mk(val, ph, field) {
+    var i = document.createElement('input');
+    i.value = (val === 0 || val) ? val : '';
+    i.placeholder = ph;
+    i.setAttribute('data-f', field);
+    i.style.cssText = 'padding:5px 6px;font-size:.72rem;border:1px solid #ddd;border-radius:5px;font-family:inherit;min-width:0;width:100%;box-sizing:border-box;';
+    return i;
+  }
+  row.appendChild(mk(r.chapter_number, 'Ch', 'ch'));
+  var sel = document.createElement('select');
+  sel.setAttribute('data-f', 'kind');
+  sel.style.cssText = 'padding:4px;font-size:.68rem;border:1px solid #ddd;border-radius:5px;font-family:inherit;min-width:0;width:100%;box-sizing:border-box;';
+  TBL_SEC_KINDS.forEach(function(k) {
+    var o = document.createElement('option');
+    o.value = k[0]; o.textContent = k[1];
+    if ((r.kind || 'exercise') === k[0]) o.selected = true;
+    sel.appendChild(o);
+  });
+  row.appendChild(sel);
+  row.appendChild(mk(r.label, 'Name shown to teacher', 'label'));
+  row.appendChild(mk(r.page_from, 'From', 'from'));
+  row.appendChild(mk(r.page_to, 'To', 'to'));
+  var x = document.createElement('button');
+  x.className = 'btn br bsm';
+  x.textContent = '\u00d7';
+  x.style.cssText = 'padding:2px 0;font-size:.8rem;line-height:1;';
+  x.addEventListener('click', function() { row.remove(); });
+  row.appendChild(x);
+  box.appendChild(row);
+}
+
+async function tblExSave(id, btn) {
+  var msg = document.getElementById('tbl-exmsg-' + id);
+  var box = document.getElementById('tbl-exbox-' + id);
+  if (!box || !msg) return;
+  var rows = box.querySelectorAll('.tbl-exedit-row');
+  var out = [], keptIds = [], seenPerCh = {};
+  for (var i = 0; i < rows.length; i++) {
+    var flds = rows[i].querySelectorAll('input,select');
+    var o = {};
+    for (var j = 0; j < flds.length; j++) o[flds[j].getAttribute('data-f')] = String(flds[j].value || '').trim();
+    if (!o.label && !o.from && !o.to) continue;
+    var ch = parseInt(o.ch, 10), pf = parseInt(o.from, 10), pt = parseInt(o.to, 10);
+    if (!ch) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': chapter number is needed.'; return; }
+    if (!pf || !pt) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': From and To pages are needed.'; return; }
+    if (pt < pf) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': To page is before From page.'; return; }
+    seenPerCh[ch] = (seenPerCh[ch] || 0) + 1;
+    var rid = rows[i].getAttribute('data-rowid') || '';
+    if (rid) keptIds.push(rid);
+    out.push({ rid: rid, chapter_number: ch, kind: o.kind || 'exercise',
+               label: o.label || 'Untitled', sort_order: seenPerCh[ch],
+               page_from: pf, page_to: pt });
+  }
+  if (!out.length) { msg.style.color = '#c0392b'; msg.textContent = 'Nothing to save.'; return; }
+  btn.disabled = true; msg.style.color = '#888'; msg.textContent = 'Saving...';
+  try {
+    for (var k = 0; k < out.length; k++) {
+      var payload = { chapter_number: out[k].chapter_number, kind: out[k].kind,
+                      label: out[k].label, sort_order: out[k].sort_order,
+                      page_from: out[k].page_from, page_to: out[k].page_to };
+      if (out[k].rid) {
+        await tblDB(TBL_SEC_TABLE, 'PATCH', payload, 'id=eq.' + out[k].rid);
+      } else {
+        payload.book_id = id;
+        payload.source = 'library';
+        await tblDB(TBL_SEC_TABLE, 'POST', payload);
+      }
+    }
+    var orig = (window._tblExOrig && window._tblExOrig[id]) || [];
+    for (var d = 0; d < orig.length; d++) {
+      if (keptIds.indexOf(orig[d]) === -1) {
+        await tblDB(TBL_SEC_TABLE, 'DELETE', null, 'id=eq.' + orig[d]);
+      }
+    }
+    var fresh = await tblDB(TBL_SEC_TABLE, 'GET', null,
+      TBL_SEC_ORDER + id + '&order=chapter_number,sort_order&select=' + TBL_SEC_SELECT);
+    tblExRender(id, fresh || []);
+    var m2 = document.getElementById('tbl-exmsg-' + id);
+    if (m2) { m2.style.color = '#1a5c2a'; m2.textContent = 'Saved ' + out.length + ' blocks.'; }
+  } catch(e) {
+    msg.style.color = '#c0392b'; msg.textContent = 'Error: ' + e.message;
+  } finally { btn.disabled = false; }
+}
+
 async function tblLoadBooks() {
   var grid = document.getElementById('tbl-book-grid');
   var none = document.getElementById('tbl-none');
@@ -1428,6 +1638,7 @@ async function tblLoadBooks() {
       var b3 = document.createElement('span'); b3.style.cssText = 'font-size:.7rem;color:#888;'; b3.textContent = (book.total_pages||0) + ' pages'; meta.appendChild(b3);
       card.appendChild(meta);
       var chDiv = document.createElement('div'); chDiv.id = 'tbl-ch-' + book.id; chDiv.style.display = 'none'; card.appendChild(chDiv);
+      var exDiv = document.createElement('div'); exDiv.id = 'tbl-ex-' + book.id; exDiv.style.display = 'none'; card.appendChild(exDiv);
       var acts = document.createElement('div'); acts.style.cssText = 'display:flex;gap:6px;margin-top:8px;';
       var chBtn = document.createElement('button'); chBtn.className = 'btn bp bsm'; chBtn.textContent = 'Chapters';
       chBtn.setAttribute('data-id', book.id);
@@ -1437,6 +1648,14 @@ async function tblLoadBooks() {
       reBtn.setAttribute('data-id', book.id); reBtn.setAttribute('data-title', book.title || '');
       reBtn.addEventListener('click', function() { tblRedetect(this.getAttribute('data-id'), this.getAttribute('data-title'), this); });
       acts.appendChild(reBtn);
+      var exBtn = document.createElement('button'); exBtn.className = 'btn bp bsm'; exBtn.textContent = 'Exercises';
+      exBtn.setAttribute('data-id', book.id);
+      exBtn.addEventListener('click', function() { tblExToggle(this.getAttribute('data-id')); });
+      acts.appendChild(exBtn);
+      var exdBtn = document.createElement('button'); exdBtn.className = 'btn bp bsm'; exdBtn.textContent = 'Detect Exercises';
+      exdBtn.setAttribute('data-id', book.id); exdBtn.setAttribute('data-title', book.title || '');
+      exdBtn.addEventListener('click', function() { tblExDetect(this.getAttribute('data-id'), this.getAttribute('data-title'), this); });
+      acts.appendChild(exdBtn);
       var delBtn = document.createElement('button'); delBtn.className = 'btn br bsm'; delBtn.textContent = 'Delete';
       delBtn.setAttribute('data-id', book.id); delBtn.setAttribute('data-title', book.title||'');
       delBtn.addEventListener('click', function() { tblDelete(this.getAttribute('data-id'), this.getAttribute('data-title')); });
