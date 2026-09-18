@@ -1485,6 +1485,12 @@ async function tblExDetect(id, title, btn) {
       tblExSay(id, 'Saving ' + Math.min(k + 10, all.length) + ' of ' + all.length + '...');
       await tblDB(TBL_SEC_TABLE, 'POST', all.slice(k, k + 10));
     }
+    // Do not trust "saved" - count what is actually in the table now.
+    var check = await tblDB(TBL_SEC_TABLE, 'GET', null, 'book_id=eq.' + id + '&select=id');
+    var got = (check && check.length) || 0;
+    if (got < all.length) {
+      throw new Error('Only ' + got + ' of ' + all.length + ' blocks were stored. Nothing was lost in the book - press Detect Exercises again, and if it repeats, send this message on.');
+    }
     var fresh = await tblDB(TBL_SEC_TABLE, 'GET', null,
       TBL_SEC_ORDER + id + '&order=chapter_number,sort_order&select=' + TBL_SEC_SELECT);
     tblExRender(id, fresh || []);
@@ -1507,7 +1513,9 @@ function tblExRender(id, rows) {
   box.id = 'tbl-exbox-' + id;
   el.appendChild(box);
   window._tblExOrig = window._tblExOrig || {};
-  window._tblExOrig[id] = rows.map(function(r) { return r.id; }).filter(Boolean);
+  // This table's ids are numbers, and data-rowid comes back as a string,
+  // so both sides of the "was this row kept?" test are held as strings.
+  window._tblExOrig[id] = rows.map(function(r) { return String(r.id || ''); }).filter(Boolean);
   if (!rows.length) tblExAddRow(id, {});
   else rows.forEach(function(r) { tblExAddRow(id, r); });
   var bar = document.createElement('div');
@@ -1582,7 +1590,7 @@ async function tblExSave(id, btn) {
     if (pt < pf) { msg.style.color = '#c0392b'; msg.textContent = 'Row ' + (i + 1) + ': To page is before From page.'; return; }
     seenPerCh[ch] = (seenPerCh[ch] || 0) + 1;
     var rid = rows[i].getAttribute('data-rowid') || '';
-    if (rid) keptIds.push(rid);
+    if (rid) keptIds.push(String(rid));
     out.push({ rid: rid, chapter_number: ch, kind: o.kind || 'exercise',
                label: o.label || 'Untitled', sort_order: seenPerCh[ch],
                page_from: pf, page_to: pt });
@@ -1604,7 +1612,7 @@ async function tblExSave(id, btn) {
     }
     var orig = (window._tblExOrig && window._tblExOrig[id]) || [];
     for (var d = 0; d < orig.length; d++) {
-      if (keptIds.indexOf(orig[d]) === -1) {
+      if (keptIds.indexOf(String(orig[d])) === -1) {
         await tblDB(TBL_SEC_TABLE, 'DELETE', null, 'id=eq.' + orig[d]);
       }
     }
