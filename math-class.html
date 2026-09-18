@@ -6466,17 +6466,127 @@ var MC_LESSON = null;      // Activated Maths lesson from Teacher Panel (mc_acti
 
 // Split the activated lesson text into individual questions via AI,
 // then reuse the same review screen (tick + edit) as the photo flow.
-async function loadQuestionsFromLesson(){
-  if(!MC_LESSON || !MC_LESSON.lessonText || MC_LESSON.lessonText.length < 20){
-    showError('No lesson text found. Please re-activate the Maths lesson from Teacher Panel \u2192 My Books, then come back.');
-    return;
+// ===========================================================
+//  WHICH PART OF THE CHAPTER?  (textbook_sections)
+//  The activated lesson knows its book and its page range, so the
+//  exercises and example sets of that chapter are looked up and the
+//  teacher picks one. Only that block's text goes to the AI, so the
+//  questions come out complete and in the book's order.
+//  If the book has no detected blocks, the old whole-lesson split runs.
+// ===========================================================
+var MC_BLOCKS = [];
+
+async function mcFetchBlocks(){
+  if(!MC_LESSON || !MC_LESSON.bookId || !MC_LESSON.pageFrom || !MC_LESSON.pageTo) return [];
+  try{
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'tbl_get', table:'textbook_sections',
+        params:'book_id=eq.' + encodeURIComponent(MC_LESSON.bookId)
+             + '&page_from=gte.' + parseInt(MC_LESSON.pageFrom, 10)
+             + '&page_to=lte.' + parseInt(MC_LESSON.pageTo, 10)
+             + '&order=page_from&select=id,kind,label,page_from,page_to' }) });
+    var d = await r.json();
+    var rows = Array.isArray(d) ? d : [];
+    return rows.filter(function(x){ return x && x.id && x.label; });
+  }catch(e){ return []; }
+}
+
+function mcShowBlockPicker(blocks){
+  MC_BLOCKS = blocks;
+  var old = document.getElementById('mc-block-pick');
+  if(old) old.parentNode.removeChild(old);
+  var ov = document.createElement('div');
+  ov.id = 'mc-block-pick';
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#2A0A0F;border:2px solid #C9A84C;border-radius:16px;max-width:520px;width:100%;max-height:85vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
+  var h = document.createElement('div');
+  h.style.cssText = 'font-size:1.05rem;font-weight:800;color:#C9A84C;margin-bottom:4px;';
+  h.textContent = 'What do you want to teach?';
+  box.appendChild(h);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:0.8rem;color:#E8C99A;opacity:0.85;margin-bottom:13px;line-height:1.5;';
+  sub.textContent = ((MC_LESSON && MC_LESSON.chapter) ? MC_LESSON.chapter : 'This chapter')
+    + ' - pick one exercise or example set from the book.';
+  box.appendChild(sub);
+
+  function addBtn(text, onClick, plain){
+    var b = document.createElement('button');
+    b.style.cssText = 'display:block;width:100%;text-align:left;padding:11px 13px;margin-bottom:7px;'
+      + 'border:2px solid ' + (plain ? 'rgba(232,201,154,0.35)' : '#C9A84C') + ';border-radius:10px;'
+      + 'background:' + (plain ? 'transparent' : 'rgba(201,168,76,0.12)') + ';font-family:inherit;'
+      + 'font-size:0.9rem;font-weight:700;color:#F5E6C8;cursor:pointer;';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    box.appendChild(b);
   }
+
+  blocks.forEach(function(b){
+    addBtn(b.label + '   (pages ' + b.page_from + '-' + b.page_to + ')', function(){
+      if(ov.parentNode) ov.parentNode.removeChild(ov);
+      mcTeachBlock(b);
+    });
+  });
+  addBtn('Whole chapter text instead', function(){
+    if(ov.parentNode) ov.parentNode.removeChild(ov);
+    mcLoadWholeLesson();
+  }, true);
+  addBtn('Cancel', function(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }, true);
+
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+async function mcTeachBlock(b){
   hideError();
   $('loading').classList.add('show');
   var lt = document.querySelector('.loading-text');
   var ls = document.querySelector('.loading-sub');
-  if(lt) lt.textContent = 'Reading questions from the lesson...';
-  if(ls) ls.textContent = 'AI is splitting the activated lesson into individual questions. This takes a few seconds.';
+  if(lt) lt.textContent = 'Reading ' + b.label + '...';
+  if(ls) ls.textContent = 'Taking the questions straight from those pages of the book.';
+  var txt = '';
+  try{
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'tbl_get', table:'textbook_sections',
+        params:'id=eq.' + encodeURIComponent(b.id) + '&select=extracted_text&limit=1' }) });
+    var d = await r.json();
+    var rows = Array.isArray(d) ? d : [];
+    txt = (rows[0] && rows[0].extracted_text) ? String(rows[0].extracted_text) : '';
+  }catch(e){ txt = ''; }
+  if(txt.trim().length < 30){
+    $('loading').classList.remove('show');
+    showError('No text stored for ' + b.label + '. Ask the admin to press "Detect Exercises" for this book in the Super Admin panel, or use the photo upload.');
+    return;
+  }
+  await mcSplitQuestions(txt, b.label, b.kind);
+}
+
+async function loadQuestionsFromLesson(){
+  hideError();
+  $('loading').classList.add('show');
+  var lt0 = document.querySelector('.loading-text');
+  if(lt0) lt0.textContent = 'Checking the book...';
+  var blocks = await mcFetchBlocks();
+  $('loading').classList.remove('show');
+  if(blocks.length){ mcShowBlockPicker(blocks); return; }
+  await mcLoadWholeLesson();
+}
+
+async function mcLoadWholeLesson(){
+  if(!MC_LESSON || !MC_LESSON.lessonText || MC_LESSON.lessonText.length < 20){
+    showError('No lesson text found. Please re-activate the Maths lesson from Teacher Panel \u2192 My Books, then come back.');
+    return;
+  }
+  await mcSplitQuestions(MC_LESSON.lessonText, '', '');
+}
+
+async function mcSplitQuestions(lessonText, label, kind){
+  hideError();
+  $('loading').classList.add('show');
+  var lt = document.querySelector('.loading-text');
+  var ls = document.querySelector('.loading-sub');
+  if(lt) lt.textContent = label ? ('Reading ' + label + '...') : 'Reading questions from the lesson...';
+  if(ls) ls.textContent = 'Splitting the book text into individual questions. This takes a few seconds.';
 
   try{
     var sys = 'You read maths textbook exercise text and split it into individual questions. '
@@ -6489,9 +6599,14 @@ async function loadQuestionsFromLesson(){
       + '- Remove question numbers like "3." or "Q5)" from the start of each question.\n'
       + '- If a question refers to a figure or diagram whose values are NOT in the text, still include the question but start it with the tag [FIGURE] so the teacher can add the missing values.\n'
       + '- If a question has sub-parts (a), (b), keep them together as ONE question.\n'
-      + '- Skip explanations, definitions, solved examples and answers - questions ONLY.\n'
+      + ((kind === 'example')
+          ? '- This text is a set of WORKED EXAMPLES. Take the question statement of each example and leave out the printed solution.\n'
+          : '- Skip explanations, definitions, solved examples and answers - questions ONLY.\n')
+      + '- If a question has multiple choice options (A) (B) (C) (D), keep the options with the question.\n'
+      + '- Keep the questions in the same order as the book, and do not leave any out.\n'
       + '- If no questions are found, return {"questions":[]}\n\n'
-      + 'TEXTBOOK TEXT:\n' + MC_LESSON.lessonText;
+      + (label ? ('This text is "' + label + '" from the textbook.\n\n') : '')
+      + 'TEXTBOOK TEXT:\n' + lessonText;
 
     var resp = await fetch('/api/ai', {
       method: 'POST',
@@ -6499,7 +6614,7 @@ async function loadQuestionsFromLesson(){
       body: JSON.stringify({
         system: sys,
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 3000
+        max_tokens: 8000
       })
     });
     if(!resp.ok) throw new Error('API error ' + resp.status);
@@ -6519,7 +6634,7 @@ async function loadQuestionsFromLesson(){
 
     $('loading').classList.remove('show');
     if(qs.length === 0){
-      showError('No questions were found in this lesson\'s pages. Please check the page range in Teacher Panel, or use the photo upload instead.');
+      showError('No questions were found in ' + (label || 'this lesson') + '. Please check the page range in Teacher Panel, or use the photo upload instead.');
       return;
     }
     showReviewScreen(qs);
