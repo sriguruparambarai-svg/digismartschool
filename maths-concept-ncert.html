@@ -319,6 +319,7 @@ function handOffToRich(topic){
    is taught from the book's own words and examples. If not, the lesson is
    built from the chapter name exactly as before — nothing breaks either way. */
 var CH_TEXT = '';
+var CH_MATCH = '';   // which library chapter the text came from
 
 async function loadChapterText(){
   CH_TEXT = '';
@@ -332,7 +333,7 @@ async function loadChapterText(){
       })
     });
     var d = await r.json();
-    if(d && d.found && d.text) CH_TEXT = String(d.text);
+    if(d && d.found && d.text){ CH_TEXT = String(d.text); CH_MATCH = String(d.matched_title || ''); }
   } catch(e){}
   return CH_TEXT;
 }
@@ -346,7 +347,11 @@ function cacheTopicKey(){
 
 // A lesson taught from the book is a different lesson from one taught from
 // the chapter name, so each is saved separately.
-function lessonVer(){ return CH_TEXT ? (LESSON_VER + '-book') : LESSON_VER; }
+function lessonVer(){
+  if(!CH_TEXT) return LESSON_VER;
+  var tag = CH_MATCH.toLowerCase().replace(/[^a-z0-9]+/g,'').substring(0,14);
+  return LESSON_VER + '-b-' + tag;
+}
 
 async function getSavedLesson(){
   try {
