@@ -889,7 +889,65 @@ async function startClass(){
 }
 
 /* ════════ WIRING ════════ */
+
+/* ════════ CLASS BAND ════════
+   This page is shared by two entry points:
+     Teach  -> 'primary'    : Class 1 to 5, concept and activity teaching
+     Foundation -> 'foundation' : Class 6 up, NCERT concepts for JEE/NEET
+   Opened directly (no band saved), every class stays on the list. */
+var CONCEPT_BAND = '';
+try { CONCEPT_BAND = sessionStorage.getItem('concept_band') || ''; } catch(e){}
+
+function bandClassOk(n){
+  if (CONCEPT_BAND === 'foundation') return n >= 6;
+  if (CONCEPT_BAND === 'primary')    return n <= 5;
+  return true;
+}
+
+function applyConceptBand(){
+  var sel = document.getElementById('sel-class');
+  if (sel) {
+    var opts = Array.prototype.slice.call(sel.options);
+    opts.forEach(function(o){
+      var m = String(o.value || o.text).match(/(\d+)/);
+      if (!m) return;                       // keep "Select Class"
+      if (!bandClassOk(parseInt(m[1], 10))) o.parentNode.removeChild(o);
+    });
+  }
+  var sub = document.querySelector('p.sub');
+  if (sub) {
+    if (CONCEPT_BAND === 'foundation') sub.textContent = 'Foundation — JEE / NEET · NCERT concepts, Class 6 onwards';
+    else if (CONCEPT_BAND === 'primary') sub.textContent = 'Concepts and activities for young children — no book upload needed';
+  }
+}
+
+/* Foundation is a paid add-on, so the page checks the school's switch itself.
+   Knowing the page link is not enough to open it. */
+async function guardFoundation(){
+  if (CONCEPT_BAND !== 'foundation') return;
+  var schoolId = '';
+  try { var u = JSON.parse(localStorage.getItem('dss_user') || '{}'); schoolId = u.school_id || u.id || ''; } catch(e){}
+  if (!schoolId) return;                    // cannot tell — let the page work
+  try {
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'get_school_sources', school_id: schoolId }) });
+    var d = await r.json();
+    if (d && d.has_foundation === true) return;
+  } catch(e){ return; }                     // offline or error — let the page work
+  var setup = document.getElementById('setup');
+  if (setup) {
+    setup.innerHTML = '<h1>Foundation — JEE / NEET</h1>'
+      + '<p class="sub">This part is not included in your school\'s plan yet.</p>'
+      + '<div class="setup-card"><div class="muted" style="line-height:1.8;">'
+      + 'Foundation concept classes are an add-on. Ask your school administrator to have it switched on.'
+      + '</div></div>';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', function(){
+  applyConceptBand();
+  guardFoundation();
+
 
   $('sel-class').addEventListener('change', function(){
     CLS = this.value;
