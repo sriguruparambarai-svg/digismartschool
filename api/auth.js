@@ -571,23 +571,25 @@ module.exports = async function(req2, res) {
       return res.json({ success: true });
     }
 
-    // ── SCHOOL CONTENT SOURCES (Text-based / Samacheer / Image-based) ──
-    // Returns which of the three upload sources this school is allowed to use.
+    // ── SCHOOL CONTENT SOURCES (Text-based / Samacheer / NCERT / Image-based / Foundation) ──
+    // Returns which content sources and add-ons this school is allowed to use.
+    // Samacheer, NCERT and Foundation are independent — a school may have any
+    // combination (e.g. Samacheer books + Foundation courses).
     if (action === 'get_school_sources') {
       const { school_id } = body;
-      if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false });
+      if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false, has_ncert: false, has_foundation: false });
       // A school can be identified two ways: its short code (school_id text column)
       // or its system UUID (id column). Admin saves against the UUID, TeachBot may send
       // the short code. Resolve either form to the same school so both always match.
       let row = {};
       let canonicalId = school_id;
-      const byCode = await req('GET', '/rest/v1/schools?school_id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload&limit=1');
+      const byCode = await req('GET', '/rest/v1/schools?school_id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation&limit=1');
       if (byCode.data && byCode.data[0]) {
         row = byCode.data[0];
         canonicalId = row.id;
       } else if (/^[0-9a-fA-F-]{36}$/.test(school_id)) {
         // Looks like a UUID — safe to query the id column
-        const byId = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload&limit=1');
+        const byId = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation&limit=1');
         if (byId.data && byId.data[0]) {
           row = byId.data[0];
           canonicalId = row.id;
@@ -604,15 +606,27 @@ module.exports = async function(req2, res) {
         success: true,
         has_text_upload: row.has_text_upload !== false,
         has_samacheer: hasSam,
-        has_image_upload: row.has_image_upload === true
+        has_image_upload: row.has_image_upload === true,
+        // Both default to OFF, so every existing school is unaffected until
+        // Super Admin switches them on.
+        has_ncert: row.has_ncert_library === true,
+        has_foundation: row.has_foundation === true
       });
     }
 
-    // Admin flips a text-based or image-based source on/off for one school.
+    // Admin flips a content source or add-on on/off for one school.
+    // source: 'text' | 'image' | 'ncert' | 'foundation'
+    // ('samacheer' is not here — it stays in the school_library_access table.)
     if (action === 'set_school_source') {
       const { school_id, source, enabled } = body;
       if (!school_id || !source) return res.json({ error: 'school_id and source required' });
-      const col = source === 'text' ? 'has_text_upload' : (source === 'image' ? 'has_image_upload' : null);
+      const SOURCE_COLS = {
+        text: 'has_text_upload',
+        image: 'has_image_upload',
+        ncert: 'has_ncert_library',
+        foundation: 'has_foundation'
+      };
+      const col = SOURCE_COLS[source] || null;
       if (!col) return res.json({ error: 'invalid source' });
       const patch = {}; patch[col] = !!enabled;
       const r = await req('PATCH', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id), patch);
