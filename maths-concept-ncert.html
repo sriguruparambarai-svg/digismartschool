@@ -314,6 +314,29 @@ function handOffToRich(topic){
   window.location.href = 'maths-concept.html';
 }
 
+/* ════════ BOOK TEXT ════════
+   If this chapter's NCERT book has been uploaded in Super Admin, the lesson
+   is taught from the book's own words and examples. If not, the lesson is
+   built from the chapter name exactly as before — nothing breaks either way. */
+var CH_TEXT = '';
+
+async function loadChapterText(){
+  CH_TEXT = '';
+  try {
+    var r = await fetch('/api/syllabus', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:'chapter_text', board:'NCERT', cls: CLS, subject:'Maths',
+        chapter_number: CHAPTER ? CHAPTER.chapter_number : '',
+        chapter_title:  CHAPTER ? CHAPTER.chapter_title  : ''
+      })
+    });
+    var d = await r.json();
+    if(d && d.found && d.text) CH_TEXT = String(d.text);
+  } catch(e){}
+  return CH_TEXT;
+}
+
 /* ════════ LESSON BUILDING ════════ */
 function cacheTopicKey(){
   // Stable across schools and wording: class + chapter number + title.
@@ -321,13 +344,17 @@ function cacheTopicKey(){
        + String(CHAPTER.chapter_title || '').toLowerCase().replace(/\s+/g,'-');
 }
 
+// A lesson taught from the book is a different lesson from one taught from
+// the chapter name, so each is saved separately.
+function lessonVer(){ return CH_TEXT ? (LESSON_VER + '-book') : LESSON_VER; }
+
 async function getSavedLesson(){
   try {
     var r = await fetch('/api/concept-cache', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         action:'get', board:'NCERT', cls: CLS, subject:'Maths',
-        topic: cacheTopicKey(), lang: LANG, ver: LESSON_VER
+        topic: cacheTopicKey(), lang: LANG, ver: lessonVer()
       })
     });
     var d = await r.json();
@@ -342,7 +369,7 @@ function saveLesson(steps){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         action:'save', board:'NCERT', cls: CLS, subject:'Maths',
-        topic: cacheTopicKey(), lang: LANG, ver: LESSON_VER,
+        topic: cacheTopicKey(), lang: LANG, ver: lessonVer(),
         narration: { steps: steps }
       })
     }).catch(function(){});
@@ -372,7 +399,12 @@ async function buildLesson(){
       'You are a warm, patient Tamil Nadu school teacher taking a ' + CLS + ' maths class.\n'
     + 'Board: NCERT / CBSE. Book: "' + book + '". Chapter ' + chNum + ': "' + chTitle + '".\n\n'
     + 'Teach the CONCEPT of this chapter — the idea behind it — not the exercises from the book. '
-    + 'You have not seen the book. Teach what a ' + CLS + ' child needs to understand this topic.\n\n'
+    + (CH_TEXT
+        ? ('Below is the actual text of this NCERT chapter. Teach the concept the way the book '
+         + 'builds it, using the book\'s own examples, names and order of ideas, in your own '
+         + 'teaching words. Do not read the book aloud and do not work through its exercises.\n\n'
+         + 'CHAPTER TEXT:\n' + CH_TEXT + '\n\n')
+        : ('You have not seen the book. Teach what a ' + CLS + ' child needs to understand this topic.\n\n'))
     + 'Build the lesson as 8 to 14 steps. Each step is one small idea, taught in order, '
     + 'building from what the child already knows to the new idea.\n\n'
     + 'RULES:\n'
@@ -863,6 +895,7 @@ async function startClass(){
   $('loading-msg').textContent = 'Getting the class ready…';
   $('loading-sub').textContent = '';
 
+  await loadChapterText();
   STEPS = await getSavedLesson();
 
   if(!STEPS){
