@@ -134,32 +134,63 @@ module.exports = async (req2, res) => {
       if (!rows.length) return res.status(200).json({ ok: true, found: false });
 
       const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-      const wantNum = parseInt(body.chapter_number, 10);
       const wantTitle = norm(body.chapter_title);
+      if (!wantTitle) return res.status(200).json({ ok: true, found: false });
 
-      // Best match first by title, then by chapter number — a book uploaded
-      // chapter by chapter may be numbered by file order, so the title is
-      // the more reliable of the two.
+      // Match by NAME only. Chapter numbers are never used: a book uploaded
+      // file by file is numbered by file order, so one extra file (front
+      // matter, for example) would shift every chapter and teach the wrong
+      // lesson. No match means the lesson is taught from the chapter name,
+      // which is right, rather than from the wrong chapter, which is not.
       let hit = null;
-      if (wantTitle) {
-        hit = rows.find((c) => norm(c.chapter_title) === wantTitle)
-           || rows.find((c) => {
-                const t = norm(c.chapter_title);
-                return t && wantTitle && (t.includes(wantTitle) || wantTitle.includes(t));
-              });
+      let text = '';
+
+      // 1. The chapter row is named the same as the syllabus chapter.
+      hit = rows.find((c) => norm(c.chapter_title) === wantTitle) || null;
+
+      // 2. The chapter name appears inside a file's text. NCERT often puts
+      //    several lessons in one unit file, and files uploaded one per
+      //    chapter carry a file name rather than a real title, so this is
+      //    the match that usually works. The text is cut from where the
+      //    chapter actually starts.
+      if (!hit) {
+        let best = null;
+        for (const c of rows) {
+          const flat = norm(c.extracted_text);
+          if (!flat) continue;
+          const at = flat.indexOf(wantTitle);
+          if (at === -1) continue;
+          if (!best || at < best.at) best = { row: c, at: at };
+        }
+        if (best) {
+          hit = best.row;
+          const raw = String(best.row.extracted_text)
+            .replace(/\[Page \d+\]/g, ' ').replace(/\s+/g, ' ').trim();
+          // Line the cut up with the cleaned text, then start a little before
+          // the title so the chapter opening is not lost.
+          const flatRaw = norm(raw);
+          const at = flatRaw.indexOf(wantTitle);
+          const from = at === -1 ? 0 : Math.max(0, at - 200);
+          text = raw.substring(from, from + 9000);
+        }
       }
-      if (!hit && !isNaN(wantNum)) {
-        hit = rows.find((c) => parseInt(c.chapter_number, 10) === wantNum);
+
+      // 3. A long chapter name that clearly contains, or is contained by,
+      //    a row's title. Short names are skipped — "Light" would match
+      //    almost anything.
+      if (!hit && wantTitle.length >= 8) {
+        hit = rows.find((c) => {
+          const t = norm(c.chapter_title);
+          return t.length >= 8 && (t.includes(wantTitle) || wantTitle.includes(t));
+        }) || null;
       }
+
       if (!hit || !hit.extracted_text) return res.status(200).json({ ok: true, found: false });
 
-      // Trim: a full chapter can be very long, and the lesson only needs the
-      // teaching content, not every exercise.
-      const text = String(hit.extracted_text)
-        .replace(/\[Page \d+\]/g, ' ')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .substring(0, 9000);
+      if (!text) {
+        text = String(hit.extracted_text)
+          .replace(/\[Page \d+\]/g, ' ').replace(/\s+/g, ' ').trim().substring(0, 9000);
+      }
 
       return res.status(200).json({
         ok: true, found: text.length > 200,
