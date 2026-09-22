@@ -201,6 +201,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
     <span class="grow" style="flex:1"></span>
     <button class="c-btn" id="btn-voice">🔊 Voice</button>
     <button class="c-btn" id="btn-lang">EN</button>
+    <button class="c-btn" id="btn-practice" style="display:none;">🎯 Practice</button>
     <button class="c-btn" id="btn-new">New</button>
   </div>
 </div>
@@ -883,6 +884,186 @@ function goNext(){ if(IDX < STEPS.length - 1){ SEQ++; stopAudio(); runStep(IDX +
 function goPrev(){ if(IDX > 0){ SEQ++; stopAudio(); runStep(IDX - 1); } }
 function replay(){ SEQ++; stopAudio(); runStep(IDX); }
 
+/* ════════ PRACTICE QUESTIONS ════════
+   Shown only in the Foundation panel (Class 6 up). Four questions on the
+   same chapter, in competitive-exam style, asked one at a time with the
+   reason shown after the class answers. Questions are written once and
+   saved for every school, exactly like the lesson itself. */
+var PRACTICE = null, PQ_IDX = 0;
+
+function practiceTopicKey(){ return cacheTopicKey() + '__q'; }
+
+async function getSavedPractice(){
+  try {
+    var r = await fetch('/api/concept-cache', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:'get', board:'NCERT', cls: CLS, subject:'Maths',
+        topic: practiceTopicKey(), lang:'english', ver: lessonVer()
+      })
+    });
+    var d = await r.json();
+    if(d && d.found && d.map && d.map.steps && d.map.steps.length) return d.map.steps;
+  } catch(e){}
+  return null;
+}
+
+function savePractice(qs){
+  try {
+    fetch('/api/concept-cache', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        action:'save', board:'NCERT', cls: CLS, subject:'Maths',
+        topic: practiceTopicKey(), lang:'english', ver: lessonVer(),
+        narration: { steps: qs }
+      })
+    }).catch(function(){});
+  } catch(e){}
+}
+
+async function buildPractice(){
+  var chTitle = CHAPTER ? (CHAPTER.chapter_title || '') : '';
+  var prompt =
+      'You are setting foundation-level practice questions for a ' + CLS + ' student in India '
+    + 'who is starting to prepare for JEE and NEET.\n'
+    + 'Chapter: "' + chTitle + '" (NCERT).\n\n'
+    + (CH_TEXT ? ('Use only ideas that appear in this chapter text:\n' + CH_TEXT.substring(0, 5000) + '\n\n') : '')
+    + 'Write 4 multiple-choice questions on this chapter.\n'
+    + 'RULES:\n'
+    + '1. Test understanding of the idea, not memory of a line from the book.\n'
+    + '2. Question 1 easy, questions 2 and 3 medium, question 4 harder — the kind that '
+    + 'makes a student think, but still fair for ' + CLS + '.\n'
+    + '3. Exactly 4 options each. Wrong options must be believable mistakes a student '
+    + 'really makes, not silly answers.\n'
+    + '4. Plain text only. No markdown, no LaTeX. Keep each option under 40 characters.\n'
+    + '5. why — one short sentence saying why the right answer is right.\n\n'
+    + 'For each question give: q, options (array of 4), answer (0 to 3), why.\n'
+    + 'Return ONLY a JSON array. Start with [ and end with ].';
+
+  var r = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      system: 'You return ONLY a valid JSON array. No markdown fences, no preamble, no text after the array.',
+      messages: [{ role:'user', content: prompt }],
+      max_tokens: 1800
+    })
+  });
+  var d = await r.json();
+  // Same reply shapes the lesson builder already handles.
+  var txt = '';
+  if(Array.isArray(d.content)) txt = d.content.map(function(x){ return x.text || ''; }).join('');
+  else txt = d.completion || d.text || d.content || '';
+  if(typeof txt !== 'string') txt = JSON.stringify(txt);
+  txt = txt.replace(/```json/gi, '').replace(/```/g, '').trim();
+  var a = txt.indexOf('['), b = txt.lastIndexOf(']');
+  if(a === -1 || b === -1) throw new Error('Questions came back in an unexpected form');
+  var arr = JSON.parse(txt.substring(a, b + 1));
+  return arr.filter(function(q){
+    return q && q.q && Array.isArray(q.options) && q.options.length === 4;
+  }).map(function(q){
+    return {
+      q: String(q.q),
+      options: q.options.map(String),
+      answer: Math.max(0, Math.min(3, parseInt(q.answer, 10) || 0)),
+      why: String(q.why || '')
+    };
+  });
+}
+
+// Prepared quietly while the class is being taught, so pressing Practice
+// at the end of the lesson opens straight away.
+async function preparePractice(){
+  if(CONCEPT_BAND !== 'foundation') return;
+  try {
+    PRACTICE = await getSavedPractice();
+    if(!PRACTICE || !PRACTICE.length){
+      PRACTICE = await buildPractice();
+      if(PRACTICE && PRACTICE.length) savePractice(PRACTICE);
+    }
+  } catch(e){ PRACTICE = null; }
+  var btn = $('btn-practice');
+  if(btn && PRACTICE && PRACTICE.length) btn.style.display = '';
+}
+
+function openPractice(){
+  if(!PRACTICE || !PRACTICE.length) return;
+  PLAYING = false; SEQ++; stopAudio();
+  try { window.speechSynthesis.cancel(); } catch(e){}
+  $('btn-play').textContent = '▶ Play';
+  PQ_IDX = 0;
+  $('note-list').innerHTML = '';
+  addNote('k-title', 'Practice — ' + (CHAPTER ? CHAPTER.chapter_title : ''), false);
+  renderQuestion();
+}
+
+function renderQuestion(){
+  var q = PRACTICE[PQ_IDX];
+  if(!q) return finishPractice();
+  $('step-count').textContent = 'Question ' + (PQ_IDX + 1) + ' / ' + PRACTICE.length;
+
+  var big = $('big');
+  big.innerHTML = '';
+
+  var t = document.createElement('div');
+  t.className = 'b-title';
+  t.textContent = 'Practice ' + (PQ_IDX + 1);
+  big.appendChild(t);
+
+  var qd = document.createElement('div');
+  qd.className = 'b-line';
+  qd.textContent = q.q;
+  big.appendChild(qd);
+
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'margin-top:14px;display:flex;flex-direction:column;gap:10px;';
+  q.options.forEach(function(opt, i){
+    var row = document.createElement('div');
+    row.className = 'b-line';
+    row.style.cssText = 'cursor:pointer;padding:6px 10px;border:1.5px dashed rgba(255,255,255,0.25);border-radius:8px;';
+    row.textContent = 'ABCD'.charAt(i) + '.  ' + opt;
+    row.onclick = function(){ answerQuestion(i, wrap); };
+    wrap.appendChild(row);
+  });
+  big.appendChild(wrap);
+
+  if(VOICE_ON) speakAsync(q.q, 'english');
+}
+
+function answerQuestion(picked, wrap){
+  var q = PRACTICE[PQ_IDX];
+  var rows = wrap.querySelectorAll('.b-line');
+  rows.forEach(function(r, i){
+    r.onclick = null;
+    r.style.cursor = 'default';
+    if(i === q.answer){ r.style.borderColor = '#7CFC98'; r.style.color = '#7CFC98'; }
+    else if(i === picked){ r.style.borderColor = '#ff9b9b'; r.style.color = '#ff9b9b'; }
+  });
+
+  addNote(picked === q.answer ? 'k-key' : '', 
+    (picked === q.answer ? 'Correct — ' : 'Answer: ' + 'ABCD'.charAt(q.answer) + ' — ') + q.why, true);
+
+  var nxt = document.createElement('div');
+  nxt.className = 'b-line';
+  nxt.style.cssText = 'margin-top:16px;cursor:pointer;text-decoration:underline;';
+  nxt.textContent = (PQ_IDX < PRACTICE.length - 1) ? 'Next question ▶' : 'Finish practice ▶';
+  nxt.onclick = function(){ PQ_IDX++; stopAudio(); renderQuestion(); };
+  $('big').appendChild(nxt);
+
+  if(VOICE_ON) speakAsync(q.why, 'english');
+}
+
+function finishPractice(){
+  var big = $('big');
+  big.innerHTML = '';
+  var t = document.createElement('div');
+  t.className = 'b-title'; t.textContent = 'Well done';
+  big.appendChild(t);
+  var d = document.createElement('div');
+  d.className = 'b-line'; d.textContent = 'That is the practice round for this chapter.';
+  big.appendChild(d);
+  $('step-count').textContent = 'Practice over';
+}
+
 /* ════════ START ════════ */
 async function startClass(){
   // Hand-built lesson wins whenever one exists for this chapter.
@@ -902,6 +1083,7 @@ async function startClass(){
 
   await loadChapterText();
   STEPS = await getSavedLesson();
+  setTimeout(preparePractice, 1200);   // quietly, while the class is being taught
 
   if(!STEPS){
     $('loading-sub').textContent =
@@ -1013,6 +1195,7 @@ document.addEventListener('DOMContentLoaded', function(){
   $('btn-start').onclick  = function(){ if(CLS && CHAPTER) startClass(); };
   $('btn-play').onclick   = playPause;
   $('btn-next').onclick   = goNext;
+  $('btn-practice').onclick = openPractice;
   $('btn-prev').onclick   = goPrev;
   $('btn-replay').onclick = replay;
 
