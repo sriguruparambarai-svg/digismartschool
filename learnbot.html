@@ -1184,6 +1184,7 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 <div class="tabs" id="role-tabs">
   <button class="tab-btn active" id="tab-btn-teacher" onclick="showTab('teacher',this)">🧑‍🏫 Teacher Panel</button>
   <button class="tab-btn" id="tab-btn-student" onclick="showTab('student',this)">🎓 Teach</button>
+  <button class="tab-btn" id="tab-btn-foundation" style="display:none;" onclick="showTab('foundation',this)">🎯 Foundation</button>
   <!-- Hidden tabs kept for JS compatibility — must not show -->
   <button class="tab-btn" id="tab-btn-library" style="display:none!important;" onclick="openLibraryTab(this)">📚 Lesson Library</button>
   <button class="tab-btn" id="tab-btn-notes" style="display:none!important;" onclick="showTab('notes',this)">📋 Class Notes</button>
@@ -1414,6 +1415,46 @@ textarea{min-height:100px;resize:vertical;line-height:1.6;}
 
 </div><!-- scroll wrap -->
 </div><!-- tab-teacher -->
+
+<!-- ══════════════════════════════════════
+     FOUNDATION — JEE/NEET (Class 6 onwards)
+     NCERT concept classes. No book upload needed.
+══════════════════════════════════════ -->
+<div id="tab-foundation" class="panel">
+  <div style="max-width:760px;margin:0 auto;padding:18px 16px 40px;">
+
+    <div style="background:linear-gradient(135deg,#2a1147,#4a2a75);border-radius:16px;padding:18px 20px;margin-bottom:18px;">
+      <div style="font-family:'Cinzel',serif;font-size:1.15rem;color:#e7dcf7;">🎯 Foundation — JEE / NEET</div>
+      <div style="font-size:0.8rem;color:#c6b3e8;margin-top:4px;line-height:1.6;">
+        NCERT concepts for Class 6 and above, taught the way competitive exams build on them.<br/>
+        No book upload needed — the syllabus is already loaded.
+      </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;" id="foundation-cards">
+
+      <div onclick="launchFoundation('maths')" style="cursor:pointer;background:#faf7ff;border:2px solid #d9cdf0;border-radius:14px;padding:22px 16px;text-align:center;transition:all .15s;"
+           onmouseenter="this.style.borderColor='var(--maroon)';" onmouseleave="this.style.borderColor='#d9cdf0';">
+        <div style="font-size:2rem;">🧮</div>
+        <div style="font-weight:800;color:var(--maroon);font-size:0.95rem;margin-top:6px;">Maths Foundation</div>
+        <div style="font-size:0.74rem;color:#777;margin-top:4px;">NCERT concepts · Class 6 to 10</div>
+      </div>
+
+      <div onclick="launchFoundation('science')" style="cursor:pointer;background:#faf7ff;border:2px solid #d9cdf0;border-radius:14px;padding:22px 16px;text-align:center;transition:all .15s;"
+           onmouseenter="this.style.borderColor='var(--maroon)';" onmouseleave="this.style.borderColor='#d9cdf0';">
+        <div style="font-size:2rem;">🔬</div>
+        <div style="font-weight:800;color:var(--maroon);font-size:0.95rem;margin-top:6px;">Science Foundation</div>
+        <div style="font-size:0.74rem;color:#777;margin-top:4px;">NCERT concepts · Class 6 to 10</div>
+      </div>
+
+    </div>
+
+    <div style="margin-top:16px;font-size:0.76rem;color:#888;line-height:1.7;">
+      For Class 1 to 5 concept teaching, use <b>Teach → Maths Concept Class</b> or <b>Science Concept Class</b>.
+    </div>
+
+  </div>
+</div><!-- tab-foundation -->
 
 <!-- ══════════════════════════════════════
      MY BOOKS — SUPABASE STORAGE SECTION
@@ -2616,6 +2657,9 @@ function gateBookSources(){
       var sb=document.getElementById('sam-books-list');
       if(sb){ var body=sb.parentElement; if(body){ _imgHideEl(body); _imgHideEl(body.previousElementSibling); } }
     }
+    // Foundation panel tab (hidden unless enabled)
+    var fnTab=document.getElementById('tab-btn-foundation');
+    if(fnTab) fnTab.style.display=(d.has_foundation===true)?'':'none';
     // Section B2 — NCERT Books (hidden unless enabled)
     var ncSec=document.getElementById('ncert-section');
     if(ncSec) ncSec.style.display=(d.has_ncert===true)?'block':'none';
@@ -3203,17 +3247,17 @@ if(typeof pdfjsLib==='undefined'){var _s=document.createElement('script');_s.src
     </div>
 
     <!-- 2. Maths Concept Class (was Blackboard AI — old page kept as fallback) -->
-    <div class="ssp-card mode-card" onclick="launchMathsConcept()" style="padding:22px 16px;">
+    <div class="ssp-card mode-card" onclick="launchConceptPrimary('maths')" style="padding:22px 16px;">
       <span class="ssp-card-icon">🧊</span>
       <div class="ssp-card-name">Maths Concept Class</div>
-      <div class="ssp-card-desc">Every NCERT chapter, Class 1 to 10</div>
+      <div class="ssp-card-desc">Concepts and activities, Class 1 to 5</div>
     </div>
 
     <!-- 2b. Science Concept Class — syllabus driven, no book needed -->
-    <div class="ssp-card mode-card" onclick="launchScienceConcept()" style="padding:22px 16px;">
+    <div class="ssp-card mode-card" onclick="launchConceptPrimary('science')" style="padding:22px 16px;">
       <span class="ssp-card-icon">🔬</span>
       <div class="ssp-card-name">Science Concept Class</div>
-      <div class="ssp-card-desc">Every NCERT chapter, Class 3 to 10</div>
+      <div class="ssp-card-desc">Concepts and activities, Class 3 to 5</div>
     </div>
 
     <!-- 3. Slide Mode -->
@@ -6416,6 +6460,21 @@ function setLangBtn(l, btn){
     b.classList.remove('selected');
   });
   if(btn) btn.classList.add('selected');
+}
+
+// The concept pages are shared. A band tells them which classes to offer:
+//   'primary'    -> Class 1 to 5  (opened from Teach)
+//   'foundation' -> Class 6 up    (opened from the Foundation panel)
+function setConceptBand(band){
+  try{ sessionStorage.setItem('concept_band', band); }catch(e){}
+}
+function launchConceptPrimary(kind){
+  setConceptBand('primary');
+  if(kind==='science') launchScienceConcept(); else launchMathsConcept();
+}
+function launchFoundation(kind){
+  setConceptBand('foundation');
+  if(kind==='science') launchScienceConcept(); else launchMathsConcept();
 }
 
 // launchMathsConcept: opens the Maths Concept Class (3D shapes / patterns).
