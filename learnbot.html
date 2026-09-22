@@ -1758,6 +1758,7 @@ function mbStartLesson(bookId,bookName,cls,pdfUrl){
   document.getElementById('mb-popup-subject').value='';
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:bookId,bookName:bookName,cls:cls,pdfUrl:pdfUrl};
+  window._mbChapterPdf=null;
   mbLoadChapters(bookId,'private');
 }
 
@@ -1916,7 +1917,13 @@ async function mbGoTeach(){
   try{
     // Step 1: Open IndexedDB
     await mbOpenIDB();
-    var pdfKey=mbMakePdfKey(subject,b.cls,b.bookId);
+    // A per-chapter book has no single book PDF — each chapter carries its own.
+    var chPdf=window._mbChapterPdf||null;
+    var teachPdfUrl=chPdf?chPdf.url:b.pdfUrl;
+    // The saved copy on this device must be named per chapter, or the teacher
+    // would be handed the chapter they opened last.
+    var keyId=chPdf?(b.bookId+'_ch'+chPdf.n):b.bookId;
+    var pdfKey=mbMakePdfKey(subject,b.cls,keyId);
     // Clear the old shared entry once, so a stale PDF is never served and the
     // device is not left holding a book nobody can reach any more.
     try{
@@ -1936,10 +1943,10 @@ async function mbGoTeach(){
         // Corrupted cache entry (e.g. saved by the old empty-URL bug) — clean it up
         try{ await mbDeletePdfFromIDB(pdfKey); }catch(ce){}
       }
-      if(b.pdfUrl){
+      if(teachPdfUrl){
         // Step 3: Download from Supabase (first time)
-        statusEl.textContent='⬇️ Downloading book from cloud…';
-        var resp=await fetch(b.pdfUrl);
+        statusEl.textContent=chPdf?'⬇️ Downloading chapter from cloud…':'⬇️ Downloading book from cloud…';
+        var resp=await fetch(teachPdfUrl);
         if(!resp.ok)throw new Error('Cannot download PDF');
         pdfArrayBuffer=await resp.arrayBuffer();
         if(!mbIsPdfBytes(pdfArrayBuffer)){
@@ -2195,7 +2202,7 @@ async function mbLoadChapters(bookId, source){
     var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'tbl_get',
         table:(source==='private'?'school_book_chapters':'textbook_chapters'),
-        params:'book_id=eq.'+encodeURIComponent(bookId)+'&order=page_from&select=chapter_number,chapter_title,page_from,page_to'})});
+        params:'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=chapter_number,chapter_title,page_from,page_to,pdf_url'})});
     var d = await r.json();
     var chs = Array.isArray(d) ? d : (d.chapters || []);
     chs = chs.filter(function(c){ return c && c.page_from && c.page_to; });
@@ -2214,9 +2221,15 @@ async function mbLoadChapters(bookId, source){
 
 function mbApplyChapter(){
   var sel = document.getElementById('mb-popup-chapter');
+  // NCERT-style books keep one PDF per chapter. Clear any earlier choice first,
+  // so a teacher switching chapters never keeps the previous chapter's file.
+  window._mbChapterPdf = null;
   if(!sel || sel.value === '') return;
   var ch = _mbChapters[parseInt(sel.value,10)];
   if(!ch) return;
+  if(ch.pdf_url){
+    window._mbChapterPdf = { url: ch.pdf_url, n: (ch.chapter_number || (parseInt(sel.value,10)+1)) };
+  }
   var f = document.getElementById('mb-popup-from');
   var t = document.getElementById('mb-popup-to');
   var l = document.getElementById('mb-popup-lesson');
@@ -2308,6 +2321,7 @@ function ncertSelectBook(book){
   if(subEl)subEl.value=ncSub;
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
+  window._mbChapterPdf=null;
   mbLoadChapters(book.id,'ncert');
 }
 
@@ -2323,6 +2337,7 @@ function samSelectBook(book){
   if(subEl)subEl.value=samSub;
   document.getElementById('mb-popup-status').textContent='';
   window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
+  window._mbChapterPdf=null;
   mbLoadChapters(book.id,'samacheer');
 }
 
