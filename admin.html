@@ -538,11 +538,14 @@ loadSchools();
     <div style="padding:20px;">
 
       <div class="tbl-card">
-        <div class="tbl-card-title">📤 Upload Samacheer Textbook</div>
+        <div class="tbl-card-title">📤 Upload Textbook (Samacheer / NCERT)</div>
         <div class="tbl-g2">
+          <div><label class="tbl-lbl">Board</label>
+            <select class="tbl-inp" id="tbl-board"><option value="samacheer">Samacheer Kalvi</option><option value="ncert">NCERT</option></select>
+          </div>
           <div><label class="tbl-lbl">Book Title</label><input class="tbl-inp" type="text" id="tbl-title" placeholder="e.g. 10th Standard Science"/></div>
           <div><label class="tbl-lbl">Subject</label>
-            <select class="tbl-inp" id="tbl-subj"><option>Science</option><option>Mathematics</option><option>Social Science</option><option>English</option><option>Tamil</option><option>Physics</option><option>Chemistry</option><option>Biology</option></select>
+            <select class="tbl-inp" id="tbl-subj"><option>Science</option><option>Mathematics</option><option>Social Science</option><option>English</option><option>Tamil</option><option>Hindi</option><option>Sanskrit</option><option>EVS</option><option>Physics</option><option>Chemistry</option><option>Biology</option></select>
           </div>
           <div><label class="tbl-lbl">Class</label>
             <select class="tbl-inp" id="tbl-cls"><option>Class 1</option><option>Class 2</option><option>Class 3</option><option>Class 4</option><option>Class 5</option><option>Class 6</option><option>Class 7</option><option>Class 8</option><option>Class 9</option><option selected>Class 10</option><option>Class 11</option><option>Class 12</option></select>
@@ -555,7 +558,7 @@ loadSchools();
         <div class="tbl-uz" onclick="document.getElementById('tbl-pdf').click()">
           <div style="font-size:1.8rem;margin-bottom:6px;">📄</div>
           <div style="font-weight:700;color:#6B0F1A;" id="tbl-pdf-name">Click to upload PDF or drag &amp; drop</div>
-          <div style="font-size:.76rem;color:#888;margin-top:3px;">Text-based Samacheer PDFs work best</div>
+          <div style="font-size:.76rem;color:#888;margin-top:3px;">Text-based PDFs work best (Samacheer or NCERT)</div>
           <input type="file" id="tbl-pdf" accept=".pdf" style="display:none;" onchange="tblPdfSelected(this)"/>
           <div class="tbl-prog" id="tbl-prog"><div class="tbl-prog-bar" id="tbl-prog-bar" style="width:0%"></div></div>
         </div>
@@ -565,7 +568,7 @@ loadSchools();
       </div>
 
       <div class="tbl-card">
-        <div class="tbl-card-title">📚 All Samacheer Textbooks <button class="btn bg bsm" onclick="tblLoadBooks()">🔄 Refresh</button></div>
+        <div class="tbl-card-title">📚 All Library Textbooks (Samacheer + NCERT) <button class="btn bg bsm" onclick="tblLoadBooks()">🔄 Refresh</button></div>
         <div id="tbl-loading" style="display:none;padding:16px;text-align:center;color:#6B0F1A;font-weight:700;">Loading...</div>
         <div class="tbl-book-grid" id="tbl-book-grid"></div>
         <div id="tbl-none" style="display:none;padding:24px;text-align:center;color:#999;">No textbooks uploaded yet.</div>
@@ -573,7 +576,12 @@ loadSchools();
 
       <div class="tbl-card">
         <div class="tbl-card-title">🏫 School Library Access</div>
-        <p style="font-size:.85rem;color:#555;margin-bottom:12px;">Toggle library access for each school. Schools with Library ON can access all uploaded Samacheer books.</p>
+        <p style="font-size:.85rem;color:#555;margin-bottom:12px;">
+          Switch on only what each school pays for. The switches are independent — a school
+          can have Samacheer books and Foundation courses at the same time.<br>
+          <b>Samacheer</b> = Samacheer Books section &nbsp;·&nbsp; <b>NCERT</b> = NCERT Books section &nbsp;·&nbsp;
+          <b>Foundation</b> = Foundation JEE/NEET panel &nbsp;·&nbsp; <b>Text</b> / <b>Image</b> = the school's own book uploads.
+        </p>
         <div id="tbl-access-list"><div style="padding:12px;color:#999;text-align:center;">Loading...</div></div>
       </div>
 
@@ -1248,6 +1256,9 @@ async function tblDB(table, method, body, params) {
 
 async function tblUpload() {
   var title = document.getElementById('tbl-title').value.trim();
+  var boardEl = document.getElementById('tbl-board');
+  var board = boardEl ? boardEl.value : 'samacheer';           // 'samacheer' or 'ncert'
+  var publisher = (board === 'ncert') ? 'NCERT' : 'Samacheer Kalvi';
   var subj = document.getElementById('tbl-subj').value;
   var cls = document.getElementById('tbl-cls').value;
   var medium = document.getElementById('tbl-medium').value;
@@ -1292,7 +1303,7 @@ async function tblUpload() {
     tblProg('Saving...', 60);
     await tblDB('textbook_library', 'POST', {
       id: bookId, title: title, subject: subj, class_name: cls, medium: medium,
-      syllabus_type: 'samacheer', publisher: 'Samacheer Kalvi', school_id: null,
+      syllabus_type: board, publisher: publisher, school_id: null,
       status: 'ready', total_pages: (raw.match(/\[Page \d+\]/g) || []).length,
       raw_text: raw.substring(0, 50000), created_by: 'super_admin',
       pdf_url: libPdfUrl,
@@ -1305,7 +1316,7 @@ async function tblUpload() {
         chapter_title: chapters[i].title, page_from: chapters[i].pageFrom,
         page_to: chapters[i].pageTo,
         extracted_text: (chapters[i].text || '').substring(0, 120000),
-        syllabus_type: 'samacheer', class_name: cls, subject: subj, medium: medium
+        syllabus_type: board, class_name: cls, subject: subj, medium: medium
       });
     }
     tblProg('Done!', 100);
@@ -1372,7 +1383,7 @@ async function tblRedetect(id, title, btn) {
   btn.disabled = true;
   var say = function(t) { el.innerHTML = t; };
   try {
-    var rows = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=pdf_url,class_name,subject,medium&limit=1');
+    var rows = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=pdf_url,class_name,subject,medium,syllabus_type&limit=1');
     var bk = (rows && rows[0]) || {};
     if (!bk.pdf_url) throw new Error('This book has no stored PDF. Re-upload it to use Re-detect.');
     say('Reading PDF...');
@@ -1391,7 +1402,7 @@ async function tblRedetect(id, title, btn) {
         page_from: chapters[i].pageFrom,
         page_to: chapters[i].pageTo,
         extracted_text: (chapters[i].text || '').substring(0, 120000),
-        syllabus_type: 'samacheer',
+        syllabus_type: bk.syllabus_type || 'samacheer',
         class_name: bk.class_name || '', subject: bk.subject || '', medium: bk.medium || ''
       });
     }
@@ -1641,7 +1652,10 @@ async function tblLoadBooks() {
       var titleDiv = document.createElement('div'); titleDiv.className = 'tbl-bcard-title'; titleDiv.textContent = book.title; card.appendChild(titleDiv);
       var subDiv = document.createElement('div'); subDiv.className = 'tbl-bcard-sub'; subDiv.textContent = (book.class_name||'') + ' - ' + (book.subject||'') + ' - ' + (book.medium||'English'); card.appendChild(subDiv);
       var meta = document.createElement('div'); meta.style.cssText = 'display:flex;gap:6px;align-items:center;margin-bottom:10px;';
-      var b1 = document.createElement('span'); b1.className = 'tbl-badge'; b1.textContent = 'Samacheer'; meta.appendChild(b1);
+      var b1 = document.createElement('span'); b1.className = 'tbl-badge';
+      b1.textContent = (book.syllabus_type === 'ncert') ? 'NCERT' : 'Samacheer';
+      if (book.syllabus_type === 'ncert') { b1.style.background = '#e7dcf7'; b1.style.color = '#4a2a75'; }
+      meta.appendChild(b1);
       var b2 = document.createElement('span'); b2.className = 'tbl-badge'; b2.textContent = 'Ready'; meta.appendChild(b2);
       var b3 = document.createElement('span'); b3.style.cssText = 'font-size:.7rem;color:#888;'; b3.textContent = (book.total_pages||0) + ' pages'; meta.appendChild(b3);
       card.appendChild(meta);
@@ -1775,7 +1789,7 @@ async function tblChSave(id, btn) {
   if (!out.length) { msg.style.color = '#c0392b'; msg.textContent = 'Nothing to save.'; return; }
   btn.disabled = true; msg.style.color = '#888'; msg.textContent = 'Saving...';
   try {
-    var book = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=class_name,subject,medium&limit=1');
+    var book = await tblDB('textbook_library', 'GET', null, 'id=eq.' + id + '&select=class_name,subject,medium,syllabus_type&limit=1');
     var bk = (book && book[0]) || {};
     for (var k = 0; k < out.length; k++) {
       var payload = { chapter_number: out[k].chapter_number, chapter_title: out[k].chapter_title,
@@ -1784,7 +1798,7 @@ async function tblChSave(id, btn) {
         await tblDB('textbook_chapters', 'PATCH', payload, 'id=eq.' + out[k].rid);
       } else {
         payload.book_id = id;
-        payload.syllabus_type = 'samacheer';
+        payload.syllabus_type = bk.syllabus_type || 'samacheer';
         payload.class_name = bk.class_name || '';
         payload.subject = bk.subject || '';
         payload.medium = bk.medium || '';
@@ -1838,7 +1852,7 @@ async function tblLoadAccess() {
       var btn = document.createElement('button');
       btn.id = 'tbl-ab-' + s.id;
       btn.className = hasAccess ? 'tbl-acc-on' : 'tbl-acc-off';
-      btn.textContent = hasAccess ? 'Library ON' : 'Library OFF';
+      btn.textContent = hasAccess ? 'Samacheer ON' : 'Samacheer OFF';
       btn.setAttribute('data-sid', s.id);
       btn.setAttribute('data-on', hasAccess ? '1' : '0');
       btn.addEventListener('click', function() { tblToggleAccess(this.getAttribute('data-sid'), this); });
@@ -1868,6 +1882,30 @@ async function tblLoadAccess() {
       imgBtn.addEventListener('click', function() { srcToggle(this); });
       row.appendChild(imgBtn);
 
+      // NCERT Book Library switch (default OFF)
+      var ncOn = s.has_ncert_library === true;
+      var ncBtn = document.createElement('button');
+      ncBtn.className = ncOn ? 'tbl-acc-on' : 'tbl-acc-off';
+      ncBtn.style.marginLeft = '6px';
+      ncBtn.textContent = ncOn ? 'NCERT ON' : 'NCERT OFF';
+      ncBtn.setAttribute('data-sid', s.id);
+      ncBtn.setAttribute('data-src', 'ncert');
+      ncBtn.setAttribute('data-on', ncOn ? '1' : '0');
+      ncBtn.addEventListener('click', function() { srcToggle(this); });
+      row.appendChild(ncBtn);
+
+      // Foundation JEE/NEET switch (default OFF)
+      var fnOn = s.has_foundation === true;
+      var fnBtn = document.createElement('button');
+      fnBtn.className = fnOn ? 'tbl-acc-on' : 'tbl-acc-off';
+      fnBtn.style.marginLeft = '6px';
+      fnBtn.textContent = fnOn ? 'Foundation ON' : 'Foundation OFF';
+      fnBtn.setAttribute('data-sid', s.id);
+      fnBtn.setAttribute('data-src', 'foundation');
+      fnBtn.setAttribute('data-on', fnOn ? '1' : '0');
+      fnBtn.addEventListener('click', function() { srcToggle(this); });
+      row.appendChild(fnBtn);
+
       list.appendChild(row);
     });
   } catch(e) { list.innerHTML = 'Error: ' + e.message; }
@@ -1879,12 +1917,12 @@ async function tblToggleAccess(sid, btn) {
   try {
     if (isOn) {
       await tblDB('school_library_access', 'DELETE', null, 'school_id=eq.' + sid);
-      btn.className = 'tbl-acc-off'; btn.textContent = 'Library OFF'; btn.setAttribute('data-on','0');
+      btn.className = 'tbl-acc-off'; btn.textContent = 'Samacheer OFF'; btn.setAttribute('data-on','0');
     } else {
       await tblDB('school_library_access', 'POST', {school_id: sid, granted_at: new Date().toISOString(), granted_by: 'super_admin'});
-      btn.className = 'tbl-acc-on'; btn.textContent = 'Library ON'; btn.setAttribute('data-on','1');
+      btn.className = 'tbl-acc-on'; btn.textContent = 'Samacheer ON'; btn.setAttribute('data-on','1');
     }
-  } catch(e) { alert('Error: ' + e.message); btn.textContent = isOn ? 'Library ON' : 'Library OFF'; }
+  } catch(e) { alert('Error: ' + e.message); btn.textContent = isOn ? 'Samacheer ON' : 'Samacheer OFF'; }
   btn.disabled = false;
 }
 
@@ -1892,7 +1930,8 @@ async function srcToggle(btn) {
   var sid = btn.getAttribute('data-sid');
   var src = btn.getAttribute('data-src');
   var isOn = btn.getAttribute('data-on') === '1';
-  var label = src === 'text' ? 'Text' : 'Image';
+  var SRC_LABELS = { text: 'Text', image: 'Image', ncert: 'NCERT', foundation: 'Foundation' };
+  var label = SRC_LABELS[src] || src;
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
     var d = await callAuth({ action: 'set_school_source', school_id: sid, source: src, enabled: !isOn });
