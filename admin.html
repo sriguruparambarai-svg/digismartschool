@@ -558,8 +558,8 @@ loadSchools();
         <div class="tbl-uz" onclick="document.getElementById('tbl-pdf').click()">
           <div style="font-size:1.8rem;margin-bottom:6px;">📄</div>
           <div style="font-weight:700;color:#6B0F1A;" id="tbl-pdf-name">Click to upload PDF or drag &amp; drop</div>
-          <div style="font-size:.76rem;color:#888;margin-top:3px;">Text-based PDFs work best (Samacheer or NCERT)</div>
-          <input type="file" id="tbl-pdf" accept=".pdf" style="display:none;" onchange="tblPdfSelected(this)"/>
+          <div style="font-size:.76rem;color:#888;margin-top:3px;">One whole-book PDF, <b>or</b> select all the chapter PDFs together (NCERT style) — they are saved one chapter per file</div>
+          <input type="file" id="tbl-pdf" accept=".pdf" multiple style="display:none;" onchange="tblPdfSelected(this)"/>
           <div class="tbl-prog" id="tbl-prog"><div class="tbl-prog-bar" id="tbl-prog-bar" style="width:0%"></div></div>
         </div>
         <div class="tbl-ok" id="tbl-ok"></div>
@@ -1230,11 +1230,118 @@ function tblTab(tab) {
 }
 
 var tblFile = null;
+var tblFiles = [];            // all chosen files, sorted by file name
 function tblPdfSelected(inp) {
   if (!inp.files || !inp.files[0]) return;
-  tblFile = inp.files[0];
-  document.getElementById('tbl-pdf-name').textContent = inp.files[0].name;
-  document.getElementById('tbl-pdf-name').style.color = '#155724';
+  tblFiles = Array.prototype.slice.call(inp.files).sort(function(a, b) {
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+  });
+  tblFile = tblFiles[0];
+  var nameEl = document.getElementById('tbl-pdf-name');
+  if (tblFiles.length === 1) {
+    nameEl.textContent = tblFiles[0].name;
+  } else {
+    nameEl.textContent = tblFiles.length + ' chapter files selected (in this order: '
+      + tblFiles.slice(0, 3).map(function(f) { return f.name; }).join(', ')
+      + (tblFiles.length > 3 ? ', …' : '') + ')';
+  }
+  nameEl.style.color = '#155724';
+}
+
+// Guess a chapter name from its first page. NCERT puts the unit or lesson
+// name near the top. Anything odd can be renamed later with the Chapters button.
+function tblGuessChapterTitle(raw, fallbackName) {
+  var firstPage = String(raw || '').split(/\[Page 2\]/)[0];
+  var lines = firstPage.replace(/\[Page \d+\]/g, '').split(/\n/);
+  var best = '';
+  for (var i = 0; i < lines.length && i < 40; i++) {
+    var t = lines[i].replace(/\s+/g, ' ').trim();
+    if (t.length < 4 || t.length > 60) continue;
+    if (/reprint|rationalised|^\d+$|^page\b|indd|^unit\s*\d*$|not to be republished/i.test(t)) continue;
+    if (!/[A-Za-z\u0900-\u097F\u0B80-\u0BFF]/.test(t)) continue;
+    best = t; break;
+  }
+  if (best) return best;
+  return String(fallbackName || '').replace(/\.pdf$/i, '');
+}
+
+// Upload one PDF to the shared library bucket and return its public link.
+async function tblPutPdf(file, filePath) {
+  var SB_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
+  var SB_KEY = 'sb_publishable_AeMrzyinAl4n2AifhC-j3A_wRh_nda3';
+  var upRes = await fetch(SB_URL + '/storage/v1/object/library-books/' + filePath, {
+    method: 'POST',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/pdf',
+      'x-upsert': 'true'
+    },
+    body: file
+  });
+  if (!upRes.ok) {
+    var upErr = await upRes.text();
+    throw new Error('PDF upload to storage failed: ' + upErr.substring(0, 120));
+  }
+  return SB_URL + '/storage/v1/object/public/library-books/' + filePath;
+}
+
+// ── MANY CHAPTER FILES: one PDF per chapter (how NCERT publishes) ──
+// Each file becomes one chapter with its own PDF, so a teacher downloads
+// only the chapter being taught instead of the whole book.
+async function tblUploadChapters(opts) {
+  var files = tblFiles;
+  var bookId = 'tbl_' + Date.now();
+  var totalPages = 0;
+  var rows = [];
+
+  for (var i = 0; i < files.length; i++) {
+    var f = files[i];
+    var step = Math.round(((i) / files.length) * 85) + 5;
+    tblProg('Reading ' + f.name + ' (' + (i + 1) + ' of ' + files.length + ')…', step);
+    if (f.size > 45 * 1024 * 1024) {
+      throw new Error(f.name + ' is larger than 45MB. Compress that chapter and try again.');
+    }
+    var raw = await tblExtractPdf(f);
+    if (!raw || raw.length < 50) {
+      throw new Error('Could not read text from ' + f.name + '. It may be a scanned PDF.');
+    }
+    var pages = (raw.match(/\[Page \d+\]/g) || []).length || 1;
+    totalPages += pages;
+    tblProg('Uploading ' + f.name + '…', step + 3);
+    var chPath = bookId + '_ch' + (i + 1) + '.pdf';
+    var chUrl = await tblPutPdf(f, chPath);
+    rows.push({
+      book_id: bookId,
+      chapter_number: i + 1,
+      chapter_title: tblGuessChapterTitle(raw, f.name),
+      page_from: 1,
+      page_to: pages,
+      pdf_url: chUrl,
+      source_file: f.name,
+      extracted_text: raw.substring(0, 120000),
+      syllabus_type: opts.board,
+      class_name: opts.cls,
+      subject: opts.subj,
+      medium: opts.medium
+    });
+  }
+
+  tblProg('Saving the book…', 92);
+  await tblDB('textbook_library', 'POST', {
+    id: bookId, title: opts.title, subject: opts.subj, class_name: opts.cls, medium: opts.medium,
+    syllabus_type: opts.board, publisher: opts.publisher, school_id: null,
+    status: 'ready', total_pages: totalPages,
+    raw_text: '', created_by: 'super_admin',
+    pdf_url: '',                      // no single book PDF — each chapter has its own
+    created_at: new Date().toISOString()
+  });
+
+  tblProg('Saving ' + rows.length + ' chapters…', 96);
+  for (var k = 0; k < rows.length; k++) {
+    await tblDB('textbook_chapters', 'POST', rows[k]);
+  }
+  return rows.length;
 }
 
 async function tblDB(table, method, body, params) {
@@ -1271,6 +1378,29 @@ async function tblUpload() {
   var btn = document.getElementById('tbl-upload-btn');
   btn.disabled = true; btn.textContent = 'Processing...';
   document.getElementById('tbl-prog').style.display = 'block';
+
+  // Several files chosen = one PDF per chapter. One file = whole book, as before.
+  if (tblFiles && tblFiles.length > 1) {
+    try {
+      var madeCh = await tblUploadChapters({ title: title, subj: subj, cls: cls,
+        medium: medium, board: board, publisher: publisher });
+      tblProg('Done!', 100);
+      ok.textContent = 'Book saved! ' + madeCh + ' chapters, each with its own PDF.';
+      ok.style.display = 'block';
+      document.getElementById('tbl-title').value = '';
+      tblFile = null; tblFiles = [];
+      document.getElementById('tbl-pdf-name').textContent = 'Click to upload PDF or drag & drop';
+      document.getElementById('tbl-pdf-name').style.color = '';
+      tblLoadBooks();
+    } catch(e2) {
+      err.textContent = 'Error: ' + e2.message; err.style.display = 'block';
+    } finally {
+      btn.disabled = false; btn.textContent = 'Process & Save to Library';
+      setTimeout(function() { document.getElementById('tbl-prog').style.display = 'none'; document.getElementById('tbl-prog-bar').style.width = '0%'; }, 2000);
+    }
+    return;
+  }
+
   try {
     tblProg('Extracting text...', 10);
     var raw = await tblExtractPdf(tblFile);
@@ -1323,7 +1453,7 @@ async function tblUpload() {
     ok.textContent = 'Book saved! ' + chapters.length + ' chapters detected.';
     ok.style.display = 'block';
     document.getElementById('tbl-title').value = '';
-    tblFile = null;
+    tblFile = null; tblFiles = [];
     document.getElementById('tbl-pdf-name').textContent = 'Click to upload PDF or drag & drop';
     document.getElementById('tbl-pdf-name').style.color = '';
     tblLoadBooks();
@@ -1657,6 +1787,11 @@ async function tblLoadBooks() {
       if (book.syllabus_type === 'ncert') { b1.style.background = '#e7dcf7'; b1.style.color = '#4a2a75'; }
       meta.appendChild(b1);
       var b2 = document.createElement('span'); b2.className = 'tbl-badge'; b2.textContent = 'Ready'; meta.appendChild(b2);
+      if (!book.pdf_url) {
+        var b2b = document.createElement('span'); b2b.className = 'tbl-badge';
+        b2b.style.background = '#fdf0d5'; b2b.style.color = '#7a4a00';
+        b2b.textContent = 'Per-chapter PDFs'; meta.appendChild(b2b);
+      }
       var b3 = document.createElement('span'); b3.style.cssText = 'font-size:.7rem;color:#888;'; b3.textContent = (book.total_pages||0) + ' pages'; meta.appendChild(b3);
       card.appendChild(meta);
       var chDiv = document.createElement('div'); chDiv.id = 'tbl-ch-' + book.id; chDiv.style.display = 'none'; card.appendChild(chDiv);
