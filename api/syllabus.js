@@ -99,6 +99,75 @@ module.exports = async (req2, res) => {
       return res.status(200).json({ ok: true, cls: cls, subject: subject, board: board, chapters: rows });
     }
 
+    // ── chapter_text ──
+    // Returns the real chapter text from the NCERT library, when that book
+    // has been uploaded in Super Admin. The Concept Class uses it so the
+    // lesson follows what the book actually says. When nothing is found the
+    // page simply teaches from the chapter name, exactly as before.
+    if (action === 'chapter_text') {
+      const cls = classNumber(body.cls);
+      if (cls == null) return res.status(400).json({ error: 'Missing or unreadable class' });
+
+      // The syllabus list and the book library use slightly different subject
+      // names, so accept every name that means the same subject.
+      const SUBJECT_NAMES = {
+        maths: ['Mathematics', 'Maths'],
+        science: ['Science', 'EVS'],
+        evs: ['EVS', 'Science'],
+        'social science': ['Social Science'],
+        english: ['English'],
+        hindi: ['Hindi'],
+        tamil: ['Tamil']
+      };
+      const names = SUBJECT_NAMES[String(subject).toLowerCase()] || [subject];
+      const inList = '(' + names.map((n) => '"' + n + '"').join(',') + ')';
+
+      const r = await req('GET',
+        '/rest/v1/textbook_chapters'
+        + '?syllabus_type=eq.ncert'
+        + '&class_name=eq.' + encodeURIComponent('Class ' + cls)
+        + '&subject=in.' + encodeURIComponent(inList)
+        + '&select=chapter_number,chapter_title,extracted_text'
+        + '&order=chapter_number.asc');
+
+      const rows = Array.isArray(r.data) ? r.data : [];
+      if (!rows.length) return res.status(200).json({ ok: true, found: false });
+
+      const norm = (v) => String(v || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+      const wantNum = parseInt(body.chapter_number, 10);
+      const wantTitle = norm(body.chapter_title);
+
+      // Best match first by title, then by chapter number — a book uploaded
+      // chapter by chapter may be numbered by file order, so the title is
+      // the more reliable of the two.
+      let hit = null;
+      if (wantTitle) {
+        hit = rows.find((c) => norm(c.chapter_title) === wantTitle)
+           || rows.find((c) => {
+                const t = norm(c.chapter_title);
+                return t && wantTitle && (t.includes(wantTitle) || wantTitle.includes(t));
+              });
+      }
+      if (!hit && !isNaN(wantNum)) {
+        hit = rows.find((c) => parseInt(c.chapter_number, 10) === wantNum);
+      }
+      if (!hit || !hit.extracted_text) return res.status(200).json({ ok: true, found: false });
+
+      // Trim: a full chapter can be very long, and the lesson only needs the
+      // teaching content, not every exercise.
+      const text = String(hit.extracted_text)
+        .replace(/\[Page \d+\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .substring(0, 9000);
+
+      return res.status(200).json({
+        ok: true, found: text.length > 200,
+        matched_title: hit.chapter_title || '',
+        text: text
+      });
+    }
+
     return res.status(400).json({ error: 'Unknown action' });
 
   } catch (err) {
