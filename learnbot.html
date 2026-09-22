@@ -2234,9 +2234,12 @@ async function samLoadBooks(cls,sub){
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'tbl_get',table:'textbook_library',
-        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject,pdf_url'})});
+        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject,pdf_url,syllabus_type'})});
     var d=await r.json();
     var books=Array.isArray(d)?d:(d.books||[]);
+    // Keep Samacheer books only. Anything not marked 'ncert' counts as Samacheer,
+    // so older books saved before the NCERT library existed still appear here.
+    books=books.filter(function(b){ return String(b.syllabus_type||'')!=='ncert'; });
     if(!books.length){
       box.innerHTML='<div style="font-size:0.78rem;color:#888;line-height:1.7;">No Samacheer book found for '+cls+' '+sub+'.<br/>Ask your admin to upload it in the Super Admin panel.</div>';
       return;
@@ -2257,6 +2260,55 @@ async function samLoadBooks(cls,sub){
       box.appendChild(card);
     });
   }catch(e){box.innerHTML='<div style="color:#c0392b;font-size:0.78rem;">Error: '+e.message+'</div>';}
+}
+
+// ── NCERT SECTION ──
+// Same flow as Samacheer, reading the same library but only 'ncert' books.
+async function ncertLoadBooks(cls,sub){
+  var box=document.getElementById('ncert-books-list');
+  if(!box)return;
+  if(!cls||!sub){box.innerHTML='<div style="color:#aaa;font-size:0.78rem;">Select class and subject above.</div>';return;}
+  box.innerHTML='<div style="color:#aaa;font-size:0.78rem;">Loading…</div>';
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'tbl_get',table:'textbook_library',
+        params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&syllabus_type=eq.ncert&select=id,title,class_name,subject,pdf_url,syllabus_type'})});
+    var d=await r.json();
+    var books=Array.isArray(d)?d:(d.books||[]);
+    if(!books.length){
+      box.innerHTML='<div style="font-size:0.78rem;color:#888;line-height:1.7;">No NCERT book found for '+cls+' '+sub+'.<br/>Ask your admin to upload it in the Super Admin panel.</div>';
+      return;
+    }
+    box.innerHTML='';
+    books.forEach(function(b){
+      var card=document.createElement('div');
+      card.style.cssText='display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid #d9cdf0;border-radius:9px;background:#faf7ff;margin-bottom:7px;cursor:pointer;transition:all 0.15s;';
+      card.innerHTML='<span style="font-size:1.4rem;">📘</span>'
+        +'<div style="flex:1;">'
+        +'<div style="font-weight:800;color:var(--maroon);font-size:0.82rem;">'+escHTP(b.title||b.subject)+'</div>'
+        +'<div style="font-size:0.68rem;color:#888;">'+escHTP(b.class_name)+' · NCERT</div>'
+        +'</div>'
+        +'<span style="background:#e7dcf7;color:#4a2a75;padding:2px 8px;border-radius:6px;font-size:0.65rem;font-weight:700;">✅ Ready</span>';
+      card.onmouseenter=function(){this.style.borderColor='var(--maroon)';};
+      card.onmouseleave=function(){this.style.borderColor='#d9cdf0';};
+      card.onclick=function(){ncertSelectBook(b);};
+      box.appendChild(card);
+    });
+  }catch(e){box.innerHTML='<div style="color:#c0392b;font-size:0.78rem;">Error: '+e.message+'</div>';}
+}
+
+function ncertSelectBook(book){
+  document.getElementById('mb-teach-popup').style.display='flex';
+  document.getElementById('mb-popup-bookname').textContent=(book.title||book.subject)+' ('+book.class_name+')';
+  document.getElementById('mb-popup-from').value='';
+  document.getElementById('mb-popup-to').value='';
+  document.getElementById('mb-popup-lesson').value='';
+  var ncSub=(document.getElementById('ncert-sub')||{}).value || book.subject || '';
+  var subEl=document.getElementById('mb-popup-subject');
+  if(subEl)subEl.value=ncSub;
+  document.getElementById('mb-popup-status').textContent='';
+  window._mbSelectedBook={bookId:book.id,bookName:book.title||book.subject,cls:book.class_name,pdfUrl:book.pdf_url||''};
+  mbLoadChapters(book.id,'ncert');
 }
 
 function samSelectBook(book){
@@ -2370,6 +2422,39 @@ function injectMyBooksSection(){
         </div>
       </div>
       <div id="sam-books-list"><div style="color:#aaa;font-size:0.78rem;">Select class and subject to see books.</div></div>
+    </div>
+
+    <!-- ══ SECTION B2: NCERT BOOKS (hidden unless the school has NCERT switched on) ══ -->
+    <div id="ncert-section" style="display:none;">
+      <div style="margin-top:18px;background:linear-gradient(135deg,#2a1147,#4a2a75);border-radius:14px 14px 0 0;padding:14px 18px;">
+        <div style="font-family:'Cinzel',serif;font-size:1rem;color:#e7dcf7;">📘 NCERT Books</div>
+        <div style="font-size:0.72rem;color:#c6b3e8;margin-top:2px;">NCERT textbooks uploaded by admin</div>
+      </div>
+      <div style="background:#faf7ff;border:1.5px solid #d9cdf0;border-top:none;border-radius:0 0 14px 14px;padding:14px 18px;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
+          <div>
+            <span style="font-size:0.75rem;font-weight:700;color:#4a2a75;display:block;margin-bottom:4px;">Class</span>
+            <select id="ncert-cls" onchange="ncertLoadBooks(this.value,document.getElementById('ncert-sub').value)" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #d9cdf0;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+              <option value="">Select Class</option>
+              <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+              <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+              <option>Class 7</option><option>Class 8</option><option>Class 9</option><option>Class 10</option>
+              <option>Class 11</option><option>Class 12</option>
+            </select>
+          </div>
+          <div>
+            <span style="font-size:0.75rem;font-weight:700;color:#4a2a75;display:block;margin-bottom:4px;">Subject</span>
+            <select id="ncert-sub" onchange="ncertLoadBooks(document.getElementById('ncert-cls').value,this.value)" style="width:100%;padding:9px 11px;font-size:0.85rem;border:2px solid #d9cdf0;border-radius:8px;font-family:Nunito,sans-serif;outline:none;">
+              <option value="">Select Subject</option>
+              <option>Science</option><option>Mathematics</option><option>Social Science</option>
+              <option>English</option><option>Hindi</option><option>Sanskrit</option>
+              <option>EVS</option><option>Computer Science</option>
+              <option>Physics</option><option>Chemistry</option><option>Biology</option>
+            </select>
+          </div>
+        </div>
+        <div id="ncert-books-list"><div style="color:#aaa;font-size:0.78rem;">Select class and subject to see books.</div></div>
+      </div>
     </div>
 
     <!-- ══ SECTION C: IMAGE-BASED PDF CHAPTER UPLOAD (scanned / CamScanner) ══ -->
@@ -2503,6 +2588,7 @@ function gateBookSources(){
   .then(function(r){return r.json();})
   .then(function(d){
     if(!d) return;
+    window._dssSources = d;   // remembered for the Teach-side library picker
     // Section A — Text-based PDF Books
     if(d.has_text_upload===false){
       var form=document.getElementById('mb-form');
@@ -2515,6 +2601,9 @@ function gateBookSources(){
       var sb=document.getElementById('sam-books-list');
       if(sb){ var body=sb.parentElement; if(body){ _imgHideEl(body); _imgHideEl(body.previousElementSibling); } }
     }
+    // Section B2 — NCERT Books (hidden unless enabled)
+    var ncSec=document.getElementById('ncert-section');
+    if(ncSec) ncSec.style.display=(d.has_ncert===true)?'block':'none';
     // Section C — Image-based Chapter Upload (hidden unless enabled)
     var imgSec=document.getElementById('img-section');
     if(imgSec) imgSec.style.display=(d.has_image_upload===true)?'block':'none';
@@ -2764,8 +2853,9 @@ async function tpLoadLibBooks(){
   var box=document.getElementById('tp-lib-books');
   box.innerHTML='<div style="color:#aaa;font-size:0.75rem;">Loading library…</div>';
   try{
-    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_get',table:'textbook_library',params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject,medium'})});
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'tbl_get',table:'textbook_library',params:'class_name=eq.'+encodeURIComponent(cls)+'&subject=eq.'+encodeURIComponent(sub)+'&select=id,title,class_name,subject,medium,syllabus_type'})});
     var d=await r.json();var books=Array.isArray(d)?d:(d.books||[]);
+    books=books.filter(function(b){ return String(b.syllabus_type||'')!=='ncert'; });
     if(!books.length){
       box.innerHTML='<div style="font-size:0.78rem;color:#888;line-height:1.7;">No textbook in library for '+cls+' '+sub+'.<br/>Ask your admin to upload the Samacheer PDF in the Super Admin panel.</div>';
       return;
@@ -8394,12 +8484,21 @@ async function openLibraryPicker() {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
       body: JSON.stringify({ action: 'tbl_get', table: 'textbook_library',
-        params: 'select=id,title,subject,class_name,medium&order=class_name.asc' })
+        params: 'select=id,title,subject,class_name,medium,syllabus_type&order=class_name.asc' })
     });
     var books = await r.json();
     if (!Array.isArray(books)) books = books.books || [];
 
     var filtered = books;
+    // Show only the boards this school pays for. If the switches are unknown
+    // (older session, offline), show everything rather than an empty list.
+    var _src = window._dssSources;
+    if (_src) {
+      filtered = filtered.filter(function(b){
+        var isNcert = String(b.syllabus_type||'') === 'ncert';
+        return isNcert ? (_src.has_ncert === true) : (_src.has_samacheer !== false);
+      });
+    }
     if (cls) filtered = filtered.filter(function(b){ return !b.class_name || b.class_name === cls; });
     if (sub) filtered = filtered.filter(function(b){ return !b.subject || b.subject.toLowerCase() === sub.toLowerCase(); });
     if (filtered.length === 0) filtered = books;
