@@ -448,11 +448,14 @@ async function buildLesson(){
     + '  {"type":"parts_bar","parts":8,"shaded":3,"label":"3 out of 8"}\n'
     + '  {"type":"photo_scene","photo":"a tall temple gopuram standing on open ground, '
     + 'seen from across the street","angle_deg":30,'
-    + '"labels":{"sight":"10 m","height":"?","ground":"18 m"}}\n'
+    + '"labels":{"sight":"","height":"?","ground":"18 m"}}\n'
     + '     — a REAL photograph with the triangle drawn on it. Use this on the FIRST '
     + 'picture step, so the class sees the maths sitting on a real thing they know: '
     + 'a gopuram, a water tank, a flag post, a ladder on a wall, an escalator, a slide. '
     + 'In "photo" describe only the real scene — never mention lines, angles or triangles.\n'
+    + '     Labels: give a number to ONLY the sides the question tells us. Leave "sight" as "" '
+    + 'unless the question gives that length. The line of sight is the LONGEST side, so it can '
+    + 'never equal or be shorter than the ground or the height.\n'
     + 'Choose the shape that fits the idea of THAT step. Keep numbers whole and small. '
     + 'Never describe a picture in the board lines — give draw instead.\n\n'
     + 'ACTIVITY — the class must DO something at the end, not just watch.\n'
@@ -884,6 +887,8 @@ async function runStep(i){
 
   var big = $('big');
   big.innerHTML = '';
+  big.scrollTop = 0;
+  if(big.parentElement) big.parentElement.scrollTop = 0;
   if(s.title){
     var t = document.createElement('div');
     t.className = 'b-title'; t.textContent = s.title;
@@ -1185,6 +1190,7 @@ function drawPhotoScene(spec, host){
     var base = a.base || [70, 88];      // foot of the tall thing
     var top  = a.top  || [70, 18];      // its top
     var eye  = a.eye  || [14, 72];      // where the person's eyes are
+    eye = [eye[0], base[1]];            // ground must be flat: eye and foot on one level
     var svg = svgEl('svg', { viewBox:'0 0 100 100', preserveAspectRatio:'none',
       style:'position:absolute;inset:0;width:100%;height:100%;' });
 
@@ -1198,6 +1204,9 @@ function drawPhotoScene(spec, host){
     L(base[0], base[1], top[0], top[1], '#ff5fd2', 5);
     L(eye[0],  eye[1],  base[0], base[1], '#ffffff', 5);
     L(eye[0],  eye[1],  top[0],  top[1],  '#ffffff', 5);
+    // small square at the foot: this is a right-angled triangle
+    L(base[0] - 4, base[1],     base[0] - 4, base[1] - 5, '#ffffff', 3);
+    L(base[0] - 4, base[1] - 5, base[0],     base[1] - 5, '#ffffff', 3);
 
     // the angle, marked at the eye
     var dx = (base[0] - eye[0]), dy = (eye[1] - top[1]);
@@ -1216,7 +1225,11 @@ function drawPhotoScene(spec, host){
       svg.appendChild(e);
     }
     var lb = spec.labels || {};
-    T((eye[0] + top[0]) / 2, (eye[1] + top[1]) / 2 - 4, lb.sight);            // e.g. "10 feet"
+    var sightTxt = lb.sight;
+    // Saved lessons may carry a number on BOTH the slanted line and the ground,
+    // which is impossible. Keep the ground; hide the slanted one.
+    if(sightTxt && /\d/.test(sightTxt) && lb.ground && /\d/.test(lb.ground)) sightTxt = '';
+    T((eye[0] + top[0]) / 2, (eye[1] + top[1]) / 2 - 4, sightTxt);            // e.g. "10 feet"
     T(base[0] + 6, (base[1] + top[1]) / 2, lb.height, '#ff9be8');             // e.g. "?"
     T((eye[0] + base[0]) / 2, base[1] + 6, lb.ground);                        // e.g. "35 m"
     wrap.appendChild(svg);
