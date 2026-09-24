@@ -150,6 +150,18 @@ body{ background:#3a2419; }
 .notes h3{ border-bottom:none; margin:0; padding:0; white-space:nowrap; font-size:1.3rem; }
 #note-list{ max-height:62px; }
 .note-item{ margin-bottom:.35rem; }
+/* Your Turn: one picture card per step (added) */
+body.in-act .notes{ display:none; }
+#big .act-mat{ font-family:'Kalam',cursive; font-size:clamp(1rem,1.5vw,1.2rem); color:var(--chalk-yellow); }
+#big .act-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:16px; margin:6px 0 16px; }
+#big .act-card{ background:rgba(0,0,0,.18); border:1.5px solid rgba(232,201,154,.35); border-radius:12px; overflow:hidden; }
+#big .act-pic{ aspect-ratio:4/3; background:rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center;
+  font-family:'Kalam',cursive; color:var(--chalk-dim); font-size:.9rem; text-align:center; padding:6px; }
+#big .act-pic img{ width:100%; height:100%; object-fit:cover; display:block; }
+#big .act-txt{ padding:10px 12px 12px; font-family:'Kalam',cursive; font-size:clamp(.98rem,1.3vw,1.12rem);
+  color:var(--chalk); line-height:1.45; }
+#big .act-num{ display:inline-block; min-width:26px; height:26px; line-height:26px; text-align:center; border-radius:50%;
+  background:var(--gold); color:#3a2419; font-weight:700; font-family:'Nunito',sans-serif; margin-right:6px; font-size:.9rem; }
 @media(max-width:900px){
   #big .b-row{ flex-direction:column; align-items:stretch; }
   .notes{ max-height:none; flex-direction:column; align-items:flex-start; }
@@ -903,6 +915,7 @@ async function runStep(i){
   if(i < 0 || i >= STEPS.length) return;
   IDX = i;
   window._IN_ACT = false;
+  document.body.classList.remove('in-act');
   var my = ++SEQ;
   var s = STEPS[i];
 
@@ -1394,14 +1407,55 @@ function renderActivity(act){
   }
 
   if(act.materials && act.materials.length){
-    line('You need: ' + act.materials.join(', '), 'k-num');
+    line('You need: ' + act.materials.join(', '), 'act-mat');
   }
-  (act.steps || []).forEach(function(st, i){ line((i + 1) + '.  ' + st, '', true); });
+  // Each step as a card with a real photo of children doing it, so the
+  // class can copy exactly how the things are held and used.
+  var grid = document.createElement('div');
+  grid.className = 'act-grid';
+  big.appendChild(grid);
+  (act.steps || []).forEach(function(st, i){
+    var card = document.createElement('div'); card.className = 'act-card';
+    var pic  = document.createElement('div'); pic.className  = 'act-pic';
+    pic.textContent = 'Getting the picture…';
+    var txt  = document.createElement('div'); txt.className  = 'act-txt';
+    var num  = document.createElement('span'); num.className = 'act-num'; num.textContent = (i + 1);
+    txt.appendChild(num); txt.appendChild(document.createTextNode(st));
+    card.appendChild(pic); card.appendChild(txt); grid.appendChild(card);
+    activityPicture(st, act.title || '', pic);
+  });
   if(act.record) line('Write down: ' + act.record, 'k-key');
   if(act.check)  line('Check: ' + act.check, 'k-ask');
   line('Now compare your answer with the other pairs. Are they the same? Why not?', 'k-ask');
 
   $('step-count').textContent = 'Your Turn';
+}
+
+/* One picture per activity step, made once and then served from the cache.
+   The same request is never sent twice in one visit, so opening Your Turn
+   again while a picture is still being made does not pay for it twice. */
+window._ACT_IMG = window._ACT_IMG || {};
+function activityPicture(stepText, title, host){
+  var q = String(stepText || '').trim();
+  if(q.length < 3){ host.textContent = ''; return; }
+  var ctx = 'Class ' + CLS + ' maths activity: ' + title;
+  var key = q + '|' + ctx;
+  if(!window._ACT_IMG[key]){
+    window._ACT_IMG[key] = fetch('/api/gen-image', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query: q, context: ctx, mode:'activity-step' })
+    }).then(function(r){ return r.json(); })
+      .then(function(d){ return (d && d.images && d.images[0] && d.images[0].url) || null; })
+      .catch(function(){ return null; });
+  }
+  window._ACT_IMG[key].then(function(u){
+    if(!u){ delete window._ACT_IMG[key]; host.textContent = 'Picture not available'; return; }
+    var img = document.createElement('img');
+    img.alt = q;
+    img.onload  = function(){ host.textContent = ''; host.appendChild(img); };
+    img.onerror = function(){ host.textContent = 'Picture not available'; };
+    img.src = u;
+  });
 }
 
 function openActivity(){
@@ -1412,6 +1466,7 @@ function openActivity(){
   $('btn-play').textContent = '▶ Play';
   renderActivity(act);
   window._IN_ACT = true;
+  document.body.classList.add('in-act');
   $('step-count').textContent = '✋ Your Turn';
   try { $('big').scrollTop = 0; } catch(e){}
 }
