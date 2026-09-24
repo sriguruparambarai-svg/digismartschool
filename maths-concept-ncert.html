@@ -228,7 +228,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
    handed over to maths-concept.html instead of being AI-generated.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v1';          // bump to force every lesson to regenerate
+var LESSON_VER = 'v2';          // v2 = lessons that carry blackboard drawings
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -428,7 +428,22 @@ async function buildLesson(){
     + '  kind   — one of "idea", "key", "ask", "number" (controls the chalk colour)\n'
     + '  say_en — 2 to 4 sentences the teacher speaks aloud\n'
     + '  say_ta — the Tamil version, or "" if not needed\n'
-    + '  note   — one short line for the side notes panel, or ""\n\n'
+    + '  note   — one short line for the side notes panel, or ""\n'
+    + '  draw   — OPTIONAL picture for the blackboard, or leave it out\n\n'
+    + 'PICTURES — this is what makes the class more than slides.\n'
+    + 'Give draw on at least 3 steps, and mark exactly ONE of them '
+    + '"interactive": true so the class can move it and watch the numbers change.\n'
+    + 'Use ONLY these five shapes, with these exact fields:\n'
+    + '  {"type":"elevation","mode":"up" or "down","distance":30,"height":20,'
+    + '"object_label":"tower","distance_label":"distance","height_label":"height","unit":" m"}\n'
+    + '     — someone looking up at something tall, or down from a height. '
+    + 'The angle, the line of sight and tan are drawn for you.\n'
+    + '  {"type":"right_triangle","angle_deg":35,"base_label":"base","height_label":"height","hyp_label":"ladder"}\n'
+    + '  {"type":"number_line","from":0,"to":10,"marks":[0,2,4,6,8,10],"highlight":[6]}\n'
+    + '  {"type":"circle_angle","angle_deg":60,"radius_label":"r"}\n'
+    + '  {"type":"parts_bar","parts":8,"shaded":3,"label":"3 out of 8"}\n'
+    + 'Choose the shape that fits the idea of THAT step. Keep numbers whole and small. '
+    + 'Never describe a picture in the board lines — give draw instead.\n\n'
     + 'Return ONLY a JSON array. Start with [ and end with ].';
 
   var r = await fetch('/api/ai', {
@@ -461,7 +476,8 @@ async function buildLesson(){
       kind:  String(o.kind || 'idea'),
       say_en:String(o.say_en || ''),
       say_ta:String(o.say_ta || ''),
-      note:  String(o.note || '')
+      note:  String(o.note || ''),
+      draw:  (o.draw && typeof o.draw === 'object') ? o.draw : null
     });
   });
   if(!steps.length) throw new Error('empty lesson');
@@ -863,6 +879,10 @@ async function runStep(i){
     big.appendChild(d);
   });
 
+  if(s.draw){
+    try { renderDrawing(s.draw, big); } catch(e){}
+  }
+
   rebuildNotes(i);
 
   await speakStep(s);
@@ -883,6 +903,270 @@ function playPause(){
 function goNext(){ if(IDX < STEPS.length - 1){ SEQ++; stopAudio(); runStep(IDX + 1); } }
 function goPrev(){ if(IDX > 0){ SEQ++; stopAudio(); runStep(IDX - 1); } }
 function replay(){ SEQ++; stopAudio(); runStep(IDX); }
+
+
+/* ════════════════════════════════════════════════════════════════
+   BOARD DRAWINGS
+   A step may carry a `draw` object. The AI chooses the shape and the
+   numbers; this code draws it properly, in chalk, on the blackboard.
+   The AI never writes the picture itself — a maths diagram has to be
+   exact, and a drawn one always is.
+
+   Shapes:
+     elevation      — a person looking up (or down) at something tall
+     right_triangle — a right triangle with the angle marked
+     number_line    — a line with marks and highlights
+     circle_angle   — two arms from a centre with the arc between them
+     parts_bar      — a bar cut into equal parts, some shaded
+
+   Any step with draw.interactive = true gets a slider the class can
+   move, so they watch the angle and the numbers change together.
+   ════════════════════════════════════════════════════════════════ */
+
+var CHALK = '#f3e9b5', CHALK2 = '#bfe3c4', CHALK3 = '#ffd9a0';
+
+function svgEl(name, attrs){
+  var e = document.createElementNS('http://www.w3.org/2000/svg', name);
+  for(var k in attrs) e.setAttribute(k, attrs[k]);
+  return e;
+}
+function svgText(x, y, str, size, fill, anchor){
+  var t = svgEl('text', { x:x, y:y, fill: fill || CHALK, 'font-size': size || 15,
+    'font-family':"'Patrick Hand','Comic Sans MS',cursive", 'text-anchor': anchor || 'middle' });
+  t.textContent = str;
+  return t;
+}
+function deg(r){ return r * 180 / Math.PI; }
+function rad(d){ return d * Math.PI / 180; }
+
+/* ── a person, drawn small and plain ── */
+function chalkPerson(g, x, groundY, h){
+  h = h || 34;
+  var head = h * 0.22;
+  g.appendChild(svgEl('circle', { cx:x, cy:groundY - h, r:head, fill:'none', stroke:CHALK, 'stroke-width':2 }));
+  g.appendChild(svgEl('line', { x1:x, y1:groundY - h + head, x2:x, y2:groundY - h*0.35, stroke:CHALK, 'stroke-width':2 }));
+  g.appendChild(svgEl('line', { x1:x - h*0.22, y1:groundY - h*0.62, x2:x + h*0.22, y2:groundY - h*0.62, stroke:CHALK, 'stroke-width':2 }));
+  g.appendChild(svgEl('line', { x1:x, y1:groundY - h*0.35, x2:x - h*0.2, y2:groundY, stroke:CHALK, 'stroke-width':2 }));
+  g.appendChild(svgEl('line', { x1:x, y1:groundY - h*0.35, x2:x + h*0.2, y2:groundY, stroke:CHALK, 'stroke-width':2 }));
+}
+
+/* ── angle arc between two directions from a point ── */
+function angleArc(g, cx, cy, r, a1, a2, colour){
+  var x1 = cx + r * Math.cos(a1), y1 = cy - r * Math.sin(a1);
+  var x2 = cx + r * Math.cos(a2), y2 = cy - r * Math.sin(a2);
+  g.appendChild(svgEl('path', {
+    d: 'M ' + x1 + ' ' + y1 + ' A ' + r + ' ' + r + ' 0 0 0 ' + x2 + ' ' + y2,
+    fill:'none', stroke: colour || CHALK3, 'stroke-width':2
+  }));
+}
+
+/* ── 1. ELEVATION / DEPRESSION SCENE ── */
+function drawElevation(spec, state){
+  var W = 620, H = 300, ground = 250, left = 70, right = 520;
+  var dist   = state.dist   != null ? state.dist   : (parseFloat(spec.distance) || 30);
+  var height = state.height != null ? state.height : (parseFloat(spec.height)   || 20);
+  var down   = (spec.mode === 'down' || spec.mode === 'depression');
+
+  var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
+    style:'max-height:330px;display:block;margin:6px auto;' });
+
+  // ground
+  svg.appendChild(svgEl('line', { x1:20, y1:ground, x2:600, y2:ground, stroke:CHALK, 'stroke-width':2 }));
+
+  // the tall thing, drawn to the shape's real proportions
+  var pxPerUnit = Math.min((right - left) / Math.max(dist, 1), 170 / Math.max(height, 1));
+  var objX = left + dist * pxPerUnit;
+  if(objX > right) { pxPerUnit = (right - left) / Math.max(dist, 1); objX = right; }
+  var topY = ground - height * pxPerUnit;
+
+  var eyeX = down ? objX : left;
+  var eyeY = down ? topY : ground - 30;
+  var farX = down ? left : objX;
+  var farY = down ? ground : topY;
+
+  // the object itself
+  svg.appendChild(svgEl('line', { x1:objX, y1:ground, x2:objX, y2:topY, stroke:CHALK2, 'stroke-width':3 }));
+  svg.appendChild(svgEl('line', { x1:objX - 12, y1:topY, x2:objX + 12, y2:topY, stroke:CHALK2, 'stroke-width':3 }));
+
+  // horizontal from the eye, and the line of sight
+  svg.appendChild(svgEl('line', { x1:eyeX, y1:eyeY, x2: down ? left : objX, y2:eyeY,
+    stroke:CHALK, 'stroke-width':1.5, 'stroke-dasharray':'6 5', opacity:'0.75' }));
+  svg.appendChild(svgEl('line', { x1:eyeX, y1:eyeY, x2:farX, y2:farY, stroke:CHALK3, 'stroke-width':2.5 }));
+
+  // the angle at the eye
+  var dx = farX - eyeX, dy = eyeY - farY;
+  var theta = Math.atan2(Math.abs(dy), Math.abs(dx));
+  var base = down ? (dx < 0 ? Math.PI : 0) : 0;
+  var to   = down ? (dx < 0 ? Math.PI + theta : -theta) : theta;
+  angleArc(svg, eyeX, eyeY, 34, base, to);
+  svg.appendChild(svgText(eyeX + (down ? -52 : 46), eyeY + (down ? 20 : -12),
+    Math.round(deg(theta)) + '°', 16, CHALK3));
+
+  if(!down) chalkPerson(svg, left, ground, 30);
+
+  // labels
+  svg.appendChild(svgText((left + objX) / 2, ground + 22,
+    (spec.distance_label || 'distance') + ' = ' + Math.round(dist) + (spec.unit || ' m'), 14, CHALK));
+  svg.appendChild(svgText(objX + 60, (ground + topY) / 2,
+    (spec.height_label || 'height') + ' = ' + Math.round(height) + (spec.unit || ' m'), 14, CHALK2, 'middle'));
+  if(spec.object_label) svg.appendChild(svgText(objX, topY - 14, spec.object_label, 14, CHALK2));
+
+  return { svg: svg, theta: deg(theta), dist: dist, height: height };
+}
+
+/* ── 2. RIGHT TRIANGLE ── */
+function drawRightTriangle(spec, state){
+  var W = 560, H = 300;
+  var angle = state.angle != null ? state.angle : (parseFloat(spec.angle_deg) || 35);
+  angle = Math.max(10, Math.min(80, angle));
+  var bx = 90, by = 245, baseLen = 330;
+  var h = baseLen * Math.tan(rad(angle));
+  if(h > 190){ h = 190; baseLen = h / Math.tan(rad(angle)); }
+  var topX = bx + baseLen, topY = by - h;
+
+  var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
+    style:'max-height:320px;display:block;margin:6px auto;' });
+
+  svg.appendChild(svgEl('polygon', {
+    points: bx + ',' + by + ' ' + (bx + baseLen) + ',' + by + ' ' + topX + ',' + topY,
+    fill:'none', stroke:CHALK, 'stroke-width':2.5
+  }));
+
+  // the little square at the right angle
+  svg.appendChild(svgEl('polyline', {
+    points: (bx + baseLen - 16) + ',' + by + ' ' + (bx + baseLen - 16) + ',' + (by - 16) + ' ' + (bx + baseLen) + ',' + (by - 16),
+    fill:'none', stroke:CHALK2, 'stroke-width':2
+  }));
+
+  angleArc(svg, bx, by, 40, 0, rad(angle));
+  svg.appendChild(svgText(bx + 54, by - 12, Math.round(angle) + '°', 16, CHALK3, 'start'));
+
+  svg.appendChild(svgText(bx + baseLen / 2, by + 24, spec.base_label || 'base', 14, CHALK));
+  svg.appendChild(svgText(bx + baseLen + 46, by - h / 2, spec.height_label || 'height', 14, CHALK2));
+  svg.appendChild(svgText((bx + topX) / 2 - 24, by - h / 2 - 12, spec.hyp_label || '', 14, CHALK3));
+
+  return { svg: svg, angle: angle };
+}
+
+/* ── 3. NUMBER LINE ── */
+function drawNumberLine(spec){
+  var W = 620, H = 130, y = 70, x0 = 50, x1 = 570;
+  var from = parseFloat(spec.from), to = parseFloat(spec.to);
+  if(isNaN(from)) from = 0; if(isNaN(to)) to = 10;
+  if(to <= from) to = from + 10;
+  var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
+    style:'max-height:150px;display:block;margin:6px auto;' });
+  svg.appendChild(svgEl('line', { x1:x0, y1:y, x2:x1, y2:y, stroke:CHALK, 'stroke-width':2.5 }));
+
+  var marks = Array.isArray(spec.marks) && spec.marks.length ? spec.marks : null;
+  if(!marks){
+    marks = [];
+    var stepv = (to - from) / 10;
+    for(var v = from; v <= to + 0.0001; v += stepv) marks.push(Math.round(v * 100) / 100);
+  }
+  var hi = Array.isArray(spec.highlight) ? spec.highlight.map(Number) : [];
+  marks.forEach(function(m){
+    var v = Number(m);
+    var x = x0 + (v - from) / (to - from) * (x1 - x0);
+    var on = hi.some(function(z){ return Math.abs(z - v) < 0.0001; });
+    svg.appendChild(svgEl('line', { x1:x, y1:y - (on ? 16 : 9), x2:x, y2:y + (on ? 16 : 9),
+      stroke: on ? CHALK3 : CHALK, 'stroke-width': on ? 3 : 1.8 }));
+    svg.appendChild(svgText(x, y + 34, String(m), on ? 15 : 13, on ? CHALK3 : CHALK));
+  });
+  return { svg: svg };
+}
+
+/* ── 4. CIRCLE WITH AN ANGLE ── */
+function drawCircleAngle(spec, state){
+  var W = 420, H = 300, cx = 210, cy = 165, r = 110;
+  var angle = state.angle != null ? state.angle : (parseFloat(spec.angle_deg) || 60);
+  angle = Math.max(5, Math.min(355, angle));
+  var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
+    style:'max-height:300px;display:block;margin:6px auto;' });
+  svg.appendChild(svgEl('circle', { cx:cx, cy:cy, r:r, fill:'none', stroke:CHALK, 'stroke-width':2, opacity:'0.6' }));
+  svg.appendChild(svgEl('line', { x1:cx, y1:cy, x2:cx + r, y2:cy, stroke:CHALK, 'stroke-width':2.5 }));
+  var ex = cx + r * Math.cos(rad(angle)), ey = cy - r * Math.sin(rad(angle));
+  svg.appendChild(svgEl('line', { x1:cx, y1:cy, x2:ex, y2:ey, stroke:CHALK2, 'stroke-width':2.5 }));
+  angleArc(svg, cx, cy, 44, 0, rad(angle));
+  svg.appendChild(svgText(cx + 66, cy - 22, Math.round(angle) + '°', 16, CHALK3, 'start'));
+  if(spec.radius_label) svg.appendChild(svgText(cx + r / 2, cy + 22, spec.radius_label, 13, CHALK));
+  return { svg: svg, angle: angle };
+}
+
+/* ── 5. BAR CUT INTO PARTS (fractions) ── */
+function drawPartsBar(spec){
+  var W = 600, H = 150, x0 = 50, y0 = 45, bw = 500, bh = 60;
+  var parts = Math.max(1, Math.min(20, parseInt(spec.parts, 10) || 4));
+  var shaded = Math.max(0, Math.min(parts, parseInt(spec.shaded, 10) || 0));
+  var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
+    style:'max-height:170px;display:block;margin:6px auto;' });
+  var pw = bw / parts;
+  for(var i = 0; i < parts; i++){
+    svg.appendChild(svgEl('rect', { x:x0 + i * pw, y:y0, width:pw, height:bh,
+      fill: i < shaded ? CHALK3 : 'none', opacity: i < shaded ? '0.45' : '1',
+      stroke:CHALK, 'stroke-width':2 }));
+  }
+  if(spec.label) svg.appendChild(svgText(W / 2, y0 + bh + 30, spec.label, 15, CHALK));
+  return { svg: svg };
+}
+
+/* ── the one entry point the lesson uses ── */
+function renderDrawing(spec, host){
+  if(!spec || !spec.type) return;
+  var state = {};
+  var box = document.createElement('div');
+  box.style.cssText = 'margin-top:10px;';
+  host.appendChild(box);
+
+  function paint(){
+    box.innerHTML = '';
+    var out;
+    if(spec.type === 'elevation')            out = drawElevation(spec, state);
+    else if(spec.type === 'right_triangle')  out = drawRightTriangle(spec, state);
+    else if(spec.type === 'number_line')     out = drawNumberLine(spec);
+    else if(spec.type === 'circle_angle')    out = drawCircleAngle(spec, state);
+    else if(spec.type === 'parts_bar')       out = drawPartsBar(spec);
+    else return;
+    box.appendChild(out.svg);
+
+    // A line of working under the picture, so the numbers on screen and
+    // the numbers in the child's notebook are the same numbers.
+    if(spec.type === 'elevation'){
+      var t = Math.round(out.theta);
+      var line = document.createElement('div');
+      line.className = 'b-line k-num';
+      line.style.cssText = 'text-align:center;margin-top:2px;';
+      line.textContent = 'tan ' + t + '° = ' + Math.round(out.height) + ' / ' + Math.round(out.dist);
+      box.appendChild(line);
+    }
+
+    if(spec.interactive){
+      var ctrl = document.createElement('div');
+      ctrl.style.cssText = 'display:flex;align-items:center;gap:12px;justify-content:center;margin-top:10px;';
+      var lab = document.createElement('span');
+      lab.className = 'b-line';
+      lab.style.cssText = 'font-size:0.9rem;opacity:0.9;';
+      var sl = document.createElement('input');
+      sl.type = 'range';
+      sl.style.cssText = 'width:260px;accent-color:#f3e9b5;cursor:pointer;';
+
+      if(spec.type === 'elevation'){
+        lab.textContent = spec.slider_label || 'Move closer or further';
+        sl.min = 5; sl.max = Math.max(60, Math.round((parseFloat(spec.distance) || 30) * 2));
+        sl.value = Math.round(state.dist != null ? state.dist : (parseFloat(spec.distance) || 30));
+        sl.oninput = function(){ state.dist = parseFloat(sl.value); paint(); };
+      } else {
+        lab.textContent = spec.slider_label || 'Change the angle';
+        sl.min = 10; sl.max = 80;
+        sl.value = Math.round(state.angle != null ? state.angle : (parseFloat(spec.angle_deg) || 35));
+        sl.oninput = function(){ state.angle = parseFloat(sl.value); paint(); };
+      }
+      ctrl.appendChild(lab); ctrl.appendChild(sl);
+      box.appendChild(ctrl);
+    }
+  }
+  paint();
+}
 
 /* ════════ PRACTICE QUESTIONS ════════
    Shown only in the Foundation panel (Class 6 up). Four questions on the
