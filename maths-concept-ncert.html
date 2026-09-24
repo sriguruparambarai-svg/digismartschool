@@ -229,7 +229,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
    handed over to maths-concept.html instead of being AI-generated.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v3';          // v3 = drawings + the Your Turn activity
+var LESSON_VER = 'v4';          // v4 = shorter lessons, photo scenes, answer gate
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -412,8 +412,11 @@ async function buildLesson(){
          + 'teaching words. Do not read the book aloud and do not work through its exercises.\n\n'
          + 'CHAPTER TEXT:\n' + CH_TEXT + '\n\n')
         : ('You have not seen the book. Teach what a ' + CLS + ' child needs to understand this topic.\n\n'))
-    + 'Build the lesson as 8 to 14 steps. Each step is one small idea, taught in order, '
-    + 'building from what the child already knows to the new idea.\n\n'
+    + 'Build the lesson as 6 to 8 steps ONLY. Fewer, stronger steps — a class that '
+    + 'watches fourteen screens stops listening. Each step is one small idea, taught in '
+    + 'order, building from what the child already knows to the new idea.\n'
+    + 'Two of the steps MUST have kind "ask": a real question the teacher puts to the '
+    + 'class and waits for. The class answers aloud before the lesson goes on.\n\n'
     + 'RULES:\n'
     + '1. Start from something familiar in a Tamil Nadu child\'s life before any symbol or rule.\n'
     + '2. Name the strategy before you calculate. Never state a derived number without showing how.\n'
@@ -443,6 +446,13 @@ async function buildLesson(){
     + '  {"type":"number_line","from":0,"to":10,"marks":[0,2,4,6,8,10],"highlight":[6]}\n'
     + '  {"type":"circle_angle","angle_deg":60,"radius_label":"r"}\n'
     + '  {"type":"parts_bar","parts":8,"shaded":3,"label":"3 out of 8"}\n'
+    + '  {"type":"photo_scene","photo":"a tall temple gopuram standing on open ground, '
+    + 'seen from across the street","angle_deg":30,'
+    + '"labels":{"sight":"10 m","height":"?","ground":"18 m"}}\n'
+    + '     — a REAL photograph with the triangle drawn on it. Use this on the FIRST '
+    + 'picture step, so the class sees the maths sitting on a real thing they know: '
+    + 'a gopuram, a water tank, a flag post, a ladder on a wall, an escalator, a slide. '
+    + 'In "photo" describe only the real scene — never mention lines, angles or triangles.\n'
     + 'Choose the shape that fits the idea of THAT step. Keep numbers whole and small. '
     + 'Never describe a picture in the board lines — give draw instead.\n\n'
     + 'ACTIVITY — the class must DO something at the end, not just watch.\n'
@@ -901,6 +911,21 @@ async function runStep(i){
 
   await speakStep(s);
   if(my !== SEQ) return;
+
+  // A question step stops here. The class answers aloud, then the teacher
+  // presses on. Without this the questions scroll past unanswered.
+  if(s.kind === 'ask' && PLAYING && IDX < STEPS.length - 1){
+    PLAYING = false;
+    $('btn-play').textContent = '▶ Play';
+    var gate = document.createElement('div');
+    gate.className = 'b-line k-ask';
+    gate.style.cssText = 'margin-top:18px;cursor:pointer;text-decoration:underline;';
+    gate.textContent = 'Class answered — carry on ▶';
+    gate.onclick = function(){ PLAYING = true; $('btn-play').textContent = '❚❚ Pause'; goNext(); };
+    big.appendChild(gate);
+    return;
+  }
+
   if(PLAYING && IDX < STEPS.length - 1){
     setTimeout(function(){ if(my === SEQ && PLAYING) runStep(IDX + 1); }, 550);
   } else if(IDX >= STEPS.length - 1){
@@ -1132,6 +1157,85 @@ function drawPartsBar(spec){
   return { svg: svg };
 }
 
+/* ── 6. PHOTO SCENE ──
+   A real-looking photograph of the actual thing — a gopuram, a water tank,
+   an escalator — with the triangle, the angle and the labels drawn on top
+   of it, the way a teacher draws on a photo. The picture is generated once
+   and then served from the cache to every school for free.
+
+   The lines are placed by percentage of the frame, and the picture is
+   composed to match: ground along the bottom, the tall thing on the right,
+   open space on the left. */
+function drawPhotoScene(spec, host){
+  var wrap = document.createElement('div');
+  wrap.style.cssText = 'position:relative;max-width:640px;margin:8px auto;border-radius:10px;overflow:hidden;';
+  host.appendChild(wrap);
+
+  var msg = document.createElement('div');
+  msg.className = 'b-line';
+  msg.style.cssText = 'text-align:center;opacity:0.7;padding:20px 0;';
+  msg.textContent = 'Getting the picture…';
+  wrap.appendChild(msg);
+
+  var img = document.createElement('img');
+  img.style.cssText = 'display:block;width:100%;height:auto;';
+
+  function overlay(){
+    var a = spec.anchors || {};
+    var base = a.base || [70, 88];      // foot of the tall thing
+    var top  = a.top  || [70, 18];      // its top
+    var eye  = a.eye  || [14, 72];      // where the person's eyes are
+    var svg = svgEl('svg', { viewBox:'0 0 100 100', preserveAspectRatio:'none',
+      style:'position:absolute;inset:0;width:100%;height:100%;' });
+
+    function L(x1,y1,x2,y2,col,w,dash){
+      var o = { x1:x1, y1:y1, x2:x2, y2:y2, stroke:col, 'stroke-width':w,
+                'vector-effect':'non-scaling-stroke', 'stroke-linecap':'round' };
+      if(dash) o['stroke-dasharray'] = dash;
+      svg.appendChild(svgEl('line', o));
+    }
+    // the three sides: up the object, along the ground, and the line of sight
+    L(base[0], base[1], top[0], top[1], '#ff5fd2', 5);
+    L(eye[0],  eye[1],  base[0], base[1], '#ffffff', 5);
+    L(eye[0],  eye[1],  top[0],  top[1],  '#ffffff', 5);
+
+    // the angle, marked at the eye
+    var dx = (base[0] - eye[0]), dy = (eye[1] - top[1]);
+    var ang = spec.angle_deg != null ? spec.angle_deg
+              : Math.round(Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI);
+    var at = svgEl('text', { x: eye[0] + 7, y: eye[1] - 3, fill:'#ffffff',
+      'font-size':'6', 'font-family':"'Patrick Hand',cursive", 'text-anchor':'start' });
+    at.textContent = ang + '°';
+    svg.appendChild(at);
+
+    function T(x, y, str, col){
+      if(!str) return;
+      var e = svgEl('text', { x:x, y:y, fill: col || '#ffffff', 'font-size':'6.5',
+        'font-family':"'Patrick Hand',cursive", 'text-anchor':'middle' });
+      e.textContent = str;
+      svg.appendChild(e);
+    }
+    var lb = spec.labels || {};
+    T((eye[0] + top[0]) / 2, (eye[1] + top[1]) / 2 - 4, lb.sight);            // e.g. "10 feet"
+    T(base[0] + 6, (base[1] + top[1]) / 2, lb.height, '#ff9be8');             // e.g. "?"
+    T((eye[0] + base[0]) / 2, base[1] + 6, lb.ground);                        // e.g. "35 m"
+    wrap.appendChild(svg);
+  }
+
+  img.onload = function(){ msg.remove(); overlay(); };
+  img.onerror = function(){ msg.textContent = 'Picture not available — using the drawing instead.'; };
+
+  fetch('/api/gen-image', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ query: spec.photo, context: 'maths concept ' + CLS, mode:'maths-photo' })
+  }).then(function(r){ return r.json(); }).then(function(d){
+    var u = d && d.images && d.images[0] && d.images[0].url;
+    if(!u) throw new Error('no picture');
+    img.src = u;
+    wrap.appendChild(img);
+  }).catch(function(){ msg.textContent = 'Picture not available this time.'; });
+}
+
 /* ── the one entry point the lesson uses ── */
 function renderDrawing(spec, host){
   if(!spec || !spec.type) return;
@@ -1143,7 +1247,8 @@ function renderDrawing(spec, host){
   function paint(){
     box.innerHTML = '';
     var out;
-    if(spec.type === 'elevation')            out = drawElevation(spec, state);
+    if(spec.type === 'photo_scene')          { drawPhotoScene(spec, box); return; }
+    else if(spec.type === 'elevation')       out = drawElevation(spec, state);
     else if(spec.type === 'right_triangle')  out = drawRightTriangle(spec, state);
     else if(spec.type === 'number_line')     out = drawNumberLine(spec);
     else if(spec.type === 'circle_angle')    out = drawCircleAngle(spec, state);
