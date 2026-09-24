@@ -47,6 +47,21 @@ const STYLES = {
       + 'No text, no letters, no numbers, no arrows, no drawn lines, no watermark, '
       + 'no diagram of any kind. Photograph of: '
   },
+  // One picture per step of a classroom activity (the "Your Turn" page).
+  // Realistic, so older students take it seriously; close on the hands and
+  // the object, because the child has to copy exactly what is shown.
+  'activity-step': {
+    size: '1024x1024',
+    quality: 'medium',
+    prefix: 'A clear, realistic photograph in an Indian school, bright natural light. '
+      + 'Indian school students in neat school uniform doing a hands-on class activity. '
+      + 'Show clearly and simply what is being done: frame close enough that the hands, '
+      + 'the objects and how they are held are easy to see and copy. '
+      + 'Only simple things a school has: thread, drinking straw, protractor, scale, '
+      + 'measuring tape, chalk, paper, small stones, a notebook, a phone. '
+      + 'Uncluttered background. No text, no letters, no numbers, no labels, no arrows, '
+      + 'no drawn lines, no watermark. The step being done: '
+  },
   'kg-colour': {
     size: '1024x1024',
     quality: 'medium',
