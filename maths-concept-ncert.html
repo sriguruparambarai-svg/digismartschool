@@ -132,6 +132,28 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
 .mr-line .katex{ color:inherit; font-size:1.05em; }
 .mr-line .katex .frac-line{ border-bottom-width:.055em; min-height:.055em; }
 .b-line .mr-line{ font-size:1em; }
+
+/* ═══ LAYOUT A — picture beside words, note strip below, lighter board (added) ═══ */
+:root{ --board-dark:#2b5a3b; --board-mid:#346a46; }
+body{ background:#3a2419; }
+.main{ flex-direction:column; }
+#big{ justify-content:flex-start; }
+#big > :first-child{ margin-top:auto; }
+#big > :last-child{ margin-bottom:auto; }
+#big .b-row{ display:flex; gap:26px; align-items:center; }
+#big .b-pic{ flex:1.25; min-width:0; }
+#big .b-txt{ flex:1; min-width:0; }
+#big .b-pic svg{ max-height:56vh !important; }
+#big .b-txt .b-title{ font-size:clamp(1.6rem,2.6vw,2.4rem); }
+.notes{ flex:0 0 auto; max-width:none; min-width:0; max-height:84px;
+  flex-direction:row; align-items:center; gap:16px; padding:10px 18px; background:rgba(0,0,0,.22); }
+.notes h3{ border-bottom:none; margin:0; padding:0; white-space:nowrap; font-size:1.3rem; }
+#note-list{ max-height:62px; }
+.note-item{ margin-bottom:.35rem; }
+@media(max-width:900px){
+  #big .b-row{ flex-direction:column; align-items:stretch; }
+  .notes{ max-height:none; flex-direction:column; align-items:flex-start; }
+}
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
@@ -880,6 +902,7 @@ function katexSet(el, text, slots){
 async function runStep(i){
   if(i < 0 || i >= STEPS.length) return;
   IDX = i;
+  window._IN_ACT = false;
   var my = ++SEQ;
   var s = STEPS[i];
 
@@ -909,7 +932,14 @@ async function runStep(i){
   });
 
   if(s.draw){
-    try { renderDrawing(s.draw, big); } catch(e){}
+    // Layout A: picture on the left, the step's words beside it.
+    var row = document.createElement('div'); row.className = 'b-row';
+    var pic = document.createElement('div'); pic.className = 'b-pic';
+    var txt = document.createElement('div'); txt.className = 'b-txt';
+    while(big.firstChild) txt.appendChild(big.firstChild);
+    row.appendChild(pic); row.appendChild(txt);
+    big.appendChild(row);
+    try { renderDrawing(s.draw, pic); } catch(e){}
   }
 
   rebuildNotes(i);
@@ -935,6 +965,8 @@ async function runStep(i){
     setTimeout(function(){ if(my === SEQ && PLAYING) runStep(IDX + 1); }, 550);
   } else if(IDX >= STEPS.length - 1){
     PLAYING = false; $('btn-play').textContent = '▶ Play';
+    // The lesson always ends with the class doing it themselves.
+    if(window._ACTIVITY) setTimeout(function(){ if(my === SEQ) openActivity(); }, 900);
   }
 }
 
@@ -944,8 +976,14 @@ function playPause(){
   if(PLAYING) runStep(IDX);
   else { SEQ++; stopAudio(); try{ window.speechSynthesis.cancel(); }catch(e){} }
 }
-function goNext(){ if(IDX < STEPS.length - 1){ SEQ++; stopAudio(); runStep(IDX + 1); } }
-function goPrev(){ if(IDX > 0){ SEQ++; stopAudio(); runStep(IDX - 1); } }
+function goNext(){
+  if(IDX < STEPS.length - 1){ SEQ++; stopAudio(); runStep(IDX + 1); }
+  else if(window._ACTIVITY && !window._IN_ACT){ openActivity(); }   // last step → Your Turn
+}
+function goPrev(){
+  if(window._IN_ACT){ SEQ++; stopAudio(); runStep(IDX); return; }  // Your Turn → back to last step
+  if(IDX > 0){ SEQ++; stopAudio(); runStep(IDX - 1); }
+}
 function replay(){ SEQ++; stopAudio(); runStep(IDX); }
 
 
@@ -1024,7 +1062,7 @@ function drawElevation(spec, state){
   var topY = ground - height * pxPerUnit;
 
   var eyeX = down ? objX : left;
-  var eyeY = down ? topY : ground - 30;
+  var eyeY = down ? topY : ground;   // from the ground, so the angle matches height / distance
   var farX = down ? left : objX;
   var farY = down ? ground : topY;
 
@@ -1373,6 +1411,9 @@ function openActivity(){
   try { window.speechSynthesis.cancel(); } catch(e){}
   $('btn-play').textContent = '▶ Play';
   renderActivity(act);
+  window._IN_ACT = true;
+  $('step-count').textContent = '✋ Your Turn';
+  try { $('big').scrollTop = 0; } catch(e){}
 }
 
 /* ════════ PRACTICE QUESTIONS ════════
