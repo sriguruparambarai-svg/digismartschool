@@ -1222,18 +1222,42 @@ function drawPhotoScene(spec, host){
     wrap.appendChild(svg);
   }
 
+  // If the photo cannot be had, fall back to the chalk scene so the step is
+  // never left empty, and say plainly what went wrong — a silent failure here
+  // cost us a whole round of guessing once already.
+  function fallback(why){
+    console.warn('[photo_scene] ' + why, spec);
+    wrap.remove();
+    var note = document.createElement('div');
+    note.className = 'b-line';
+    note.style.cssText = 'text-align:center;opacity:0.6;font-size:0.8rem;';
+    note.textContent = 'Photo unavailable (' + why + ') — drawn instead';
+    host.appendChild(note);
+    var alt = {
+      type:'elevation', mode:'up',
+      distance: spec.ground_m || 30, height: spec.height_m || 20,
+      object_label: spec.object_label || '',
+      distance_label:'distance', height_label:'height', unit:' m'
+    };
+    var out = drawElevation(alt, {});
+    host.appendChild(out.svg);
+  }
+
   img.onload = function(){ msg.remove(); overlay(); };
-  img.onerror = function(){ msg.textContent = 'Picture not available — using the drawing instead.'; };
+  img.onerror = function(){ fallback('picture did not load'); };
+
+  var q = String(spec.photo || spec.scene || spec.query || '').trim();
+  if(q.length < 3){ fallback('no scene described'); return; }
 
   fetch('/api/gen-image', {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ query: spec.photo, context: 'maths concept ' + CLS, mode:'maths-photo' })
+    body: JSON.stringify({ query: q, context: 'maths concept class ' + CLS, mode:'maths-photo' })
   }).then(function(r){ return r.json(); }).then(function(d){
     var u = d && d.images && d.images[0] && d.images[0].url;
-    if(!u) throw new Error('no picture');
+    if(!u){ fallback(d && d.note ? d.note : 'the drawing service returned nothing'); return; }
     img.src = u;
     wrap.appendChild(img);
-  }).catch(function(){ msg.textContent = 'Picture not available this time.'; });
+  }).catch(function(e){ fallback(e.message || 'could not reach the drawing service'); });
 }
 
 /* ── the one entry point the lesson uses ── */
