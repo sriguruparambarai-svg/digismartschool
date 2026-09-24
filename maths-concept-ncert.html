@@ -201,6 +201,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
     <span class="grow" style="flex:1"></span>
     <button class="c-btn" id="btn-voice">🔊 Voice</button>
     <button class="c-btn" id="btn-lang">EN</button>
+    <button class="c-btn" id="btn-activity" style="display:none;">✋ Your Turn</button>
     <button class="c-btn" id="btn-practice" style="display:none;">🎯 Practice</button>
     <button class="c-btn" id="btn-new">New</button>
   </div>
@@ -228,7 +229,7 @@ body{background:#0a0c08;font-family:'Nunito',sans-serif;color:#fff;min-height:10
    handed over to maths-concept.html instead of being AI-generated.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v2';          // v2 = lessons that carry blackboard drawings
+var LESSON_VER = 'v3';          // v3 = drawings + the Your Turn activity
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -444,6 +445,18 @@ async function buildLesson(){
     + '  {"type":"parts_bar","parts":8,"shaded":3,"label":"3 out of 8"}\n'
     + 'Choose the shape that fits the idea of THAT step. Keep numbers whole and small. '
     + 'Never describe a picture in the board lines — give draw instead.\n\n'
+    + 'ACTIVITY — the class must DO something at the end, not just watch.\n'
+    + 'On the LAST step only, add an "activity" object. Rules:\n'
+    + '  - Students work in pairs and do it themselves, in the classroom or the school ground.\n'
+    + '  - 10 to 15 minutes. Nothing to buy.\n'
+    + '  - Materials only from what a Tamil Nadu school already has: thread, drinking straw, '
+    + 'protractor, scale, measuring tape, chalk, paper, stones, a phone.\n'
+    + '  - It must MEASURE or MAKE something and end in a number or a result the pair writes down, '
+    + 'which other pairs can compare against.\n'
+    + '  - Class ' + CLS + ' children must be able to do it without the teacher doing it for them.\n'
+    + 'Shape: {"title":"...","materials":["...","..."],"steps":["...","...","..."],'
+    + '"record":"what to write in the notebook","check":"how they know the answer is sensible"}\n'
+    + 'Give 3 to 5 steps, each one short line.\n\n'
     + 'Return ONLY a JSON array. Start with [ and end with ].';
 
   var r = await fetch('/api/ai', {
@@ -477,7 +490,8 @@ async function buildLesson(){
       say_en:String(o.say_en || ''),
       say_ta:String(o.say_ta || ''),
       note:  String(o.note || ''),
-      draw:  (o.draw && typeof o.draw === 'object') ? o.draw : null
+      draw:  (o.draw && typeof o.draw === 'object') ? o.draw : null,
+      activity: (o.activity && typeof o.activity === 'object') ? o.activity : null
     });
   });
   if(!steps.length) throw new Error('empty lesson');
@@ -1002,14 +1016,22 @@ function drawElevation(spec, state){
   svg.appendChild(svgText(eyeX + (down ? -52 : 46), eyeY + (down ? 20 : -12),
     Math.round(deg(theta)) + '°', 16, CHALK3));
 
-  if(!down) chalkPerson(svg, left, ground, 30);
+  // Looking up: the person stands on the ground. Looking down: the person
+  // stands on top, which is what "angle of depression" means.
+  if(down) chalkPerson(svg, objX, topY, 26);
+  else     chalkPerson(svg, left, ground, 30);
 
   // labels
   svg.appendChild(svgText((left + objX) / 2, ground + 22,
     (spec.distance_label || 'distance') + ' = ' + Math.round(dist) + (spec.unit || ' m'), 14, CHALK));
   svg.appendChild(svgText(objX + 60, (ground + topY) / 2,
     (spec.height_label || 'height') + ' = ' + Math.round(height) + (spec.unit || ' m'), 14, CHALK2, 'middle'));
-  if(spec.object_label) svg.appendChild(svgText(objX, topY - 14, spec.object_label, 14, CHALK2));
+  if(spec.object_label){
+    // Looking up, the label belongs at the top of the tall thing.
+    // Looking down, it belongs on the ground where that thing actually is.
+    if(down) svg.appendChild(svgText(left, ground + 22, spec.object_label, 14, CHALK2));
+    else     svg.appendChild(svgText(objX, topY - 30, spec.object_label, 14, CHALK2));
+  }
 
   return { svg: svg, theta: deg(theta), dist: dist, height: height };
 }
@@ -1166,6 +1188,49 @@ function renderDrawing(spec, host){
     }
   }
   paint();
+}
+
+/* ════════ YOUR TURN — the activity students do themselves ════════
+   Every lesson ends with something the class actually does with their
+   hands: make it, measure it, write it down, compare answers with the
+   other pairs. The comparing is the part that teaches — that is where
+   children see why two groups got different heights for the same wall. */
+function renderActivity(act){
+  var big = $('big');
+  big.innerHTML = '';
+
+  var t = document.createElement('div');
+  t.className = 'b-title';
+  t.textContent = '✋ Your Turn — ' + (act.title || 'Do it yourself');
+  big.appendChild(t);
+
+  function line(txt, cls, indent){
+    var d = document.createElement('div');
+    d.className = 'b-line ' + (cls || '');
+    if(indent) d.style.paddingLeft = '18px';
+    d.textContent = txt;
+    big.appendChild(d);
+    return d;
+  }
+
+  if(act.materials && act.materials.length){
+    line('You need: ' + act.materials.join(', '), 'k-num');
+  }
+  (act.steps || []).forEach(function(st, i){ line((i + 1) + '.  ' + st, '', true); });
+  if(act.record) line('Write down: ' + act.record, 'k-key');
+  if(act.check)  line('Check: ' + act.check, 'k-ask');
+  line('Now compare your answer with the other pairs. Are they the same? Why not?', 'k-ask');
+
+  $('step-count').textContent = 'Your Turn';
+}
+
+function openActivity(){
+  var act = window._ACTIVITY;
+  if(!act) return;
+  PLAYING = false; SEQ++; stopAudio();
+  try { window.speechSynthesis.cancel(); } catch(e){}
+  $('btn-play').textContent = '▶ Play';
+  renderActivity(act);
 }
 
 /* ════════ PRACTICE QUESTIONS ════════
@@ -1369,6 +1434,12 @@ async function startClass(){
   STEPS = await getSavedLesson();
   setTimeout(preparePractice, 1200);   // quietly, while the class is being taught
 
+  // The activity rides on whichever step carries it.
+  window._ACTIVITY = null;
+  (STEPS || []).forEach(function(st){ if(st.activity) window._ACTIVITY = st.activity; });
+  var ab = $('btn-activity');
+  if(ab) ab.style.display = window._ACTIVITY ? '' : 'none';
+
   if(!STEPS){
     $('loading-sub').textContent =
       'Preparing this chapter for the first time. Once it is ready it is saved '
@@ -1480,6 +1551,7 @@ document.addEventListener('DOMContentLoaded', function(){
   $('btn-play').onclick   = playPause;
   $('btn-next').onclick   = goNext;
   $('btn-practice').onclick = openPractice;
+  $('btn-activity').onclick = openActivity;
   $('btn-prev').onclick   = goPrev;
   $('btn-replay').onclick = replay;
 
