@@ -30,6 +30,23 @@ const IMG_QUALITY = 'medium';         // bright & clean without paying premium
 // Each style has its own cache folder key, so the same word can exist as both
 // a colour picture and an outline without one overwriting the other.
 const STYLES = {
+  // A real-looking photograph for a maths concept class, composed so a
+  // triangle can be drawn on top of it: flat ground along the bottom, the
+  // tall thing standing at the right, open space at the left for the
+  // person who is looking. Without that composition the drawn lines would
+  // not sit on the real object.
+  'maths-photo': {
+    size: '1536x1024',
+    quality: 'medium',
+    prefix: 'A clear, realistic photograph taken in India at eye level, bright daylight. '
+      + 'COMPOSITION RULES, follow exactly: flat open ground runs straight across the '
+      + 'bottom of the frame; the tall subject stands upright on the RIGHT side of the '
+      + 'frame with its base resting on that ground and its whole top clearly inside '
+      + 'the frame; the LEFT half of the frame is open empty ground with a clear line '
+      + 'of sight, nothing blocking it. Plain uncluttered background. '
+      + 'No text, no letters, no numbers, no arrows, no drawn lines, no watermark, '
+      + 'no diagram of any kind. Photograph of: '
+  },
   'kg-colour': {
     size: '1024x1024',
     quality: 'medium',
