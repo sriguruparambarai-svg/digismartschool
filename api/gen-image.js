@@ -143,6 +143,68 @@ function cacheExists(fileName) {
   });
 }
 
+// ── Admin picture replacement (added) ───────────────────────
+// The super admin can swap any AI picture for a checked one (e.g. made in
+// Firefly). It is saved beside the AI picture as <key>-admin.jpg, and every
+// request looks for that first, so all schools get the checked picture and
+// the AI never redraws it. The AI original is kept, untouched.
+
+// Reads the signed session token made by auth.js at login.
+// Returns its contents, or null if it is missing, fake or expired.
+function readSession(raw) {
+  if (!raw) return null;
+  try {
+    var parts = String(raw).split('.');
+    if (parts.length !== 2) return null;
+    var payload = Buffer.from(parts[0], 'base64').toString();
+    var secret = process.env.SUPABASE_SECRET_KEY || '';
+    if (!secret) return null;
+    var expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    var got = Buffer.from(parts[1], 'utf8');
+    var want = Buffer.from(expect, 'utf8');
+    if (got.length !== want.length) return null;
+    if (!crypto.timingSafeEqual(got, want)) return null;
+    var data = JSON.parse(payload);
+    if (!data.exp || Date.now() > data.exp) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+function adminName(query, context, mode) {
+  return cacheKey(query, context, mode) + '-admin.jpg';
+}
+
+// Same as saveImage, but for the admin's JPEG.
+function saveAdminImage(buf, fileName) {
+  return new Promise(function (resolve) {
+    const key = process.env.SUPABASE_SECRET_KEY;
+    if (!key) return resolve('the server has no storage key');
+    const opts = {
+      hostname: SB_HOST,
+      path: '/storage/v1/object/' + BUCKET + '/' + CACHE_FOLDER + '/' + fileName,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'image/jpeg',
+        apikey: key,
+        Authorization: 'Bearer ' + key,
+        'Content-Length': buf.length,
+        'x-upsert': 'true'
+      }
+    };
+    const r = https.request(opts, function (resp) {
+      let t = '';
+      resp.on('data', function (d) { t += d; });
+      resp.on('end', function () {
+        if (resp.statusCode >= 200 && resp.statusCode < 300) return resolve('ok');
+        resolve('storage said ' + resp.statusCode + ': ' + t.substring(0, 160));
+      });
+    });
+    r.on('error', function (e) { resolve('could not reach storage: ' + e.message); });
+    r.write(buf);
+    r.end();
+  });
+}
+
 // ── upload the finished PNG to Supabase Storage ─────────────
 function saveImage(pngBuffer, fileName) {
   return new Promise(function (resolve) {
@@ -246,7 +308,7 @@ function drawImage(prompt, size, quality) {
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-dss-session');
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
 
@@ -261,6 +323,27 @@ module.exports = async function handler(req, res) {
   const style = STYLES[mode] || null;
   if (query.length < 3) return res.json({ images: [] });
 
+  // ── super admin replaces this picture with a checked one ──
+  if (body.action === 'replace') {
+    const who = readSession(req.headers['x-dss-session']);
+    if (!who || who.role !== 'super_admin') {
+      return res.status(403).json({ error: 'Only the super admin can replace pictures. Please log in again as super admin.' });
+    }
+    const raw = String(body.image_base64 || '').replace(/^data:image\/[a-z]+;base64,/, '');
+    const buf = Buffer.from(raw, 'base64');
+    if (!buf.length || buf[0] !== 0xFF || buf[1] !== 0xD8) {
+      return res.json({ error: 'That file could not be read as a picture.' });
+    }
+    if (buf.length > 3 * 1024 * 1024) {
+      return res.json({ error: 'The picture is too big (over 3 MB) even after shrinking.' });
+    }
+    const aName = adminName(query, context, mode);
+    const saved = await saveAdminImage(buf, aName);
+    console.log('[gen-image] admin replace key=' + aName.substring(0, 12) + ' -> ' + saved);
+    if (saved !== 'ok') return res.json({ error: 'Could not save the picture: ' + saved });
+    return res.json({ images: [{ url: publicUrl(aName), title: query, source: 'Checked by admin' }], admin: true });
+  }
+
   // A forced redraw writes to a new name, otherwise the cache check below
   // would return the very picture we are trying to get rid of.
   const force = !!body.force;
@@ -272,6 +355,13 @@ module.exports = async function handler(req, res) {
   try {
     // 1) already drawn before? return instantly.
     console.log('[gen-image] request mode=' + mode + ' key=' + fileName.substring(0, 12));
+    // a picture the admin has checked and replaced always wins
+    if (!force) {
+      const aName = adminName(query, context, mode);
+      if (await cacheExists(aName)) {
+        return res.json({ images: [{ url: publicUrl(aName), title: query, source: 'Checked by admin' }], cached: true, admin: true });
+      }
+    }
     if (!force && await cacheExists(fileName)) {
       return res.json(Object.assign(wrap(url), { cached: true }));
     }
