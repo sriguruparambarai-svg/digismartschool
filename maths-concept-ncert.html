@@ -160,6 +160,11 @@ body.in-act .notes{ display:none; }
 #big .act-pic{ position:relative; }
 .rp-btn{ position:absolute; top:8px; right:8px; z-index:5; background:rgba(58,36,25,.9); color:#f3e3c3;
   border:1px solid #c9a84c; border-radius:8px; padding:5px 10px; font:600 .8rem 'Nunito',sans-serif; cursor:pointer; }
+.add-pic-btn{ margin-top:18px; align-self:flex-start; background:rgba(58,36,25,.9); color:#f3e3c3;
+  border:1.5px dashed #c9a84c; border-radius:10px; padding:9px 16px; font:700 .9rem 'Nunito',sans-serif; cursor:pointer; }
+.add-pic-btn:disabled{ opacity:.7; cursor:wait; }
+#big .b-pic .added-wrap{ position:relative; max-width:640px; margin:8px auto; border-radius:10px; overflow:hidden; }
+#big .b-pic .added-wrap img{ display:block; width:100%; height:auto; max-height:58vh; object-fit:contain; }
 .rp-btn:disabled{ opacity:.7; cursor:wait; }
 #big .act-pic img{ width:100%; height:100%; object-fit:cover; display:block; }
 #big .act-txt{ padding:10px 12px 12px; font-family:'Kalam',cursive; font-size:clamp(.98rem,1.3vw,1.12rem);
@@ -957,6 +962,9 @@ async function runStep(i){
     row.appendChild(pic); row.appendChild(txt);
     big.appendChild(row);
     try { renderDrawing(s.draw, pic); } catch(e){}
+  } else {
+    // No drawing: show a picture the super admin has added, if any.
+    addedStepPicture(s, big);
   }
 
   rebuildNotes(i);
@@ -1507,6 +1515,91 @@ function addReplaceButton(host, req, onDone, checked){
     inp.click();
   };
   host.appendChild(b);
+}
+
+/* ════════ ADD PICTURE — super admin only ════════
+   A step with no picture can be given one by the super admin. It is saved
+   once and every school sees it. Other steps only LOOK for it; the server
+   never draws these with AI, so looking costs nothing. */
+window._ADDED_IMG = window._ADDED_IMG || {};
+
+function addedStepReq(s){
+  return {
+    query: 'Class ' + CLS + ' | ' + (CHAPTER ? (CHAPTER.chapter_title || '') : '') + ' | '
+           + (s.title || '') + ' | ' + ((s.board && s.board[0]) || ''),
+    context: 'maths concept step',
+    mode: 'added-step'
+  };
+}
+
+function uploadAdminPicture(req, file){
+  return shrinkToJpeg(file).then(function(b64){
+    return fetch('/api/gen-image', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json', 'x-dss-session': localStorage.getItem('dss_session') || '' },
+      body: JSON.stringify({ action:'replace', query:req.query, context:req.context, mode:req.mode, image_base64:b64 })
+    });
+  }).then(function(r){ return r.json(); }).then(function(d){
+    var u = d && d.images && d.images[0] && d.images[0].url;
+    if(!u) throw new Error(d && d.error ? d.error : 'The picture could not be saved.');
+    return /^https?:/.test(u) ? u + (u.indexOf('?') < 0 ? '?' : '&') + 'v=' + Date.now() : u;
+  });
+}
+
+function showAddedPicture(big, req, url){
+  if(big.querySelector('.b-row')) return;
+  var add = big.querySelector('.add-pic-btn'); if(add) add.remove();
+  var row = document.createElement('div'); row.className = 'b-row';
+  var pic = document.createElement('div'); pic.className = 'b-pic';
+  var txt = document.createElement('div'); txt.className = 'b-txt';
+  while(big.firstChild) txt.appendChild(big.firstChild);
+  row.appendChild(pic); row.appendChild(txt);
+  big.appendChild(row);
+  var wrap = document.createElement('div'); wrap.className = 'added-wrap';
+  var img = document.createElement('img'); img.alt = ''; img.src = url;
+  wrap.appendChild(img); pic.appendChild(wrap);
+  addReplaceButton(wrap, req, function(nu){
+    window._ADDED_IMG[req.query] = Promise.resolve(nu);
+    img.src = nu;
+  }, true);
+}
+
+function addedStepPicture(s, big){
+  var req = addedStepReq(s);
+  var mySeq = SEQ;
+  if(!window._ADDED_IMG[req.query]){
+    window._ADDED_IMG[req.query] = fetch('/api/gen-image', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'lookup', query:req.query, context:req.context, mode:req.mode })
+    }).then(function(r){ return r.json(); })
+      .then(function(d){ return (d && d.images && d.images[0] && d.images[0].url) || null; })
+      .catch(function(){ return null; });
+  }
+  window._ADDED_IMG[req.query].then(function(u){
+    if(mySeq !== SEQ) return;                       // teacher already moved on
+    if(u){ showAddedPicture(big, req, u); return; }
+    if(!isSuperAdmin()) return;
+    var b = document.createElement('button');
+    b.className = 'add-pic-btn';
+    b.textContent = '➕ Add picture';
+    b.onclick = function(){
+      var inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*';
+      inp.onchange = function(){
+        var f = inp.files && inp.files[0]; if(!f) return;
+        b.disabled = true; b.textContent = 'Uploading…';
+        uploadAdminPicture(req, f).then(function(nu){
+          window._ADDED_IMG[req.query] = Promise.resolve(nu);
+          showAddedPicture(big, req, nu);
+        }).catch(function(e){
+          b.disabled = false; b.textContent = '➕ Add picture';
+          alert('Could not add the picture: ' + (e && e.message ? e.message : e));
+        });
+      };
+      inp.click();
+    };
+    big.appendChild(b);
+  });
 }
 
 function activityPicture(stepText, title, host){
