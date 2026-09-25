@@ -118,12 +118,59 @@
   $("topics").addEventListener("click", function(e){ var b = e.target.closest("[data-i]"); if(b){ topicIdx = +b.getAttribute("data-i"); draw(); } });
   $("levels").addEventListener("click", function(e){ var b = e.target.closest("[data-l]"); if(b){ level = +b.getAttribute("data-l"); draw(); } });
 
+  var SIMILAR = {
+    television:["tv","telivision","tele vision"], bike:["cycle","bicycle","motorbike","scooter","motorcycle"],
+    pant:["pants","trouser","trousers","shorts"], board:["blackboard","whiteboard","greenboard","chalkboard"],
+    light:["bulb","lightbulb","lamp","tubelight"], finger:["fingers","hand","thumb"], school:["schoolbuilding","building","classroom"],
+    thankyou:["thank you","thanks","vanakkam","namaste","folded hands"], hello:["hi","wave","waving","greet"],
+    please:["request","namaste","folded hands"], sorry:["apologise","apologize"], milk:["glass of milk","milkglass"],
+    temple:["kovil","gopuram","mandir"], river:["stream","water"], sky:["clouds","cloud"], uniform:["school uniform","dress"],
+    bench:["desk","seat"], walk:["walking","walker"], happy:["smile","smiling","happy face"], sad:["cry","crying","sad face"],
+    angry:["angry face"], hungry:["eating"], thirsty:["drinking"], tired:["sleepy","yawn","yawning"],
+    family:["parents"], aunt:["aunty","auntie"], uncle:["man"], idli:["idly","dosa"], rice:["meal","plate"],
+    shoes:["shoe","slipper","slippers","chappal"], socks:["sock"], tie:["necktie"], belt:[]
+  };
+  function close1(a,b){ // true if one letter added, removed or changed
+    if(Math.abs(a.length-b.length) > 1 || a === b) return false;
+    var i=0,j=0,diff=0;
+    while(i<a.length && j<b.length){
+      if(a[i]===b[j]){ i++; j++; continue; }
+      if(++diff > 1) return false;
+      if(a.length > b.length) i++; else if(b.length > a.length) j++; else { i++; j++; }
+    }
+    return diff + (a.length-i) + (b.length-j) <= 1;
+  }
+  function nearMatches(w, libWords){
+    var found = [], add = function(x){ if(found.indexOf(x) === -1) found.push(x); };
+    var base = w.replace(/\s+/g,"");
+    (SIMILAR[w] || []).forEach(function(s){ var k = s.replace(/\s+/g,""); libWords.forEach(function(lw){ if(lw.replace(/\s+/g,"") === k) add(lw); }); });
+    libWords.forEach(function(lw){
+      var k = lw.replace(/\s+/g,"");
+      if(k === base) return;
+      if(k === base+"s" || k+"s" === base || k === base+"es" || k+"es" === base) add(lw);
+      else if(base.length >= 4 && close1(k, base)) add(lw);
+      else if(base.length >= 4 && k.length >= 4 && (k.indexOf(base) > -1 || base.indexOf(k) > -1)) add(lw);
+    });
+    return found.slice(0,4);
+  }
+
   function summary(){
     var words = L.pictureWords();
     var have = words.filter(function(w){ var r = LIB[w]; return r && (r.colour_url || r.outline_url); });
     var miss = words.filter(function(w){ return have.indexOf(w) === -1; });
-    $("check").innerHTML = '<b>'+have.length+' of '+words.length+'</b> pictures the ladder needs are already in the Picture Library. '+
-      (miss.length ? '<b>'+miss.length+'</b> still need drawing:<div class="missing">'+miss.map(esc).join(", ")+'</div>' : 'All pictures are ready.');
+    var libWords = Object.keys(LIB).filter(function(k){ var r = LIB[k]; return r.colour_url || r.outline_url; });
+    var maybe = [], draw = [];
+    miss.forEach(function(w){ var m = nearMatches(w, libWords); if(m.length) maybe.push({w:w, m:m}); else draw.push(w); });
+    var html = '<b>'+have.length+' of '+words.length+'</b> pictures the ladder needs are already in the Picture Library.';
+    if(!miss.length){ $("check").innerHTML = html + ' All pictures are ready.'; return; }
+    if(maybe.length){
+      html += '<div class="missing"><b>'+maybe.length+' may already be in the library under another name</b> — tell Claude which ones are right:<br>'+
+        maybe.map(function(x){ return esc(x.w)+' → library has <b>'+x.m.map(esc).join('</b> or <b>')+'</b>'; }).join('<br>')+'</div>';
+    }
+    if(draw.length){
+      html += '<div class="missing"><b>'+draw.length+' need drawing</b> (nothing similar found):<br>'+draw.map(esc).join(", ")+'</div>';
+    }
+    $("check").innerHTML = html;
   }
 
   fetch('/api/auth', {method:'POST', headers:{'Content-Type':'application/json'},
