@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Speaking Ladder – DigiSmart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;800&family=Hind:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{--maroon:#6B1A1A;--gold:#C9A84C;--gold-soft:#EAD9A2;--sandal:#E8C99A;--paper:#FFF8EC;--ink:#2B1A12;--muted:#7A6150;--bad:#B3261E;
+    box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+  *,*::before,*::after{box-sizing:inherit}
+  html,body{margin:0}
+  body{background:var(--sandal);color:var(--ink);font:400 16px/1.55 "Hind",system-ui,sans-serif}
+  header{background:var(--maroon);color:var(--paper);padding:14px 20px;border-bottom:4px solid var(--gold)}
+  header h1{margin:0;font:800 1.5rem/1.2 "Baloo 2",sans-serif}
+  header p{margin:2px 0 0;color:var(--gold-soft);font-size:.95rem}
+  main{max-width:1100px;margin:0 auto;padding:16px}
+  .check{background:var(--paper);border:1px solid var(--gold);border-radius:10px;padding:12px 14px}
+  .check b{color:var(--maroon)}
+  .missing{margin-top:8px;font-size:.92rem;color:var(--muted);overflow-wrap:anywhere}
+  .bar{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 8px}
+  .chip{font:600 .95rem "Hind",sans-serif;border:1px solid var(--maroon);background:var(--paper);color:var(--maroon);border-radius:999px;padding:6px 12px;cursor:pointer}
+  .chip[aria-pressed="true"]{background:var(--maroon);color:var(--paper)}
+  .chip:focus-visible,button:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  .levels .chip{border-radius:8px}
+  h2{font:800 1.4rem "Baloo 2",sans-serif;color:var(--maroon);margin:14px 0 2px}
+  .goal{color:var(--muted);margin:0 0 12px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
+  .card{background:var(--paper);border-radius:10px;border:1px solid #d9bf8e;padding:10px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px}
+  .pic{width:96px;height:96px;display:flex;align-items:center;justify-content:center;border-radius:8px;background:#fff;overflow:hidden}
+  .pic img{max-width:100%;max-height:100%}
+  .pic.none{border:2px dashed var(--bad);color:var(--bad);font-size:.8rem;padding:6px}
+  .pic.digit{font:800 3rem "Baloo 2",sans-serif;color:var(--maroon)}
+  .pic.swatch{border:1px solid #bbb}
+  .say{font:600 1.1rem/1.3 "Baloo 2",sans-serif;color:var(--ink)}
+  .listen{font:600 .85rem "Hind",sans-serif;background:none;border:1px solid var(--gold);color:var(--maroon);border-radius:6px;padding:3px 10px;cursor:pointer}
+  .convo{background:var(--paper);border-radius:10px;border:1px solid #d9bf8e;padding:12px 14px;display:flex;gap:14px;align-items:flex-start}
+  .convo + .convo{margin-top:12px}
+  .convo h3{margin:0 0 6px;font:800 1.15rem "Baloo 2",sans-serif;color:var(--maroon)}
+  .turn{margin:4px 0}
+  .who{display:inline-block;min-width:54px;font-weight:600}
+  .robo{color:var(--maroon)} .kid{color:#1E5F2E}
+</style>
+</head>
+<body>
+<header>
+  <h1>Speaking Ladder</h1>
+  <p>All topics and levels. Tap a topic, then a level. Tap Listen to hear a line.</p>
+</header>
+<main>
+  <section class="check" id="check" aria-live="polite">Checking the picture library…</section>
+  <nav class="bar" id="topics" aria-label="Topics"></nav>
+  <nav class="bar levels" id="levels" aria-label="Levels"></nav>
+  <section id="view"></section>
+</main>
+
+<script src="js/speaking-ladder.js"></script>
+<script>
+(function(){
+  var L = window.SPEAKING_LADDER;
+  var $ = function(id){ return document.getElementById(id); };
+  if(!L){ $("check").textContent = "Could not load js/speaking-ladder.js. Check the file is uploaded in the js folder."; return; }
+  var LIB = {}, libLoaded = false, topicIdx = 0, level = 1;
+
+  function esc(s){ return String(s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+
+  function picHtml(it){
+    if(it.digit) return '<div class="pic digit">'+esc(it.digit)+'</div>';
+    if(it.swatch) return '<div class="pic swatch" style="background:'+it.swatch+'"></div>';
+    if(!it.pic) return '<div class="pic"></div>';
+    var row = LIB[it.pic];
+    var url = row && (row.colour_url || row.outline_url);
+    if(url) return '<div class="pic"><img src="'+esc(url)+'" alt="'+esc(it.pic)+'" loading="lazy"></div>';
+    return '<div class="pic none">'+(libLoaded ? 'Draw “'+esc(it.pic)+'”' : esc(it.pic))+'</div>';
+  }
+
+  function speak(text){
+    try{
+      speechSynthesis.cancel();
+      var u = new SpeechSynthesisUtterance(text); u.lang = "en-IN"; u.rate = 0.85;
+      speechSynthesis.speak(u);
+    }catch(e){}
+  }
+  window.__say = function(el){ speak(el.getAttribute("data-say")); };
+
+  function drawNav(){
+    $("topics").innerHTML = L.topics.map(function(t,i){
+      return '<button class="chip" aria-pressed="'+(i===topicIdx)+'" data-i="'+i+'">'+esc(t.title)+'</button>';
+    }).join("");
+    $("levels").innerHTML = L.levels.map(function(lv){
+      return '<button class="chip" aria-pressed="'+(lv.n===level)+'" data-l="'+lv.n+'">Level '+lv.n+': '+esc(lv.name)+'</button>';
+    }).join("");
+  }
+
+  function draw(){
+    drawNav();
+    var tp = L.topics[topicIdx], lv = L.levels[level-1], items = tp.levels[level];
+    var html = '<h2>'+esc(tp.title)+' · Level '+level+'</h2><p class="goal">'+esc(lv.goal)+'</p>';
+    if(level < 5){
+      html += '<div class="grid">' + items.map(function(it){
+        return '<div class="card">'+picHtml(it)+'<div class="say">'+esc(it.t)+'</div>'+
+          '<button class="listen" data-say="'+esc(it.t)+'" onclick="__say(this)">Listen</button></div>';
+      }).join("") + '</div>';
+    } else {
+      html += items.map(function(c){
+        return '<div class="convo">'+picHtml(c)+'<div><h3>'+esc(c.title)+'</h3>'+c.turns.map(function(t){
+          return '<div class="turn"><span class="who robo">Robo:</span> '+esc(t.robo)+
+                 ' <button class="listen" data-say="'+esc(t.robo)+'" onclick="__say(this)">Listen</button></div>'+
+                 '<div class="turn"><span class="who kid">Child:</span> '+esc(t.child)+'</div>';
+        }).join("")+'</div></div>';
+      }).join("");
+    }
+    $("view").innerHTML = html;
+  }
+
+  $("topics").addEventListener("click", function(e){ var b = e.target.closest("[data-i]"); if(b){ topicIdx = +b.getAttribute("data-i"); draw(); } });
+  $("levels").addEventListener("click", function(e){ var b = e.target.closest("[data-l]"); if(b){ level = +b.getAttribute("data-l"); draw(); } });
+
+  function summary(){
+    var words = L.pictureWords();
+    var have = words.filter(function(w){ var r = LIB[w]; return r && (r.colour_url || r.outline_url); });
+    var miss = words.filter(function(w){ return have.indexOf(w) === -1; });
+    $("check").innerHTML = '<b>'+have.length+' of '+words.length+'</b> pictures the ladder needs are already in the Picture Library. '+
+      (miss.length ? '<b>'+miss.length+'</b> still need drawing:<div class="missing">'+miss.map(esc).join(", ")+'</div>' : 'All pictures are ready.');
+  }
+
+  fetch('/api/auth', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({action:'tbl_get', table:'kg_pictures', params:'select=word,en,colour_url,outline_url&order=word'})})
+  .then(function(r){ if(!r.ok) throw new Error('the server said ' + r.status); return r.json(); })
+  .then(function(rows){
+    if(!Array.isArray(rows)) throw new Error(rows && rows.error ? rows.error : 'unexpected reply');
+    rows.forEach(function(r){ if(r && r.word){ LIB[String(r.word).toLowerCase()] = r; if(r.en) LIB[String(r.en).toLowerCase()] = LIB[String(r.en).toLowerCase()] || r; } });
+    libLoaded = true; summary(); draw();
+  })
+  .catch(function(e){
+    $("check").textContent = "Could not read the Picture Library (" + e.message + "). The content still shows below, without pictures.";
+    draw();
+  });
+
+  draw();
+})();
+</script>
+</body>
+</html>
