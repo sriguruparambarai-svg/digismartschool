@@ -165,6 +165,8 @@ body.in-act .notes{ display:none; }
 .add-pic-btn:disabled{ opacity:.7; cursor:wait; }
 #big .b-pic .added-wrap{ position:relative; max-width:640px; margin:8px auto; border-radius:10px; overflow:hidden; }
 #big .b-pic .added-wrap img{ display:block; width:100%; height:auto; max-height:58vh; object-fit:contain; }
+.show-ans-btn{ margin-top:16px; align-self:flex-start; background:rgba(58,36,25,.9); color:#f5e87a;
+  border:1.5px solid #c9a84c; border-radius:10px; padding:9px 16px; font:700 .95rem 'Nunito',sans-serif; cursor:pointer; }
 .rp-btn:disabled{ opacity:.7; cursor:wait; }
 #big .act-pic img{ width:100%; height:100%; object-fit:cover; display:block; }
 #big .act-txt{ padding:10px 12px 12px; font-family:'Kalam',cursive; font-size:clamp(.98rem,1.3vw,1.12rem);
@@ -272,7 +274,7 @@ body.in-act .notes{ display:none; }
    handed over to maths-concept.html instead of being AI-generated.
    ════════════════════════════════════════════════════════════════ */
 
-var LESSON_VER = 'v5';          // v5 = touch-see-write order, how-we-measure step, 2 worked examples, picture on every step
+var LESSON_VER = 'v6';          // v6 = v5 + name-only labels, unknown side, hidden check answers, pictures on ask steps
 
 var CLS = '', LANG = 'english';
 var CHAPTER = null;             // the selected row from syllabus_chapters
@@ -486,7 +488,10 @@ async function buildLesson(){
     + '7. No markdown, no asterisks, no LaTeX. Plain text only.\n'
     + '8. Every number must agree everywhere: in the board lines, in the picture and in the '
     + 'formula. Work each answer out before you write it; if a picture shows 40 and 40, its '
-    + 'angle must be 45 degrees.\n\n'
+    + 'angle must be 45 degrees.\n'
+    + '9. In a question or check step (kind "ask"), put the answer on the LAST board line, '
+    + 'starting with "Answer:". It stays hidden until the teacher shows it, so the spoken part '
+    + '(say_en / say_ta) asks the question and waits — it must NEVER say the answer.\n\n'
     + 'For each step give:\n'
     + '  id     — short unique id like "s1"\n'
     + '  title  — a few words, shown large on the blackboard\n'
@@ -497,12 +502,17 @@ async function buildLesson(){
     + '  note   — one short line for the side notes panel, or ""\n'
     + '  draw   — OPTIONAL picture for the blackboard, or leave it out\n\n'
     + 'PICTURES — this is what makes the class more than slides.\n'
-    + 'Give draw on EVERY step, except a step whose board is only a calculation (leave draw '
-    + 'out there so the working stays clear). Mark exactly ONE picture '
+    + 'Give draw on EVERY step — question steps, answer steps and formula steps too. The ONLY '
+    + 'exception is a step whose board is only a calculation (leave draw out there so the '
+    + 'working stays clear). Mark exactly ONE picture '
     + '"interactive": true so the class can move it and watch the numbers change.\n'
     + 'Use ONLY these five shapes, with these exact fields:\n'
-    + '  {"type":"elevation","mode":"up" or "down","distance":30,"height":20,'
-    + '"object_label":"tower","distance_label":"distance","height_label":"height","unit":" m"}\n'
+    + '  {"type":"elevation","mode":"up" or "down","angle_deg":32,"distance":25,"height":15.6,'
+    + '"unknown":"height","object_label":"water tank","distance_label":"distance",'
+    + '"height_label":"height","unit":" m"}\n'
+    + '     — angle_deg is the angle used on the board. "unknown" is the side being found '
+    + '("height" or "distance"), or "" if none; it is shown as "?". The labels are NAMES '
+    + 'only ("distance", "height", "shadow") — never put a number, "=" or "?" in a label.\n'
     + '     — someone looking up at something tall, or down from a height. '
     + 'The angle, the line of sight and tan are drawn for you.\n'
     + '  {"type":"right_triangle","angle_deg":35,"base_label":"base","height_label":"height","hyp_label":"ladder"}\n'
@@ -892,6 +902,22 @@ function mrConvert(src){
 }
 
 // True when a line has something worth drawing properly.
+// "25x tan(32)" or "12 x 0.839": x between numbers is a times sign.
+// "2x + 3" (algebra) is left alone.
+function timesSign(text){
+  return String(text || '').replace(/(\d|\))\s*x\s+(?=[\d(a-zA-Z])/g, '$1 × ');
+}
+// A long sentence stays as chalk writing; printed maths does not wrap
+// and would run off the board.
+function printMathFits(text){
+  var t = String(text || '');
+  var words = (t.match(/[A-Za-z]{3,}/g) || []).length;
+  return t.length <= 60 && words <= 5;
+}
+function isQuizStep(s){
+  return s && (s.kind === 'ask' || /check|question|try it|your turn to/i.test(String(s.title || '')));
+}
+
 function needsPrintMath(text){
   var t = String(text || '');
   return /[\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t);
@@ -971,19 +997,30 @@ async function runStep(i){
     t.className = 'b-title'; t.textContent = s.title;
     big.appendChild(t);
   }
+  var quizStep = isQuizStep(s), hiddenAns = [];
   (s.board || []).forEach(function(line, n){
+    line = timesSign(line);
     var d = document.createElement('div');
     d.className = 'b-line ' + kindClass(s.kind);
     d.style.animationDelay = (n * 0.13) + 's';
+    if(quizStep && /^\s*(answer|ans)\s*[:\-]/i.test(line)){ d.style.display = 'none'; hiddenAns.push(d); }
     // Lines with fractions, roots or powers are drawn as real maths.
     // Anything else, or any failure, keeps the original plain text.
     var drawn = false;
-    if(needsPrintMath(line)){
+    if(needsPrintMath(line) && printMathFits(line)){
       try { drawn = katexSet(d, line); } catch(e){ drawn = false; }
     }
     if(!drawn) d.textContent = line;
     big.appendChild(d);
   });
+  // A check question: the class tries first, the teacher then shows the answer.
+  if(hiddenAns.length){
+    var sa = document.createElement('button');
+    sa.className = 'show-ans-btn';
+    sa.textContent = '👁 Show answer';
+    sa.onclick = function(){ hiddenAns.forEach(function(x){ x.style.display = ''; }); sa.remove(); };
+    big.appendChild(sa);
+  }
 
   if(s.draw){
     // Layout A: picture on the left, the step's words beside it.
@@ -1105,6 +1142,15 @@ function drawElevation(spec, state){
   var dist   = state.dist   != null ? state.dist   : (parseFloat(spec.distance) || 30);
   var height = state.height != null ? state.height : (parseFloat(spec.height)   || 20);
   var down   = (spec.mode === 'down' || spec.mode === 'depression');
+  // The angle on the board is the one the class uses, so the drawing is built
+  // from it (not from a rounded answer), and the side being found shows "?".
+  var unknown  = String(spec.unknown || '').toLowerCase();
+  var givenAng = parseFloat(spec.angle_deg);
+  var useGiven = !isNaN(givenAng) && givenAng > 0 && givenAng < 90 && state.dist == null && state.height == null;
+  if(useGiven){
+    if(unknown === 'distance' || (spec.distance == null && spec.height != null)) dist = height / Math.tan(rad(givenAng));
+    else height = dist * Math.tan(rad(givenAng));
+  }
 
   var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
     style:'max-height:330px;display:block;margin:6px auto;' });
@@ -1138,8 +1184,9 @@ function drawElevation(spec, state){
   var base = down ? (dx < 0 ? Math.PI : 0) : 0;
   var to   = down ? (dx < 0 ? Math.PI + theta : -theta) : theta;
   angleArc(svg, eyeX, eyeY, 34, base, to);
+  var shownAng = useGiven ? Math.round(givenAng) : Math.round(deg(theta));
   svg.appendChild(svgText(eyeX + (down ? -52 : 46), eyeY + (down ? 20 : -12),
-    Math.round(deg(theta)) + '°', 16, CHALK3));
+    shownAng + '°', 16, CHALK3));
 
   // Looking up: the person stands on the ground. Looking down: the person
   // stands on top, which is what "angle of depression" means.
@@ -1147,10 +1194,12 @@ function drawElevation(spec, state){
   else     chalkPerson(svg, left, ground, 30);
 
   // labels
+  var dTxt = unknown === 'distance' ? '?' : elevNum(dist) + (spec.unit || ' m');
+  var hTxt = unknown === 'height'   ? '?' : elevNum(height) + (spec.unit || ' m');
   svg.appendChild(svgText((left + objX) / 2, ground + 22,
-    (spec.distance_label || 'distance') + ' = ' + Math.round(dist) + (spec.unit || ' m'), 14, CHALK));
+    elevLabel(spec.distance_label, 'distance', dTxt), 14, CHALK));
   svg.appendChild(svgText(objX + 60, (ground + topY) / 2,
-    (spec.height_label || 'height') + ' = ' + Math.round(height) + (spec.unit || ' m'), 14, CHALK2, 'middle'));
+    elevLabel(spec.height_label, 'height', hTxt), 14, CHALK2, 'middle'));
   if(spec.object_label){
     // Looking up, the label belongs at the top of the tall thing.
     // Looking down, it belongs on the ground where that thing actually is.
@@ -1158,7 +1207,20 @@ function drawElevation(spec, state){
     else     svg.appendChild(svgText(objX, topY - 30, spec.object_label, 14, CHALK2));
   }
 
-  return { svg: svg, theta: deg(theta), dist: dist, height: height };
+  return { svg: svg, theta: shownAng, dist: dist, height: height, dTxt: dTxt, hTxt: hTxt,
+           unknown: unknown };
+}
+
+// 15.6 stays 15.6; 21.0 becomes 21.
+function elevNum(n){
+  return Math.abs(n - Math.round(n)) < 0.05 ? String(Math.round(n)) : n.toFixed(1);
+}
+// A label that already carries a number, "=" or "?" is shown as given,
+// so nothing is written twice ("30 m = 30 m").
+function elevLabel(lbl, fallback, valueTxt){
+  var L = String(lbl || '').trim();
+  if(/[0-9=?]/.test(L)) return L;
+  return (L || fallback) + ' = ' + valueTxt;
 }
 
 /* ── 2. RIGHT TRIANGLE ── */
@@ -1205,7 +1267,7 @@ function drawClinometer(spec, state){
   var reading = 90 - a;
   var cx = 250, cy = 140, r = 105;
   var svg = svgEl('svg', { viewBox:'0 0 ' + W + ' ' + H, width:'100%', height:'auto',
-    style:'max-height:340px;display:block;margin:6px auto;' });
+    style:'max-height:46vh;display:block;margin:6px auto;' });
 
   // line of sight, carried on past the straw toward the top of the tall thing
   var ex = Math.cos(rad(a)), ey = -Math.sin(rad(a));
@@ -1490,7 +1552,9 @@ function renderDrawing(spec, host){
       var line = document.createElement('div');
       line.className = 'b-line k-num';
       line.style.cssText = 'text-align:center;margin-top:2px;';
-      line.textContent = 'tan ' + t + '° = ' + Math.round(out.height) + ' / ' + Math.round(out.dist);
+      line.textContent = 'tan ' + t + '° = '
+        + (out.unknown === 'height' ? '?' : elevNum(out.height)) + ' / '
+        + (out.unknown === 'distance' ? '?' : elevNum(out.dist));
       box.appendChild(line);
     }
 
