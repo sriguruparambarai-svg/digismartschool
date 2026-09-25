@@ -50,6 +50,14 @@ const STYLES = {
   // One picture per step of a classroom activity (the "Your Turn" page).
   // Realistic, so older students take it seriously; close on the hands and
   // the object, because the child has to copy exactly what is shown.
+  // Pictures the super admin ADDS to a lesson step that had none.
+  // Never drawn by the AI: this entry only gives those pictures a fixed name.
+  // (Its prefix text is part of the name, so it must never be edited.)
+  'added-step': {
+    size: '1024x1024',
+    quality: 'medium',
+    prefix: 'ADMIN-ADDED PICTURE ONLY - NEVER DRAWN BY AI. '
+  },
   'activity-step': {
     size: '1024x1024',
     quality: 'medium',
@@ -342,6 +350,16 @@ module.exports = async function handler(req, res) {
     console.log('[gen-image] admin replace key=' + aName.substring(0, 12) + ' -> ' + saved);
     if (saved !== 'ok') return res.json({ error: 'Could not save the picture: ' + saved });
     return res.json({ images: [{ url: publicUrl(aName), title: query, source: 'Checked by admin' }], admin: true });
+  }
+
+  // ── only look for an admin picture; never draw one ──
+  // Used for steps where the super admin may have ADDED a picture.
+  if (body.action === 'lookup' || mode === 'added-step') {
+    const aName = adminName(query, context, mode);
+    if (await cacheExists(aName)) {
+      return res.json({ images: [{ url: publicUrl(aName), title: query, source: 'Added by admin' }], cached: true, admin: true });
+    }
+    return res.json({ images: [] });
   }
 
   // A forced redraw writes to a new name, otherwise the cache check below
