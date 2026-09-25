@@ -157,6 +157,10 @@ body.in-act .notes{ display:none; }
 #big .act-card{ background:rgba(0,0,0,.18); border:1.5px solid rgba(232,201,154,.35); border-radius:12px; overflow:hidden; }
 #big .act-pic{ aspect-ratio:4/3; background:rgba(255,255,255,.06); display:flex; align-items:center; justify-content:center;
   font-family:'Kalam',cursive; color:var(--chalk-dim); font-size:.9rem; text-align:center; padding:6px; }
+#big .act-pic{ position:relative; }
+.rp-btn{ position:absolute; top:8px; right:8px; z-index:5; background:rgba(58,36,25,.9); color:#f3e3c3;
+  border:1px solid #c9a84c; border-radius:8px; padding:5px 10px; font:600 .8rem 'Nunito',sans-serif; cursor:pointer; }
+.rp-btn:disabled{ opacity:.7; cursor:wait; }
 #big .act-pic img{ width:100%; height:100%; object-fit:cover; display:block; }
 #big .act-txt{ padding:10px 12px 12px; font-family:'Kalam',cursive; font-size:clamp(.98rem,1.3vw,1.12rem);
   color:var(--chalk); line-height:1.45; }
@@ -1321,6 +1325,11 @@ function drawPhotoScene(spec, host){
     if(!u){ fallback(d && d.note ? d.note : 'the drawing service returned nothing'); return; }
     img.src = u;
     wrap.appendChild(img);
+    addReplaceButton(wrap, { query: q, context: 'maths concept class ' + CLS, mode:'maths-photo' },
+      function(nu){
+        wrap.querySelectorAll('svg').forEach(function(s){ s.remove(); });  // lines are redrawn on the new picture
+        img.src = nu;
+      }, !!(d && d.admin));
   }).catch(function(e){ fallback(e.message || 'could not reach the drawing service'); });
 }
 
@@ -1435,6 +1444,71 @@ function renderActivity(act){
    The same request is never sent twice in one visit, so opening Your Turn
    again while a picture is still being made does not pay for it twice. */
 window._ACT_IMG = window._ACT_IMG || {};
+/* ════════ REPLACE PICTURE — super admin only ════════
+   The super admin can swap any AI picture for a checked one (e.g. from
+   Firefly). The server checks the login too, so this button is only a
+   convenience; nobody else can actually replace a picture. */
+function isSuperAdmin(){
+  try { return localStorage.getItem('dss_role') === 'super_admin' && !!localStorage.getItem('dss_session'); }
+  catch(e){ return false; }
+}
+
+// Big Firefly files are shrunk to 1280px JPEG in the browser before upload.
+function shrinkToJpeg(file){
+  return new Promise(function(resolve, reject){
+    var url = URL.createObjectURL(file);
+    var im = new Image();
+    im.onload = function(){
+      var s = Math.min(1, 1280 / Math.max(im.width, im.height));
+      var cv = document.createElement('canvas');
+      cv.width = Math.round(im.width * s); cv.height = Math.round(im.height * s);
+      var g = cv.getContext('2d');
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height);
+      g.drawImage(im, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url);
+      resolve(cv.toDataURL('image/jpeg', 0.86));
+    };
+    im.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('That file could not be opened as a picture.')); };
+    im.src = url;
+  });
+}
+
+function addReplaceButton(host, req, onDone, checked){
+  if(!isSuperAdmin()) return;
+  var b = document.createElement('button');
+  b.className = 'rp-btn';
+  function label(ok){ b.textContent = (ok ? '✓ Checked · ' : '') + '🔄 Replace picture'; }
+  label(checked);
+  b.onclick = function(ev){
+    ev.stopPropagation();
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.onchange = function(){
+      var f = inp.files && inp.files[0];
+      if(!f) return;
+      b.disabled = true; b.textContent = 'Uploading…';
+      shrinkToJpeg(f).then(function(b64){
+        return fetch('/api/gen-image', {
+          method:'POST',
+          headers:{ 'Content-Type':'application/json', 'x-dss-session': localStorage.getItem('dss_session') || '' },
+          body: JSON.stringify({ action:'replace', query:req.query, context:req.context, mode:req.mode, image_base64:b64 })
+        });
+      }).then(function(r){ return r.json(); }).then(function(d){
+        var u = d && d.images && d.images[0] && d.images[0].url;
+        b.disabled = false;
+        if(!u){ label(checked); alert(d && d.error ? d.error : 'The picture could not be replaced.'); return; }
+        checked = true; label(true);
+        onDone(/^https?:/.test(u) ? u + (u.indexOf('?') < 0 ? '?' : '&') + 'v=' + Date.now() : u);   // show the new picture straight away
+      }).catch(function(e){
+        b.disabled = false; label(checked);
+        alert('Could not replace the picture: ' + (e && e.message ? e.message : e));
+      });
+    };
+    inp.click();
+  };
+  host.appendChild(b);
+}
+
 function activityPicture(stepText, title, host){
   var q = String(stepText || '').trim();
   if(q.length < 3){ host.textContent = ''; return; }
@@ -1452,7 +1526,13 @@ function activityPicture(stepText, title, host){
     if(!u){ delete window._ACT_IMG[key]; host.textContent = 'Picture not available'; return; }
     var img = document.createElement('img');
     img.alt = q;
-    img.onload  = function(){ host.textContent = ''; host.appendChild(img); };
+    img.onload  = function(){
+      host.textContent = ''; host.appendChild(img);
+      addReplaceButton(host, { query: q, context: ctx, mode:'activity-step' }, function(nu){
+        window._ACT_IMG[key] = Promise.resolve(nu);
+        img.src = nu;
+      }, /-admin\.jpg/.test(img.src));
+    };
     img.onerror = function(){ host.textContent = 'Picture not available'; };
     img.src = u;
   });
