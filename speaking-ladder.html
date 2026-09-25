@@ -35,6 +35,8 @@
   .pic.digit{font:800 3rem "Baloo 2",sans-serif;color:var(--maroon)}
   .pic.swatch{border:1px solid #bbb}
   .say{font:600 1.1rem/1.3 "Baloo 2",sans-serif;color:var(--ink)}
+  .ta{font-size:.95rem;color:var(--maroon)}
+  .ta:empty{display:none}
   .listen{font:600 .85rem "Hind",sans-serif;background:none;border:1px solid var(--gold);color:var(--maroon);border-radius:6px;padding:3px 10px;cursor:pointer}
   .convo{background:var(--paper);border-radius:10px;border:1px solid #d9bf8e;padding:12px 14px;display:flex;gap:14px;align-items:flex-start}
   .convo + .convo{margin-top:12px}
@@ -51,15 +53,19 @@
 </header>
 <main>
   <section class="check" id="check" aria-live="polite">Checking the picture library…</section>
+  <nav class="bar" id="langs" aria-label="Language"><button class="chip" data-g="en">English</button><button class="chip" data-g="hi">Hindi · हिंदी</button></nav>
   <nav class="bar" id="topics" aria-label="Topics"></nav>
   <nav class="bar levels" id="levels" aria-label="Levels"></nav>
   <section id="view"></section>
 </main>
 
 <script src="js/speaking-ladder.js"></script>
+<script src="js/speaking-ladder-hi.js"></script>
 <script>
 (function(){
-  var L = window.SPEAKING_LADDER;
+  var LE = window.SPEAKING_LADDER, LH = window.SPEAKING_LADDER_HI;
+  var LANG = /[?&]lang=hi/.test(location.search) && LH ? "hi" : "en";
+  var L = LANG === "hi" ? LH : LE;
   var $ = function(id){ return document.getElementById(id); };
   if(!L){ $("check").textContent = "Could not load js/speaking-ladder.js. Check the file is uploaded in the js folder."; return; }
   var LIB = {}, libLoaded = false, topicIdx = 0, level = 1;
@@ -79,7 +85,7 @@
   function speak(text){
     try{
       speechSynthesis.cancel();
-      var u = new SpeechSynthesisUtterance(text); u.lang = "en-IN"; u.rate = 0.85;
+      var u = new SpeechSynthesisUtterance(text); u.lang = /[\u0900-\u097F]/.test(text) ? "hi-IN" : "en-IN"; u.rate = 0.85;
       speechSynthesis.speak(u);
     }catch(e){}
   }
@@ -89,6 +95,7 @@
     $("topics").innerHTML = L.topics.map(function(t,i){
       return '<button class="chip" aria-pressed="'+(i===topicIdx)+'" data-i="'+i+'">'+esc(t.title)+'</button>';
     }).join("");
+    Array.prototype.forEach.call($("langs").children, function(b){ b.setAttribute("aria-pressed", String(b.getAttribute("data-g") === LANG)); });
     $("levels").innerHTML = L.levels.map(function(lv){
       return '<button class="chip" aria-pressed="'+(lv.n===level)+'" data-l="'+lv.n+'">Level '+lv.n+': '+esc(lv.name)+'</button>';
     }).join("");
@@ -100,21 +107,23 @@
     var html = '<h2>'+esc(tp.title)+' · Level '+level+'</h2><p class="goal">'+esc(lv.goal)+'</p>';
     if(level < 5){
       html += '<div class="grid">' + items.map(function(it){
-        return '<div class="card">'+picHtml(it)+'<div class="say">'+esc(it.t)+'</div>'+
+        return '<div class="card">'+picHtml(it)+'<div class="say">'+esc(it.t)+'</div><div class="ta">'+esc(it.ta||"")+'</div>'+
           '<button class="listen" data-say="'+esc(it.t)+'" onclick="__say(this)">Listen</button></div>';
       }).join("") + '</div>';
     } else {
       html += items.map(function(c){
         return '<div class="convo">'+picHtml(c)+'<div><h3>'+esc(c.title)+'</h3>'+c.turns.map(function(t){
-          return '<div class="turn"><span class="who robo">Robo:</span> '+esc(t.robo)+
+          return '<div class="turn"><span class="who robo">Robo:</span> '+esc(t.robo)+(t.robo_ta ? ' <span class="ta">('+esc(t.robo_ta)+')</span>' : '')+
                  ' <button class="listen" data-say="'+esc(t.robo)+'" onclick="__say(this)">Listen</button></div>'+
-                 '<div class="turn"><span class="who kid">Child:</span> '+esc(t.child)+'</div>';
+                 '<div class="turn"><span class="who kid">Child:</span> '+esc(t.child)+(t.child_ta ? ' <span class="ta">('+esc(t.child_ta)+')</span>' : '')+'</div>';
         }).join("")+'</div></div>';
       }).join("");
     }
     $("view").innerHTML = html;
   }
 
+  $("langs").addEventListener("click", function(e){ var b = e.target.closest("[data-g]"); if(!b || (b.getAttribute("data-g")==="hi" && !LH)) return;
+    LANG = b.getAttribute("data-g"); L = LANG === "hi" ? LH : LE; topicIdx = 0; draw(); });
   $("topics").addEventListener("click", function(e){ var b = e.target.closest("[data-i]"); if(b){ topicIdx = +b.getAttribute("data-i"); draw(); } });
   $("levels").addEventListener("click", function(e){ var b = e.target.closest("[data-l]"); if(b){ level = +b.getAttribute("data-l"); draw(); } });
 
