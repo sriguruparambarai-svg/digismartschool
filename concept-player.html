@@ -76,6 +76,18 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;pa
 footer .pos{font-size:1rem;color:#6b5646}
 footer .btn{min-width:140px}
 
+.picker{display:flex;flex-direction:column;gap:12px}
+.picker label{font-size:1.2rem;font-weight:700}
+.picker select{font-family:inherit;font-size:1.2rem;padding:8px 12px;border:2px solid var(--maroon);border-radius:10px;background:#fff;color:var(--ink);max-width:260px}
+.chapters{display:flex;flex-direction:column;gap:8px}
+.chapters button{text-align:left;background:#fff;border:2px solid var(--sandal);border-radius:10px;padding:10px 14px;font-size:1.15rem;cursor:pointer;color:var(--ink)}
+.chapters button:hover{border-color:var(--gold)}
+.chapters button b{color:var(--maroon);margin-right:6px}
+.waiting{font-size:1.35rem;line-height:1.5}
+.waiting::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:dots 1.4s steps(4) infinite}
+@keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
+footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
+
 /* chalk drawing styles used by the toolbox */
 .cl{stroke:var(--chalk);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .thin{stroke-width:2}
@@ -125,6 +137,7 @@ footer .btn{min-width:140px}
 <footer>
   <button class="btn ghost" id="back">Back</button>
   <span class="pos" id="pos"></span>
+  <button class="btn ghost redo" id="redo" hidden>Redo this lesson</button>
   <button class="btn" id="next">Next</button>
 </footer>
 
@@ -143,7 +156,7 @@ footer .btn{min-width:140px}
   const panel = document.getElementById("panel");
   const rail = document.getElementById("rail");
   const h = window.ConceptTools ? ConceptTools.helpers(svg) : null;
-  let lesson = null, idx = 0, cleanup = null, currentAsk = null;
+  let lesson = null, idx = 0, cleanup = null, currentAsk = null, notice = "";
 
   function esc(s) {
     return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -194,7 +207,7 @@ footer .btn{min-width:140px}
     speechSynthesis.speak(u);
   }
 
-  function showError(title, detail) {
+  function showError(title, detail, retry) {
     document.getElementById("chapter").firstChild.textContent = "Concept class";
     panel.innerHTML = "";
     const d = document.createElement("div");
@@ -203,6 +216,8 @@ footer .btn{min-width:140px}
     d.querySelector("strong").textContent = title;
     d.querySelector("span").textContent = detail;
     panel.appendChild(d);
+    if (retry) button(panel, "Try again", retry).style.alignSelf = "flex-start";
+    rail.innerHTML = "";
     document.getElementById("back").disabled = true;
     document.getElementById("next").disabled = true;
   }
@@ -292,7 +307,7 @@ footer .btn{min-width:140px}
       b.classList.toggle("on", k === si);
       b.classList.toggle("done", k < si);
     });
-    document.getElementById("pos").textContent = `Screen ${n + 1} of ${screens.length}`;
+    document.getElementById("pos").textContent = `Screen ${n + 1} of ${screens.length}` + (notice ? `. ${notice}` : "");
     document.getElementById("back").disabled = n === 0;
     document.getElementById("next").disabled = n === screens.length - 1;
   }
@@ -307,6 +322,7 @@ footer .btn{min-width:140px}
     ch.firstChild.textContent = data.chapter || "Concept class";
     ch.querySelector("span").textContent = `Class ${data.class || ""} ${data.subject || ""} concept class`.replace(/\s+/g, " ").trim();
     document.title = `${data.chapter || "Concept class"} | Class ${data.class || ""} ${data.subject || ""}`;
+    rail.innerHTML = "";
     STEPS.forEach(([key, label], k) => {
       const b = document.createElement("button");
       b.innerHTML = `<b>${k + 1}</b><span>${label}</span>`;
@@ -333,18 +349,266 @@ footer .btn{min-width:140px}
     showError("The toolbox file did not load.", "Check that /js/concept-tools.js is uploaded to the repo.");
     return;
   }
-  const name = new URLSearchParams(location.search).get("lesson") || "";
-  if (!/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(name)) {
-    showError("No lesson chosen.", "Open this page with ?lesson=maths/class10-circles at the end of the address.");
-    return;
+  /* ---------- Where the lesson comes from ----------
+     ?lesson=maths/class10-circles        -> a hand-made lesson file in /lessons
+     ?cls=10&chapter=Circles              -> saved AI lesson, or AI makes it now and saves it
+     (nothing)                            -> choose a class and chapter */
+  const params = new URLSearchParams(location.search);
+  const name = params.get("lesson") || "";
+  const cls = (params.get("cls") || "").trim();
+  const chapter = (params.get("chapter") || "").trim();
+  const subject = params.get("subject") || "Maths";
+  const boardName = params.get("board") || "NCERT";
+  const PLAYER_VER = "player-v1"; // change to make every AI lesson fresh again
+  const redoBtn = document.getElementById("redo");
+  const JSON_HEAD = { "Content-Type": "application/json" };
+
+  function sessionToken() {
+    try { return localStorage.getItem("dss_session") || ""; } catch (e) { return ""; }
   }
-  fetch(`/lessons/${name}.json`, { cache: "no-cache" })
-    .then(r => {
-      if (!r.ok) throw new Error(`Lesson file /lessons/${name}.json not found (status ${r.status}).`);
-      return r.json().catch(() => { throw new Error(`Lesson file /lessons/${name}.json is not valid JSON.`); });
-    })
-    .then(start)
-    .catch(e => showError("Could not load this lesson.", e.message));
+
+  function showWaiting(msg) {
+    svg.innerHTML = ""; panel.innerHTML = ""; rail.innerHTML = "";
+    ConceptTools.tools.plainBoard(h, null, { heading: chapter || "Concept class", lines: ["Getting the lesson ready"] });
+    const p = document.createElement("p"); p.className = "waiting"; p.textContent = msg;
+    panel.appendChild(p);
+    document.getElementById("back").disabled = true;
+    document.getElementById("next").disabled = true;
+    document.getElementById("pos").textContent = "";
+  }
+
+  async function cacheGet() {
+    try {
+      const r = await fetch("/api/concept-cache", {
+        method: "POST", headers: JSON_HEAD,
+        body: JSON.stringify({ action: "get", board: boardName, cls, subject, topic: chapter, lang: "english", ver: PLAYER_VER })
+      });
+      const d = await r.json();
+      return d && d.found && d.map && Array.isArray(d.map.screens) && d.map.screens.length ? d.map : null;
+    } catch (e) {
+      console.warn("Saved-lesson check failed, making a new one:", e);
+      return null;
+    }
+  }
+
+  async function cacheSave(data) {
+    try {
+      const r = await fetch("/api/concept-cache", {
+        method: "POST", headers: JSON_HEAD,
+        body: JSON.stringify({ action: "save", board: boardName, cls, subject, topic: chapter, lang: "english", ver: PLAYER_VER, narration: data })
+      });
+      const d = await r.json();
+      if (d && d.saved) return "";
+      return (d && (d.reason || d.error)) || `status ${r.status}`;
+    } catch (e) {
+      return e.message;
+    }
+  }
+
+  async function chapterText() {
+    try {
+      const r = await fetch("/api/syllabus", {
+        method: "POST", headers: JSON_HEAD,
+        body: JSON.stringify({ action: "chapter_text", board: boardName, cls, subject, chapter_title: chapter })
+      });
+      const d = await r.json();
+      return d && d.found && d.text ? String(d.text) : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  function buildPrompt(text) {
+    const tools = Object.entries(ConceptTools.catalogue).map(([k, v]) => `- ${k}: ${v}`).join("\n");
+    return [
+      `Write a maths CONCEPT CLASS for Class ${cls}, ${boardName} ${subject}, chapter "${chapter}".`,
+      "It is shown on a classroom projector in a Tamil Nadu school. A teacher is in the room, but the lesson must teach on its own.",
+      "",
+      "TEACHING RULES",
+      "- Concepts first, and practical: children must learn what the idea is, and where, how, when and why it is used.",
+      "- Build every formula from a picture or real example BEFORE writing it.",
+      "- Use real-life examples from Indian daily life: rupees, shops, auto fare, bus, cricket, kolam, dosa, farms, temple festivals.",
+      "- Use the Singapore bar-model idea only where it helps: word problems, fractions, ratio, percentage, finding an unknown.",
+      `- Simple English that a Class ${cls} child in a Tamil Nadu town school understands. Short sentences. No jargon.`,
+      "- Students will not ask questions, so every screen has one question for the class with a short, clear answer.",
+      "- Check every number and every answer twice. Wrong maths is the worst possible mistake.",
+      "- Teach only this chapter." + (text ? " Follow what the chapter text below teaches." : ""),
+      "",
+      "SCREENS: 8 or 9 screens, in this order of 'step' (use 2 'draw' screens if needed):",
+      "why = a real-life problem that creates the need for this idea",
+      "see = a real-world story or picture that shows the idea",
+      "touch = something students move, try or count",
+      "draw = the picture or diagram step",
+      "formula = build the formula from the picture; add \"card\": 3 to 6 key facts or formulas, key part in **double stars**",
+      "where = add \"uses\": 4 or 5 [where, why] pairs covering daily life, jobs, higher classes and JEE/NEET where true",
+      "say = add \"chant\": 3 to 6 key facts to say aloud together; board tool quickQuestions with 8 to 10 questions; no ask",
+      "",
+      "BOARD TOOLS: every screen has a \"board\". Choose ONLY from this list, exact name, with its settings:",
+      tools,
+      "If no tool truly fits, use plainBoard or formulaSteps. Circle and tangent tools are ONLY for circle chapters.",
+      "",
+      "LENGTH LIMITS: title under 40 characters. 1 to 3 lines per screen, each under 160 characters.",
+      "plainBoard lines under 60 characters. formulaSteps steps under 40 characters, at most 6.",
+      "quickQuestions: questions under 60 characters, answers under 20 characters.",
+      "terms: 1 to 3 [English word, correct Tamil maths word in Tamil script] pairs per screen, except the say screen.",
+      "",
+      "Return ONLY this JSON shape, no markdown:",
+      '{"subject":"Maths","class":' + (Number(cls) || 0) + ',"chapter":"' + chapter.replace(/"/g, "") + '","screens":[{"step":"why","title":"...","lines":["..."],"ask":{"q":"...","a":"..."},"terms":[["English","தமிழ்"]],"board":{"tool":"plainBoard","heading":"...","lines":["..."]}}]}',
+      text ? "\nCHAPTER TEXT FROM THE NCERT BOOK:\n" + text : ""
+    ].join("\n");
+  }
+
+  /* Keep only what the player understands, so a messy AI answer can't break the class */
+  function cleanLesson(raw) {
+    const S = v => (typeof v === "string" ? v.trim() : typeof v === "number" ? String(v) : "");
+    const strs = (a, max) => (Array.isArray(a) ? a.map(S).filter(Boolean).slice(0, max) : []);
+    const pairs = (a, max) => (Array.isArray(a) ? a.filter(x => Array.isArray(x) && S(x[0])).map(x => [S(x[0]), S(x[1])]).slice(0, max) : []);
+    const keys = STEPS.map(x => x[0]);
+    const screens = (raw && Array.isArray(raw.screens) ? raw.screens : []).slice(0, 12).map(sc => {
+      sc = sc && typeof sc === "object" ? sc : {};
+      const out = { step: keys.includes(sc.step) ? sc.step : "draw", title: S(sc.title) || chapter, lines: strs(sc.lines, 4) };
+      if (sc.ask && S(sc.ask.q)) out.ask = { q: S(sc.ask.q), a: S(sc.ask.a) };
+      const t = pairs(sc.terms, 4); if (t.length) out.terms = t;
+      const c = strs(sc.card, 8); if (c.length) out.card = c;
+      const u = pairs(sc.uses, 6); if (u.length) out.uses = u;
+      const ch = strs(sc.chant, 8); if (ch.length) out.chant = ch;
+      const b = sc.board && typeof sc.board === "object" ? Object.assign({}, sc.board) : {};
+      if (!ConceptTools.tools[b.tool]) b.tool = "plainBoard";
+      if (b.tool === "plainBoard") {
+        b.heading = S(b.heading) || out.title;
+        b.lines = strs(b.lines, 4);
+        if (!b.lines.length) b.lines = out.lines.slice(0, 3);
+      }
+      if (b.tool === "formulaSteps" || b.tool === "tangentLengthSteps") b.steps = strs(b.steps, 7);
+      if (b.tool === "quickQuestions") b.questions = pairs(b.questions, 12);
+      out.board = b;
+      return out;
+    });
+    screens.sort((a, b) => keys.indexOf(a.step) - keys.indexOf(b.step));
+    if (screens.length < 3) throw new Error("The AI's lesson was too short.");
+    return { subject, class: Number(cls) || cls, chapter, screens, madeBy: "ai", madeAt: new Date().toISOString() };
+  }
+
+  async function makeLesson() {
+    const text = await chapterText();
+    const r = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
+      body: JSON.stringify({
+        system: "You are an expert Indian school maths teacher and lesson designer. You return ONLY valid JSON. No markdown fences, no text before or after the JSON.",
+        messages: [{ role: "user", content: buildPrompt(text) }],
+        max_tokens: 12000
+      })
+    });
+    let d;
+    try { d = await r.json(); } catch (e) { throw new Error(`The AI service did not reply properly (status ${r.status}).`); }
+    if (!r.ok || (d && (d.type === "error" || d.error))) {
+      const m = d && (typeof d.error === "string" ? d.error : (d.error && d.error.message) || d.message);
+      throw new Error("AI error: " + (m || `status ${r.status}`));
+    }
+    const txt = Array.isArray(d.content) ? d.content.map(x => x.text || "").join("") : "";
+    const a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+    if (a < 0 || b <= a) throw new Error("The AI did not send back a lesson.");
+    let raw;
+    try { raw = JSON.parse(txt.slice(a, b + 1)); }
+    catch (e) { throw new Error("The AI's lesson could not be read" + (d.stop_reason === "max_tokens" ? " because it was cut off (too long)" : "") + "."); }
+    return cleanLesson(raw);
+  }
+
+  async function loadChapter(fresh) {
+    redoBtn.hidden = true;
+    notice = "";
+    try {
+      if (!fresh) {
+        showWaiting("Opening the lesson");
+        const saved = await cacheGet();
+        if (saved) { start(saved); redoBtn.hidden = false; return; }
+      }
+      showWaiting(fresh
+        ? "Making a fresh version of this lesson. This takes about a minute"
+        : "Preparing this lesson for the first time. This takes about a minute. Next time it opens straight away");
+      const data = await makeLesson();
+      const problem = await cacheSave(data);
+      if (problem) notice = "Not saved (" + problem + "), so it will be made again next time";
+      start(data);
+      redoBtn.hidden = false;
+    } catch (e) {
+      console.error(e);
+      showError("Could not prepare this lesson.", e.message, () => loadChapter(fresh));
+    }
+  }
+
+  redoBtn.onclick = () => {
+    if (confirm("Make a fresh version of this lesson? The new one will replace this one for every class.")) loadChapter(true);
+  };
+
+  async function showPicker() {
+    const ch = document.getElementById("chapter");
+    ch.firstChild.textContent = "Concept class";
+    ch.querySelector("span").textContent = `${boardName} ${subject}`;
+    svg.innerHTML = "";
+    ConceptTools.tools.plainBoard(h, null, { heading: "Choose a chapter", lines: ["Pick a class, then a chapter"] });
+    panel.innerHTML = "";
+    document.getElementById("back").disabled = true;
+    document.getElementById("next").disabled = true;
+    const wrap = document.createElement("div"); wrap.className = "picker";
+    wrap.innerHTML = '<h2 style="margin:0;color:var(--maroon);font-size:2.2rem">Choose a chapter</h2><label for="clsSel">Class</label>';
+    const sel = document.createElement("select"); sel.id = "clsSel";
+    const list = document.createElement("div"); list.className = "chapters";
+    wrap.append(sel, list); panel.appendChild(wrap);
+
+    let classes = [];
+    try {
+      const r = await fetch("/api/syllabus", { method: "POST", headers: JSON_HEAD, body: JSON.stringify({ action: "classes", board: boardName, subject }) });
+      const d = await r.json();
+      classes = d && Array.isArray(d.classes) ? d.classes : [];
+    } catch (e) { console.warn(e); }
+    if (!classes.length) { list.textContent = "Could not load the class list. Check your internet and reload the page."; return; }
+    sel.innerHTML = '<option value="">Choose class</option>' + classes.map(c => `<option value="${esc(c)}">Class ${esc(c)}</option>`).join("");
+
+    sel.onchange = async () => {
+      list.textContent = sel.value ? "Loading chapters" : "";
+      if (!sel.value) return;
+      try {
+        const r = await fetch("/api/syllabus", { method: "POST", headers: JSON_HEAD, body: JSON.stringify({ action: "chapters", board: boardName, subject, cls: sel.value }) });
+        const d = await r.json();
+        const rows = d && Array.isArray(d.chapters) ? d.chapters : [];
+        list.innerHTML = "";
+        if (!rows.length) { list.textContent = "No chapters found for this class."; return; }
+        rows.forEach(row => {
+          const b = document.createElement("button");
+          b.innerHTML = "<b></b><span></span>";
+          b.querySelector("b").textContent = row.chapter_number != null ? row.chapter_number + "." : "";
+          b.querySelector("span").textContent = row.chapter_title || "";
+          b.onclick = () => {
+            const q = new URLSearchParams({ cls: sel.value, chapter: row.chapter_title || "", subject, board: boardName });
+            location.search = q.toString();
+          };
+          list.appendChild(b);
+        });
+      } catch (e) {
+        list.textContent = "Could not load chapters: " + e.message;
+      }
+    };
+  }
+
+  if (name) {
+    if (!/^[a-z0-9-]+(\/[a-z0-9-]+)*$/.test(name)) {
+      showError("This lesson name is not valid.", "Use a name like ?lesson=maths/class10-circles");
+      return;
+    }
+    fetch(`/lessons/${name}.json`, { cache: "no-cache" })
+      .then(r => {
+        if (!r.ok) throw new Error(`Lesson file /lessons/${name}.json not found (status ${r.status}).`);
+        return r.json().catch(() => { throw new Error(`Lesson file /lessons/${name}.json is not valid JSON.`); });
+      })
+      .then(start)
+      .catch(e => showError("Could not load this lesson.", e.message));
+  } else if (cls && chapter) {
+    loadChapter(false);
+  } else {
+    showPicker();
+  }
 })();
 </script>
 </body>
