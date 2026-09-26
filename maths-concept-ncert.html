@@ -547,7 +547,8 @@ async function buildLesson(){
     + 'Choose the shape that fits the idea of THAT step. Keep numbers whole and small. '
     + 'Never describe a picture in the board lines — give draw instead.\n\n'
     + 'ACTIVITY — the class must DO something at the end, not just watch.\n'
-    + 'On the LAST step only, add an "activity" object. Rules:\n'
+    + 'On the LAST step only, add an "activity" object. The activity is NOT a step of its own — '
+    + 'never write a step titled "Activity" or "Your Turn"; put it inside the last step. Rules:\n'
     + '  - Students work in pairs and do it themselves, in the classroom or the school ground.\n'
     + '  - 10 to 15 minutes. Nothing to buy.\n'
     + '  - Materials only from what a Tamil Nadu school already has: paper, scissors, thread, '
@@ -1319,6 +1320,40 @@ function drawClinometer(spec, state){
 /* ── PLAIN REAL PHOTO (no lines on it) ──
    Same picture style as the Your Turn cards, so the super admin can
    Replace it the same way. */
+/* All plain photos of a lesson are asked for one after another as soon as
+   the lesson opens, so a new picture (about a minute to make the first
+   time) is usually ready before the teacher reaches that step. The same
+   request is never sent twice. */
+window._REAL_IMG = window._REAL_IMG || {};
+function realPhotoReq(q){
+  return { query: q, context: 'Class ' + CLS + ' maths concept: ' + (CHAPTER ? (CHAPTER.chapter_title || '') : ''), mode: 'activity-step' };
+}
+function realPhotoUrl(q){
+  var req = realPhotoReq(q), key = req.query + '|' + req.context;
+  if(!window._REAL_IMG[key]){
+    window._REAL_IMG[key] = fetch('/api/gen-image', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(req)
+    }).then(function(r){ return r.json(); })
+      .then(function(d){ var u = d && d.images && d.images[0] && d.images[0].url; if(!u) throw new Error((d && d.note) || 'no picture'); return { url: u, admin: !!d.admin }; })
+      .catch(function(e){ delete window._REAL_IMG[key]; throw e; });
+  }
+  return window._REAL_IMG[key];
+}
+function prewarmPictures(steps){
+  var qs = [];
+  (steps || []).forEach(function(st){
+    if(st && st.draw && st.draw.type === 'real_photo'){
+      var q = String(st.draw.scene || st.draw.photo || '').trim();
+      if(q.length >= 3) qs.push(q);
+    }
+  });
+  var i = 0;
+  (function next(){
+    if(i >= qs.length) return;
+    realPhotoUrl(qs[i++]).then(next, next);
+  })();
+}
+
 function drawRealPhoto(spec, host){
   var wrap = document.createElement('div');
   wrap.style.cssText = 'position:relative;max-width:640px;margin:8px auto;border-radius:10px;overflow:hidden;';
@@ -1331,14 +1366,14 @@ function drawRealPhoto(spec, host){
 
   var q = String(spec.scene || spec.photo || '').trim();
   if(q.length < 3){ msg.textContent = ''; return; }
-  var ctx = 'Class ' + CLS + ' maths concept: ' + (CHAPTER ? (CHAPTER.chapter_title || '') : '');
+  var req = realPhotoReq(q), ctx = req.context;
+  var slow = setTimeout(function(){
+    if(msg.isConnected) msg.textContent = 'Making this picture for the first time (up to a minute). After this it opens instantly for every school.';
+  }, 4000);
 
-  fetch('/api/gen-image', {
-    method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ query: q, context: ctx, mode:'activity-step' })
-  }).then(function(r){ return r.json(); }).then(function(d){
-    var u = d && d.images && d.images[0] && d.images[0].url;
-    if(!u){ msg.textContent = 'Picture not available' + (d && d.note ? ' (' + d.note + ')' : ''); return; }
+  realPhotoUrl(q).then(function(res){
+    clearTimeout(slow);
+    var u = res.url, d = { admin: res.admin };
     var img = document.createElement('img');
     img.alt = q;
     img.style.cssText = 'display:block;width:100%;height:auto;max-height:58vh;object-fit:contain;';
@@ -1348,7 +1383,15 @@ function drawRealPhoto(spec, host){
     wrap.appendChild(img);
     addReplaceButton(wrap, { query: q, context: ctx, mode:'activity-step' },
       function(nu){ img.src = nu; }, !!(d && d.admin));
-  }).catch(function(e){ msg.textContent = 'Picture not available (' + (e.message || 'could not reach the picture service') + ')'; });
+  }).catch(function(e){
+    clearTimeout(slow);
+    msg.textContent = 'Picture not ready yet. ';
+    var again = document.createElement('button');
+    again.className = 'show-ans-btn';
+    again.textContent = '↻ Try again';
+    again.onclick = function(){ wrap.remove(); drawRealPhoto(spec, host); };
+    msg.appendChild(again);
+  });
 }
 
 /* ── 3. NUMBER LINE ── */
@@ -2048,7 +2091,15 @@ async function startClass(){
       'Preparing this chapter for the first time. Once it is ready it is saved '
       + 'for every class and every school, so this wait happens only once.';
     try {
-      STEPS = await buildLesson();
+      try {
+        STEPS = await buildLesson();
+      } catch(e1){
+        // A long lesson can take over a minute; if the connection dropped
+        // ("Failed to fetch"), try once more before showing an error.
+        if(!/fetch|network|load failed|timed? ?out|unexpected token|json/i.test(String(e1 && e1.message))) throw e1;
+        $('loading-sub').textContent = 'The connection dropped while preparing. Trying once more…';
+        STEPS = await buildLesson();
+      }
       saveLesson(STEPS);
     } catch(e){
       var why = (e && e.message) ? String(e.message) : 'Unknown problem';
@@ -2061,9 +2112,32 @@ async function startClass(){
     }
   }
 
+  // Your Turn: picked up after the lesson is ready, so a freshly made lesson
+  // gets it too. If the AI wrote the activity as an ordinary last step,
+  // it is turned into the Your Turn page.
+  STEPS = activityFromLastStep(STEPS || []);
+  window._ACTIVITY = null;
+  (STEPS || []).forEach(function(st){ if(st.activity) window._ACTIVITY = st.activity; });
+  var ab2 = $('btn-activity');
+  if(ab2) ab2.style.display = window._ACTIVITY ? '' : 'none';
+  prewarmPictures(STEPS);
+
   $('loading').classList.remove('show');
   IDX = 0; PLAYING = true; $('btn-play').textContent = '❚❚ Pause';
   runStep(0);
+}
+
+function activityFromLastStep(steps){
+  if(!steps.length) return steps;
+  if(steps.some(function(st){ return st && st.activity; })) return steps;
+  var last = steps[steps.length - 1];
+  if(!last || !/^\s*(activity|your turn|pair activity|class activity|group activity)\b/i.test(String(last.title || ''))) return steps;
+  var title = String(last.title).replace(/^\s*(activity|your turn|pair activity|class activity|group activity)\s*[:\-–—]?\s*/i, '') || 'Try it yourselves';
+  var act = { title: title, materials: [], steps: (last.board || []).slice(), record: '', check: '' };
+  var rest = steps.slice(0, -1);
+  if(!rest.length) return steps;
+  rest[rest.length - 1].activity = act;
+  return rest;
 }
 
 /* ════════ WIRING ════════ */
