@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Card Scanner — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{ --maroon:#6B1A1A; --deep:#2a0b0b; --gold:#C9A84C; --sandal:#E8C99A; --text:#f6ead6; }
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;}
+body{font-family:'Nunito',sans-serif;background:var(--deep);color:var(--text);display:flex;flex-direction:column;
+  padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);}
+.top{display:flex;align-items:center;gap:.6rem;padding:.6rem .9rem;background:var(--maroon);border-bottom:2px solid var(--gold);}
+.top h1{font-family:'Kalam',cursive;color:var(--gold);font-size:1.3rem;}
+.top .n{margin-left:auto;font-weight:800;color:var(--sandal);}
+.cam{position:relative;flex:1;min-height:0;background:#000;overflow:hidden;}
+video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
+#ov{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+.start{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:1.5rem;text-align:center;}
+.start p{color:var(--sandal);line-height:1.5;max-width:26rem;}
+.btn{padding:.8rem 1.4rem;border-radius:10px;border:none;background:var(--gold);color:var(--deep);font:inherit;font-weight:800;font-size:1.05rem;cursor:pointer;}
+.btn.ghost{background:transparent;color:var(--sandal);border:1.5px solid var(--gold);}
+.panel{padding:.7rem .9rem;background:#1c0808;border-top:1px solid rgba(201,168,76,.35);}
+.counts{display:flex;gap:.5rem;}
+.cnt{flex:1;text-align:center;border-radius:10px;padding:.35rem 0;background:rgba(232,201,154,.08);border:1.5px solid rgba(201,168,76,.35);}
+.cnt b{display:block;font-family:'Kalam',cursive;font-size:1.6rem;color:var(--gold);line-height:1;}
+.cnt span{font-size:.8rem;color:var(--sandal);}
+#list{margin-top:.5rem;font-size:.95rem;color:var(--sandal);min-height:1.3em;line-height:1.5;word-break:break-word;}
+.row{display:flex;gap:.5rem;margin-top:.5rem;}
+.err{color:#f3c0b4;font-weight:700;}
+</style>
+</head>
+<body>
+<div class="top"><h1>Card Scanner</h1><span class="n" id="count">0 cards read</span></div>
+
+<div class="cam">
+  <video id="v" playsinline muted></video>
+  <canvas id="ov"></canvas>
+  <div class="start" id="start">
+    <p>Stand at the front. Ask the children to hold up their cards. Then point the phone at the class and move it slowly across the rows.</p>
+    <button class="btn" id="go">Start camera</button>
+    <p class="err" id="err"></p>
+  </div>
+</div>
+
+<div class="panel">
+  <div class="counts">
+    <div class="cnt"><b id="cA">0</b><span>A</span></div>
+    <div class="cnt"><b id="cB">0</b><span>B</span></div>
+    <div class="cnt"><b id="cC">0</b><span>C</span></div>
+    <div class="cnt"><b id="cD">0</b><span>D</span></div>
+  </div>
+  <div id="list">No cards read yet.</div>
+  <div class="row"><button class="btn ghost" id="clear">Clear answers</button>
+    <label id="zoomBox" style="display:none;flex:1;align-items:center;gap:.5rem;color:var(--sandal);font-weight:700;">Zoom
+      <input type="range" id="zoom" style="flex:1"></label></div>
+</div>
+
+<script src="js/aruco-cards.js"></script>
+<script>
+/* Test scanner for DigiSmart Answer Cards (answer-cards.html).
+   Card N = marker N-1 in ARUCO_MIP_16h3. The marker's own top edge tells
+   which way the card is turned, so which letter the child put on top.
+   maxHammingDistance 1: a card is accepted only if at most one square is
+   misread, so a blurry card is skipped rather than counted as someone else. */
+var det = new AR.Detector({ dictionaryName:'ARUCO_MIP_16h3', maxHammingDistance: 1 });
+var video = document.getElementById('v'), ov = document.getElementById('ov'), octx = ov.getContext('2d');
+var grab = document.createElement('canvas'), gctx = grab.getContext('2d', { willReadFrequently: true });
+var ANS = {};        // card number -> letter (confirmed)
+var SEEN = {};       // card number -> { letter, count, t } waiting for a second sighting
+var running = false;
+
+// Which letter is at the top: direction of the marker's own top edge in the picture.
+function letterOf(m){
+  var a = m.corners[0], b = m.corners[1];
+  var ang = Math.atan2(b.y - a.y, b.x - a.x) * 180 / Math.PI;
+  if(ang > -45 && ang <= 45) return 'A';
+  if(ang > -135 && ang <= -45) return 'B';
+  if(ang > 45 && ang <= 135) return 'D';
+  return 'C';
+}
+
+async function start(){
+  var err = document.getElementById('err');
+  err.textContent = '';
+  try {
+    var stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    video.srcObject = stream;
+    await video.play();
+    // Phone zoom, where the phone allows it: helps read cards in the back rows.
+    try {
+      var track = stream.getVideoTracks()[0], cap = track.getCapabilities ? track.getCapabilities() : {};
+      if(cap.zoom){
+        var z = document.getElementById('zoom');
+        z.min = cap.zoom.min; z.max = cap.zoom.max; z.step = cap.zoom.step || 0.1; z.value = cap.zoom.min;
+        z.oninput = function(){ track.applyConstraints({ advanced: [{ zoom: parseFloat(z.value) }] }).catch(function(){}); };
+        document.getElementById('zoomBox').style.display = 'flex';
+      }
+    } catch(e){}
+    document.getElementById('start').style.display = 'none';
+    running = true;
+    loop();
+  } catch(e){
+    err.textContent = 'Camera could not start: ' + (e.message || e.name || e)
+      + '. Allow camera access for this site in the browser settings, then try again.';
+  }
+}
+
+function loop(){
+  if(!running) return;
+  var w = video.videoWidth, h = video.videoHeight;
+  if(w && h){
+    if(grab.width !== w){ grab.width = w; grab.height = h; }
+    gctx.drawImage(video, 0, 0, w, h);
+    var markers = [];
+    try { markers = det.detect(gctx.getImageData(0, 0, w, h)); } catch(e){}
+    var now = Date.now();
+    markers.forEach(function(m){
+      var num = m.id + 1; if(num > 60) return;
+      var L = letterOf(m), s = SEEN[num];
+      // count an answer only after two sightings with the same letter, so a card
+      // caught mid-turn is not recorded wrongly
+      if(s && s.letter === L && now - s.t < 2000){ s.count++; s.t = now; }
+      else SEEN[num] = s = { letter: L, count: 1, t: now };
+      if(s.count >= 2 && ANS[num] !== L){ ANS[num] = L; show(); }
+    });
+    draw(markers, w, h);
+  }
+  setTimeout(function(){ requestAnimationFrame(loop); }, 60);
+}
+
+// Boxes over the video: green once the answer is recorded.
+function draw(markers, w, h){
+  var r = ov.getBoundingClientRect();
+  if(ov.width !== r.width){ ov.width = r.width; ov.height = r.height; }
+  octx.clearRect(0, 0, ov.width, ov.height);
+  var sc = Math.min(ov.width / w, ov.height / h), ox = (ov.width - w * sc) / 2, oy = (ov.height - h * sc) / 2;
+  markers.forEach(function(m){
+    var num = m.id + 1, L = letterOf(m), ok = ANS[num] === L;
+    octx.strokeStyle = ok ? '#5fd46f' : '#C9A84C'; octx.lineWidth = 3;
+    octx.beginPath();
+    m.corners.forEach(function(c, k){ var x = ox + c.x * sc, y = oy + c.y * sc; k ? octx.lineTo(x, y) : octx.moveTo(x, y); });
+    octx.closePath(); octx.stroke();
+    var c0 = m.corners[0];
+    octx.fillStyle = ok ? '#5fd46f' : '#C9A84C'; octx.font = 'bold 16px Nunito, sans-serif';
+    octx.fillText(num + ' ' + L, ox + c0.x * sc, oy + c0.y * sc - 6);
+  });
+}
+
+function show(){
+  var nums = Object.keys(ANS).map(Number).sort(function(a, b){ return a - b; });
+  var c = { A:0, B:0, C:0, D:0 };
+  nums.forEach(function(n){ c[ANS[n]]++; });
+  ['A','B','C','D'].forEach(function(k){ document.getElementById('c' + k).textContent = c[k]; });
+  document.getElementById('count').textContent = nums.length + (nums.length === 1 ? ' card read' : ' cards read');
+  document.getElementById('list').textContent = nums.length
+    ? nums.map(function(n){ return n + ':' + ANS[n]; }).join('  ')
+    : 'No cards read yet.';
+}
+
+document.getElementById('go').onclick = start;
+document.getElementById('clear').onclick = function(){ ANS = {}; SEEN = {}; show(); };
+</script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Answer Cards — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Kalam:wght@700&family=Nunito:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{ --maroon:#6B1A1A; --gold:#C9A84C; --sandal:#E8C99A; --ink:#2a0b0b; }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Nunito',sans-serif;background:#f7efe3;color:var(--ink);}
+.bar{background:var(--maroon);color:#fff;padding:1rem 1.2rem;border-bottom:3px solid var(--gold);}
+.bar h1{font-family:'Kalam',cursive;color:var(--gold);font-size:1.8rem;}
+.bar p{color:var(--sandal);max-width:48rem;line-height:1.5;margin-top:.3rem;}
+.opts{display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-end;padding:1rem 1.2rem;}
+.opts label{display:block;font-weight:800;font-size:.9rem;margin-bottom:.3rem;}
+.opts input,.opts select{padding:.55rem .7rem;border-radius:8px;border:1.5px solid #c9a98a;font:inherit;background:#fff;}
+.btn{padding:.65rem 1.2rem;border-radius:9px;border:none;background:var(--maroon);color:#fff;font:inherit;font-weight:800;cursor:pointer;}
+.how{padding:0 1.2rem 1rem;line-height:1.6;max-width:52rem;}
+.how li{margin-left:1.2rem;}
+
+/* ── cards ── */
+#sheet{display:flex;flex-wrap:wrap;gap:6mm;justify-content:center;padding:1rem;}
+.card{position:relative;background:#fff;border:1px dashed #999;break-inside:avoid;page-break-inside:avoid;}
+.card.half{width:180mm;height:125mm;}
+.card.full{width:190mm;height:265mm;}
+.mk{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);}
+.card.half .mk{width:100mm;height:100mm;}
+.card.full .mk{width:165mm;height:165mm;}
+.mk svg{width:100%;height:100%;display:block;shape-rendering:crispEdges;}
+.lt{position:absolute;font-weight:800;color:#555;font-size:13pt;}
+.lt.a{top:3mm;left:50%;transform:translateX(-50%);}
+.lt.c{bottom:3mm;left:50%;transform:translateX(-50%) rotate(180deg);}
+.lt.b{right:4mm;top:50%;transform:translateY(-50%) rotate(90deg);}
+.lt.d{left:4mm;top:50%;transform:translateY(-50%) rotate(-90deg);}
+.card.full .lt{font-size:18pt;}
+.num{position:absolute;font-weight:800;font-size:11pt;color:#333;}
+.num.tl{top:3mm;left:4mm;} .num.tr{top:3mm;right:4mm;}
+.num.bl{bottom:3mm;left:4mm;} .num.br{bottom:3mm;right:4mm;}
+.brand{position:absolute;bottom:3mm;left:50%;transform:translateX(-50%);font-size:7pt;color:#aaa;display:none;}
+
+@media print{
+  @page{size:A4 portrait;margin:8mm;}
+  body{background:#fff;}
+  .noprint{display:none !important;}
+  #sheet{padding:0;gap:4mm;}
+  .card.full{page-break-after:always;}
+}
+</style>
+</head>
+<body>
+<div class="noprint">
+  <div class="bar">
+    <h1>DigiSmart Answer Cards</h1>
+    <p>Each child gets one card with their own number. To answer, they turn the card so their letter is at the top and hold it up. The facilitator's phone reads the whole class at once.</p>
+  </div>
+  <div class="opts">
+    <div><label for="n">How many cards</label><input id="n" type="number" min="1" max="60" value="40"></div>
+    <div><label for="from">Start from card</label><input id="from" type="number" min="1" max="60" value="1"></div>
+    <div><label for="size">Card size</label>
+      <select id="size">
+        <option value="half">Normal — 2 cards per page</option>
+        <option value="full">Big — 1 card per page (large or long rooms)</option>
+      </select></div>
+    <button class="btn" id="make">Show cards</button>
+    <button class="btn" id="print">Print</button>
+  </div>
+  <ol class="how">
+    <li>Print on thick paper (card sheet) if you can. Do not laminate: shiny cards reflect light and are hard to read.</li>
+    <li>Cut along the dashed lines. Give each child the card with their roll number, and keep the same card for the whole year.</li>
+    <li>Teach the children: find your letter, turn the card until that letter is at the <b>top</b>, hold it up with the black pattern facing the teacher, and keep your fingers off the black pattern.</li>
+  </ol>
+</div>
+<div id="sheet"></div>
+
+<script src="js/aruco-cards.js"></script>
+<script>
+/* Card number N uses marker N-1 from the ARUCO_MIP_16h3 set (4 x 4 squares:
+   the biggest squares for the paper size, so the phone can read it from far).
+   The scanner (card-scanner.html) uses the same set, so the two must stay matched. */
+var DICT = new AR.Dictionary('ARUCO_MIP_16h3');
+
+function cardHtml(num, size){
+  return '<div class="card ' + size + '">'
+    + '<div class="mk">' + DICT.generateSVG(num - 1) + '</div>'
+    + '<span class="lt a">A</span><span class="lt b">B</span><span class="lt c">C</span><span class="lt d">D</span>'
+    + '<span class="num tl">' + num + '</span><span class="num tr">' + num + '</span>'
+    + '<span class="num bl">' + num + '</span><span class="num br">' + num + '</span>'
+    + '</div>';
+}
+
+function make(){
+  var n = Math.max(1, Math.min(60, parseInt(document.getElementById('n').value, 10) || 40));
+  var from = Math.max(1, Math.min(60, parseInt(document.getElementById('from').value, 10) || 1));
+  var size = document.getElementById('size').value;
+  var html = '';
+  for(var k = from; k < from + n && k <= 60; k++) html += cardHtml(k, size);
+  document.getElementById('sheet').innerHTML = html;
+}
+document.getElementById('make').onclick = make;
+document.getElementById('print').onclick = function(){ make(); setTimeout(function(){ window.print(); }, 200); };
+make();
+</script>
+</body>
+</html>
