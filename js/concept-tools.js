@@ -760,9 +760,40 @@
         });
         const names = Object.keys(pts);
         const c = names.reduce((s, k) => ({ x: s.x + pts[k].x / names.length, y: s.y + pts[k].y / names.length }), { x: 0, y: 0 });
+        // Put each letter in the biggest empty gap between the lines leaving that point
+        const dirs = {}; names.forEach(k => { dirs[k] = []; });
+        const add = (k, from, to, both) => {
+          const d = unitv({ x: pts[to].x - pts[from].x, y: pts[to].y - pts[from].y });
+          dirs[k].push(Math.atan2(d.y, d.x));
+          if (both) dirs[k].push(Math.atan2(-d.y, -d.x));
+        };
+        items.forEach(it => {
+          if (it.type === "angle") {
+            add(it.at, it.at, it.from, false); add(it.at, it.at, it.to, false);
+            add(it.from, it.at, it.from, true); add(it.to, it.at, it.to, true);
+          } else if (it.type === "segment") {
+            add(it.from, it.from, it.to, false); add(it.to, it.to, it.from, false);
+          } else if (it.type === "ray") {
+            add(it.from, it.from, it.to, false); add(it.to, it.from, it.to, true);
+          } else {
+            add(it.from, it.from, it.to, true); add(it.to, it.from, it.to, true);
+          }
+        });
         names.forEach(k => {
-          const P = pts[k], o = unitv({ x: P.x - c.x || 1, y: P.y - c.y || -1 });
-          h.txt(P.x + o.x * 26, P.y + o.y * 26 + 9, k, "t big", labels, { "text-anchor": "middle" });
+          const P = pts[k];
+          let o;
+          const a = dirs[k].slice().sort((x, y) => x - y);
+          if (a.length) {
+            let best = -1, mid = 0;
+            a.forEach((x, i) => {
+              const y = i + 1 < a.length ? a[i + 1] : a[0] + 2 * Math.PI, gap = y - x;
+              if (gap > best) { best = gap; mid = x + gap / 2; }
+            });
+            o = { x: Math.cos(mid), y: Math.sin(mid) };
+          } else {
+            o = unitv({ x: P.x - c.x || 1, y: P.y - c.y || -1 });
+          }
+          h.txt(P.x + o.x * 28, P.y + o.y * 28 + 9, k, "t big", labels, { "text-anchor": "middle" });
         });
         names.forEach(k => { handles[k].forEach(n => { n.setAttribute("cx", pts[k].x); n.setAttribute("cy", pts[k].y); }); });
         out.innerHTML = notes.length ? notes.join("<br>") : "Drag the points.";
@@ -841,7 +872,7 @@
     barModel: "Singapore bar model, parts appear one by one: word problems, part-whole, comparison, fractions, ratio, percentage. Settings: bars:[{name, parts:[{v: width number, label: 'text' or '?'}], total: 'text' or '?'}] (1 to 3 bars; v sets the width; '?' marks the unknown), heading",
     dragTriangle: "Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
     angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
-    geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E'}] (angle at B between arms BD and BE), heading",
+    geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E'}] (angle at B between arms BD and BE), heading. Choose coordinates that make a clear picture: angles between 30° and 120° and points well apart, unless the screen is about obtuse, straight or reflex angles",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
 
