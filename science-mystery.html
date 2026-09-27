@@ -94,6 +94,26 @@ button{font-family:inherit;}
 .reveal{background:#dff0d8;color:#123d18;border-radius:12px;padding:.8rem 1rem;font-weight:800;
   font-size:clamp(1.05rem,2vw,1.5rem);animation:rise .5s ease both;}
 
+.opt.pick{cursor:default;}
+.st-body{overflow-y:auto;}
+.vote.q{gap:.55rem;justify-content:flex-start;}
+.vote.q .opt{padding:.5rem 1.1rem;font-size:clamp(1.05rem,2.2vw,1.6rem);}
+.vote.q .opt .l{width:1.9em;height:1.9em;}
+.why{margin-top:.2rem;color:var(--sandal);font-size:clamp(1rem,1.8vw,1.35rem);font-weight:700;text-align:center;animation:rise .5s ease both;}
+.qbar{display:flex;gap:.7rem;justify-content:center;flex-wrap:wrap;margin-top:.4rem;}
+.qbtn{padding:.75rem 1.3rem;border-radius:12px;border:2px solid var(--gold);background:transparent;color:var(--sandal);
+  font-weight:800;font-size:clamp(.95rem,1.7vw,1.2rem);cursor:pointer;}
+.qbtn.main{background:var(--gold);color:var(--maroon-deep);}
+.qbtn.r3{border-color:#7fc28a;} .qbtn.r2{border-color:#e0c060;} .qbtn.r1{border-color:#e08a7a;}
+.qnum{text-align:center;color:var(--sandal);opacity:.8;font-weight:700;}
+.summary{flex:1;display:grid;grid-template-columns:1fr 1.3fr;gap:1.6rem;align-items:start;}
+.summary h4{color:var(--gold);font-size:1.2rem;margin-bottom:.6rem;}
+.srow{display:flex;justify-content:space-between;gap:1rem;padding:.5rem 0;border-bottom:1px solid rgba(201,168,76,.2);
+  font-size:clamp(1rem,1.7vw,1.25rem);font-weight:700;}
+.hw{width:100%;min-height:11rem;border-radius:12px;padding:.8rem;background:#1c0808;color:var(--text);
+  border:1.5px solid rgba(201,168,76,.4);font:inherit;font-size:1.05rem;line-height:1.5;resize:vertical;}
+.note{margin-top:.5rem;color:var(--sandal);font-weight:700;}
+
 /* activity card */
 .act{flex:1;display:grid;grid-template-columns:1fr 1.4fr auto;gap:1.4rem;align-items:start;}
 .act h4{color:var(--gold);font-size:1.15rem;margin-bottom:.5rem;}
@@ -783,10 +803,7 @@ function render(i){
     $('btn-redo').classList.remove('hidden');
   }
 
-  var dots = $('trail').children;
-  for(var k = 0; k < dots.length; k++){
-    dots[k].className = 'dot' + (k === i ? ' now' : (k < i ? ' done' : ''));
-  }
+  markTrail(i);
 }
 
 function revealAnswer(i){
@@ -817,7 +834,7 @@ function setPlaying(on){ PLAYING = on; $('btn-play').textContent = on ? '❚❚ 
 
 async function runStep(i){
   if(i < 0 || i >= STEPS.length) return;
-  IDX = i; var my = ++SEQ;
+  IDX = i; var my = ++SEQ; QUIZ = null;
   clearInterval(TMR);
   var s = STEPS[i];
   render(i);
@@ -830,13 +847,29 @@ async function runStep(i){
   // votes and activities wait for the teacher
   if(s.type === 'vote' || s.type === 'activity'){ setPlaying(false); return; }
   if(PLAYING && IDX < STEPS.length - 1){ await wait(700); if(my === SEQ && PLAYING) runStep(IDX + 1); }
-  else if(IDX >= STEPS.length - 1) setPlaying(false);
+  else if(IDX >= STEPS.length - 1){
+    // the lesson played through to the end by itself: go straight to the check
+    var wasPlaying = PLAYING;
+    setPlaying(false);
+    if(wasPlaying && STEPS.length > 1){ await wait(1500); if(my === SEQ) startCheck(); }
+  }
 }
 
-function goNext(){ if(IDX < STEPS.length - 1){ stopAudio(); setPlaying(true); runStep(IDX + 1); } }
-function goPrev(){ if(IDX > 0){ stopAudio(); runStep(IDX - 1); } }
-function replay(){ stopAudio(); runStep(IDX); }
+function goNext(){
+  if(QUIZ) return;                                   // the check has its own buttons
+  if(IDX < STEPS.length - 1){ stopAudio(); setPlaying(true); runStep(IDX + 1); }
+  else if(STEPS.length > 1) startCheck();
+}
+function goPrev(){
+  if(QUIZ || (!QUIZ && $('st-tag').textContent.indexOf('✅') === 0)){ QUIZ = null; stopAudio(); runStep(STEPS.length - 1); return; }
+  if(IDX > 0){ stopAudio(); runStep(IDX - 1); }
+}
+function replay(){
+  if(QUIZ){ stopAudio(); if(QUIZ.i < CHECK.questions.length && QUIZ.results.length === QUIZ.i) showQuestion(); return; }
+  stopAudio(); runStep(IDX);
+}
 function playPause(){
+  if(QUIZ) return;
   if(PLAYING){ setPlaying(false); SEQ++; stopAudio(); }
   else { setPlaying(true); runStep(STEPS[IDX].type === 'vote' || STEPS[IDX].type === 'activity' ? IDX + 1 : IDX); }
 }
@@ -844,7 +877,198 @@ function playPause(){
 function buildTrail(){
   $('trail').innerHTML = STEPS.map(function(s, i){
     return '<button class="dot" data-i="' + i + '" title="' + esc(TYPES[s.type].tag + ': ' + s.title) + '">' + TYPES[s.type].icon + '</button>';
-  }).join('');
+  }).join('') + (STEPS.length > 1 ? '<button class="dot" data-i="check" title="Quick check and homework">✅</button>' : '');
+}
+
+/* ════════ QUICK CHECK (end of class) ════════
+   5 show-of-hands questions. After each answer the facilitator taps how many
+   children got it (most / about half / only a few). No student names — the
+   same class-level record the other class pages save to Class Insights.
+   Then homework, which the facilitator can edit and send to the Student Diary.
+   Written once per chapter, tied to the exact lesson words, saved for every school. */
+var CHECK = null, CHECK_LOADING = null;
+var QUIZ = null;   // { i, shown, results:[] } while the check is on screen
+
+function checkBody(extra){
+  var b = { board:'NCERT', cls: CLS, subject: subjectFor(CLS) + '-Mystery', topic: topicKey(),
+            lang: 'english', ver: lessonVer() + '-check-' + lessonPrint(STEPS) };
+  for(var k in extra) b[k] = extra[k];
+  return JSON.stringify(b);
+}
+
+async function buildCheck(){
+  var taught = STEPS.map(function(s){ return s.title + ': ' + s.board.join(' / ') + ' — ' + s.say_en; }).join('\n');
+  var prompt =
+      'Write an end-of-class check for ' + CLS + ' children in a Tamil Nadu school, chapter "' + CHAPTER.chapter_title + '".\n'
+    + 'Use ONLY ideas taught in this lesson:\n' + taught + '\n\n'
+    + 'Exactly 5 questions the teacher reads aloud; children answer by raising hands for A, B or C. '
+    + 'Mix: 2 about the main ideas, 2 applying them to daily life in Tamil Nadu, 1 about the mystery. '
+    + 'Each question under 15 words. Exactly 3 short options; the wrong options are common wrong beliefs. '
+    + 'The right answer must be scientifically exact.\n'
+    + 'Then HOMEWORK for the diary: one small safe home activity with household things (no fire, no sharp objects) '
+    + 'and 2 short written questions. Plain lines, no markdown.\n'
+    + 'Also give Tamil versions in simple spoken Tamil, keeping science terms in English letters.\n\n'
+    + 'Return ONLY a JSON object: {"questions":[{"q":"","options":["","",""],"answer":0,"why":"one sentence",'
+    + '"q_ta":"","options_ta":["","",""],"why_ta":""}],"homework":"","homework_ta":""}';
+  var r = await fetch('/api/ai', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system:'You return ONLY a valid JSON object. No markdown fences, no preamble.',
+      messages:[{ role:'user', content: prompt }], max_tokens: 4000 }) });
+  var d = await r.json();
+  if(d && (d.type === 'error' || d.error)) throw new Error(typeof d.error === 'string' ? d.error : ((d.error && d.error.message) || 'AI error'));
+  var txt = Array.isArray(d.content) ? d.content.map(function(x){ return x.text || ''; }).join('') : String(d.completion || d.text || '');
+  txt = txt.replace(/```json|```/g,'').trim();
+  var a = txt.indexOf('{'), b = txt.lastIndexOf('}');
+  if(a < 0 || b < 0) throw new Error('Check reply not understood: ' + txt.substring(0, 100));
+  var o = JSON.parse(txt.slice(a, b + 1));
+  var qs = (o.questions || []).filter(function(q){ return q && q.q && Array.isArray(q.options) && q.options.length >= 2; })
+    .slice(0, 5).map(function(q){
+      var ans = parseInt(q.answer, 10);
+      return { q: String(q.q), options: arr(q.options).slice(0,3), answer: (ans >= 0 && ans < 3) ? ans : 0,
+               why: String(q.why || ''), q_ta: String(q.q_ta || ''), options_ta: arr(q.options_ta).slice(0,3), why_ta: String(q.why_ta || '') };
+    });
+  if(!qs.length) throw new Error('no questions came back');
+  return { questions: qs, homework: String(o.homework || ''), homework_ta: String(o.homework_ta || '') };
+}
+
+function ensureCheck(){
+  if(CHECK) return Promise.resolve('');
+  if(CHECK_LOADING) return CHECK_LOADING;
+  var forSteps = STEPS;
+  CHECK_LOADING = (async function(){
+    try {
+      var r = await fetch('/api/concept-cache', { method:'POST', headers:{'Content-Type':'application/json'}, body: checkBody({ action:'get' }) });
+      var d = await r.json();
+      if(d && d.found && d.map && d.map.check && d.map.check.questions){ if(forSteps === STEPS) CHECK = d.map.check; return ''; }
+      var fresh = await buildCheck();
+      if(forSteps !== STEPS) return 'lesson changed';
+      CHECK = fresh;
+      fetch('/api/concept-cache', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: checkBody({ action:'save', narration:{ check: fresh } }) }).catch(function(){});
+      return '';
+    } catch(e){ return String(e.message || e); }
+    finally { CHECK_LOADING = null; }
+  })();
+  return CHECK_LOADING;
+}
+
+function qText(q, f){ return (ta() && q[f + '_ta'] && (Array.isArray(q[f + '_ta']) ? q[f + '_ta'].length : true)) ? q[f + '_ta'] : q[f]; }
+
+async function startCheck(){
+  SEQ++; stopAudio(); setPlaying(false); clearInterval(TMR);
+  markTrail(STEPS.length);
+  $('st-tag').textContent = '✅ ' + (ta() ? 'சிறு சோதனை' : 'Quick check');
+  $('st-title').textContent = ta() ? 'நாம் என்ன கற்றோம்?' : 'What did we learn?';
+  $('step-count').textContent = '';
+  var body = $('st-body'); body.className = 'st-body full';
+  body.innerHTML = '<div class="words"><div class="line">' + (ta() ? 'கேள்விகள் தயாராகின்றன…' : 'Getting the questions ready…') + '</div></div>';
+  var why = await ensureCheck();
+  if(why){ body.innerHTML = '<div class="words"><div class="line">Questions could not be prepared: ' + esc(why) + '</div>'
+                        + '<div class="qbar"><button class="qbtn main" id="q-retry">Try again</button></div></div>';
+           $('q-retry').onclick = startCheck; return; }
+  QUIZ = { i: 0, shown: false, results: [] };
+  showQuestion();
+}
+
+function showQuestion(){
+  var my = ++SEQ;
+  var q = CHECK.questions[QUIZ.i], opts = qText(q, 'options');
+  $('st-title').textContent = qText(q, 'q');
+  var body = $('st-body'); body.className = 'st-body';
+  body.innerHTML = '<div class="vote q">'
+    + '<div class="qnum">' + (ta() ? 'கேள்வி ' : 'Question ') + (QUIZ.i + 1) + ' / ' + CHECK.questions.length + '</div>'
+    + opts.map(function(o, n){ return '<div class="opt pick" data-n="' + n + '"><span class="l">' + 'ABC'.charAt(n) + '</span><span>' + esc(o) + '</span></div>'; }).join('')
+    + '<div id="q-after"></div>'
+    + '<div class="qbar" id="q-bar"><button class="qbtn main" id="q-show">' + (ta() ? 'பதிலைக் காட்டு' : 'Show answer') + '</button></div></div>';
+  $('q-show').onclick = revealQuestion;
+  var say = qText(q, 'q') + ' ' + opts.map(function(o, n){ return 'ABC'.charAt(n) + ': ' + o + '.'; }).join(' ');
+  speakAsync(say, ta() ? 'tamil' : 'english');
+}
+
+function revealQuestion(){
+  var q = CHECK.questions[QUIZ.i];
+  document.querySelectorAll('#st-body .opt').forEach(function(el){
+    var n = parseInt(el.getAttribute('data-n'), 10);
+    el.classList.add(n === q.answer ? 'right' : 'dim');
+  });
+  var w = qText(q, 'why');
+  $('q-after').innerHTML = w ? '<div class="why">' + esc(w) + '</div>' : '';
+  $('q-bar').innerHTML = '<span class="qnum" style="width:100%">' + (ta() ? 'எத்தனை பேர் சரியாகச் சொன்னார்கள்?' : 'How many children got it right?') + '</span>'
+    + '<button class="qbtn r3" data-r="3">' + (ta() ? 'பெரும்பாலோர்' : 'Most') + '</button>'
+    + '<button class="qbtn r2" data-r="2">' + (ta() ? 'பாதி பேர்' : 'About half') + '</button>'
+    + '<button class="qbtn r1" data-r="1">' + (ta() ? 'சிலர் மட்டும்' : 'Only a few') + '</button>';
+  $('q-bar').querySelectorAll('button').forEach(function(bt){
+    bt.onclick = function(){ rateQuestion(parseInt(bt.getAttribute('data-r'), 10)); };
+  });
+  speakAsync(w, ta() ? 'tamil' : 'english');
+}
+
+function rateQuestion(r){
+  var q = CHECK.questions[QUIZ.i];
+  QUIZ.results.push({ q: q.q, a: q.options[q.answer], rating: r });
+  stopAudio();
+  if(QUIZ.i < CHECK.questions.length - 1){ QUIZ.i++; showQuestion(); }
+  else showSummary();
+}
+
+function mySchoolId(){
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    var role = localStorage.getItem('dss_role') || '';
+    return role === 'teacher' ? (u.school_id || (u.schools && u.schools.id) || '') : (u.school_id || u.id || '');
+  } catch(e){ return ''; }
+}
+
+async function showSummary(){
+  SEQ++;
+  $('st-title').textContent = ta() ? 'இன்றைய வகுப்பு' : 'Today\'s class';
+  var res = QUIZ.results, body = $('st-body');
+  var label = { 3: ta() ? 'பெரும்பாலோர்' : 'Most', 2: ta() ? 'பாதி பேர்' : 'About half', 1: ta() ? 'சிலர் மட்டும்' : 'Only a few' };
+  var weak = res.filter(function(x){ return x.rating === 1; });
+  var hwText = CHECK.homework + (CHECK.homework_ta ? ('\n\n' + CHECK.homework_ta) : '');
+  body.className = 'st-body';
+  body.innerHTML = '<div class="summary"><div><h4>' + (ta() ? 'முடிவு' : 'How the class did') + '</h4>'
+    + res.map(function(x, n){ return '<div class="srow"><span>' + (n + 1) + '. ' + esc(x.a) + '</span><span>' + label[x.rating] + '</span></div>'; }).join('')
+    + (weak.length ? '<div class="note">' + (ta() ? 'மீண்டும் கற்பிக்க வேண்டியவை: ' : 'Teach again tomorrow: ') + weak.map(function(x){ return esc(x.a); }).join(', ') + '</div>' : '')
+    + '<div class="note" id="q-saved">Saving…</div></div>'
+    + '<div><h4>' + (ta() ? 'வீட்டுப்பாடம்' : 'Homework') + '</h4><textarea class="hw" id="hw-text"></textarea>'
+    + '<div class="qbar" style="justify-content:flex-start"><button class="qbtn main" id="hw-send">Send to Student Diary</button></div>'
+    + '<div class="note" id="hw-note"></div></div></div>';
+  $('hw-text').value = hwText;
+  $('hw-send').onclick = sendHomework;
+  speakAsync(ta() ? 'நன்றாகச் செய்தீர்கள்! இன்றைய வீட்டுப்பாடம் திரையில் உள்ளது.' : 'Well done, class! Today\'s homework is on the screen.', ta() ? 'tamil' : 'english');
+  try {
+    var r = await fetch('/api/class-quiz', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ cls: CLS, subject: subjectFor(CLS), topic: CHAPTER.chapter_title,
+                             planKey: 'mystery-' + topicKey(), results: res }) });
+    var d = await r.json();
+    $('q-saved').textContent = (d && d.saved) ? '✅ Saved to Class Insights' : ('⚠ Not saved: ' + ((d && d.error) || 'server problem'));
+  } catch(e){ $('q-saved').textContent = '⚠ Not saved: ' + e.message; }
+}
+
+async function sendHomework(){
+  var btn = $('hw-send'), note = $('hw-note');
+  var text = $('hw-text').value.trim();
+  if(!text){ note.textContent = 'Write the homework first.'; return; }
+  var school = mySchoolId();
+  if(!school){ note.textContent = '⚠ No school found for this login, so the diary cannot be updated. Log in as a teacher or school admin.'; return; }
+  btn.disabled = true; btn.textContent = 'Sending…';
+  try {
+    var r = await fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ action:'save_diary_entry', school_id: school, class_name: CLS, subject: subjectFor(CLS),
+        lesson_title: CHAPTER.chapter_title, lesson_date: new Date().toISOString().split('T')[0], homework: text }) });
+    var d = await r.json();
+    if(d && d.error) throw new Error(d.error);
+    btn.textContent = '✅ Sent to Student Diary';
+    note.textContent = 'Parents and students can see it in the diary.';
+  } catch(e){
+    btn.disabled = false; btn.textContent = 'Send to Student Diary';
+    note.textContent = '⚠ Could not send: ' + (e.message || e);
+  }
+}
+
+function markTrail(k){
+  var dots = $('trail').children;
+  for(var n = 0; n < dots.length; n++) dots[n].className = 'dot' + (n === k ? ' now' : (n < k ? ' done' : ''));
 }
 
 /* ════════ SUPER ADMIN FIXES ════════ */
@@ -885,14 +1109,14 @@ async function redoLesson(){
   var why = await replaceLesson(fresh);
   $('loading').classList.remove('show');
   if(why){ alert('The new lesson could not be saved: ' + why); return; }
-  LESSON_ID++; VIDS = {}; TA = null; STEPS = fresh;
+  LESSON_ID++; VIDS = {}; TA = null; CHECK = null; QUIZ = null; STEPS = fresh;
   buildTrail(); kickVideos();
   IDX = 0; setPlaying(true); runStep(0);
 }
 
 /* ════════ START ════════ */
 async function startClass(){
-  LESSON_ID++; VIDS = {}; TA = null;
+  LESSON_ID++; VIDS = {}; TA = null; CHECK = null; QUIZ = null;
   $('setup').classList.add('hidden');
   $('room').classList.add('show');
   $('hdr-meta').textContent = CLS + ', chapter ' + (CHAPTER.chapter_number || '') + ': ' + CHAPTER.chapter_title;
@@ -922,6 +1146,7 @@ async function startClass(){
   $('loading').classList.remove('show');
   buildTrail();
   kickVideos();
+  if(STEPS.length > 1) ensureCheck();
   IDX = 0; setPlaying(true); runStep(0);
 }
 
@@ -954,7 +1179,9 @@ document.addEventListener('DOMContentLoaded', function(){
   $('btn-redo').onclick = redoLesson;
   $('trail').addEventListener('click', function(e){
     var d = e.target.closest('.dot'); if(!d) return;
-    stopAudio(); runStep(parseInt(d.getAttribute('data-i'), 10));
+    stopAudio();
+    if(d.getAttribute('data-i') === 'check'){ startCheck(); return; }
+    QUIZ = null; runStep(parseInt(d.getAttribute('data-i'), 10));
   });
   $('btn-voice').onclick = function(){
     VOICE_ON = !VOICE_ON; this.textContent = VOICE_ON ? '🔊 Voice' : '🔇 Muted';
