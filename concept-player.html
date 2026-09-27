@@ -158,6 +158,15 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     ["why", "Why"], ["see", "See it"], ["touch", "Touch it"], ["draw", "Draw it"],
     ["formula", "Formula"], ["where", "Where used"], ["say", "Say it"]
   ];
+  // TeachBot login required (same rule as learnbot.html): students go to their
+  // own page, anyone not logged in goes to the login page.
+  let role = "", token = "";
+  try { role = localStorage.getItem("dss_role") || ""; token = localStorage.getItem("dss_token") || ""; } catch (e) {}
+  if (role === "student") { location.href = "student.html"; return; }
+  if (!token || !role) { location.href = "/login.html"; return; }
+  let canRedo = false; // only the super admin may replace a lesson every school uses
+  try { canRedo = role === "super_admin" && !!localStorage.getItem("dss_session"); } catch (e) {}
+
   const svg = document.getElementById("bd");
   const panel = document.getElementById("panel");
   const rail = document.getElementById("rail");
@@ -407,14 +416,14 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     }
   }
 
-  async function cacheSave(data) {
+  async function cacheSave(data, replace) {
     try {
       const r = await fetch("/api/concept-cache", {
-        method: "POST", headers: JSON_HEAD,
-        body: JSON.stringify({ action: "save", board: boardName, cls, subject, topic: chapter, lang: "english", ver: PLAYER_VER, narration: data })
+        method: "POST", headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
+        body: JSON.stringify({ action: "save", board: boardName, cls, subject, topic: chapter, lang: "english", ver: PLAYER_VER, narration: data, replace: !!replace })
       });
       const d = await r.json();
-      if (d && d.saved) return "";
+      if (d && (d.saved || d.reason === "already-saved")) return "";
       return (d && (d.reason || d.error)) || `status ${r.status}`;
     } catch (e) {
       return e.message;
@@ -626,16 +635,16 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       if (!fresh) {
         showWaiting("Opening the lesson");
         const saved = await cacheGet();
-        if (saved && saved.grounded) { start(saved); redoBtn.hidden = false; return; }
+        if (saved && saved.grounded) { start(saved); redoBtn.hidden = !canRedo; return; }
       }
       showWaiting(fresh
         ? "Making a fresh version of this lesson. This takes about a minute"
         : "Preparing this lesson for the first time. This takes about a minute. Next time it opens straight away");
       const data = await makeLesson();
-      const problem = await cacheSave(data);
+      const problem = await cacheSave(data, fresh);
       if (problem) notice = "Not saved (" + problem + "), so it will be made again next time";
       start(data);
-      redoBtn.hidden = false;
+      redoBtn.hidden = !canRedo;
     } catch (e) {
       console.error(e);
       showError(e.title || "Could not prepare this lesson.", e.message, () => loadChapter(fresh));
