@@ -23,6 +23,8 @@ button:disabled{opacity:.4;cursor:default}
 :focus-visible{outline:3px solid var(--maroon);outline-offset:2px}
 
 header{background:var(--maroon);color:var(--sandal-light);padding:10px 24px;display:flex;align-items:center;gap:28px;flex-wrap:wrap;border-bottom:4px solid var(--gold)}
+.homebtn{background:transparent;border:2px solid var(--sandal);color:var(--sandal-light);border-radius:8px;padding:6px 12px;font-size:1rem;cursor:pointer;white-space:nowrap}
+.homebtn:hover{background:rgba(232,201,154,.15)}
 .chapter{font-size:1.9rem;font-weight:800;line-height:1;margin:0}
 .chapter span{display:block;font-size:.95rem;font-weight:500;color:var(--sandal);margin-top:4px}
 .rail{display:flex;align-items:center;margin-left:auto;flex-wrap:wrap;gap:4px}
@@ -126,6 +128,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
 </head>
 <body>
 <header>
+  <button class="homebtn" id="homeBtn" title="Back to TeachBot">← TeachBot</button>
   <h1 class="chapter" id="chapter">Loading…<span></span></h1>
   <nav class="rail" id="rail" aria-label="Lesson steps"></nav>
 </header>
@@ -341,6 +344,12 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     go(0);
   }
 
+  document.getElementById("homeBtn").onclick = () => {
+    let back = "";
+    try { back = sessionStorage.getItem("cp_returnUrl") || ""; } catch (e) {}
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    location.href = back || "learnbot.html";
+  };
   document.getElementById("back").onclick = () => go(idx - 1);
   document.getElementById("next").onclick = () => go(idx + 1);
   document.addEventListener("keydown", e => {
@@ -660,6 +669,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     } catch (e) { console.warn(e); }
     if (!classes.length) { list.textContent = "Could not load the class list. Check your internet and reload the page."; return; }
     sel.innerHTML = '<option value="">Choose class</option>' + classes.map(c => `<option value="${esc(c)}">Class ${esc(c)}</option>`).join("");
+    const pick = (params.get("pick") || "").replace(/[^0-9]/g, "");
 
     sel.onchange = async () => {
       list.textContent = sel.value ? "Loading chapters" : "";
@@ -685,6 +695,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
         list.textContent = "Could not load chapters: " + e.message;
       }
     };
+    if (pick && classes.map(String).includes(pick)) { sel.value = pick; sel.onchange(); }
   }
 
   if (name) {
