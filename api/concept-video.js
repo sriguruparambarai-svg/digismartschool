@@ -166,8 +166,9 @@ module.exports = async function handler(req, res) {
     // 1) already made and saved? free from here on.
     if (await videoExists(mp4)) return res.json({ status: 'done', url: publicUrl(mp4), cached: true });
 
-    const accessKey = process.env.KLING_ACCESS_KEY;
-    const secretKey = process.env.KLING_SECRET_KEY;
+    // trim: a space copied along with the key breaks the signature
+    const accessKey = String(process.env.KLING_ACCESS_KEY || '').trim();
+    const secretKey = String(process.env.KLING_SECRET_KEY || '').trim();
     if (!accessKey || !secretKey) {
       return res.json({ status: 'failed', error: 'KLING_ACCESS_KEY / KLING_SECRET_KEY are not set in Vercel' });
     }
