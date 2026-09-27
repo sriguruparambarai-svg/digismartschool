@@ -94,6 +94,17 @@ function sbFetchObject(fileName) {
   });
 }
 
+// Answer-card results: { "7":"B", ... } kept only for cards 1-60 and letters A-D.
+function cleanCards(c) {
+  if (!c || typeof c !== 'object') return undefined;
+  const out = {}; let n = 0;
+  for (const k in c) {
+    const card = parseInt(k, 10), L = String(c[k] || '').toUpperCase();
+    if (card >= 1 && card <= 60 && /^[ABCD]$/.test(L)) { out[card] = L; if (++n >= 60) break; }
+  }
+  return n ? out : undefined;
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -111,11 +122,15 @@ module.exports = async function handler(req, res) {
         subject: String(b.subject || '').substring(0, 60),
         topic: String(b.topic || '').substring(0, 140),
         planKey: String(b.planKey || '').substring(0, 64),
+        school_id: b.school_id ? String(b.school_id).substring(0, 64) : undefined,
         results: results.map(function (r) {
           return {
             q: String((r && r.q) || '').substring(0, 220),
             a: String((r && r.a) || '').substring(0, 220),
-            rating: Math.max(1, Math.min(3, parseInt((r && r.rating) || 0, 10) || 0))
+            rating: Math.max(1, Math.min(3, parseInt((r && r.rating) || 0, 10) || 0)),
+            // optional, from answer cards: the right letter and each card's letter (card numbers only, no names)
+            correct: /^[ABCD]$/.test(String((r && r.correct) || '')) ? String(r.correct) : undefined,
+            cards: cleanCards(r && r.cards)
           };
         }).filter(function (r) { return r.q && r.rating; })
       };
