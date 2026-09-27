@@ -89,6 +89,11 @@ footer .btn{min-width:140px}
 .waiting::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:dots 1.4s steps(4) infinite}
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
+footer .auto{background:var(--maroon);color:var(--sandal-light);min-width:170px}
+footer .auto.running{background:#2b1a12}
+.activity{background:var(--maroon);color:var(--sandal-light);border-radius:10px;padding:12px 16px}
+.activity p{margin:0 0 8px;font-size:1.2rem;line-height:1.4}
+.activity .count{color:var(--gold)}
 
 /* chalk drawing styles used by the toolbox */
 .cl{stroke:var(--chalk);stroke-width:3;fill:none;stroke-linecap:round;stroke-linejoin:round}
@@ -143,6 +148,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
 <footer>
   <button class="btn ghost" id="back">Back</button>
   <span class="pos" id="pos"></span>
+  <button class="btn auto" id="autoBtn" hidden>▶ Start class</button>
   <button class="btn ghost redo" id="redo" hidden>Redo this lesson</button>
   <button class="btn" id="next">Next</button>
 </footer>
@@ -197,7 +203,8 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     const count = document.createElement("span");
     count.className = "count";
     let timer = null, counting = false;
-    const reveal = () => { clearInterval(timer); counting = false; count.textContent = ""; ans.hidden = false; btn.textContent = "Ask again"; };
+    let waiters = [];
+    const reveal = () => { clearInterval(timer); counting = false; count.textContent = ""; ans.hidden = false; btn.textContent = "Ask again"; waiters.splice(0).forEach(f => f()); };
     const start = () => {
       if (counting) { reveal(); return; }
       ans.hidden = true; counting = true; btn.textContent = "Show answer now";
@@ -206,7 +213,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     };
     const btn = button(row, "Ask the class", start);
     row.appendChild(count);
-    return { box, start, stop: () => clearInterval(timer) };
+    return { box, start, stop: () => clearInterval(timer), whenRevealed: f => waiters.push(f) };
   }
 
   /* ---------- Read aloud with the TeachBot teacher voice (ElevenLabs via /api/voice-class) ----------
@@ -309,13 +316,14 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } }
     if (currentAsk) currentAsk.stop();
     stopVoice();
-    cleanup = null; currentAsk = null; idx = n;
+    cleanup = null; currentAsk = null; screenAuto = null; idx = n;
     const scr = screens[n];
     svg.innerHTML = ""; panel.innerHTML = ""; panel.scrollTop = 0;
 
     const tb = document.createElement("div"); tb.className = "titlebar";
     const h2 = document.createElement("h2"); h2.textContent = scr.title || ""; tb.appendChild(h2);
     const readBtn = button(tb, "Read aloud", () => {
+      stopClass();
       const text = (scr.lines || []).join(" ") + (scr.ask ? " " + scr.ask.q : "");
       speak(text, () => { if (currentAsk) currentAsk.start(); }, readBtn);
     }, "speak");
@@ -374,7 +382,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       settings = { heading: scr.title, lines: (board.lines || scr.lines || []).slice(0, 4) };
     }
     try {
-      cleanup = tool(h, ctl, settings, { setAsk: a => { currentAsk = a; } }) || null;
+      cleanup = tool(h, ctl, settings, { setAsk: a => { currentAsk = a; }, setAuto: f => { screenAuto = f; } }) || null;
     } catch (e) {
       console.error(e);
       svg.innerHTML = "";
@@ -411,25 +419,118 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       b.innerHTML = `<b>${k + 1}</b><span>${label}</span>`;
       const first = lesson.screens.findIndex(s => s.step === key);
       if (first < 0) b.disabled = true;
-      b.onclick = () => go(first);
+      b.onclick = () => { stopClass(); go(first); };
       rail.appendChild(b);
     });
     go(0);
+    showAutoBtn();
   }
+
+  /* ---------- Full AI-teacher mode ("Start class") ----------
+     Runs each screen by itself: read the screen, demonstrate on the board, give the class
+     a hands-on turn where the board is meant to be touched, ask the question, count down,
+     show and read the answer, then move on. Back, Next, the step bar and Read aloud stop it,
+     so the teacher can always take over. */
+  const HANDS_ON = { lineVsCircle: 1, tangentAtPoint: 1, tangentsFromPoint: 1, dragTriangle: 1, angleMaker: 1, geometryBoard: 1, fractionStrips: 1 };
+  const ACTIVITY_SECONDS = 20;
+  const autoBtn = document.getElementById("autoBtn");
+  let runToken = 0, running = false, screenAuto = null;
+  const alive = my => () => my === runToken;
+  const wait = (ms, my) => new Promise(r => setTimeout(() => r(my === runToken), ms));
+  function speakAndWait(text, my) {
+    return new Promise(res => {
+      if (!speakable(text)) return res(my === runToken);
+      const guard = setTimeout(() => res(my === runToken), 12000 + speakable(text).length * 90); // never hang
+      speak(text, () => { clearTimeout(guard); res(my === runToken); });
+    });
+  }
+  function classActivity(my) {
+    return new Promise(res => {
+      const box = document.createElement("div");
+      box.className = "activity";
+      box.innerHTML = '<p><strong>Class activity:</strong> come to the board and try it yourselves.</p><div class="ask-row"><span class="count"></span></div>';
+      const count = box.querySelector(".count");
+      let n = ACTIVITY_SECONDS, t = null;
+      const done = () => { clearInterval(t); box.remove(); res(my === runToken); };
+      button(box.querySelector(".ask-row"), "Continue", done);
+      panel.insertBefore(box, panel.children[1] || null);
+      count.textContent = n;
+      t = setInterval(() => { if (my !== runToken) { clearInterval(t); box.remove(); return res(false); } if (--n <= 0) done(); else count.textContent = n; }, 1000);
+    });
+  }
+  async function runScreen(my) {
+    const scr = lesson.screens[idx];
+    if (!(await speakAndWait((scr.lines || []).join(" "), my))) return false;
+    if (screenAuto) {
+      await screenAuto(alive(my));
+      if (!(await wait(2500, my))) return false; // let the class see the result
+    }
+    if (Array.isArray(scr.card)) {
+      for (const f of scr.card) { if (!(await speakAndWait(f, my))) return false; }
+    }
+    if (Array.isArray(scr.chant) && scr.chant.length) {
+      if (!(await speakAndWait("Now say each fact after me.", my))) return false;
+      for (const f of scr.chant) {
+        if (!(await speakAndWait(f, my))) return false;
+        if (!(await wait(3500, my))) return false; // the class repeats it
+      }
+    }
+    const b = scr.board || {};
+    if (HANDS_ON[b.tool] || (b.tool === "dotPattern" && (b.kind === "array" || b.kind === "pairs"))) {
+      if (!(await classActivity(my))) return false;
+    }
+    if (scr.ask && scr.ask.q && currentAsk && currentAsk.whenRevealed) {
+      if (!(await speakAndWait(scr.ask.q, my))) return false;
+      const revealed = new Promise(r => currentAsk.whenRevealed(r));
+      currentAsk.start();
+      await revealed;
+      if (my !== runToken) return false;
+      if (!(await speakAndWait("The answer. " + scr.ask.a, my))) return false;
+    }
+    return wait(1500, my);
+  }
+  async function runClass() {
+    const my = ++runToken;
+    running = true; showAutoBtn();
+    while (my === runToken) {
+      const ok = await runScreen(my);
+      if (!ok || my !== runToken) break;
+      if (idx >= lesson.screens.length - 1) {
+        document.getElementById("pos").textContent = "Class finished. Well done!";
+        await speakAndWait("Well done! That is the end of the lesson.", my);
+        break;
+      }
+      go(idx + 1);
+    }
+    if (my === runToken) { running = false; showAutoBtn(); }
+  }
+  function stopClass() {
+    if (!running) return;
+    runToken++; running = false;
+    stopVoice();
+    const act = panel.querySelector(".activity"); if (act) act.remove();
+    showAutoBtn();
+  }
+  function showAutoBtn() {
+    autoBtn.hidden = !lesson;
+    autoBtn.textContent = running ? "■ Stop class" : "▶ Start class";
+    autoBtn.classList.toggle("running", running);
+  }
+  autoBtn.onclick = () => { if (running) stopClass(); else runClass(); };
 
   document.getElementById("homeBtn").onclick = () => {
     let back = "";
     try { back = sessionStorage.getItem("cp_returnUrl") || ""; } catch (e) {}
-    stopVoice();
+    stopClass(); stopVoice();
     location.href = back || "learnbot.html";
   };
-  document.getElementById("back").onclick = () => go(idx - 1);
-  document.getElementById("next").onclick = () => go(idx + 1);
+  document.getElementById("back").onclick = () => { stopClass(); go(idx - 1); };
+  document.getElementById("next").onclick = () => { stopClass(); go(idx + 1); };
   document.addEventListener("keydown", e => {
     if (!lesson || e.target.tagName === "INPUT") return;
     if (e.key === " " && e.target.tagName === "BUTTON") return;
-    if (e.key === "ArrowRight") go(idx + 1);
-    else if (e.key === "ArrowLeft") go(idx - 1);
+    if (e.key === "ArrowRight") { stopClass(); go(idx + 1); }
+    else if (e.key === "ArrowLeft") { stopClass(); go(idx - 1); }
     else if (e.key === " " && currentAsk) { e.preventDefault(); currentAsk.start(); }
   });
   if ("speechSynthesis" in window) speechSynthesis.getVoices();
@@ -716,6 +817,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
   }
 
   redoBtn.onclick = () => {
+    stopClass();
     if (confirm("Make a fresh version of this lesson? The new one will replace this one for every class.")) loadChapter(true);
   };
 
