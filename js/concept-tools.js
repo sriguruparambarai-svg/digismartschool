@@ -478,7 +478,10 @@
       }
       marks.forEach(m => {
         h.el("circle", { cx: X(m), cy: Y, r: 8, class: "dot" });
-        h.txt(X(m), Y - 22, label(m), "t g", undefined, { "text-anchor": "middle" });
+        // Only write the number on top if it is not already written under the line
+        const k = (m - lo) / tick, onTick = Math.abs(k - Math.round(k)) < 1e-6;
+        const labelledBelow = onTick && (nT <= 20 || Math.abs(m - Math.round(m)) < 1e-9);
+        if (!labelledBelow) h.txt(X(m), Y - 22, label(m), "t g", undefined, { "text-anchor": "middle" });
       });
       const layer = h.el("g");
       const out = readout(ctl);
