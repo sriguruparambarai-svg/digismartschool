@@ -418,7 +418,32 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     }
   }
 
-  function buildPrompt(text) {
+  async function scopeNotes() {
+    try {
+      const r = await fetch("/api/syllabus", {
+        method: "POST", headers: JSON_HEAD,
+        body: JSON.stringify({ action: "chapters", board: boardName, subject, cls })
+      });
+      const d = await r.json();
+      const norm = v => String(v || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      const row = (d && Array.isArray(d.chapters) ? d.chapters : []).find(x => norm(x.chapter_title) === norm(chapter));
+      return row && row.scope_notes ? String(row.scope_notes).trim() : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /* The AI never guesses a chapter from its name: new NCERT names are story-like
+     ("A Tale of Three Intersecting Lines" is about triangles). */
+  async function chapterSource() {
+    const book = await chapterText();
+    if (book.length > 200) return { source: "book", text: book };
+    const notes = await scopeNotes();
+    if (notes.length > 40) return { source: "notes", text: notes };
+    return null;
+  }
+
+  function buildPrompt(src) {
     const tools = Object.entries(ConceptTools.catalogue).map(([k, v]) => `- ${k}: ${v}`).join("\n");
     return [
       `Write a maths CONCEPT CLASS for Class ${cls}, ${boardName} ${subject}, chapter "${chapter}".`,
@@ -432,7 +457,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       `- Simple English that a Class ${cls} child in a Tamil Nadu town school understands. Short sentences. No jargon.`,
       "- Students will not ask questions, so every screen has one question for the class with a short, clear answer.",
       "- Check every number and every answer twice. Wrong maths is the worst possible mistake.",
-      "- Teach only this chapter." + (text ? " Follow what the chapter text below teaches." : ""),
+      "- Teach ONLY what the " + (src.source === "book" ? "chapter text" : "topic notes") + " below says this chapter covers. New NCERT chapter names can be story-like, so never guess the topic from the name.",
       "- JSON safety: never put the double-quote character inside any text (use single quotes instead), and never put line breaks inside text.",
       "",
       "SCREENS: 8 or 9 screens, in this order of 'step' (use 2 'draw' screens if needed):",
@@ -455,7 +480,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       "",
       "Return ONLY this JSON shape, no markdown:",
       '{"subject":"Maths","class":' + (Number(cls) || 0) + ',"chapter":"' + chapter.replace(/"/g, "") + '","screens":[{"step":"why","title":"...","lines":["..."],"ask":{"q":"...","a":"..."},"terms":[["English","தமிழ்"]],"board":{"tool":"plainBoard","heading":"...","lines":["..."]}}]}',
-      text ? "\nCHAPTER TEXT FROM THE NCERT BOOK:\n" + text : ""
+      (src.source === "book" ? "\nCHAPTER TEXT FROM THE NCERT BOOK:\n" : "\nWHAT THIS CHAPTER COVERS (from the school syllabus list):\n") + src.text
     ].join("\n");
   }
 
@@ -524,14 +549,14 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     catch (e1) { return JSON.parse(repairJSON(body)); }
   }
 
-  async function askAI(text) {
+  async function askAI(src) {
     const r = await fetch("/api/ai", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
       body: JSON.stringify({
         system: "You are an expert Indian school maths teacher and lesson designer. You return ONLY valid JSON. No markdown fences, no text before or after the JSON.",
         messages: [
-          { role: "user", content: buildPrompt(text) },
+          { role: "user", content: buildPrompt(src) },
           { role: "assistant", content: "{" } // makes the reply start straight with the lesson
         ],
         max_tokens: 12000
@@ -548,13 +573,20 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
   }
 
   async function makeLesson() {
-    const text = await chapterText();
+    const src = await chapterSource();
+    if (!src) {
+      const e = new Error(`To make sure the lesson teaches the right topic, please upload the Class ${cls} ${subject} book in Super Admin first, then open this chapter again.`);
+      e.title = "This chapter's book is not uploaded yet.";
+      throw e;
+    }
     let lastProblem = "";
     for (let attempt = 1; attempt <= 2; attempt++) {
       if (attempt === 2) showWaiting("The first try came back messy. Trying once more, about a minute");
-      const { txt, cutOff } = await askAI(text);
+      const { txt, cutOff } = await askAI(src);
       try {
-        return cleanLesson(parseLesson(txt));
+        const out = cleanLesson(parseLesson(txt));
+        out.grounded = src.source; // saved lessons without this were made from the name alone
+        return out;
       } catch (e) {
         console.warn(`Lesson attempt ${attempt} could not be read:`, e.message, "\nAI reply was:\n", txt);
         lastProblem = cutOff ? "it was cut off because it was too long" : e.message;
@@ -571,7 +603,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       if (!fresh) {
         showWaiting("Opening the lesson");
         const saved = await cacheGet();
-        if (saved) { start(saved); redoBtn.hidden = false; return; }
+        if (saved && saved.grounded) { start(saved); redoBtn.hidden = false; return; }
       }
       showWaiting(fresh
         ? "Making a fresh version of this lesson. This takes about a minute"
@@ -583,7 +615,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       redoBtn.hidden = false;
     } catch (e) {
       console.error(e);
-      showError("Could not prepare this lesson.", e.message, () => loadChapter(fresh));
+      showError(e.title || "Could not prepare this lesson.", e.message, () => loadChapter(fresh));
     }
   }
 
