@@ -676,6 +676,110 @@
       upd();
     },
 
+    /* Labelled points joined as lines, rays, segments and named angles; every point can be dragged */
+    geometryBoard(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const GX = u => 60 + u * 52, GY = u => 420 - u * 50;          // grid units -> board
+      const UX = x => (x - 60) / 52, UY = y => (420 - y) / 50;      // board -> grid units
+      const pts = {};
+      const src = p.points && typeof p.points === "object" ? p.points : {};
+      Object.keys(src).slice(0, 8).forEach(k => {
+        const name = str(k).slice(0, 3);
+        const v = src[k];
+        const x = num(Array.isArray(v) ? v[0] : v && v.x, NaN), y = num(Array.isArray(v) ? v[1] : v && v.y, NaN);
+        if (name && Number.isFinite(x) && Number.isFinite(y))
+          pts[name] = { x: GX(Math.max(0, Math.min(10, x))), y: GY(Math.max(0, Math.min(7, y))) };
+      });
+      const items = (Array.isArray(p.items) ? p.items : []).slice(0, 8).filter(it => it && typeof it === "object").map(it => ({
+        type: ["line", "ray", "segment", "angle"].includes(it.type) ? it.type : "segment",
+        from: str(it.from), to: str(it.to), at: str(it.at), showLength: it.showLength === true
+      })).filter(it => it.type === "angle" ? pts[it.at] && pts[it.from] && pts[it.to] : pts[it.from] && pts[it.to] && it.from !== it.to);
+      if (!Object.keys(pts).length) { tools.plainBoard(h, ctl, { heading: str(p.heading), lines: ["Geometry board"] }); return; }
+
+      const BOX = { x1: 16, x2: 624, y1: 66, y2: 464 };
+      const g = h.el("g"), labels = h.el("g");
+      const out = readout(ctl);
+      const unitv = v => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
+      const toEdge = (P, d) => {
+        let t = Infinity;
+        if (d.x > 1e-9) t = Math.min(t, (BOX.x2 - P.x) / d.x); else if (d.x < -1e-9) t = Math.min(t, (BOX.x1 - P.x) / d.x);
+        if (d.y > 1e-9) t = Math.min(t, (BOX.y2 - P.y) / d.y); else if (d.y < -1e-9) t = Math.min(t, (BOX.y1 - P.y) / d.y);
+        return { x: P.x + d.x * t, y: P.y + d.y * t };
+      };
+      const arrow = (E, d, cls) => {
+        const a = 0.45, s = 16, c = Math.cos(a), sn = Math.sin(a);
+        const b1 = { x: -(d.x * c - d.y * sn) * s, y: -(d.x * sn + d.y * c) * s };
+        const b2 = { x: -(d.x * c + d.y * sn) * s, y: -(-d.x * sn + d.y * c) * s };
+        h.el("path", { d: `M${E.x + b1.x} ${E.y + b1.y} L${E.x} ${E.y} L${E.x + b2.x} ${E.y + b2.y}`, class: cls }, g);
+      };
+      const angleOf = (V, A, B) => {
+        const u = unitv({ x: A.x - V.x, y: A.y - V.y }), w = unitv({ x: B.x - V.x, y: B.y - V.y });
+        return { u, w, deg: Math.round(Math.acos(Math.max(-1, Math.min(1, u.x * w.x + u.y * w.y))) * 180 / Math.PI) };
+      };
+      const kindOf = d => d === 0 ? "zero" : d < 90 ? "acute" : d === 90 ? "right" : d < 180 ? "obtuse" : "straight";
+
+      function upd() {
+        g.innerHTML = ""; labels.innerHTML = "";
+        const notes = [];
+        items.forEach(it => {
+          if (it.type === "angle") {
+            const V = pts[it.at], A = pts[it.from], B = pts[it.to];
+            const { u, w, deg } = angleOf(V, A, B);
+            for (const d of [u, w]) { const E = toEdge(V, d); h.setLine(h.el("line", { class: "cl" }, g), V, E); arrow(E, d, "cl"); }
+            if (deg === 90) {
+              h.el("path", { d: h.markPath(V, u, w, 22), class: "mark" }, g);
+            } else if (deg > 0) {
+              const r = 38, cross = u.x * w.y - u.y * w.x;
+              h.el("path", { d: `M${V.x + r * u.x} ${V.y + r * u.y} A${r} ${r} 0 0 ${cross > 0 ? 1 : 0} ${V.x + r * w.x} ${V.y + r * w.y}`, class: "mark" }, g);
+            }
+            const bis = unitv({ x: u.x + w.x, y: u.y + w.y });
+            const bb = deg >= 179 ? { x: -u.y, y: u.x } : bis;
+            h.txt(V.x + bb.x * 64, V.y + bb.y * 64 + 8, deg + "°", "t p", labels, { "text-anchor": "middle" });
+            notes.push(`<strong>∠${it.from}${it.at}${it.to} = ${deg}°</strong> (${kindOf(deg)}), vertex ${it.at}`);
+          } else {
+            const A = pts[it.from], B = pts[it.to], d = unitv({ x: B.x - A.x, y: B.y - A.y });
+            const cls = it.type === "segment" ? "gold" : "cl";
+            if (it.type === "segment") {
+              h.setLine(h.el("line", { class: cls }, g), A, B);
+              const len = (Math.hypot(B.x - A.x, (B.y - A.y) * 52 / 50) / 52).toFixed(1);
+              if (it.showLength) {
+                const m = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 };
+                h.txt(m.x - d.y * 26, m.y + d.x * 26 + 8, len + " cm", "t g", labels, { "text-anchor": "middle" });
+              }
+              notes.push(`Segment <strong>${it.from}${it.to}</strong>: stops at ${it.from} and ${it.to}` + (it.showLength ? ` (${len} cm)` : ""));
+            } else if (it.type === "ray") {
+              const E = toEdge(A, d);
+              h.setLine(h.el("line", { class: cls }, g), A, E); arrow(E, d, cls);
+              notes.push(`Ray <strong>${it.from}${it.to}</strong>: starts at ${it.from}, goes on forever through ${it.to}`);
+            } else {
+              const E1 = toEdge(A, d), E2 = toEdge(A, { x: -d.x, y: -d.y });
+              h.setLine(h.el("line", { class: cls }, g), E1, E2); arrow(E1, d, cls); arrow(E2, { x: -d.x, y: -d.y }, cls);
+              notes.push(`Line <strong>${it.from}${it.to}</strong>: goes on forever both ways`);
+            }
+          }
+        });
+        const names = Object.keys(pts);
+        const c = names.reduce((s, k) => ({ x: s.x + pts[k].x / names.length, y: s.y + pts[k].y / names.length }), { x: 0, y: 0 });
+        names.forEach(k => {
+          const P = pts[k], o = unitv({ x: P.x - c.x || 1, y: P.y - c.y || -1 });
+          h.txt(P.x + o.x * 26, P.y + o.y * 26 + 9, k, "t big", labels, { "text-anchor": "middle" });
+        });
+        names.forEach(k => { handles[k].forEach(n => { n.setAttribute("cx", pts[k].x); n.setAttribute("cy", pts[k].y); }); });
+        out.innerHTML = notes.length ? notes.join("<br>") : "Drag the points.";
+      }
+
+      const handles = {};
+      Object.keys(pts).forEach(k => {
+        handles[k] = [h.el("circle", { r: 9, class: "handle" }), h.el("circle", { r: 28, class: "hitc" })];
+        h.makeDrag(handles[k][1], q => {
+          const ux = Math.round(Math.max(0, Math.min(10, UX(q.x))) * 10) / 10, uy = Math.round(Math.max(0, Math.min(7, UY(q.y))) * 10) / 10;
+          pts[k] = { x: GX(ux), y: GY(uy) };
+          upd();
+        });
+      });
+      upd();
+    },
+
     /* Rapid-fire questions with countdown and reveal */
     quickQuestions(h, ctl, p, api) {
       const qs = p.questions || [], secs = p.seconds || 6;
@@ -737,6 +841,7 @@
     barModel: "Singapore bar model, parts appear one by one: word problems, part-whole, comparison, fractions, ratio, percentage. Settings: bars:[{name, parts:[{v: width number, label: 'text' or '?'}], total: 'text' or '?'}] (1 to 3 bars; v sets the width; '?' marks the unknown), heading",
     dragTriangle: "Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
     angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
+    geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E'}] (angle at B between arms BD and BE), heading",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
 
