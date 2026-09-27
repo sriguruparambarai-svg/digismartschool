@@ -109,6 +109,27 @@ function saveNarration(objectPath, supaKey, narrationObj) {
   });
 }
 
+// Signed login check — the same check api/gen-image.js uses for its admin
+// "replace picture". Returns the login's data, or null if missing/forged/expired.
+function readSession(raw) {
+  if (!raw) return null;
+  try {
+    var parts = String(raw).split('.');
+    if (parts.length !== 2) return null;
+    var payload = Buffer.from(parts[0], 'base64').toString();
+    var secret = process.env.SUPABASE_SECRET_KEY || '';
+    if (!secret) return null;
+    var expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    var got = Buffer.from(parts[1], 'utf8');
+    var want = Buffer.from(expect, 'utf8');
+    if (got.length !== want.length) return null;
+    if (!crypto.timingSafeEqual(got, want)) return null;
+    var data = JSON.parse(payload);
+    if (!data.exp || Date.now() > data.exp) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -140,6 +161,23 @@ module.exports = async (req, res) => {
     if (action === 'save') {
       if (!narration || typeof narration !== 'object' || Object.keys(narration).length === 0) {
         return res.status(400).json({ error: 'Invalid narration' });
+      }
+      // Concept player lessons (ver "player-...") are shared by every school:
+      //  - replacing a saved one ("Redo this lesson") is super admin only;
+      //  - a first-time save never overwrites a lesson that is already saved.
+      // Other pages' narration keeps saving exactly as before.
+      if (/^player-/.test(String(ver || ''))) {
+        if (req.body.replace === true) {
+          const who = readSession(req.headers['x-dss-session']);
+          if (!who || who.role !== 'super_admin') {
+            return res.status(403).json({ saved: false, reason: 'only the super admin can replace a saved lesson' });
+          }
+        } else {
+          const existing = await fetchNarration(objectPath, supaKey);
+          if (existing && existing.map) {
+            return res.status(200).json({ saved: false, reason: 'already-saved' });
+          }
+        }
       }
       const ok = await saveNarration(objectPath, supaKey, {
         map: narration,
