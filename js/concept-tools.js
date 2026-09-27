@@ -540,8 +540,10 @@
       let i = 0;
       const draw = () => {
         layer.innerHTML = "";
-        h.el("circle", { cx: X(start), cy: Y, r: 9, class: "odot" }, layer);
-        h.txt(X(start), Y + 70, "start", "t d", layer, { "text-anchor": "middle" });
+        if (jumps.length) {
+          h.el("circle", { cx: X(start), cy: Y, r: 9, class: "odot" }, layer);
+          h.txt(X(start), Y + 70, "start", "t d", layer, { "text-anchor": "middle" });
+        }
         let expr = label(start);
         for (let k = 0; k < i; k++) {
           const a = pos[k], b = pos[k + 1], xa = X(a), xb = X(b);
@@ -556,7 +558,9 @@
         }
         out.innerHTML = jumps.length
           ? (i ? `<strong>${expr} = ${label(pos[i])}</strong>` : `Start at <strong>${label(start)}</strong>. Press Next jump.`)
-          : `Numbers from <strong>${label(lo)}</strong> to <strong>${label(hi)}</strong>`;
+          : marks.length
+            ? `Marked: <strong>${marks.map(label).join(", ").replace(/, ([^,]*)$/, " and $1")}</strong>`
+            : `Numbers from <strong>${label(lo)}</strong> to <strong>${label(hi)}</strong>`;
       };
       draw();
       if (jumps.length) {
@@ -1016,7 +1020,6 @@
       const top = 110, gap = Math.min(68, 330 / (dens.length + 1));
       const g = h.el("g");
       const out = readout(ctl);
-      const frac = (n, d) => n === 0 ? "0" : n === d ? "1" : `${n}/${d}`;
       function draw() {
         g.innerHTML = "";
         h.el("rect", { x: x0, y: top, width: W, height: sh, class: "barp" }, g);
@@ -1029,15 +1032,20 @@
             r.addEventListener("pointerdown", e => { e.preventDefault(); on ? shade[d].delete(i) : shade[d].add(i); draw(); });
             if (w >= 44) h.txt(x0 + i * w + w / 2, y + sh / 2 + 8, `1/${d}`, "t", g, { "text-anchor": "middle", style: on ? "fill:#2b1a12;pointer-events:none" : "pointer-events:none" });
           }
-          h.txt(x0 - 14, y + sh / 2 + 9, frac(shade[d].size, d), "t big g", g, { "text-anchor": "end" });
+          if (shade[d].size) h.txt(x0 - 14, y + sh / 2 + 9, `${shade[d].size}/${d}`, "t big g", g, { "text-anchor": "end" });
         });
         const coloured = dens.filter(d => shade[d].size > 0);
         if (!coloured.length) { out.innerHTML = "Tap the parts of a strip to colour them."; return; }
         const groups = {};
-        coloured.forEach(d => { const k = (shade[d].size / d).toFixed(6); (groups[k] = groups[k] || []).push(frac(shade[d].size, d)); });
-        out.innerHTML = Object.values(groups).map(gr => gr.length > 1
-          ? `<strong>${gr.join(" = ")}</strong>: the same length, so these are equal (equivalent) fractions.`
-          : `<strong>${gr[0]}</strong> is coloured.`).join("<br>");
+        coloured.forEach(d => { const k = (shade[d].size / d).toFixed(6); (groups[k] = groups[k] || []).push(`${shade[d].size}/${d}`); });
+        const whole = k => (k === (1).toFixed(6) ? " = 1 whole" : "");
+        out.innerHTML = Object.keys(groups).map(k => groups[k].length > 1
+          ? `<strong>${groups[k].join(" = ")}${whole(k)}</strong>: the same length, so these are equal (equivalent) fractions.`
+          : `<strong>${groups[k][0]}${whole(k)}</strong> is coloured.`).join("<br>")
+          + (Object.keys(groups).length > 1
+            ? "<br><strong>" + Object.keys(groups).sort((a, b) => b - a).map(k => groups[k][0]).join(" > ")
+              + "</strong>: the longer coloured part is the bigger fraction."
+            : "");
       }
       draw();
       button(ctl, "Clear", () => { dens.forEach(d => shade[d].clear()); draw(); }, "btn ghost");
