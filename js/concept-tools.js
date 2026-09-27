@@ -87,6 +87,12 @@
   const cm = px => (px / SC).toFixed(1);
   const deg = r => Math.round(r * 180 / Math.PI);
 
+  /* Safe reading of tool settings (the AI may send text, blanks or odd values) */
+  const num = (v, d) => { const n = Number(v); return Number.isFinite(n) ? n : d; };
+  const clampInt = (v, lo, hi, d) => Math.max(lo, Math.min(hi, Math.round(num(v, d))));
+  const str = v => (v == null ? "" : String(v)).trim();
+  const fmt = v => { const r = Math.round(v * 100) / 100; return (r < 0 ? "−" : "") + Math.abs(r); };
+
   const tools = {
     /* Fallback: heading + lines written on the board */
     plainBoard(h, ctl, p) {
@@ -356,6 +362,288 @@
       h.txt(440, 458, p.right || "small wheel", "t d");
     },
 
+    /* Dot pictures that grow step by step: triangular, square, oblong numbers; or one array */
+    dotPattern(h, ctl, p) {
+      const kind = ["triangle", "square", "oblong", "array"].includes(p.kind) ? p.kind : "square";
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const layer = h.el("g");
+
+      if (kind === "array") {
+        let R = clampInt(p.rows, 1, 12, 3), C = clampInt(p.cols, 1, 12, 4);
+        const draw = () => {
+          layer.innerHTML = "";
+          const d = Math.min(44, 520 / Math.max(1, C - 1), 260 / Math.max(1, R - 1));
+          const x0 = 320 - (C - 1) * d / 2, y0 = 240 - (R - 1) * d / 2;
+          const rr = Math.max(4, Math.min(12, d * 0.3));
+          for (let r = 0; r < R; r++) for (let c = 0; c < C; c++)
+            h.el("circle", { cx: x0 + c * d, cy: y0 + r * d, r: rr, class: r % 2 ? "odot" : "dot" }, layer);
+          h.txt(320, 440, `${R} rows × ${C} in each row = ${R * C}`, "t big", layer, { "text-anchor": "middle" });
+        };
+        draw();
+        button(ctl, "Turn it around", () => { [R, C] = [C, R]; draw(); });
+        return;
+      }
+
+      const N = clampInt(p.steps, 1, 7, 5);
+      let shown = 1;
+      const shape = k => {
+        const pts = [];
+        if (kind === "triangle") for (let r = 0; r < k; r++) for (let c = 0; c <= r; c++) pts.push({ x: c - r / 2 + (k - 1) / 2, y: r, layer: r });
+        else if (kind === "square") for (let r = 0; r < k; r++) for (let c = 0; c < k; c++) pts.push({ x: c, y: r, layer: Math.max(r, c) });
+        else for (let r = 0; r < k; r++) for (let c = 0; c <= k; c++) pts.push({ x: c, y: r, layer: Math.max(r, c - 1) });
+        return pts;
+      };
+      const widthU = k => (kind === "oblong" ? k : k - 1);
+      const gap = 36;
+      let sumW = 0; for (let k = 1; k <= N; k++) sumW += widthU(k);
+      const d = Math.max(8, Math.min(34, 250 / Math.max(1, N - 1), sumW ? (560 - gap * (N - 1)) / sumW : 34));
+      const rr = Math.max(3, Math.min(9, d * 0.32));
+      const bottom = 340;
+      const counts = [];
+      const draw = () => {
+        layer.innerHTML = "";
+        let x = (640 - (d * sumW + gap * (N - 1))) / 2;
+        counts.length = 0;
+        for (let k = 1; k <= N; k++) {
+          const pts = shape(k), w = widthU(k) * d, top = bottom - (k - 1) * d;
+          if (k <= shown) {
+            pts.forEach(pt => h.el("circle", { cx: x + pt.x * d, cy: top + pt.y * d, r: rr, class: pt.layer % 2 ? "odot" : "dot" }, layer));
+            h.txt(x + w / 2, bottom + 40, String(pts.length), "t big", layer, { "text-anchor": "middle" });
+            counts.push(pts.length);
+          }
+          x += w + gap;
+        }
+        h.txt(320, 440, counts.join(", ") + (shown < N ? ", …" : ""), "t big g", layer, { "text-anchor": "middle" });
+      };
+      draw();
+      button(ctl, "Next picture", () => { if (shown < N) { shown++; draw(); } });
+      button(ctl, "Start again", () => { shown = 1; draw(); }, "btn ghost");
+    },
+
+    /* Number line with jumps shown one at a time */
+    numberLine(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const den = clampInt(p.denominator, 1, 12, 1);
+      const jumps = (Array.isArray(p.jumps) ? p.jumps : []).map(Number).filter(Number.isFinite).slice(0, 8);
+      const start = num(p.start, 0);
+      const pos = [start]; jumps.forEach(j => pos.push(pos[pos.length - 1] + j));
+      const marks = (Array.isArray(p.marks) ? p.marks : []).map(Number).filter(Number.isFinite).slice(0, 8);
+      const all = pos.concat(marks);
+      let lo = Math.floor(Math.min(num(p.min, Math.min(...all)), ...all));
+      let hi = Math.ceil(Math.max(num(p.max, Math.max(...all)), ...all));
+      if (hi - lo < 1) hi = lo + 1;
+      let tick = den > 1 ? 1 / den : (num(p.step, 0) > 0 ? num(p.step, 1) : [1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000].find(s => (hi - lo) / s <= 20) || 1000);
+      while ((hi - lo) / tick > 48) tick *= 2;
+      const X = v => 50 + (v - lo) / (hi - lo) * 540, Y = 330;
+      const label = v => {
+        if (den > 1) { const n = Math.round(v * den); return n % den === 0 ? fmt(n / den) : `${n < 0 ? "−" : ""}${Math.abs(n)}/${den}`; }
+        return fmt(v);
+      };
+      h.setLine(h.el("line", { class: "cl" }), { x: 30, y: Y }, { x: 610, y: Y });
+      h.el("path", { d: `M610 ${Y} l-12 -7 M610 ${Y} l-12 7 M30 ${Y} l12 -7 M30 ${Y} l12 7`, class: "cl" });
+      const nT = Math.round((hi - lo) / tick);
+      for (let i = 0; i <= nT; i++) {
+        const v = lo + i * tick, whole = Math.abs(v - Math.round(v)) < 1e-9;
+        h.setLine(h.el("line", { class: "cl thin" }), { x: X(v), y: Y - (whole ? 12 : 7) }, { x: X(v), y: Y + (whole ? 12 : 7) });
+        if (nT <= 20 || whole) h.txt(X(v), Y + 38, label(v), Math.abs(v) < 1e-9 ? "t g" : v < 0 ? "t p" : "t", undefined, { "text-anchor": "middle" });
+      }
+      marks.forEach(m => {
+        h.el("circle", { cx: X(m), cy: Y, r: 8, class: "dot" });
+        h.txt(X(m), Y - 22, label(m), "t g", undefined, { "text-anchor": "middle" });
+      });
+      const layer = h.el("g");
+      const out = readout(ctl);
+      let i = 0;
+      const draw = () => {
+        layer.innerHTML = "";
+        h.el("circle", { cx: X(start), cy: Y, r: 9, class: "odot" }, layer);
+        h.txt(X(start), Y + 70, "start", "t d", layer, { "text-anchor": "middle" });
+        let expr = label(start);
+        for (let k = 0; k < i; k++) {
+          const a = pos[k], b = pos[k + 1], xa = X(a), xb = X(b);
+          const lift = 40 + Math.min(110, Math.abs(xb - xa) * 0.35), top = Y - lift;
+          h.el("path", { d: `M${xa} ${Y - 6} Q${(xa + xb) / 2} ${top} ${xb} ${Y - 6}`, class: "gold thin" }, layer);
+          const dir = xb >= xa ? -1 : 1;
+          h.el("path", { d: `M${xb} ${Y - 6} l${dir * 10} -12 M${xb} ${Y - 6} l${dir * 13} 2`, class: "gold thin" }, layer);
+          const j = jumps[k], js = (j >= 0 ? "+" : "−") + label(Math.abs(j));
+          h.txt((xa + xb) / 2, top + (lift > 60 ? 18 : 4) - 8, js, "t g", layer, { "text-anchor": "middle" });
+          h.el("circle", { cx: xb, cy: Y, r: 9, class: "dot" }, layer);
+          expr += (j >= 0 ? " + " : " − ") + label(Math.abs(j));
+        }
+        out.innerHTML = jumps.length
+          ? (i ? `<strong>${expr} = ${label(pos[i])}</strong>` : `Start at <strong>${label(start)}</strong>. Press Next jump.`)
+          : `Numbers from <strong>${label(lo)}</strong> to <strong>${label(hi)}</strong>`;
+      };
+      draw();
+      if (jumps.length) {
+        button(ctl, "Next jump", () => { if (i < jumps.length) { i++; draw(); } });
+        button(ctl, "Start again", () => { i = 0; draw(); }, "btn ghost");
+      }
+    },
+
+    /* Singapore bar model: parts appear one at a time; '?' marks the unknown */
+    barModel(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const bars = (Array.isArray(p.bars) ? p.bars : []).slice(0, 3).map(b => {
+        b = b && typeof b === "object" ? b : {};
+        const parts = (Array.isArray(b.parts) ? b.parts : []).slice(0, 12).map(x => {
+          if (typeof x !== "object" || x === null) x = { v: x };
+          const raw = x.v != null ? x.v : x.value;
+          const v = num(raw, 1);
+          const lab = x.label != null ? str(x.label) : str(raw);
+          return { v: v > 0 ? v : 1, label: lab, unknown: lab === "?" || x.unknown === true };
+        });
+        return { name: str(b.name), parts, total: str(b.total) };
+      }).filter(b => b.parts.length);
+      if (!bars.length) { tools.plainBoard(h, ctl, { heading: str(p.heading), lines: ["Bar model"] }); return; }
+      const maxSum = Math.max(...bars.map(b => b.parts.reduce((s, x) => s + x.v, 0)));
+      const hasNames = bars.some(b => b.name);
+      const x0 = hasNames ? 150 : 60, W = 600 - x0, unit = W / maxSum, bh = 56;
+      const rowGap = Math.min(130, 330 / bars.length);
+      const y0 = 110 + Math.max(0, (330 - rowGap * bars.length) / 2);
+      const order = [];
+      bars.forEach((b, bi) => b.parts.forEach((pt, pi) => order.push([bi, pi])));
+      let shown = 0;
+      const layer = h.el("g");
+      const draw = () => {
+        layer.innerHTML = "";
+        const visible = new Set(order.slice(0, shown).map(o => o.join(",")));
+        bars.forEach((b, bi) => {
+          const y = y0 + bi * rowGap;
+          if (b.name) h.txt(x0 - 14, y + bh / 2 + 9, b.name, "t", layer, { "text-anchor": "end" });
+          let x = x0, allShown = true;
+          b.parts.forEach((pt, pi) => {
+            const w = pt.v * unit;
+            if (visible.has(bi + "," + pi)) {
+              h.el("rect", { x, y, width: w, height: bh, class: pt.unknown ? "barq" : "barp" }, layer);
+              const fs = w < 40 ? "t d" : pt.unknown ? "t big p" : "t big";
+              h.txt(x + w / 2, y + bh / 2 + 10, pt.label, fs, layer, { "text-anchor": "middle" });
+            } else allShown = false;
+            x += w;
+          });
+          if (b.total && allShown) {
+            const yb = y + bh + 8, xe = x;
+            h.el("path", { d: `M${x0} ${yb} q0 12 12 12 L${(x0 + xe) / 2 - 10} ${yb + 12} q10 0 10 10 q0 -10 10 -10 L${xe - 12} ${yb + 12} q12 0 12 -12`, class: "gold thin" }, layer);
+            h.txt((x0 + xe) / 2, yb + 46, b.total, b.total === "?" ? "t big p" : "t g", layer, { "text-anchor": "middle" });
+          }
+        });
+      };
+      draw();
+      button(ctl, "Next part", () => { if (shown < order.length) { shown++; draw(); } });
+      button(ctl, "Show all", () => { shown = order.length; draw(); }, "btn ghost");
+    },
+
+    /* Drag the corners: angles, sides, angle sum 180°, triangle type, triangle inequality */
+    dragTriangle(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const show = ["angles", "sides", "both"].includes(p.show) ? p.show : "both";
+      const S = 40; // 40px = 1 cm
+      const V = { A: { x: 160, y: 392 }, B: { x: 480, y: 392 }, C: { x: 236, y: 140 } };
+      const g = h.el("g");
+      const out = readout(ctl);
+      const handles = {};
+      ["A", "B", "C"].forEach(k => {
+        handles[k] = [h.el("circle", { r: 11, class: "handle" }), h.el("circle", { r: 30, class: "hitc" })];
+        h.makeDrag(handles[k][1], q => {
+          V[k] = { x: Math.round(Math.max(20, Math.min(620, q.x)) / 4) * 4, y: Math.round(Math.max(76, Math.min(460, q.y)) / 4) * 4 };
+          upd();
+        });
+      });
+      const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+      const len = v => Math.hypot(v.x, v.y);
+      const unitv = v => { const l = len(v) || 1; return { x: v.x / l, y: v.y / l }; };
+      function upd() {
+        g.innerHTML = "";
+        const { A, B, C } = V;
+        h.el("polygon", { points: `${A.x},${A.y} ${B.x},${B.y} ${C.x},${C.y}`, class: "tri" }, g);
+        const G = { x: (A.x + B.x + C.x) / 3, y: (A.y + B.y + C.y) / 3 };
+        const ang = {};
+        [["A", A, B, C], ["B", B, C, A], ["C", C, A, B]].forEach(([k, P, U, W]) => {
+          const u = unitv(sub(U, P)), w = unitv(sub(W, P));
+          ang[k] = Math.acos(Math.max(-1, Math.min(1, u.x * w.x + u.y * w.y))) * 180 / Math.PI;
+          const lab = unitv(sub(P, G));
+          h.txt(P.x + lab.x * 26, P.y + lab.y * 26 + 10, k, "t big", g, { "text-anchor": "middle" });
+          if (show !== "sides") {
+            const r = 30, cross = u.x * w.y - u.y * w.x;
+            h.el("path", { d: `M${P.x + r * u.x} ${P.y + r * u.y} A${r} ${r} 0 0 ${cross > 0 ? 1 : 0} ${P.x + r * w.x} ${P.y + r * w.y}`, class: "mark" }, g);
+          }
+        });
+        let a = Math.round(ang.A), b = Math.round(ang.B), c = 180 - a - b;
+        const degs = { A: a, B: b, C: c };
+        if (show !== "sides") {
+          [["A", A, B, C], ["B", B, C, A], ["C", C, A, B]].forEach(([k, P, U, W]) => {
+            const bis = unitv({ x: unitv(sub(U, P)).x + unitv(sub(W, P)).x, y: unitv(sub(U, P)).y + unitv(sub(W, P)).y });
+            h.txt(P.x + bis.x * 58, P.y + bis.y * 58 + 8, degs[k] + "°", "t p", g, { "text-anchor": "middle" });
+          });
+        }
+        const sides = { AB: len(sub(A, B)) / S, BC: len(sub(B, C)) / S, CA: len(sub(C, A)) / S };
+        if (show !== "angles") {
+          [["AB", A, B], ["BC", B, C], ["CA", C, A]].forEach(([k, P, Q]) => {
+            const m = { x: (P.x + Q.x) / 2, y: (P.y + Q.y) / 2 }, o = unitv(sub(m, G));
+            h.txt(m.x + o.x * 30, m.y + o.y * 30 + 8, sides[k].toFixed(1) + " cm", "t g", g, { "text-anchor": "middle" });
+          });
+        }
+        ["A", "B", "C"].forEach(k => handles[k].forEach(n => { n.setAttribute("cx", V[k].x); n.setAttribute("cy", V[k].y); }));
+        const L = Object.values(sides).map(s => Math.round(s * 10) / 10).sort((x, y) => x - y);
+        const same = (x, y) => Math.abs(x - y) < 0.05;
+        const bySide = same(L[0], L[2]) ? "equilateral" : (same(L[0], L[1]) || same(L[1], L[2])) ? "isosceles" : "scalene";
+        const big = Math.max(a, b, c);
+        const byAngle = big === 90 ? "right-angled" : big > 90 ? "obtuse-angled" : "acute-angled";
+        let html = "";
+        if (show !== "sides") html += `<strong>${a}° + ${b}° + ${c}° = 180°</strong><br>`;
+        if (show !== "angles") html += `Two shorter sides: ${L[0].toFixed(1)} + ${L[1].toFixed(1)} = <strong>${(L[0] + L[1]).toFixed(1)} cm</strong>, longer than ${L[2].toFixed(1)} cm<br>`;
+        html += `This is ${show === "angles" ? "an <strong>" + byAngle : show === "sides" ? "a <strong>" + bySide : "an <strong>" + byAngle + ", " + bySide} triangle</strong>.`;
+        out.innerHTML = html.replace("an <strong>obtuse", "an <strong>obtuse").replace("a <strong>isosceles", "an <strong>isosceles").replace("a <strong>equilateral", "an <strong>equilateral").replace("an <strong>right", "a <strong>right").replace("an <strong>scalene", "a <strong>scalene");
+      }
+      upd();
+    },
+
+    /* Drag one arm to make any angle; shows measure and type */
+    angleMaker(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const O = { x: 320, y: 250 }, L = 190;
+      let a = Math.max(0, Math.min(360, num(p.start, 50)));
+      h.setLine(h.el("line", { class: "cl" }), O, { x: O.x + L, y: O.y });
+      h.el("circle", { cx: O.x, cy: O.y, r: 6, class: "odot" });
+      const g = h.el("g");
+      const arm = h.el("line", { class: "gold" });
+      const hd = h.el("circle", { r: 12, class: "handle" }), hit = h.el("circle", { r: 32, class: "hitc" });
+      const status = h.txt(20, 458, "", "t big");
+      const out = readout(ctl);
+      const pt = (deg, r) => ({ x: O.x + r * Math.cos(deg * Math.PI / 180), y: O.y - r * Math.sin(deg * Math.PI / 180) });
+      function upd() {
+        g.innerHTML = "";
+        const E = pt(a, L);
+        h.setLine(arm, O, E);
+        for (const n of [hd, hit]) { n.setAttribute("cx", E.x); n.setAttribute("cy", E.y); }
+        if (a === 90) {
+          h.el("path", { d: `M${O.x + 24} ${O.y} L${O.x + 24} ${O.y - 24} L${O.x} ${O.y - 24}`, class: "mark" }, g);
+        } else if (a > 0 && a < 360) {
+          const s = pt(0, 56), e = pt(a, 56);
+          h.el("path", { d: `M${s.x} ${s.y} A56 56 0 ${a > 180 ? 1 : 0} 0 ${e.x} ${e.y}`, class: "mark" }, g);
+        } else if (a === 360) {
+          h.el("circle", { cx: O.x, cy: O.y, r: 56, class: "mark" }, g);
+        }
+        const lp = pt(a / 2, 96);
+        h.txt(lp.x, lp.y + 8, a + "°", "t big p", g, { "text-anchor": "middle" });
+        const type = a === 0 ? "Zero angle" : a < 90 ? "Acute angle" : a === 90 ? "Right angle" : a < 180 ? "Obtuse angle"
+          : a === 180 ? "Straight angle" : a < 360 ? "Reflex angle" : "Complete angle";
+        status.textContent = type;
+        const rule = a === 0 ? "0°" : a < 90 ? "between 0° and 90°" : a === 90 ? "exactly 90°" : a < 180 ? "between 90° and 180°"
+          : a === 180 ? "exactly 180°" : a < 360 ? "between 180° and 360°" : "exactly 360°, one full turn";
+        out.innerHTML = `<strong>${a}°</strong> is a <strong>${type.toLowerCase()}</strong>: ${rule}.`;
+      }
+      h.makeDrag(hit, q => {
+        let d = Math.atan2(O.y - q.y, q.x - O.x) * 180 / Math.PI;
+        if (d < 0) d += 360;
+        d = Math.round(d);
+        for (const snap of [0, 90, 180, 270, 360]) if (Math.abs(d - snap) <= 3) d = snap;
+        if (d === 0 && a > 300) d = 360;
+        a = d; upd();
+      });
+      upd();
+    },
+
     /* Rapid-fire questions with countdown and reveal */
     quickQuestions(h, ctl, p, api) {
       const qs = p.questions || [], secs = p.seconds || 6;
@@ -412,6 +700,11 @@
     tangentLengthSteps: "Right triangle O-T-P with tangent PT, then formula steps one by one. Settings: r, d, t, steps[]",
     formulaSteps: "Formula steps written one by one, no figure. Settings: heading, steps[]",
     beltPulleys: "Two pulleys with a belt; straight parts are tangents. Settings: heading, left, right",
+    dotPattern: "Dot pictures that grow one step at a time (triangular, square, oblong numbers), or one dot array for multiplication and factors. Settings: kind ('triangle'|'square'|'oblong'|'array'), steps (1-7), heading; for array: rows, cols",
+    numberLine: "Number line with jumps shown one by one: addition, subtraction, integers, skip counting, fractions, decimals. Settings: min, max, start, jumps[] (e.g. [3,-5]), denominator (fraction ticks, e.g. 4), marks[] (points to highlight), heading",
+    barModel: "Singapore bar model, parts appear one by one: word problems, part-whole, comparison, fractions, ratio, percentage. Settings: bars:[{name, parts:[{v: width number, label: 'text' or '?'}], total: 'text' or '?'}] (1 to 3 bars; v sets the width; '?' marks the unknown), heading",
+    dragTriangle: "Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
+    angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
 
