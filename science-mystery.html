@@ -195,6 +195,8 @@ button{font-family:inherit;}
     <span class="vid-status" id="vid-status"></span>
     <button class="c-btn" id="btn-voice">🔊 Voice</button>
     <button class="c-btn" id="btn-lang">EN</button>
+    <button class="c-btn hidden" id="btn-fixvid" title="Super admin: change this video's description and make it again">✎ Fix video</button>
+    <button class="c-btn hidden" id="btn-redo" title="Super admin: write this whole lesson again">↺ Redo lesson</button>
     <button class="c-btn" id="btn-new">New chapter</button>
   </div>
 </div>
@@ -340,6 +342,23 @@ async function getSavedLesson(){
   } catch(e){}
   return null;
 }
+/* Super admin only: lessons and videos are shared by every school, so only
+   the super admin may replace them. The server checks this again. */
+var IS_ADMIN = false, SESSION = '';
+try { SESSION = localStorage.getItem('dss_session') || '';
+      IS_ADMIN = localStorage.getItem('dss_role') === 'super_admin' && !!SESSION; } catch(e){}
+
+async function replaceLesson(steps){
+  try {
+    var r = await fetch('/api/concept-cache', { method:'POST',
+      headers:{'Content-Type':'application/json', 'x-dss-session': SESSION},
+      body: cacheBody({ action:'save', replace:true, narration:{ steps: steps } }) });
+    var d = await r.json();
+    if(d && d.saved) return '';
+    return (d && (d.reason || d.error)) || 'not saved';
+  } catch(e){ return 'network: ' + e.message; }
+}
+
 function saveLesson(steps){
   fetch('/api/concept-cache', { method:'POST', headers:{'Content-Type':'application/json'},
     body: cacheBody({ action:'save', narration:{ steps: steps } }) }).catch(function(){});
@@ -383,6 +402,10 @@ async function buildLesson(){
     + 'A video prompt is ONE short realistic scene, under 60 words, in English, for an AI video maker: '
     + 'start with "Realistic video,", name a Tamil Nadu or Indian setting, show ONE clear action that proves the idea, '
     + 'mid-distance camera, natural light, no text, no signboards, no close-up faces. It must be scientifically true to what really happens.\n'
+    + 'The clip must SHOW THE CHANGE HAPPENING, not just the objects. For anything slow (drying, melting, rusting, growing, '
+    + 'dissolving, settling), write "Time-lapse video," instead of "Realistic video," and describe the START state and the END state in the prompt, '
+    + 'for example: "Time-lapse video, a steel plate filled with water on a sunny Indian window sill. Over the clip the water level drops '
+    + 'steadily until the plate is completely dry." Never ask for something invisible (like vapour or air) to be seen; show its visible effect instead.\n'
     + 'PHOTO RULES: a photo is a short description (under 25 words) of a real photograph in India, one clear subject, no text.\n\n'
     + 'Each step is a JSON object with:\n'
     + '  type     — "hook", "vote", "proof", "explain", "reallife", "activity" or "return"\n'
@@ -402,7 +425,9 @@ async function buildLesson(){
     + '{"engine":"circuit","mode":"simple","cells":1} for circuits (modes simple, series, parallel, material); '
     + '{"engine":"magnetism","mode":"bar"} for magnets (modes bar, field, electromagnet); '
     + '{"engine":"light","mode":"mirror"} for light (modes shadow, mirror, refraction, lens). Otherwise omit.\n\n'
-    + 'Be scientifically correct. Age-appropriate for ' + CLS + '. ' + langInstruction() + '\n'
+    + 'Be scientifically correct. The RIGHT option in the vote and every explanation must use the exact correct idea '
+    + '(for example water turns into water vapour, never "into air"; mass is not weight; plants make food, they do not take it from soil). '
+    + 'Only the wrong options may hold wrong beliefs. Age-appropriate for ' + CLS + '. ' + langInstruction() + '\n'
     + 'No markdown, no asterisks. Return ONLY a JSON array. Start with [ and end with ].';
 
   var r = await fetch('/api/ai', {
@@ -464,8 +489,21 @@ function lessonPrompts(){
   return out;
 }
 
+var TICK_TIMER = null, TICK_BUSY = false, TICK_AGAIN = false;
+function kickVideos(){
+  clearTimeout(TICK_TIMER);
+  if(TICK_BUSY){ TICK_AGAIN = true; return; }
+  videoTick(LESSON_ID);
+}
+
 async function videoTick(myLesson){
   if(myLesson !== LESSON_ID) return;
+  TICK_BUSY = true;
+  try { await videoTickInner(myLesson); } finally { TICK_BUSY = false; }
+  if(TICK_AGAIN){ TICK_AGAIN = false; kickVideos(); }
+}
+
+async function videoTickInner(myLesson){
   var prompts = lessonPrompts();
   var busy = prompts.filter(function(p){ return VIDS[p] && VIDS[p].status === 'processing'; }).length;
   for(var i = 0; i < prompts.length; i++){
@@ -486,7 +524,7 @@ async function videoTick(myLesson){
   }
   showVideoStatus();
   var left = prompts.some(function(p){ return !VIDS[p] || (VIDS[p].status !== 'done' && VIDS[p].status !== 'failed'); });
-  if(left) setTimeout(function(){ videoTick(myLesson); }, 20000);
+  if(left) TICK_TIMER = setTimeout(function(){ videoTick(myLesson); }, 20000);
 }
 
 function showVideoStatus(){
@@ -625,6 +663,11 @@ function render(i){
     body.innerHTML = '<div class="words">' + linesHtml(s.board, true) + '</div>';
   }
 
+  if(IS_ADMIN){
+    $('btn-fixvid').classList.toggle('hidden', !videoOwner(i));
+    $('btn-redo').classList.remove('hidden');
+  }
+
   var dots = $('trail').children;
   for(var k = 0; k < dots.length; k++){
     dots[k].className = 'dot' + (k === i ? ' now' : (k < i ? ' done' : ''));
@@ -688,6 +731,49 @@ function buildTrail(){
   }).join('');
 }
 
+/* ════════ SUPER ADMIN FIXES ════════ */
+// The step whose video this step shows (the return step reuses the hook's clip).
+function videoOwner(i){
+  var s = STEPS[i]; if(!s) return null;
+  if(s.video) return s;
+  if(s.type === 'return' && hookStep() && hookStep().video) return hookStep();
+  return null;
+}
+
+async function fixVideo(){
+  var owner = videoOwner(IDX); if(!owner) return;
+  var txt = window.prompt('Change the video description, then press OK. '
+    + 'A new clip is made (about 3 Kling units) and saved for every school.', owner.video);
+  if(txt === null) return;
+  txt = txt.trim();
+  if(txt.length < 20 || txt === owner.video){ alert('Nothing changed, so no new video was made.'); return; }
+  owner.video = txt;
+  var why = await replaceLesson(STEPS);
+  if(why){ alert('The new description could not be saved: ' + why); return; }
+  VIDS[txt] = null;
+  showVideoStatus();
+  var m = document.querySelector('#st-body .media'); if(m) fillMedia(m, STEPS[IDX]);
+  kickVideos();
+}
+
+async function redoLesson(){
+  if(!confirm('Write this whole lesson again? Every school will get the new version. '
+    + 'Its videos are made again too (about 3 Kling units each).')) return;
+  SEQ++; setPlaying(false); stopAudio();
+  $('loading').classList.add('show');
+  $('loading-msg').textContent = 'Writing the lesson again…';
+  $('loading-sub').textContent = '';
+  var fresh = null;
+  try { fresh = await buildLesson(); }
+  catch(e){ $('loading').classList.remove('show'); alert('Could not write the lesson: ' + (e.message || e)); return; }
+  var why = await replaceLesson(fresh);
+  $('loading').classList.remove('show');
+  if(why){ alert('The new lesson could not be saved: ' + why); return; }
+  LESSON_ID++; VIDS = {}; STEPS = fresh;
+  buildTrail(); kickVideos();
+  IDX = 0; setPlaying(true); runStep(0);
+}
+
 /* ════════ START ════════ */
 async function startClass(){
   LESSON_ID++; VIDS = {};
@@ -713,7 +799,7 @@ async function startClass(){
   }
   $('loading').classList.remove('show');
   buildTrail();
-  videoTick(LESSON_ID);
+  kickVideos();
   IDX = 0; setPlaying(true); runStep(0);
 }
 
@@ -742,6 +828,8 @@ document.addEventListener('DOMContentLoaded', function(){
   $('btn-next').onclick = goNext;
   $('btn-prev').onclick = goPrev;
   $('btn-replay').onclick = replay;
+  $('btn-fixvid').onclick = fixVideo;
+  $('btn-redo').onclick = redoLesson;
   $('trail').addEventListener('click', function(e){
     var d = e.target.closest('.dot'); if(!d) return;
     stopAudio(); runStep(parseInt(d.getAttribute('data-i'), 10));
