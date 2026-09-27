@@ -62,7 +62,7 @@ button{font-family:inherit;}
 .st-head{display:flex;align-items:baseline;gap:.9rem;}
 .st-tag{font-weight:800;color:var(--maroon-deep);background:var(--sandal);border-radius:999px;
   padding:.2rem .8rem;font-size:.95rem;white-space:nowrap;}
-.st-title{font-family:'Kalam',cursive;font-weight:700;color:var(--cream);
+.st-title{font-family:'Kalam','Noto Sans Tamil',cursive;font-weight:700;color:var(--cream);
   font-size:clamp(1.6rem,3.4vw,2.7rem);line-height:1.15;}
 .st-body{flex:1;min-height:0;display:flex;gap:1.4rem;}
 .media{flex:1.7;min-width:0;position:relative;border-radius:14px;overflow:hidden;
@@ -78,6 +78,7 @@ button{font-family:inherit;}
 .line{font-size:clamp(1.15rem,2.2vw,1.75rem);font-weight:700;line-height:1.35;color:var(--text);
   animation:rise .5s ease both;}
 .line.key{color:var(--gold);}
+.opt .ta{display:block;font-size:.72em;font-weight:700;opacity:.8;margin-top:.15rem;}
 @keyframes rise{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
 
 /* vote: big answer tiles the class can read from the back */
@@ -328,8 +329,10 @@ function lessonVer(){
   return LESSON_VER + '-b-' + CH_MATCH.toLowerCase().replace(/[^a-z0-9]+/g,'').substring(0,14);
 }
 function cacheBody(extra){
+  // Always 'english': one lesson (and one set of paid videos) per chapter.
+  // Tamil is a translation saved beside it — see TAMIL below.
   var b = { board:'NCERT', cls: CLS, subject: subjectFor(CLS) + '-Mystery',
-            topic: topicKey(), lang: LANG, ver: lessonVer() };
+            topic: topicKey(), lang: 'english', ver: lessonVer() };
   for(var k in extra) b[k] = extra[k];
   return JSON.stringify(b);
 }
@@ -427,7 +430,8 @@ async function buildLesson(){
     + '{"engine":"light","mode":"mirror"} for light (modes shadow, mirror, refraction, lens). Otherwise omit.\n\n'
     + 'Be scientifically correct. The RIGHT option in the vote and every explanation must use the exact correct idea '
     + '(for example water turns into water vapour, never "into air"; mass is not weight; plants make food, they do not take it from soil). '
-    + 'Only the wrong options may hold wrong beliefs. Age-appropriate for ' + CLS + '. ' + langInstruction() + '\n'
+    + 'Only the wrong options may hold wrong beliefs. Age-appropriate for ' + CLS + '. '
+    + 'Write say_en in simple Indian classroom English. Leave say_ta as an empty string (Tamil is added separately).\n'
     + 'No markdown, no asterisks. Return ONLY a JSON array. Start with [ and end with ].';
 
   var r = await fetch('/api/ai', {
@@ -481,6 +485,112 @@ function cleanSteps(list){
   if(!steps.length) throw new Error('empty lesson');
   return steps.slice(0, 22);
 }
+
+/* ════════ TAMIL ════════
+   Written once per chapter from the English lesson and saved beside it, so
+   every school gets it free after the first time. It is tied to the exact
+   lesson words: if the super admin redoes the lesson, a fresh Tamil version
+   is written the next time Tamil is chosen. Science words stay in English
+   letters, the way teachers actually speak in Tamil Nadu classrooms. */
+var TA = null;          // array matching STEPS, or null
+var TA_LOADING = null;  // promise while loading/writing
+
+function lessonPrint(steps){
+  var t = JSON.stringify((steps || []).map(function(s){
+    return [s.type, s.title, s.board, s.say_en, s.options, s.materials, s.doing, s.safety];
+  }));
+  var h = 5381;
+  for(var i = 0; i < t.length; i++){ h = ((h << 5) + h + t.charCodeAt(i)) | 0; }
+  return (h >>> 0).toString(36);
+}
+function tamilBody(extra){
+  var b = { board:'NCERT', cls: CLS, subject: subjectFor(CLS) + '-Mystery', topic: topicKey(),
+            lang: 'tamil', ver: lessonVer() + '-ta-' + lessonPrint(STEPS) };
+  for(var k in extra) b[k] = extra[k];
+  return JSON.stringify(b);
+}
+
+async function writeTamilPart(part){
+  var prompt =
+      'Translate this ' + CLS + ' science lesson into simple SPOKEN Tamil, the way a warm Tamil Nadu school teacher '
+    + 'talks to children in class. Keep every science and textbook term in English letters exactly as printed '
+    + '(evaporation, water vapour, magnet, force, cell and so on) — never write those in Tamil script. '
+    + 'Keep names of places and things natural. Keep board lines short (under 50 characters).\n\n'
+    + 'Return ONLY a JSON array with one object per input item, in the same order, each with: '
+    + 'title, board (array), options (array), materials (array), doing (array), safety, say. '
+    + 'Keep arrays the same length as the input. Use "" or [] where the input is empty.\n\n'
+    + 'INPUT:\n' + JSON.stringify(part);
+  var r = await fetch('/api/ai', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system:'You return ONLY a valid JSON array. No markdown fences, no preamble.',
+      messages:[{ role:'user', content: prompt }], max_tokens: 6000 }) });
+  var d = await r.json();
+  if(d && (d.type === 'error' || d.error)) throw new Error(typeof d.error === 'string' ? d.error : ((d.error && d.error.message) || 'AI error'));
+  var txt = Array.isArray(d.content) ? d.content.map(function(x){ return x.text || ''; }).join('') : String(d.completion || d.text || '');
+  txt = txt.replace(/```json|```/g,'').trim();
+  var a = txt.indexOf('['), b = txt.lastIndexOf(']');
+  if(a < 0 || b < 0) throw new Error('Tamil reply not understood: ' + txt.substring(0, 100));
+  var out = JSON.parse(txt.slice(a, b + 1));
+  if(!Array.isArray(out) || out.length !== part.length) throw new Error('Tamil reply had the wrong number of steps');
+  return out;
+}
+
+async function buildTamil(){
+  var items = STEPS.map(function(s){
+    return { title: s.title, board: s.board, options: s.options, materials: s.materials,
+             doing: s.doing, safety: s.safety, say: s.say_en };
+  });
+  // written in small parts side by side: Tamil is long, and one big reply could be cut off
+  var parts = [];
+  for(var i = 0; i < items.length; i += 5) parts.push(items.slice(i, i + 5));
+  var done = await Promise.all(parts.map(writeTamilPart));
+  var all = [].concat.apply([], done);
+  return all.map(function(o){
+    o = o || {};
+    return { title: String(o.title || ''), board: arr(o.board), options: arr(o.options),
+             materials: arr(o.materials), doing: arr(o.doing), safety: String(o.safety || ''), say: String(o.say || '') };
+  });
+}
+
+// Makes sure the Tamil version is ready. Returns '' when ready, or the real reason it is not.
+function ensureTamil(){
+  if(TA) return Promise.resolve('');
+  if(TA_LOADING) return TA_LOADING;
+  var forSteps = STEPS;
+  TA_LOADING = (async function(){
+    try {
+      var r = await fetch('/api/concept-cache', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: tamilBody({ action:'get' }) });
+      var d = await r.json();
+      if(d && d.found && d.map && d.map.steps && d.map.steps.length === forSteps.length){
+        if(forSteps === STEPS) TA = d.map.steps;
+        return '';
+      }
+      var fresh = await buildTamil();
+      if(forSteps !== STEPS) return 'lesson changed';
+      TA = fresh;
+      fetch('/api/concept-cache', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: tamilBody({ action:'save', narration:{ steps: fresh } }) }).catch(function(){});
+      return '';
+    } catch(e){ return String(e.message || e); }
+    finally { TA_LOADING = null; }
+  })();
+  return TA_LOADING;
+}
+
+// Picks the words to show for a step in the chosen language.
+function T(i, field){
+  var s = STEPS[i];
+  if(LANG === 'tamil' && TA && TA[i]){
+    var v = TA[i][field === 'say_en' ? 'say' : field];
+    if(Array.isArray(v) ? v.length : (v && String(v).trim())) return v;
+  }
+  return s[field];
+}
+var UI_TA = { raise:'A, B அல்லது C — உங்கள் கையை உயர்த்துங்கள். எல்லோரும் சொன்ன பிறகு Next அழுத்தவும்.',
+              need:'தேவையானவை', todo:'செய்முறை', right:'சரியான பதில்: ', timer:'Timer தொடங்கு',
+              mystery:'மர்மம்', vote:'உங்கள் பதில்', proof:'பார்ப்போம்', explain:'ஏன் நடக்கிறது',
+              reallife:'நம்மைச் சுற்றி', activity:'வகுப்புச் செயல்பாடு', 'return':'மர்மத்தைத் தீர்ப்போம்' };
+function ta(){ return LANG === 'tamil'; }
 
 /* ════════ VIDEOS (made in the background) ════════ */
 function lessonPrompts(){
@@ -585,8 +695,10 @@ function speakAsync(text, lang){
   }).catch(function(){ return speakBrowser(text, lang); });
 }
 async function speakStep(s){
-  if(LANG === 'both'){ if(s.say_en) await speakAsync(s.say_en,'english'); if(s.say_ta) await speakAsync(s.say_ta,'tamil'); }
-  else if(LANG === 'tamil') await speakAsync(s.say_ta || s.say_en, 'tamil');
+  var i = STEPS.indexOf(s);
+  var taSay = (TA && TA[i] && TA[i].say) ? TA[i].say : (s.say_ta || '');
+  if(LANG === 'both'){ if(s.say_en) await speakAsync(s.say_en,'english'); if(taSay) await speakAsync(taSay,'tamil'); }
+  else if(LANG === 'tamil') await speakAsync(taSay || s.say_en, 'tamil');
   else await speakAsync(s.say_en, 'english');
 }
 function wait(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
@@ -634,33 +746,36 @@ function hasMedia(s){ return !!(s.video || s.photo || modelUrlFor(s.model) || (s
 
 function render(i){
   var s = STEPS[i], body = $('st-body');
-  $('st-tag').textContent = TYPES[s.type].icon + ' ' + TYPES[s.type].tag;
-  $('st-title').textContent = s.title;
+  var tagKey = s.type === 'hook' ? 'mystery' : s.type;
+  $('st-tag').textContent = TYPES[s.type].icon + ' ' + (ta() ? UI_TA[tagKey] : TYPES[s.type].tag);
+  $('st-title').textContent = T(i, 'title');
+  var taOpts = (LANG === 'both' && TA && TA[i]) ? TA[i].options : [];
   $('step-count').textContent = 'Step ' + (i + 1) + ' of ' + STEPS.length;
   body.className = 'st-body';
   body.innerHTML = '';
 
   if(s.type === 'vote'){
-    body.innerHTML = '<div class="vote">' + s.options.map(function(o, n){
-      return '<div class="opt" data-n="' + n + '"><span class="l">' + 'ABC'.charAt(n) + '</span>' + esc(o) + '</div>';
-    }).join('') + '<div class="hands">Raise your hand for A, B or C. Press Next when everyone has voted.</div></div>';
+    body.innerHTML = '<div class="vote">' + T(i, 'options').map(function(o, n){
+      return '<div class="opt" data-n="' + n + '"><span class="l">' + 'ABC'.charAt(n) + '</span><span>' + esc(o)
+        + (taOpts[n] ? '<span class="ta">' + esc(taOpts[n]) + '</span>' : '') + '</span></div>';
+    }).join('') + '<div class="hands">' + (ta() ? UI_TA.raise : 'Raise your hand for A, B or C. Press Next when everyone has voted.') + '</div></div>';
   }
   else if(s.type === 'activity'){
     body.innerHTML = '<div class="act">'
-      + '<div><h4>We need</h4><ul>' + s.materials.map(function(m){ return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></div>'
-      + '<div><h4>What to do</h4><ol>' + s.doing.map(function(m){ return '<li>' + esc(m) + '</li>'; }).join('') + '</ol>'
-      + (s.safety ? '<div class="safety">⚠ ' + esc(s.safety) + '</div>' : '') + '</div>'
-      + (s.minutes ? '<div class="timer"><div class="t" id="tmr">' + s.minutes + ':00</div><button id="tmr-go">Start timer</button></div>' : '')
+      + '<div><h4>' + (ta() ? UI_TA.need : 'We need') + '</h4><ul>' + T(i, 'materials').map(function(m){ return '<li>' + esc(m) + '</li>'; }).join('') + '</ul></div>'
+      + '<div><h4>' + (ta() ? UI_TA.todo : 'What to do') + '</h4><ol>' + T(i, 'doing').map(function(m){ return '<li>' + esc(m) + '</li>'; }).join('') + '</ol>'
+      + (s.safety ? '<div class="safety">⚠ ' + esc(T(i, 'safety')) + '</div>' : '') + '</div>'
+      + (s.minutes ? '<div class="timer"><div class="t" id="tmr">' + s.minutes + ':00</div><button id="tmr-go">' + (ta() ? UI_TA.timer : 'Start timer') + '</button></div>' : '')
       + '</div>';
     var go = $('tmr-go'); if(go) go.onclick = function(){ startTimer(s.minutes * 60); };
   }
   else if(hasMedia(s)){
-    body.innerHTML = '<div class="media"></div><div class="words">' + linesHtml(s.board, s.type === 'return') + '</div>';
+    body.innerHTML = '<div class="media"></div><div class="words">' + linesHtml(T(i, 'board'), s.type === 'return') + '</div>';
     fillMedia(body.querySelector('.media'), s);
   }
   else {
     body.className = 'st-body full';
-    body.innerHTML = '<div class="words">' + linesHtml(s.board, true) + '</div>';
+    body.innerHTML = '<div class="words">' + linesHtml(T(i, 'board'), true) + '</div>';
   }
 
   if(IS_ADMIN){
@@ -681,7 +796,8 @@ function revealAnswer(i){
   if(!w) return;
   var d = document.createElement('div');
   d.className = 'reveal';
-  d.textContent = 'Right answer: ' + 'ABC'.charAt(vs.answer) + ') ' + vs.options[vs.answer];
+  var vi = STEPS.indexOf(vs), opts = T(vi, 'options');
+  d.textContent = (ta() ? UI_TA.right : 'Right answer: ') + 'ABC'.charAt(vs.answer) + ') ' + (opts[vs.answer] || vs.options[vs.answer]);
   w.appendChild(d);
 }
 
@@ -769,14 +885,14 @@ async function redoLesson(){
   var why = await replaceLesson(fresh);
   $('loading').classList.remove('show');
   if(why){ alert('The new lesson could not be saved: ' + why); return; }
-  LESSON_ID++; VIDS = {}; STEPS = fresh;
+  LESSON_ID++; VIDS = {}; TA = null; STEPS = fresh;
   buildTrail(); kickVideos();
   IDX = 0; setPlaying(true); runStep(0);
 }
 
 /* ════════ START ════════ */
 async function startClass(){
-  LESSON_ID++; VIDS = {};
+  LESSON_ID++; VIDS = {}; TA = null;
   $('setup').classList.add('hidden');
   $('room').classList.add('show');
   $('hdr-meta').textContent = CLS + ', chapter ' + (CHAPTER.chapter_number || '') + ': ' + CHAPTER.chapter_title;
@@ -796,6 +912,12 @@ async function startClass(){
         say_en:'Sorry, I could not prepare this lesson just now.', say_ta:'', video:'', photo:'', options:[], answer:-1,
         materials:[], doing:[], minutes:0, safety:'', model:null }];
     }
+  }
+  if(LANG !== 'english' && STEPS.length > 1){
+    $('loading-msg').textContent = 'Getting the Tamil lesson ready…';
+    $('loading-sub').textContent = 'The first time only, the Tamil version is written and saved for every school.';
+    var why = await ensureTamil();
+    if(why) alert('Tamil could not be prepared, so this class will run in English. Reason: ' + why);
   }
   $('loading').classList.remove('show');
   buildTrail();
@@ -838,9 +960,21 @@ document.addEventListener('DOMContentLoaded', function(){
     VOICE_ON = !VOICE_ON; this.textContent = VOICE_ON ? '🔊 Voice' : '🔇 Muted';
     if(!VOICE_ON) stopAudio();
   };
-  $('btn-lang').onclick = function(){
+  $('btn-lang').onclick = async function(){
+    var btn = this;
     LANG = LANG === 'english' ? 'tamil' : (LANG === 'tamil' ? 'both' : 'english');
-    this.textContent = LANG === 'tamil' ? 'TA' : (LANG === 'both' ? 'EN+TA' : 'EN');
+    btn.textContent = LANG === 'tamil' ? 'TA' : (LANG === 'both' ? 'EN+TA' : 'EN');
+    if(!$('room').classList.contains('show')) return;
+    SEQ++; stopAudio();
+    if(LANG !== 'english' && !TA){
+      $('loading').classList.add('show');
+      $('loading-msg').textContent = 'Getting the Tamil lesson ready…';
+      $('loading-sub').textContent = 'The first time only, the Tamil version is written and saved for every school.';
+      var why = await ensureTamil();
+      $('loading').classList.remove('show');
+      if(why) alert('Tamil could not be prepared: ' + why);
+    }
+    runStep(IDX);
   };
   $('btn-new').onclick = function(){
     SEQ++; LESSON_ID++; setPlaying(false); stopAudio(); clearInterval(TMR);
