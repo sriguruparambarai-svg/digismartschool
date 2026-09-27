@@ -29,6 +29,11 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
 #list{margin-top:.5rem;font-size:.95rem;color:var(--sandal);min-height:1.3em;line-height:1.5;word-break:break-word;}
 .row{display:flex;gap:.5rem;margin-top:.5rem;}
 .err{color:#f3c0b4;font-weight:700;}
+.join{display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;}
+.join input{width:6.5rem;padding:.55rem .6rem;border-radius:9px;border:1.5px solid var(--gold);background:#2a0b0b;color:var(--text);
+  font:inherit;font-size:1.2rem;font-weight:800;letter-spacing:.2em;text-align:center;}
+#live{font-weight:800;color:var(--gold);flex:1;line-height:1.3;}
+#live.idle{color:var(--sandal);opacity:.85;}
 </style>
 </head>
 <body>
@@ -45,6 +50,11 @@ video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;}
 </div>
 
 <div class="panel">
+  <div class="join">
+    <input id="code" inputmode="numeric" maxlength="4" placeholder="Code" aria-label="Class code from the screen">
+    <button class="btn ghost" id="join">Join class</button>
+    <span id="live" class="idle">Test mode: type the 4-digit code shown on the class screen to send answers there.</span>
+  </div>
   <div class="counts">
     <div class="cnt"><b id="cA">0</b><span>A</span></div>
     <div class="cnt"><b id="cB">0</b><span>B</span></div>
@@ -70,6 +80,65 @@ var grab = document.createElement('canvas'), gctx = grab.getContext('2d', { will
 var ANS = {};        // card number -> letter (confirmed)
 var SEEN = {};       // card number -> { letter, count, t } waiting for a second sighting
 var running = false;
+
+/* ── Joined to a class (science-mystery.html quick check) ──
+   The projector says which question is open. Answers are recorded only while
+   a question is open, cleared by themselves when the next question starts,
+   and sent to the projector through /api/live-answers. */
+var CODE = '', LIVE_Q = -1, LIVE_PHASE = 'wait', sendTimer = null, lastSent = '';
+
+async function liveCall(body){
+  var r = await fetch('/api/live-answers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  return r.json();
+}
+function setLive(text, idle){ var el = document.getElementById('live'); el.textContent = text; el.className = idle ? 'idle' : ''; }
+
+async function joinClass(code){
+  code = String(code || '').trim();
+  if(!/^\d{4}$/.test(code)){ setLive('The code has 4 digits. Look at the class screen.', true); return; }
+  setLive('Joining class ' + code + '…', true);
+  try {
+    var d = await liveCall({ action:'state_get', code: code });
+    if(d.error){ setLive(d.error, true); return; }
+    CODE = code; LIVE_Q = -99;
+    applyState(d.state);
+    pollState();
+  } catch(e){ setLive('No internet: ' + e.message, true); }
+}
+
+function applyState(st){
+  if(!st) return;
+  if(st.q !== LIVE_Q){ LIVE_Q = st.q; ANS = {}; SEEN = {}; lastSent = ''; show(); }   // new question: start fresh
+  LIVE_PHASE = st.phase;
+  var qn = 'Question ' + (st.q + 1) + (st.total ? ' of ' + st.total : '');
+  if(st.phase === 'ask') setLive('Class ' + CODE + ': ' + qn + ' — scan the cards now', false);
+  else if(st.phase === 'reveal') setLive('Class ' + CODE + ': answer shown. Wait for the next question.', true);
+  else if(st.phase === 'done') setLive('Class ' + CODE + ': quick check finished. Thank you!', true);
+  else setLive('Class ' + CODE + ': waiting for the first question…', true);
+}
+
+function pollState(){
+  if(!CODE) return;
+  liveCall({ action:'state_get', code: CODE })
+    .then(function(d){ if(d && d.state) applyState(d.state); else if(d && d.error) setLive(d.error, true); })
+    .catch(function(){ setLive('Connection lost — still trying…', true); })
+    .then(function(){ if(CODE) setTimeout(pollState, 2000); });
+}
+
+// Send the answers soon after they change (and again now and then, in case one send was lost).
+function queueSend(){
+  if(!CODE || LIVE_PHASE !== 'ask') return;
+  clearTimeout(sendTimer);
+  sendTimer = setTimeout(function(){
+    var body = JSON.stringify(ANS);
+    if(body === lastSent) return;
+    var q = LIVE_Q;
+    liveCall({ action:'answers_set', code: CODE, q: q, answers: ANS })
+      .then(function(d){ if(!d.error && q === LIVE_Q) lastSent = body; })
+      .catch(function(){});
+  }, 600);
+}
+setInterval(function(){ lastSent = ''; queueSend(); }, 6000);
 
 // Which letter is at the top: direction of the marker's own top edge in the picture.
 function letterOf(m){
@@ -126,7 +195,8 @@ function loop(){
       // caught mid-turn is not recorded wrongly
       if(s && s.letter === L && now - s.t < 2000){ s.count++; s.t = now; }
       else SEEN[num] = s = { letter: L, count: 1, t: now };
-      if(s.count >= 2 && ANS[num] !== L){ ANS[num] = L; show(); }
+      var open = !CODE || LIVE_PHASE === 'ask';
+      if(open && s.count >= 2 && ANS[num] !== L){ ANS[num] = L; show(); queueSend(); }
     });
     draw(markers, w, h);
   }
@@ -163,7 +233,10 @@ function show(){
 }
 
 document.getElementById('go').onclick = start;
-document.getElementById('clear').onclick = function(){ ANS = {}; SEEN = {}; show(); };
+document.getElementById('join').onclick = function(){ joinClass(document.getElementById('code').value); };
+// a link like card-scanner.html?code=4821 joins by itself
+(function(){ var m = location.search.match(/code=(\d{4})/); if(m){ document.getElementById('code').value = m[1]; joinClass(m[1]); } })();
+document.getElementById('clear').onclick = function(){ ANS = {}; SEEN = {}; show(); lastSent = ''; queueSend(); };
 </script>
 </body>
 </html>

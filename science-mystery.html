@@ -113,6 +113,13 @@ button{font-family:inherit;}
 .hw{width:100%;min-height:11rem;border-radius:12px;padding:.8rem;background:#1c0808;color:var(--text);
   border:1.5px solid rgba(201,168,76,.4);font:inherit;font-size:1.05rem;line-height:1.5;resize:vertical;}
 .note{margin-top:.5rem;color:var(--sandal);font-weight:700;}
+.live{text-align:center;color:var(--sandal);font-weight:700;font-size:.95rem;}
+.live b{color:var(--gold);font-size:1.15em;letter-spacing:.12em;}
+.opt .cnt{margin-left:auto;font-family:'Kalam',cursive;font-size:1.2em;color:var(--maroon);min-width:2.5em;text-align:right;}
+.qbtn.sug{box-shadow:0 0 0 3px var(--gold);}
+.cardgrid{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem;}
+.cardgrid span{background:rgba(232,201,154,.1);border:1px solid rgba(201,168,76,.35);border-radius:8px;padding:.2rem .5rem;font-weight:700;font-size:.95rem;}
+.cardgrid span.low{border-color:#e08a7a;color:#f3c0b4;}
 
 /* activity card */
 .act{flex:1;display:grid;grid-template-columns:1fr 1.4fr auto;gap:1.4rem;align-items:start;}
@@ -834,7 +841,7 @@ function setPlaying(on){ PLAYING = on; $('btn-play').textContent = on ? '❚❚ 
 
 async function runStep(i){
   if(i < 0 || i >= STEPS.length) return;
-  IDX = i; var my = ++SEQ; QUIZ = null;
+  IDX = i; var my = ++SEQ; QUIZ = null; liveStop();
   clearInterval(TMR);
   var s = STEPS[i];
   render(i);
@@ -951,6 +958,46 @@ function ensureCheck(){
   return CHECK_LOADING;
 }
 
+/* ── Answer cards, live from the facilitator's phone (card-scanner.html) ──
+   A 4-digit class code is shown during the check. The phone joins with it,
+   follows the question on screen, and its answers appear here. Everything
+   still works without a phone: the facilitator just taps Most / About half. */
+var LIVE = { code:'', timer:null, answers:{} };
+
+function liveCall(body){
+  return fetch('/api/live-answers', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) })
+    .then(function(r){ return r.json(); });
+}
+async function liveOpen(){
+  if(LIVE.code) return;
+  try { var d = await liveCall({ action:'create' }); if(d && d.code) LIVE.code = d.code; } catch(e){}
+}
+function liveState(q, phase){
+  if(!LIVE.code) return;
+  liveCall({ action:'state_set', code: LIVE.code,
+    state:{ q: q, phase: phase, total: CHECK ? CHECK.questions.length : 0, title: CHAPTER ? CHAPTER.chapter_title : '' } }).catch(function(){});
+}
+function liveStop(){ clearTimeout(LIVE.timer); LIVE.timer = null; }
+function livePoll(q){
+  liveStop();
+  if(!LIVE.code) return;
+  var tick = function(){
+    liveCall({ action:'answers_get', code: LIVE.code, q: q }).then(function(d){
+      if(!QUIZ || QUIZ.i !== q) return;
+      LIVE.answers = (d && d.answers) || {};
+      var n = Object.keys(LIVE.answers).length, el = $('q-live-n');
+      if(el) el.textContent = n ? (n + (ta() ? ' அட்டைகள் பதில் சொன்னன' : (n === 1 ? ' card answered' : ' cards answered'))) : '';
+    }).catch(function(){}).then(function(){ if(QUIZ && QUIZ.i === q && !QUIZ.shown) LIVE.timer = setTimeout(tick, 2000); });
+  };
+  tick();
+}
+function liveLine(){
+  if(!LIVE.code) return '';
+  return '<div class="live">📷 ' + (ta() ? 'பதில் அட்டைகள்: phone-ல் ' : 'Answer cards: on the phone open ')
+    + location.host + '/card-scanner.html — ' + (ta() ? 'code ' : 'code ') + '<b>' + LIVE.code + '</b>'
+    + ' <span id="q-live-n"></span></div>';
+}
+
 function qText(q, f){ return (ta() && q[f + '_ta'] && (Array.isArray(q[f + '_ta']) ? q[f + '_ta'].length : true)) ? q[f + '_ta'] : q[f]; }
 
 async function startCheck(){
@@ -965,6 +1012,7 @@ async function startCheck(){
   if(why){ body.innerHTML = '<div class="words"><div class="line">Questions could not be prepared: ' + esc(why) + '</div>'
                         + '<div class="qbar"><button class="qbtn main" id="q-retry">Try again</button></div></div>';
            $('q-retry').onclick = startCheck; return; }
+  await liveOpen();
   QUIZ = { i: 0, shown: false, results: [] };
   showQuestion();
 }
@@ -978,14 +1026,25 @@ function showQuestion(){
     + '<div class="qnum">' + (ta() ? 'கேள்வி ' : 'Question ') + (QUIZ.i + 1) + ' / ' + CHECK.questions.length + '</div>'
     + opts.map(function(o, n){ return '<div class="opt pick" data-n="' + n + '"><span class="l">' + 'ABC'.charAt(n) + '</span><span>' + esc(o) + '</span></div>'; }).join('')
     + '<div id="q-after"></div>'
-    + '<div class="qbar" id="q-bar"><button class="qbtn main" id="q-show">' + (ta() ? 'பதிலைக் காட்டு' : 'Show answer') + '</button></div></div>';
+    + '<div class="qbar" id="q-bar"><button class="qbtn main" id="q-show">' + (ta() ? 'பதிலைக் காட்டு' : 'Show answer') + '</button></div>'
+    + liveLine() + '</div>';
   $('q-show').onclick = revealQuestion;
+  QUIZ.shown = false; LIVE.answers = {};
+  liveState(QUIZ.i, 'ask');
+  livePoll(QUIZ.i);
   var say = qText(q, 'q') + ' ' + opts.map(function(o, n){ return 'ABC'.charAt(n) + ': ' + o + '.'; }).join(' ');
   speakAsync(say, ta() ? 'tamil' : 'english');
 }
 
-function revealQuestion(){
+async function revealQuestion(){
   var q = CHECK.questions[QUIZ.i];
+  if(QUIZ.shown) return;                    // pressed twice
+  QUIZ.shown = true; liveStop();
+  var sb0 = $('q-show'); if(sb0) sb0.disabled = true;
+  if(LIVE.code){
+    liveState(QUIZ.i, 'reveal');
+    try { var d = await liveCall({ action:'answers_get', code: LIVE.code, q: QUIZ.i }); LIVE.answers = (d && d.answers) || LIVE.answers; } catch(e){}
+  }
   document.querySelectorAll('#st-body .opt').forEach(function(el){
     var n = parseInt(el.getAttribute('data-n'), 10);
     el.classList.add(n === q.answer ? 'right' : 'dim');
@@ -999,12 +1058,32 @@ function revealQuestion(){
   $('q-bar').querySelectorAll('button').forEach(function(bt){
     bt.onclick = function(){ rateQuestion(parseInt(bt.getAttribute('data-r'), 10)); };
   });
+  // answer cards: show how many chose each letter and suggest the rating from the real numbers
+  var cards = LIVE.answers || {}, nums = Object.keys(cards);
+  if(nums.length){
+    var per = { A:0, B:0, C:0, D:0 };
+    nums.forEach(function(k){ per[cards[k]] = (per[cards[k]] || 0) + 1; });
+    document.querySelectorAll('#st-body .opt').forEach(function(el){
+      var L = 'ABC'.charAt(parseInt(el.getAttribute('data-n'), 10));
+      var c = document.createElement('span'); c.className = 'cnt'; c.textContent = per[L]; el.appendChild(c);
+    });
+    var right = per['ABC'.charAt(q.answer)], pct = Math.round(100 * right / nums.length);
+    var sug = pct >= 70 ? 3 : (pct >= 40 ? 2 : 1);
+    var sb = $('q-bar').querySelector('[data-r="' + sug + '"]'); if(sb) sb.classList.add('sug');
+    var info = document.createElement('div'); info.className = 'live';
+    info.textContent = (ta() ? 'அட்டைகள்: ' : 'Cards: ') + right + (ta() ? ' / ' : ' of ') + nums.length
+                     + (ta() ? ' சரி (' : ' right (') + pct + '%)';
+    $('q-bar').appendChild(info);
+  }
   speakAsync(w, ta() ? 'tamil' : 'english');
 }
 
 function rateQuestion(r){
   var q = CHECK.questions[QUIZ.i];
-  QUIZ.results.push({ q: q.q, a: q.options[q.answer], rating: r });
+  var rec = { q: q.q, a: q.options[q.answer], rating: r };
+  if(Object.keys(LIVE.answers || {}).length){ rec.correct = 'ABC'.charAt(q.answer); rec.cards = LIVE.answers; }
+  QUIZ.results.push(rec);
+  LIVE.answers = {};
   stopAudio();
   if(QUIZ.i < CHECK.questions.length - 1){ QUIZ.i++; showQuestion(); }
   else showSummary();
@@ -1019,7 +1098,8 @@ function mySchoolId(){
 }
 
 async function showSummary(){
-  SEQ++;
+  SEQ++; liveStop();
+  liveState(QUIZ.results.length - 1, 'done');
   $('st-title').textContent = ta() ? 'இன்றைய வகுப்பு' : 'Today\'s class';
   var res = QUIZ.results, body = $('st-body');
   var label = { 3: ta() ? 'பெரும்பாலோர்' : 'Most', 2: ta() ? 'பாதி பேர்' : 'About half', 1: ta() ? 'சிலர் மட்டும்' : 'Only a few' };
@@ -1029,6 +1109,7 @@ async function showSummary(){
   body.innerHTML = '<div class="summary"><div><h4>' + (ta() ? 'முடிவு' : 'How the class did') + '</h4>'
     + res.map(function(x, n){ return '<div class="srow"><span>' + (n + 1) + '. ' + esc(x.a) + '</span><span>' + label[x.rating] + '</span></div>'; }).join('')
     + (weak.length ? '<div class="note">' + (ta() ? 'மீண்டும் கற்பிக்க வேண்டியவை: ' : 'Teach again tomorrow: ') + weak.map(function(x){ return esc(x.a); }).join(', ') + '</div>' : '')
+    + cardScoresHtml(res)
     + '<div class="note" id="q-saved">Saving…</div></div>'
     + '<div><h4>' + (ta() ? 'வீட்டுப்பாடம்' : 'Homework') + '</h4><textarea class="hw" id="hw-text"></textarea>'
     + '<div class="qbar" style="justify-content:flex-start"><button class="qbtn main" id="hw-send">Send to Student Diary</button></div>'
@@ -1039,10 +1120,25 @@ async function showSummary(){
   try {
     var r = await fetch('/api/class-quiz', { method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ cls: CLS, subject: subjectFor(CLS), topic: CHAPTER.chapter_title,
-                             planKey: 'mystery-' + topicKey(), results: res }) });
+                             planKey: 'mystery-' + topicKey(), school_id: mySchoolId(), results: res }) });
     var d = await r.json();
     $('q-saved').textContent = (d && d.saved) ? '✅ Saved to Class Insights' : ('⚠ Not saved: ' + ((d && d.error) || 'server problem'));
   } catch(e){ $('q-saved').textContent = '⚠ Not saved: ' + e.message; }
+}
+
+// Each card's score across the check, e.g. "7: 4/5". Low scores are marked so
+// the facilitator knows which children to sit with tomorrow.
+function cardScoresHtml(res){
+  var sc = {};
+  res.forEach(function(x){
+    if(!x.cards) return;
+    for(var k in x.cards){ sc[k] = sc[k] || { r:0, n:0 }; sc[k].n++; if(x.cards[k] === x.correct) sc[k].r++; }
+  });
+  var ks = Object.keys(sc).map(Number).sort(function(a, b){ return a - b; });
+  if(!ks.length) return '';
+  return '<h4 style="margin-top:1rem">' + (ta() ? 'அட்டை மதிப்பெண்கள்' : 'Card scores') + '</h4><div class="cardgrid">'
+    + ks.map(function(k){ var v = sc[k]; return '<span class="' + (v.r / v.n < 0.5 ? 'low' : '') + '">' + k + ': ' + v.r + '/' + v.n + '</span>'; }).join('')
+    + '</div>';
 }
 
 async function sendHomework(){
@@ -1116,7 +1212,7 @@ async function redoLesson(){
 
 /* ════════ START ════════ */
 async function startClass(){
-  LESSON_ID++; VIDS = {}; TA = null; CHECK = null; QUIZ = null;
+  LESSON_ID++; VIDS = {}; TA = null; CHECK = null; QUIZ = null; liveStop(); LIVE.code = '';
   $('setup').classList.add('hidden');
   $('room').classList.add('show');
   $('hdr-meta').textContent = CLS + ', chapter ' + (CHAPTER.chapter_number || '') + ': ' + CHAPTER.chapter_title;
