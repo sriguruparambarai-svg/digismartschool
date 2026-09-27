@@ -26,8 +26,10 @@ const crypto = require('crypto');
 const SB_HOST  = 'pzxosqukijwpjdlfdfst.supabase.co';
 const BUCKET   = 'lesson-audio';
 const FOLDER   = 'concept-video';
-const MODEL    = process.env.KLING_MODEL || 'kling-v1';   // change in Vercel settings, no code edit needed
-const DURATION = '5';                                       // seconds; 5 is the cheapest Kling length
+// Kling's NEW API (2026): one API key, sent as "Bearer <key>", model named in the web address.
+const KLING_HOST = 'https://api-singapore.klingai.com';
+const MODEL    = 'kling-3.0';
+const DURATION = 5;                                         // seconds
 const MAX_TRIES = 2;                                        // stop paying for a prompt that keeps failing
 const STALE_MS  = 40 * 60 * 1000;                           // a job older than this is treated as lost
 
@@ -47,12 +49,10 @@ function fromOurSite(req) {
   return false;
 }
 
-function makeJWT(accessKey, secretKey) {
-  const header  = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
-  const now     = Math.floor(Date.now() / 1000);
-  const payload = Buffer.from(JSON.stringify({ iss: accessKey, exp: now + 1800, nbf: now - 5 })).toString('base64url');
-  const sig     = crypto.createHmac('sha256', secretKey).update(header + '.' + payload).digest('base64url');
-  return header + '.' + payload + '.' + sig;
+// The single Kling API key. KLING_API_KEY is preferred; the key pasted into
+// KLING_ACCESS_KEY also works. trim(): a copied space breaks the key.
+function klingKey() {
+  return String(process.env.KLING_API_KEY || process.env.KLING_ACCESS_KEY || '').trim();
 }
 
 function videoKey(prompt) {
@@ -101,44 +101,64 @@ function savePending(name, obj, key) {
   return upload(name, JSON.stringify(obj), 'application/json', key);
 }
 
-// ── Kling helpers ──
-async function klingCreate(prompt, token) {
-  const r = await fetch('https://api.klingai.com/v1/videos/text2video', {
-    method: 'POST',
-    headers: { Authorization: 'Bearer ' + token, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      model_name: MODEL,
-      prompt: String(prompt).substring(0, 2400),
-      negative_prompt: 'blurry, low quality, distorted hands, extra fingers, distorted faces, violence, '
-                     + 'scary, adult content, watermark, text, subtitles, letters, logo',
-      duration: DURATION,
-      aspect_ratio: '16:9',
-      mode: 'std',
-      sound: 'off',          // no Kling audio: TeachBot's voice talks over the clip, and silent clips cost less
-      cfg_scale: 0.5
-    })
-  });
-  const d = await r.json().catch(function () { return {}; });
-  if (!r.ok || d.code !== 0) {
-    throw new Error('Kling refused: ' + (d.message || ('HTTP ' + r.status)) );
+// ── Kling helpers (new API) ──
+// Kling's reply layout for task checks is read defensively: we look for a
+// status word and a video link anywhere in the reply, so a small change in
+// their format does not silently break the class. Anything unexpected is
+// reported with the real reply text.
+function findAll(obj, test, out) {
+  out = out || [];
+  if (obj && typeof obj === 'object') {
+    for (const k in obj) {
+      const v = obj[k];
+      if (test(k, v)) out.push(v);
+      if (v && typeof v === 'object') findAll(v, test, out);
+    }
   }
-  const taskId = d.data && d.data.task_id;
-  if (!taskId) throw new Error('Kling gave no job number');
-  return taskId;
+  return out;
 }
 
-async function klingPoll(taskId, token) {
-  const r = await fetch('https://api.klingai.com/v1/videos/text2video/' + taskId, {
-    headers: { Authorization: 'Bearer ' + token }
+async function klingCreate(prompt, apiKey, externalId) {
+  const r = await fetch(KLING_HOST + '/text-to-video/' + MODEL, {
+    method: 'POST',
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      prompt: String(prompt).substring(0, 2400),
+      settings: { resolution: '720p', aspect_ratio: '16:9', duration: DURATION, audio: 'off', multi_shot: false },
+      options: { external_task_id: externalId, watermark_info: { enabled: false } }
+    })
   });
-  const d = await r.json().catch(function () { return {}; });
-  const st = d.data && d.data.task_status;
-  if (st === 'succeed') {
-    const v = d.data.task_result && d.data.task_result.videos && d.data.task_result.videos[0];
-    return { status: 'done', url: v && v.url };
+  const t = await r.text();
+  let d = {}; try { d = JSON.parse(t); } catch (e) {}
+  if (!r.ok || (d.code !== undefined && d.code !== 0)) {
+    throw new Error('Kling refused: ' + (d.message || d.msg || ('HTTP ' + r.status + ' ' + t.substring(0, 160))));
   }
-  if (st === 'failed') return { status: 'failed', error: (d.data && d.data.task_status_msg) || 'Kling job failed' };
-  if (!st) return { status: 'error', error: 'Kling check failed: ' + (d.message || ('HTTP ' + r.status)) };
+  return externalId;
+}
+
+async function klingPoll(externalId, apiKey) {
+  const r = await fetch(KLING_HOST + '/tasks?external_task_ids=' + encodeURIComponent(externalId), {
+    headers: { Authorization: 'Bearer ' + apiKey, 'Content-Type': 'application/json' }
+  });
+  const t = await r.text();
+  let d = {}; try { d = JSON.parse(t); } catch (e) {}
+  if (!r.ok || (d.code !== undefined && d.code !== 0)) {
+    return { status: 'error', error: 'Kling check failed: ' + (d.message || d.msg || ('HTTP ' + r.status + ' ' + t.substring(0, 160))) };
+  }
+  const statuses = findAll(d, function (k, v) { return /status$/i.test(k) && typeof v === 'string'; })
+                   .map(function (x) { return x.toLowerCase(); });
+  const urls = findAll(d, function (k, v) { return typeof v === 'string' && /^https?:\/\/\S+\.(mp4|mov)(\?|$)/i.test(v); });
+  if (statuses.some(function (x) { return /fail/.test(x); })) {
+    const msg = findAll(d, function (k, v) { return /(status_msg|message|reason|error)/i.test(k) && typeof v === 'string' && v; });
+    return { status: 'failed', error: 'Kling could not make it: ' + (msg[0] || 'no reason given') };
+  }
+  if (urls.length) return { status: 'done', url: urls[0] };
+  if (statuses.some(function (x) { return /succe/.test(x); })) {
+    return { status: 'error', error: 'Kling says finished but no video link was found: ' + t.substring(0, 160) };
+  }
+  if (!statuses.length) {
+    return { status: 'error', error: 'Kling reply not understood: ' + t.substring(0, 160) };
+  }
   return { status: 'processing' };
 }
 
@@ -166,13 +186,8 @@ module.exports = async function handler(req, res) {
     // 1) already made and saved? free from here on.
     if (await videoExists(mp4)) return res.json({ status: 'done', url: publicUrl(mp4), cached: true });
 
-    // trim: a space copied along with the key breaks the signature
-    const accessKey = String(process.env.KLING_ACCESS_KEY || '').trim();
-    const secretKey = String(process.env.KLING_SECRET_KEY || '').trim();
-    if (!accessKey || !secretKey) {
-      return res.json({ status: 'failed', error: 'KLING_ACCESS_KEY / KLING_SECRET_KEY are not set in Vercel' });
-    }
-    const token = makeJWT(accessKey, secretKey);
+    const token = klingKey();
+    if (!token) return res.json({ status: 'failed', error: 'The Kling API key is not set in Vercel (KLING_API_KEY)' });
 
     // 2) a job already running for this clip? check on it instead of paying again.
     const p = await readPending(pend, supaKey);
@@ -184,8 +199,10 @@ module.exports = async function handler(req, res) {
 
     if (fresh && !p.failed) {
       const got = await klingPoll(p.taskId, token);
-      if (got.status === 'processing' || got.status === 'error') {
-        return res.json({ status: 'processing', note: got.error || '' });
+      if (got.status === 'processing') return res.json({ status: 'processing' });
+      if (got.status === 'error') {
+        // Show the real reason, but keep checking: the job may still finish.
+        return res.json({ status: 'processing', error: got.error });
       }
       if (got.status === 'failed') {
         await savePending(pend, { taskId: p.taskId, created: p.created, tries: p.tries || 1,
@@ -206,7 +223,8 @@ module.exports = async function handler(req, res) {
     if (body.create !== true) return res.json({ status: 'none' });
 
     const tries = (p && p.tries) ? p.tries + 1 : 1;
-    const taskId = await klingCreate(prompt, token);
+    // external id must be unique per Kling account, so a retry gets a new one
+    const taskId = await klingCreate(prompt, token, 'dss-' + key.substring(0, 24) + '-' + tries + '-' + Date.now().toString(36));
     const ok = await savePending(pend, { taskId: taskId, created: Date.now(), tries: tries }, supaKey);
     return res.json({ status: 'processing', started: true, note: ok === 'ok' ? '' : ('job note not saved: ' + ok) });
 
