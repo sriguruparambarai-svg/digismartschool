@@ -145,6 +145,11 @@
     inp.click();
   }
 
+  /* Full AI-teacher mode: a tool may register a demonstration the player runs by itself.
+     alive() turns false the moment the teacher stops the class or changes screen. */
+  const pause = ms => new Promise(r => setTimeout(r, ms));
+  const autoOf = api => (api && typeof api.setAuto === "function" ? api.setAuto : () => {});
+
   const tools = {
     /* Fallback: heading + lines written on the board */
     plainBoard(h, ctl, p) {
@@ -156,7 +161,7 @@
     },
 
     /* Wheel rolling on a road: one point of contact */
-    rollingWheel(h, ctl, p) {
+    rollingWheel(h, ctl, p, api) {
       h.el("line", { x1: 20, y1: 400, x2: 620, y2: 400, class: "cl" });
       h.txt(26, 432, p.road || "road", "t d");
       const wr = 90, g = h.el("g"), sp = h.el("g", {}, g);
@@ -176,7 +181,8 @@
         dot.setAttribute("cx", x); lab.setAttribute("x", Math.min(500, Math.max(140, x)));
       };
       place();
-      button(ctl, p.button || "Roll the wheel", () => {
+      autoOf(api)(async alive => { if (alive()) { roll.click(); await pause(3700); } });
+      const roll = button(ctl, p.button || "Roll the wheel", () => {
         cancelAnimationFrame(raf);
         dot.setAttribute("opacity", 1); lab.setAttribute("opacity", 1);
         const t0 = performance.now();
@@ -191,7 +197,7 @@
     },
 
     /* Stone in a sling: released stone flies along the tangent */
-    sling(h, ctl, p) {
+    sling(h, ctl, p, api) {
       const O = { x: 300, y: 240 }, Rs = 120;
       h.el("circle", { cx: O.x, cy: O.y, r: Rs, class: "cl thin dim dash" });
       h.el("circle", { cx: O.x, cy: O.y, r: 8, class: "dot" });
@@ -225,7 +231,8 @@
         raf = requestAnimationFrame(frame);
       }
       raf = requestAnimationFrame(frame);
-      button(ctl, p.button || "Let go", () => {
+      autoOf(api)(async alive => { await pause(1500); if (alive()) { letGo.click(); await pause(3000); } });
+      const letGo = button(ctl, p.button || "Let go", () => {
         if (mode !== "spin") return;
         const q = { x: O.x + Rs * Math.cos(th), y: O.y + Rs * Math.sin(th) };
         rel = { p: q, v: { x: -Math.sin(th), y: Math.cos(th) } };
@@ -366,7 +373,7 @@
     },
 
     /* Right triangle O-T-P with a tangent, then formula steps one by one */
-    tangentLengthSteps(h, ctl, p) {
+    tangentLengthSteps(h, ctl, p, api) {
       const O = { x: 210, y: 280 }, T = { x: 210, y: 170 }, P = { x: 474, y: 170 };
       h.el("circle", { cx: O.x, cy: O.y, r: 110, class: "cl dim" });
       h.el("circle", { cx: O.x, cy: O.y, r: 5, class: "odot" });
@@ -378,13 +385,13 @@
       h.txt(O.x - 70, 232, (p.r || 5) + " cm");
       h.txt(318, 156, (p.t || 12) + " cm ?", "t g");
       h.txt(356, 252, (p.d || 13) + " cm", "t d");
-      stepLines(h, ctl, p.steps || [], 344, 300, 36);
+      stepLines(h, ctl, p.steps || [], 344, 300, 36, api);
     },
 
     /* Just formula steps written one by one (no figure) */
-    formulaSteps(h, ctl, p) {
+    formulaSteps(h, ctl, p, api) {
       if (p.heading) h.txt(24, 50, p.heading, "t big g");
-      stepLines(h, ctl, p.steps || [], 60, 120, 52);
+      stepLines(h, ctl, p.steps || [], 60, 120, 52, api);
     },
 
     /* Two pulleys with a belt: the straight parts are tangents */
@@ -415,7 +422,7 @@
     },
 
     /* Dot pictures that grow step by step: triangular, square, oblong numbers; or one array */
-    dotPattern(h, ctl, p) {
+    dotPattern(h, ctl, p, api) {
       const kind = ["triangle", "square", "oblong", "array", "pairs"].includes(p.kind) ? p.kind : "square";
       if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
       const layer = h.el("g");
@@ -497,12 +504,13 @@
         h.txt(320, 440, counts.join(", ") + (shown < N ? ", …" : ""), "t big g", layer, { "text-anchor": "middle" });
       };
       draw();
-      button(ctl, "Next picture", () => { if (shown < N) { shown++; draw(); } });
+      const nextPic = button(ctl, "Next picture", () => { if (shown < N) { shown++; draw(); } });
+      autoOf(api)(async alive => { await pause(1200); while (alive() && shown < N) { nextPic.click(); await pause(1500); } });
       button(ctl, "Start again", () => { shown = 1; draw(); }, "btn ghost");
     },
 
     /* Number line with jumps shown one at a time */
-    numberLine(h, ctl, p) {
+    numberLine(h, ctl, p, api) {
       if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
       const den = clampInt(p.denominator, 1, 12, 1);
       const jumps = (Array.isArray(p.jumps) ? p.jumps : []).map(Number).filter(Number.isFinite).slice(0, 8);
@@ -564,13 +572,14 @@
       };
       draw();
       if (jumps.length) {
-        button(ctl, "Next jump", () => { if (i < jumps.length) { i++; draw(); } });
+        const nextJump = button(ctl, "Next jump", () => { if (i < jumps.length) { i++; draw(); } });
+        autoOf(api)(async alive => { await pause(1000); while (alive() && i < jumps.length) { nextJump.click(); await pause(1800); } });
         button(ctl, "Start again", () => { i = 0; draw(); }, "btn ghost");
       }
     },
 
     /* Singapore bar model: parts appear one at a time; '?' marks the unknown */
-    barModel(h, ctl, p) {
+    barModel(h, ctl, p, api) {
       if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
       const bars = (Array.isArray(p.bars) ? p.bars : []).slice(0, 3).map(b => {
         b = b && typeof b === "object" ? b : {};
@@ -617,7 +626,8 @@
         });
       };
       draw();
-      button(ctl, "Next part", () => { if (shown < order.length) { shown++; draw(); } });
+      const nextPart = button(ctl, "Next part", () => { if (shown < order.length) { shown++; draw(); } });
+      autoOf(api)(async alive => { while (alive() && shown < order.length) { nextPart.click(); await pause(1400); } });
       button(ctl, "Show all", () => { shown = order.length; draw(); }, "btn ghost");
     },
 
@@ -933,7 +943,7 @@
     },
 
     /* Balance scale (தராசு): whatever you do to one pan, do to the other, until x is alone */
-    balanceScale(h, ctl, p) {
+    balanceScale(h, ctl, p, api) {
       const side = s => ({ x: clampInt(s && s.x, 0, 4, 0), u: clampInt(s && s.units, 0, 15, 0) });
       const start = { L: side(p.left), R: side(p.right) };
       if (!start.L.x && !start.R.x) start.L.x = 1;
@@ -1002,6 +1012,13 @@
         timer = setTimeout(() => { L.u++; tilt = 0; note = "Put it back. Level again."; draw(); }, 2200);
       }, "btn ghost");
       button(ctl, "Start again", () => { clearTimeout(timer); L = { ...start.L }; R = { ...start.R }; tilt = 0; note = ""; draw(); }, "btn ghost");
+      autoOf(api)(async alive => {
+        await pause(1000);
+        for (let k = 0; k < 40 && alive(); k++) {
+          if (!bX.disabled) bX.click(); else if (!bOne.disabled) bOne.click(); else if (!bSplit.disabled) bSplit.click(); else break;
+          await pause(1700);
+        }
+      });
       draw();
       return () => clearTimeout(timer);
     },
@@ -1081,12 +1098,25 @@
       });
       h.wrapText(q, p.intro || "Say the facts together first", 320, 22, 52);
       api.setAsk({ start: () => go.click(), stop: () => clearInterval(timer) });
+      autoOf(api)(async alive => {
+        if (!qs.length) return;
+        i = 0; show();
+        for (let k = 0; k < qs.length && alive(); k++) {
+          await pause(secs * 1000 + 300);
+          if (!alive()) return;
+          if (timer) reveal();
+          await pause(2800);
+          if (alive()) go.click(); // next question, or the closing message after the last
+        }
+        await pause(2000);
+      });
       return () => clearInterval(timer);
     }
   };
 
-  function stepLines(h, ctl, steps, x, y0, gap) {
+  function stepLines(h, ctl, steps, x, y0, gap, api) {
     let i = 0;
+    autoOf(api)(async alive => { while (alive() && i < steps.length) { b.click(); await pause(1800); } });
     const b = button(ctl, "Next step", () => {
       if (i >= steps.length) return;
       const last = i === steps.length - 1;
