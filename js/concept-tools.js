@@ -744,11 +744,32 @@
       });
       const items = (Array.isArray(p.items) ? p.items : []).slice(0, 8).filter(it => it && typeof it === "object").map(it => ({
         type: ["line", "ray", "segment", "angle"].includes(it.type) ? it.type : "segment",
-        from: str(it.from), to: str(it.to), at: str(it.at), showLength: it.showLength === true
-      })).filter(it => it.type === "angle" ? pts[it.at] && pts[it.from] && pts[it.to] : pts[it.from] && pts[it.to] && it.from !== it.to);
+        from: str(it.from), to: str(it.to), at: str(it.at), showLength: it.showLength === true,
+        size: num(it.size, NaN)
+      })).filter(it => it.type === "angle"
+        ? pts[it.at] && pts[it.from] && (pts[it.to] || (Number.isFinite(it.size) && it.size > 0))
+        : pts[it.from] && pts[it.to] && it.from !== it.to);
       if (!Object.keys(pts).length) { tools.plainBoard(h, ctl, { heading: str(p.heading), lines: ["Geometry board"] }); return; }
 
       const BOX = { x1: 16, x2: 624, y1: 66, y2: 464 };
+      // An angle given with a size: put its second arm exactly that far round,
+      // so the picture always matches the number the lesson text uses
+      items.forEach(it => {
+        if (it.type !== "angle" || !(it.size > 0)) return;
+        const size = Math.min(180, it.size), V = pts[it.at], F = pts[it.from];
+        if (!it.to || it.to === it.at || it.to === it.from) it.to = "CDEFGHJKLMNRSTUVWZ".split("").find(n => !pts[n]) || "Z";
+        const base = Math.atan2(F.y - V.y, F.x - V.x), L = Math.max(120, Math.hypot(F.x - V.x, F.y - V.y));
+        const inside = q => q.x > BOX.x1 + 24 && q.x < BOX.x2 - 24 && q.y > BOX.y1 + 24 && q.y < BOX.y2 - 24;
+        let spot = null;
+        for (const len of [L, L * 0.75, L * 0.5, 70]) {
+          for (const sign of [-1, 1]) {
+            const a = base + sign * size * Math.PI / 180, q = { x: V.x + len * Math.cos(a), y: V.y + len * Math.sin(a) };
+            if (inside(q)) { spot = q; break; }
+          }
+          if (spot) break;
+        }
+        pts[it.to] = spot || { x: V.x + 70 * Math.cos(base - size * Math.PI / 180), y: V.y + 70 * Math.sin(base - size * Math.PI / 180) };
+      });
       const g = h.el("g"), labels = h.el("g");
       const out = readout(ctl);
       const unitv = v => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
@@ -777,7 +798,11 @@
           if (it.type === "angle") {
             const V = pts[it.at], A = pts[it.from], B = pts[it.to];
             const { u, w, deg } = angleOf(V, A, B);
-            for (const d of [u, w]) { const E = toEdge(V, d); h.setLine(h.el("line", { class: "cl" }, g), V, E); arrow(E, d, "cl"); }
+            for (const [d, Pn] of [[u, A], [w, B]]) {
+              const far = toEdge(V, d), reach = Math.hypot(Pn.x - V.x, Pn.y - V.y) + 70;
+              const E = Math.hypot(far.x - V.x, far.y - V.y) > reach ? { x: V.x + d.x * reach, y: V.y + d.y * reach } : far;
+              h.setLine(h.el("line", { class: "cl" }, g), V, E); arrow(E, d, "cl");
+            }
             if (deg === 90) {
               h.el("path", { d: h.markPath(V, u, w, 22), class: "mark" }, g);
             } else if (deg > 0) {
@@ -964,7 +989,7 @@
     barModel: "Singapore bar model, parts appear one by one: word problems, part-whole, comparison, fractions, ratio, percentage. Settings: bars:[{name, parts:[{v: width number, label: 'text' or '?'}], total: 'text' or '?'}] (1 to 3 bars; v sets the width; '?' marks the unknown), heading",
     dragTriangle: "ONLY for chapters that teach triangles (it shows the triangle angle sum, which other chapters have not taught). Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
     angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
-    geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E'}] (angle at B between arms BD and BE), heading. Choose coordinates that make a clear picture: angles between 30° and 120° and points well apart, unless the screen is about obtuse, straight or reflex angles. To compare two angles, draw two separate angles side by side, one in the left half (x 0-4) and one in the right half (x 6-10), with sizes at least 30° apart and no arm crossing the other angle, so the class can see which turns more",
+    geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E', size: 40}] (angle at B between arms BD and BE). ALWAYS give each angle its size in degrees: the tool then places point E itself so the picture shows exactly that size (E's coordinates can be left out). Use exactly those sizes in the screen's text. heading. Choose coordinates that make a clear picture: angles between 30° and 120° and points well apart, unless the screen is about obtuse, straight or reflex angles. To compare two angles, draw two separate angles side by side, one in the left half (x 0-4) and one in the right half (x 6-10), with sizes at least 30° apart and no arm crossing the other angle, so the class can see which turns more",
     photo: "A realistic photograph of ONE everyday Indian scene that shows the idea, with a short caption under it. Use on why, see or where screens when no moving tool fits; at most 3 per lesson. Settings: scene (under 25 words, one clear real-life scene a child knows, no writing or numbers in it, e.g. 'a carpenter holding a steel set square against the corner of a wooden door'), caption (under 60 characters)",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
