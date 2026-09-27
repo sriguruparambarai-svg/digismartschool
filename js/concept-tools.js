@@ -93,6 +93,58 @@
   const str = v => (v == null ? "" : String(v)).trim();
   const fmt = v => { const r = Math.round(v * 100) / 100; return (r < 0 ? "−" : "") + Math.abs(r); };
 
+  /* Photos: one request per scene per page, shared by the early fetch and the board */
+  const photoCache = {};
+  const sessionToken = () => { try { return localStorage.getItem("dss_session") || ""; } catch (e) { return ""; } };
+  const isSuperAdmin = () => { try { return localStorage.getItem("dss_role") === "super_admin" && !!localStorage.getItem("dss_session"); } catch (e) { return false; } };
+  function photoUrl(scene) {
+    const key = String(scene).toLowerCase().trim();
+    if (!photoCache[key]) {
+      photoCache[key] = fetch("/api/gen-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
+        body: JSON.stringify({ query: scene, mode: "concept-photo" })
+      })
+        .then(r => r.json())
+        .then(d => ({ url: (d && d.images && d.images[0] && d.images[0].url) || "", note: (d && (d.note || d.error)) || "" }))
+        .catch(e => ({ url: "", note: e.message }));
+      photoCache[key].then(r => { if (!r.url) delete photoCache[key]; }); // let a failed picture try again later
+    }
+    return photoCache[key];
+  }
+  /* Super admin swaps an AI photo for a checked one; it is then used for every school */
+  function replacePhoto(scene, done) {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/*";
+    inp.onchange = () => {
+      const f = inp.files && inp.files[0];
+      if (!f) return;
+      const img = new Image(), src = URL.createObjectURL(f);
+      img.onerror = () => alert("That file could not be read as a picture.");
+      img.onload = () => {
+        const s = Math.min(1, 1536 / img.width), c = document.createElement("canvas");
+        c.width = Math.round(img.width * s); c.height = Math.round(img.height * s);
+        c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(src);
+        fetch("/api/gen-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
+          body: JSON.stringify({ action: "replace", query: scene, mode: "concept-photo", image_base64: c.toDataURL("image/jpeg", 0.85) })
+        })
+          .then(r => r.json())
+          .then(d => {
+            if (!d || d.error || !d.images || !d.images[0]) { alert((d && d.error) || "The picture could not be replaced."); return; }
+            const url = d.images[0].url + "?t=" + Date.now();
+            photoCache[String(scene).toLowerCase().trim()] = Promise.resolve({ url, note: "" });
+            done(url);
+          })
+          .catch(e => alert("The picture could not be replaced: " + e.message));
+      };
+      img.src = src;
+    };
+    inp.click();
+  }
+
   const tools = {
     /* Fallback: heading + lines written on the board */
     plainBoard(h, ctl, p) {
@@ -811,6 +863,46 @@
       upd();
     },
 
+    /* A realistic everyday photo that shows the idea (made once by /api/gen-image, then saved) */
+    photo(h, ctl, p) {
+      const scene = str(p.scene), caption = str(p.caption);
+      if (scene.length < 3) { tools.plainBoard(h, ctl, { heading: caption, lines: [] }); return; }
+      let alive = true;
+      const g = h.el("g");
+      h.txt(320, 230, "Getting the picture ready", "t big", g, { "text-anchor": "middle" });
+      h.txt(320, 275, "First time only, about half a minute", "t d", g, { "text-anchor": "middle" });
+      let current = "";
+      // The board is often wider or taller than the 640x480 drawing area: fill all of it
+      const area = () => {
+        const s = g.ownerSVGElement, m = s && s.getScreenCTM(), r = s && s.getBoundingClientRect();
+        if (!m || !r || !r.width) return { x: 0, y: 0, w: 640, h: 480 };
+        return { x: (r.left - m.e) / m.a, y: (r.top - m.f) / m.d, w: r.width / m.a, h: r.height / m.d };
+      };
+      const show = url => {
+        if (!alive) return;
+        current = url;
+        g.innerHTML = "";
+        const A = area();
+        h.el("image", { href: url, x: A.x, y: A.y, width: A.w, height: A.h, preserveAspectRatio: "xMidYMid slice" }, g);
+        if (caption) {
+          h.el("rect", { x: A.x, y: A.y + A.h - 76, width: A.w, height: 76, fill: "rgba(20,28,24,.8)" }, g);
+          const t = h.el("text", { x: 320, y: A.y + A.h - 30, class: "t big", "text-anchor": "middle" }, g);
+          h.wrapText(t, caption, 320, 40, 32);
+        }
+      };
+      const onResize = () => { if (current) show(current); };
+      window.addEventListener("resize", onResize);
+      const fail = note => {
+        if (!alive) return;
+        console.warn("Picture not made:", note);
+        g.innerHTML = "";
+        tools.plainBoard(h, null, { heading: caption || "Picture", lines: [scene] });
+      };
+      photoUrl(scene).then(r => (r.url ? show(r.url) : fail(r.note))).catch(e => fail(e.message));
+      if (isSuperAdmin()) button(ctl, "Replace picture", () => replacePhoto(scene, show), "btn ghost");
+      return () => { alive = false; window.removeEventListener("resize", onResize); };
+    },
+
     /* Rapid-fire questions with countdown and reveal */
     quickQuestions(h, ctl, p, api) {
       const qs = p.questions || [], secs = p.seconds || 6;
@@ -873,8 +965,9 @@
     dragTriangle: "ONLY for chapters that teach triangles (it shows the triangle angle sum, which other chapters have not taught). Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
     angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
     geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E'}] (angle at B between arms BD and BE), heading. Choose coordinates that make a clear picture: angles between 30° and 120° and points well apart, unless the screen is about obtuse, straight or reflex angles. To compare two angles, draw two separate angles side by side (e.g. one at B, one at Q) so the class can see which turns more",
+    photo: "A realistic photograph of ONE everyday Indian scene that shows the idea, with a short caption under it. Use on why, see or where screens when no moving tool fits; at most 3 per lesson. Settings: scene (under 25 words, one clear real-life scene a child knows, no writing or numbers in it, e.g. 'a carpenter holding a steel set square against the corner of a wooden door'), caption (under 60 characters)",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
 
-  window.ConceptTools = { helpers, tools, catalogue };
+  window.ConceptTools = { helpers, tools, catalogue, photoUrl };
 })();
