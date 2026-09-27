@@ -433,6 +433,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       "- Students will not ask questions, so every screen has one question for the class with a short, clear answer.",
       "- Check every number and every answer twice. Wrong maths is the worst possible mistake.",
       "- Teach only this chapter." + (text ? " Follow what the chapter text below teaches." : ""),
+      "- JSON safety: never put the double-quote character inside any text (use single quotes instead), and never put line breaks inside text.",
       "",
       "SCREENS: 8 or 9 screens, in this order of 'step' (use 2 'draw' screens if needed):",
       "why = a real-life problem that creates the need for this idea",
@@ -489,14 +490,50 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     return { subject, class: Number(cls) || cls, chapter, screens, madeBy: "ai", madeAt: new Date().toISOString() };
   }
 
-  async function makeLesson() {
-    const text = await chapterText();
+  /* Fix the small JSON mistakes AI often makes: line breaks or stray " inside text,
+     a comma left before } or ], a comma missing between items on new lines. */
+  function repairJSON(t) {
+    let out = "", inStr = false, esc = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (!inStr) { if (c === '"') inStr = true; out += c; continue; }
+      if (esc) { out += c; esc = false; continue; }
+      if (c === "\\") { out += c; esc = true; continue; }
+      if (c === "\n") { out += "\\n"; continue; }
+      if (c === "\r") continue;
+      if (c === "\t") { out += " "; continue; }
+      if (c === '"') {
+        let j = i + 1, sawNewline = false;
+        while (j < t.length && /\s/.test(t[j])) { if (t[j] === "\n") sawNewline = true; j++; }
+        const nx = t[j];
+        if (nx === undefined || nx === "," || nx === ":" || nx === "}" || nx === "]") { inStr = false; out += c; }
+        else if (nx === '"' && sawNewline) { inStr = false; out += c + ","; }
+        else out += '\\"';
+        continue;
+      }
+      out += c;
+    }
+    return out.replace(/,(\s*[}\]])/g, "$1").replace(/}(\s*){/g, "},$1{").replace(/](\s*)\[/g, "],$1[");
+  }
+
+  function parseLesson(txt) {
+    const a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+    if (a < 0 || b <= a) throw new Error("no lesson found in the reply");
+    const body = txt.slice(a, b + 1);
+    try { return JSON.parse(body); }
+    catch (e1) { return JSON.parse(repairJSON(body)); }
+  }
+
+  async function askAI(text) {
     const r = await fetch("/api/ai", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
       body: JSON.stringify({
         system: "You are an expert Indian school maths teacher and lesson designer. You return ONLY valid JSON. No markdown fences, no text before or after the JSON.",
-        messages: [{ role: "user", content: buildPrompt(text) }],
+        messages: [
+          { role: "user", content: buildPrompt(text) },
+          { role: "assistant", content: "{" } // makes the reply start straight with the lesson
+        ],
         max_tokens: 12000
       })
     });
@@ -506,14 +543,26 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
       const m = d && (typeof d.error === "string" ? d.error : (d.error && d.error.message) || d.message);
       throw new Error("AI error: " + (m || `status ${r.status}`));
     }
-    const txt = Array.isArray(d.content) ? d.content.map(x => x.text || "").join("") : "";
-    const a = txt.indexOf("{"), b = txt.lastIndexOf("}");
-    if (a < 0 || b <= a) throw new Error("The AI did not send back a lesson.");
-    let raw;
-    try { raw = JSON.parse(txt.slice(a, b + 1)); }
-    catch (e) { throw new Error("The AI's lesson could not be read" + (d.stop_reason === "max_tokens" ? " because it was cut off (too long)" : "") + "."); }
-    return cleanLesson(raw);
+    const txt = "{" + (Array.isArray(d.content) ? d.content.map(x => x.text || "").join("") : "");
+    return { txt, cutOff: d.stop_reason === "max_tokens" };
   }
+
+  async function makeLesson() {
+    const text = await chapterText();
+    let lastProblem = "";
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      if (attempt === 2) showWaiting("The first try came back messy. Trying once more, about a minute");
+      const { txt, cutOff } = await askAI(text);
+      try {
+        return cleanLesson(parseLesson(txt));
+      } catch (e) {
+        console.warn(`Lesson attempt ${attempt} could not be read:`, e.message, "\nAI reply was:\n", txt);
+        lastProblem = cutOff ? "it was cut off because it was too long" : e.message;
+      }
+    }
+    throw new Error("The AI's lesson could not be read twice (" + lastProblem + "). Press Try again.");
+  }
+
 
   async function loadChapter(fresh) {
     redoBtn.hidden = true;
