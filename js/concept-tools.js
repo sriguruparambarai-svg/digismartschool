@@ -364,7 +364,7 @@
 
     /* Dot pictures that grow step by step: triangular, square, oblong numbers; or one array */
     dotPattern(h, ctl, p) {
-      const kind = ["triangle", "square", "oblong", "array"].includes(p.kind) ? p.kind : "square";
+      const kind = ["triangle", "square", "oblong", "array", "pairs"].includes(p.kind) ? p.kind : "square";
       if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
       const layer = h.el("g");
 
@@ -381,6 +381,35 @@
         };
         draw();
         button(ctl, "Turn it around", () => { [R, C] = [C, R]; draw(); });
+        return;
+      }
+
+      if (kind === "pairs") {
+        /* A number as dots in 2 rows: even = every dot has a partner, odd = 1 left over */
+        let n = clampInt(p.number, 1, 30, 7);
+        const status = h.txt(320, 440, "", "t big", layer, { "text-anchor": "middle" });
+        const dots = h.el("g", {}, layer);
+        const out = readout(ctl);
+        const draw = () => {
+          dots.innerHTML = "";
+          const cols = Math.ceil(n / 2), d = Math.min(56, 520 / Math.max(1, cols - 1)), rr = Math.max(6, Math.min(16, d * 0.3));
+          const x0 = 320 - (cols - 1) * d / 2, y1 = 190, y2 = 190 + Math.max(56, d);
+          for (let i = 0; i < n; i++) {
+            const col = Math.floor(i / 2), top = i % 2 === 0, last = i === n - 1 && n % 2 === 1;
+            h.el("circle", { cx: x0 + col * d, cy: top ? y1 : y2, r: rr, class: "dot", style: last ? "fill:var(--chalk-pink)" : "" }, dots);
+          }
+          for (let c = 0; c < Math.floor(n / 2); c++)
+            h.setLine(h.el("line", { class: "cl thin dim" }, dots), { x: x0 + c * d, y: y1 + rr }, { x: x0 + c * d, y: y2 - rr });
+          if (n % 2) h.txt(x0 + (cols - 1) * d, y1 - 30, "left over", "t p", dots, { "text-anchor": "middle" });
+          const pairs = Math.floor(n / 2);
+          status.textContent = n % 2 ? `${n} is ODD` : `${n} is EVEN`;
+          out.innerHTML = n % 2
+            ? `<strong>${n} = ${pairs} pairs + 1 left over.</strong> One dot has no partner, so ${n} is odd.`
+            : `<strong>${n} = ${pairs} pairs.</strong> Every dot has a partner, so ${n} is even.`;
+        };
+        draw();
+        button(ctl, "+1", () => { if (n < 30) { n++; draw(); } });
+        button(ctl, "−1", () => { if (n > 1) { n--; draw(); } }, "btn ghost");
         return;
       }
 
@@ -700,7 +729,7 @@
     tangentLengthSteps: "Right triangle O-T-P with tangent PT, then formula steps one by one. Settings: r, d, t, steps[]",
     formulaSteps: "Formula steps written one by one, no figure. Settings: heading, steps[]",
     beltPulleys: "Two pulleys with a belt; straight parts are tangents. Settings: heading, left, right",
-    dotPattern: "Dot pictures that grow one step at a time (triangular, square, oblong numbers), or one dot array for multiplication and factors. Settings: kind ('triangle'|'square'|'oblong'|'array'), steps (1-7), heading; for array: rows, cols",
+    dotPattern: "Dot pictures that grow one step at a time (triangular, square, oblong numbers), or one dot array for multiplication and factors. Also 'pairs': a number as dots in 2 rows with any left-over dot marked, +1/−1 buttons (even and odd numbers). Settings: kind ('triangle'|'square'|'oblong'|'array'|'pairs'), steps (1-7), heading; for array: rows, cols; for pairs: number",
     numberLine: "Number line with jumps shown one by one: addition, subtraction, integers, skip counting, fractions, decimals. Settings: min, max, start, jumps[] (e.g. [3,-5]), denominator (fraction ticks, e.g. 4), marks[] (points to highlight), heading",
     barModel: "Singapore bar model, parts appear one by one: word problems, part-whole, comparison, fractions, ratio, percentage. Settings: bars:[{name, parts:[{v: width number, label: 'text' or '?'}], total: 'text' or '?'}] (1 to 3 bars; v sets the width; '?' marks the unknown), heading",
     dragTriangle: "Drag the corners of a triangle; angles and side lengths update live; shows angle sum 180°, triangle type and that two sides together are longer than the third. Settings: show ('angles'|'sides'|'both'), heading",
