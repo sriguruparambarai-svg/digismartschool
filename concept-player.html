@@ -209,18 +209,82 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     return { box, start, stop: () => clearInterval(timer) };
   }
 
-  /* Read aloud with the browser voice (ElevenLabs comes in a later step) */
-  function speak(text, onEnd) {
+  /* ---------- Read aloud with the TeachBot teacher voice (ElevenLabs via /api/voice-class) ----------
+     The voice file saves every clip by its exact words, and lessons are saved word for word,
+     so each screen is paid for only once. If the teacher voice fails, the computer voice
+     reads instead and the reason is shown, never silence. */
+  // Turn maths writing into words the voice can say. Tamil words are dropped here:
+  // they are on the word cards, and Tamil letters would switch the whole screen to the Tamil voice.
+  function speakable(t) {
+    return String(t || "")
+      .replace(/\([^()]*[\u0B80-\u0BFF][^()]*\)/g, "")
+      .replace(/[\u0B80-\u0BFF]+/g, "")
+      .replace(/\*\*/g, "")
+      .replace(/∠\s*([A-Z]{3})\b/g, (m, n) => "angle " + n.split("").join(" "))
+      .replace(/∠/g, "angle ")
+      .replace(/√\s*\(([^)]*)\)/g, "square root of $1")
+      .replace(/√/g, "square root of ")
+      .replace(/²/g, " squared").replace(/³/g, " cubed")
+      .replace(/(\d)\s*°/g, "$1 degrees").replace(/°/g, " degrees")
+      .replace(/≠/g, " is not equal to ").replace(/≤/g, " is less than or equal to ").replace(/≥/g, " is greater than or equal to ")
+      .replace(/⊥/g, " is perpendicular to ")
+      .replace(/(\d)\s*×\s*(\d)/g, "$1 times $2").replace(/×/g, " times ").replace(/÷/g, " divided by ")
+      .replace(/(\d)\s*\/\s*(\d)/g, "$1 by $2")
+      .replace(/\s[−–-]\s/g, " minus ").replace(/−/g, " minus ")
+      .replace(/\s\+\s/g, " plus ").replace(/\s=\s/g, " equals ").replace(/\s>\s/g, " is greater than ").replace(/\s<\s/g, " is less than ")
+      .replace(/\s+/g, " ").replace(/\s+([.,?!])/g, "$1").trim();
+  }
+  const voiceCache = {};
+  let currentAudio = null, speakToken = 0;
+  function stopVoice() {
+    speakToken++;
+    if (currentAudio) { try { currentAudio.pause(); } catch (e) {} currentAudio = null; }
+    if ("speechSynthesis" in window) speechSynthesis.cancel();
+  }
+  function browserSpeak(text, onEnd, my) {
     if (!("speechSynthesis" in window)) { if (onEnd) onEnd(); return; }
-    speechSynthesis.cancel();
     const u = new SpeechSynthesisUtterance(text);
     const vs = speechSynthesis.getVoices();
     const v = vs.find(x => x.lang === "en-IN") || vs.find(x => x.lang.startsWith("en"));
     if (v) u.voice = v;
     u.rate = 0.92;
-    u.onend = () => { if (onEnd) onEnd(); };
+    u.onend = () => { if (my === speakToken && onEnd) onEnd(); };
     speechSynthesis.speak(u);
   }
+  async function speak(text, onEnd, btn) {
+    stopVoice();
+    const my = ++speakToken;
+    const clean = speakable(text);
+    if (!clean) { if (onEnd) onEnd(); return; }
+    const n = String((lesson && lesson.class) || cls || "").replace(/[^0-9]/g, "");
+    const clsName = n ? "Class " + n : "";
+    const key = clsName + "|" + clean;
+    if (btn) { btn.disabled = true; btn.textContent = "Getting voice…"; }
+    try {
+      if (!voiceCache[key]) {
+        voiceCache[key] = fetch("/api/voice-class", { method: "POST", headers: JSON_HEAD, body: JSON.stringify({ text: clean, cls: clsName }) })
+          .then(r => r.json().catch(() => ({})).then(d => {
+            if (!r.ok || !d.audio_b64) throw new Error(d.error || `status ${r.status}`);
+            return "data:audio/mpeg;base64," + d.audio_b64;
+          }));
+      }
+      const src = await voiceCache[key];
+      if (my !== speakToken) return; // the teacher moved to another screen
+      const a = new Audio(src);
+      currentAudio = a;
+      a.onended = () => { if (my === speakToken) { currentAudio = null; if (onEnd) onEnd(); } };
+      await a.play();
+    } catch (e) {
+      delete voiceCache[key];
+      console.warn("Teacher voice not available:", e.message);
+      if (my !== speakToken) return;
+      document.getElementById("pos").textContent = "Teacher voice not available (" + e.message + "), so the computer voice is reading.";
+      browserSpeak(clean, onEnd, my);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = "Read aloud"; }
+    }
+  }
+
 
   function showError(title, detail, retry) {
     document.getElementById("chapter").firstChild.textContent = "Concept class";
@@ -244,16 +308,16 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
     if (n < 0 || n >= screens.length) return;
     if (cleanup) { try { cleanup(); } catch (e) { console.error(e); } }
     if (currentAsk) currentAsk.stop();
-    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    stopVoice();
     cleanup = null; currentAsk = null; idx = n;
     const scr = screens[n];
     svg.innerHTML = ""; panel.innerHTML = ""; panel.scrollTop = 0;
 
     const tb = document.createElement("div"); tb.className = "titlebar";
     const h2 = document.createElement("h2"); h2.textContent = scr.title || ""; tb.appendChild(h2);
-    button(tb, "Read aloud", () => {
+    const readBtn = button(tb, "Read aloud", () => {
       const text = (scr.lines || []).join(" ") + (scr.ask ? " " + scr.ask.q : "");
-      speak(text, () => { if (currentAsk) currentAsk.start(); });
+      speak(text, () => { if (currentAsk) currentAsk.start(); }, readBtn);
     }, "speak");
     panel.appendChild(tb);
 
@@ -356,7 +420,7 @@ footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
   document.getElementById("homeBtn").onclick = () => {
     let back = "";
     try { back = sessionStorage.getItem("cp_returnUrl") || ""; } catch (e) {}
-    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    stopVoice();
     location.href = back || "learnbot.html";
   };
   document.getElementById("back").onclick = () => go(idx - 1);
