@@ -20,7 +20,7 @@
     };
     const txt = (x, y, s, cls = "t", parent = svg, extra = {}) => {
       const t = el("text", Object.assign({ x, y, class: cls }, extra), parent);
-      t.textContent = s;
+      t.textContent = String(s).replace(/\*\*/g, ""); // bold marks only work in the side panel
       return t;
     };
     const setLine = (n, a, b) => {
@@ -59,7 +59,7 @@
     const wrapText = (textEl, s, x, maxChars, lineGap) => {
       textEl.innerHTML = "";
       const rows = []; let row = "";
-      for (const w of String(s).split(" ")) {
+      for (const w of String(s).replace(/\*\*/g, "").split(" ")) {
         if ((row + " " + w).trim().length > maxChars && row) { rows.push(row); row = w; }
         else row = (row + " " + w).trim();
       }
