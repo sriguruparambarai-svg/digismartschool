@@ -70,6 +70,17 @@ const STYLES = {
       + 'Uncluttered background. No text, no letters, no numbers, no labels, no arrows, '
       + 'no drawn lines, no watermark. The step being done: '
   },
+  // A realistic everyday photo for the concept class 'Why / See it / Where used'
+  // screens: shows the real-life idea simply, big enough to read from the back.
+  'concept-photo': {
+    size: '1536x1024',
+    quality: 'medium',
+    prefix: 'A clear, realistic photograph taken in India, bright natural daylight, eye level. '
+      + 'Real Indian people, places and everyday objects, shown simply so the main subject '
+      + 'is easy to see from the back of a classroom. Uncluttered background. '
+      + 'No text, no letters, no numbers, no labels, no arrows, no drawn lines, no watermark, '
+      + 'no diagram of any kind. Photograph of: '
+  },
   'kg-colour': {
     size: '1024x1024',
     quality: 'medium',
