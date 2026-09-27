@@ -89,6 +89,10 @@ footer .btn{min-width:140px}
 .waiting::after{content:"";display:inline-block;width:1.2em;text-align:left;animation:dots 1.4s steps(4) infinite}
 @keyframes dots{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
 footer .redo{min-width:0;font-size:1rem;padding:8px 14px}
+.langsw{display:flex;gap:3px;background:rgba(0,0,0,.25);border-radius:999px;padding:3px}
+.langsw button{background:none;border:0;color:var(--sandal);padding:6px 12px;border-radius:999px;cursor:pointer;font-size:.95rem;font-family:inherit}
+.langsw button.on{background:var(--sandal);color:var(--maroon);font-weight:700}
+.ta-lines{font-size:1.1rem;line-height:1.55;color:#4a2412;background:#fff8ec;border-left:5px solid var(--maroon);border-radius:6px;padding:8px 12px}
 footer .auto{background:var(--maroon);color:var(--sandal-light);min-width:170px}
 footer .auto.running{background:#2b1a12}
 .activity{background:var(--maroon);color:var(--sandal-light);border-radius:10px;padding:12px 16px}
@@ -136,6 +140,7 @@ footer .auto.running{background:#2b1a12}
   <button class="homebtn" id="homeBtn" title="Back to TeachBot">← TeachBot</button>
   <h1 class="chapter" id="chapter">Loading…<span></span></h1>
   <nav class="rail" id="rail" aria-label="Lesson steps"></nav>
+  <div class="langsw" id="langsw" role="group" aria-label="Teaching language"><button data-l="en">English</button><button data-l="ta">தமிழ் + English</button></div>
 </header>
 
 <main>
@@ -170,6 +175,8 @@ footer .auto.running{background:#2b1a12}
   try { role = localStorage.getItem("dss_role") || ""; token = localStorage.getItem("dss_token") || ""; } catch (e) {}
   if (role === "student") { location.href = "student.html"; return; }
   if (!token || !role) { location.href = "/login.html"; return; }
+  let lang = "en", taData = null, taPromise = null, currentTaBox = null; // teaching language
+  try { lang = localStorage.getItem("cp_lang") === "ta" ? "ta" : "en"; } catch (e) {}
   let canRedo = false; // only the super admin may replace a lesson every school uses
   try { canRedo = role === "super_admin" && !!localStorage.getItem("dss_session"); } catch (e) {}
 
@@ -222,10 +229,10 @@ footer .auto.running{background:#2b1a12}
      reads instead and the reason is shown, never silence. */
   // Turn maths writing into words the voice can say. Tamil words are dropped here:
   // they are on the word cards, and Tamil letters would switch the whole screen to the Tamil voice.
-  function speakable(t) {
-    return String(t || "")
-      .replace(/\([^()]*[\u0B80-\u0BFF][^()]*\)/g, "")
-      .replace(/[\u0B80-\u0BFF]+/g, "")
+  function speakable(t, keepTamil) {
+    let s = String(t || "");
+    if (!keepTamil) s = s.replace(/\([^()]*[\u0B80-\u0BFF][^()]*\)/g, "").replace(/[\u0B80-\u0BFF]+/g, "");
+    return s
       .replace(/\*\*/g, "")
       .replace(/∠\s*([A-Z]{3})\b/g, (m, n) => "angle " + n.split("").join(" "))
       .replace(/∠/g, "angle ")
@@ -261,7 +268,7 @@ footer .auto.running{background:#2b1a12}
   async function speak(text, onEnd, btn) {
     stopVoice();
     const my = ++speakToken;
-    const clean = speakable(text);
+    const clean = speakable(text, lang === "ta");
     if (!clean) { if (onEnd) onEnd(); return; }
     const n = String((lesson && lesson.class) || cls || "").replace(/[^0-9]/g, "");
     const clsName = n ? "Class " + n : "";
@@ -322,9 +329,16 @@ footer .auto.running{background:#2b1a12}
 
     const tb = document.createElement("div"); tb.className = "titlebar";
     const h2 = document.createElement("h2"); h2.textContent = scr.title || ""; tb.appendChild(h2);
-    const readBtn = button(tb, "Read aloud", () => {
+    const readBtn = button(tb, "Read aloud", async () => {
       stopClass();
-      const text = (scr.lines || []).join(" ") + (scr.ask ? " " + scr.ask.q : "");
+      let text = (scr.lines || []).join(" ") + (scr.ask ? " " + scr.ask.q : "");
+      if (lang === "ta") {
+        readBtn.disabled = true; readBtn.textContent = "Getting Tamil…";
+        const ts = await tamilFor(n);
+        readBtn.disabled = false; readBtn.textContent = "Read aloud";
+        if (idx !== n) return;
+        if (ts) text = ts.say + (ts.q ? " " + ts.q : "");
+      }
       speak(text, () => { if (currentAsk) currentAsk.start(); }, readBtn);
     }, "speak");
     panel.appendChild(tb);
@@ -332,6 +346,8 @@ footer .auto.running{background:#2b1a12}
     const lines = document.createElement("div"); lines.className = "lines";
     (scr.lines || []).forEach(l => { const p = document.createElement("p"); p.textContent = l; lines.appendChild(p); });
     panel.appendChild(lines);
+    const taBox = document.createElement("div"); taBox.className = "ta-lines"; taBox.lang = "ta";
+    panel.appendChild(taBox); currentTaBox = taBox; renderTamil(taBox, n);
 
     const ctl = document.createElement("div"); ctl.className = "controls";
     panel.appendChild(ctl);
@@ -405,6 +421,7 @@ footer .auto.running{background:#2b1a12}
       return;
     }
     lesson = data;
+    taData = null; taPromise = null;
     const ch = document.getElementById("chapter");
     ch.firstChild.textContent = data.chapter || "Concept class";
     ch.querySelector("span").textContent = `Class ${data.class || ""} ${data.subject || ""} concept class`.replace(/\s+/g, " ").trim();
@@ -439,8 +456,9 @@ footer .auto.running{background:#2b1a12}
   const wait = (ms, my) => new Promise(r => setTimeout(() => r(my === runToken), ms));
   function speakAndWait(text, my) {
     return new Promise(res => {
-      if (!speakable(text)) return res(my === runToken);
-      const guard = setTimeout(() => res(my === runToken), 12000 + speakable(text).length * 90); // never hang
+      const sp = speakable(text, lang === "ta");
+      if (!sp) return res(my === runToken);
+      const guard = setTimeout(() => res(my === runToken), 12000 + sp.length * 90); // never hang
       speak(text, () => { clearTimeout(guard); res(my === runToken); });
     });
   }
@@ -460,7 +478,9 @@ footer .auto.running{background:#2b1a12}
   }
   async function runScreen(my) {
     const scr = lesson.screens[idx];
-    if (!(await speakAndWait((scr.lines || []).join(" "), my))) return false;
+    const ts = lang === "ta" ? await tamilFor(idx) : null;
+    if (my !== runToken) return false;
+    if (!(await speakAndWait(ts && ts.say ? ts.say : (scr.lines || []).join(" "), my))) return false;
     if (screenAuto) {
       await screenAuto(alive(my));
       if (!(await wait(2500, my))) return false; // let the class see the result
@@ -480,12 +500,12 @@ footer .auto.running{background:#2b1a12}
       if (!(await classActivity(my))) return false;
     }
     if (scr.ask && scr.ask.q && currentAsk && currentAsk.whenRevealed) {
-      if (!(await speakAndWait(scr.ask.q, my))) return false;
+      if (!(await speakAndWait(ts && ts.q ? ts.q : scr.ask.q, my))) return false;
       const revealed = new Promise(r => currentAsk.whenRevealed(r));
       currentAsk.start();
       await revealed;
       if (my !== runToken) return false;
-      if (!(await speakAndWait("The answer. " + scr.ask.a, my))) return false;
+      if (!(await speakAndWait(ts && ts.a ? "விடை: " + ts.a : "The answer. " + scr.ask.a, my))) return false;
     }
     return wait(1500, my);
   }
@@ -497,7 +517,7 @@ footer .auto.running{background:#2b1a12}
       if (!ok || my !== runToken) break;
       if (idx >= lesson.screens.length - 1) {
         document.getElementById("pos").textContent = "Class finished. Well done!";
-        await speakAndWait("Well done! That is the end of the lesson.", my);
+        await speakAndWait(lang === "ta" ? "நன்றாகச் செய்தீர்கள்! இன்றைய பாடம் முடிந்தது." : "Well done! That is the end of the lesson.", my);
         break;
       }
       go(idx + 1);
@@ -792,6 +812,103 @@ footer .auto.running{background:#2b1a12}
     throw new Error("The AI's lesson could not be read twice (" + lastProblem + "). Press Try again.");
   }
 
+
+  /* ---------- Tamil + English teaching voice ----------
+     The screen stays in English. In "தமிழ் + English" mode the teacher voice explains each
+     screen in spoken Tamil, keeping maths words in English. The AI writes the whole chapter's
+     Tamil once, saved beside the lesson and tied to that exact lesson version (a Redo gets
+     fresh Tamil). Tamil letters make the voice file use the Tamil voice automatically. */
+  async function makeTamil() {
+    const n = lesson.screens.length, clsN = String(lesson.class || cls || "").replace(/[^0-9]/g, "");
+    const list = lesson.screens.map((s, i) => `${i + 1}. Text: ${(s.lines || []).join(" ")} | Question: ${s.ask && s.ask.q ? s.ask.q : "-"} | Answer: ${s.ask && s.ask.a ? s.ask.a : "-"}`).join("\n");
+    const prompt = [
+      `You are a friendly maths teacher in a Tamil Nadu school. For each screen below, write what you would SAY to Class ${clsN} children in spoken Tamil, keeping maths words, names of shapes, numbers, symbols and formulas in English (Latin letters), the way Tamil Nadu teachers really speak in class.`,
+      "Example: இந்த wheel-ஐ பாருங்கள். Road ஒரே ஒரு point-ல தான் wheel-ஐ தொடுது. அதுக்கு பேரு tangent.",
+      "RULES: Tamil in Tamil script. Keep exactly the same meaning as the English: never add new facts or numbers, never change a number. Simple, warm, spoken words. 'say' is 1 to 3 short sentences. Translate the question as 'q' and the answer as 'a' in the same style; use an empty string when the screen has no question.",
+      "JSON safety: never put the double-quote character inside any text, and never put line breaks inside text.",
+      `Return ONLY this JSON, with exactly ${n} items in the same order: {"screens":[{"say":"...","q":"...","a":"..."}]}`,
+      "", "SCREENS:", list
+    ].join("\n");
+    const r = await fetch("/api/ai", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-dss-session": sessionToken() },
+      body: JSON.stringify({
+        system: "You are an expert Tamil Nadu school maths teacher. You return ONLY valid JSON. No markdown fences, no text before or after the JSON.",
+        messages: [{ role: "user", content: prompt }, { role: "assistant", content: "{" }],
+        max_tokens: 8000
+      })
+    });
+    let d;
+    try { d = await r.json(); } catch (e) { throw new Error(`the AI service did not reply properly (status ${r.status})`); }
+    if (!r.ok || (d && (d.type === "error" || d.error))) {
+      const m = d && (typeof d.error === "string" ? d.error : (d.error && d.error.message) || d.message);
+      throw new Error("AI error: " + (m || `status ${r.status}`));
+    }
+    const raw = parseLesson("{" + (Array.isArray(d.content) ? d.content.map(x => x.text || "").join("") : ""));
+    const arr = raw && Array.isArray(raw.screens) ? raw.screens : [];
+    if (arr.length !== n) throw new Error(`the Tamil explanation had ${arr.length} screens instead of ${n}`);
+    const S = v => (typeof v === "string" ? v.trim() : "");
+    return { screens: arr.map(x => ({ say: S(x && x.say), q: S(x && x.q), a: S(x && x.a) })), madeAt: new Date().toISOString() };
+  }
+  function ensureTamil() {
+    if (taData) return Promise.resolve(taData);
+    if (!taPromise) {
+      const forLesson = lesson;
+      taPromise = (async () => {
+        const base = {
+          board: boardName, subject, lang: "tamil", ver: "player-v1-ta",
+          cls: String(forLesson.class || cls || "0"),
+          topic: (forLesson.chapter || chapter || "lesson") + " @ " + (forLesson.madeAt || "file")
+        };
+        try {
+          const r = await fetch("/api/concept-cache", { method: "POST", headers: JSON_HEAD, body: JSON.stringify({ ...base, action: "get" }) });
+          const d = await r.json();
+          if (d && d.found && d.map && Array.isArray(d.map.screens) && d.map.screens.length === forLesson.screens.length) return d.map;
+        } catch (e) { console.warn("Saved Tamil check failed:", e); }
+        const made = await makeTamil();
+        try {
+          await fetch("/api/concept-cache", { method: "POST", headers: JSON_HEAD, body: JSON.stringify({ ...base, action: "save", narration: made }) });
+        } catch (e) { console.warn("Tamil not saved:", e); }
+        return made;
+      })().then(v => { if (lesson === forLesson) taData = v; return v; }, e => { taPromise = null; throw e; });
+    }
+    return taPromise;
+  }
+  async function tamilFor(n) {
+    try { const d = await ensureTamil(); return (d.screens && d.screens[n]) || null; }
+    catch (e) { console.warn("Tamil explanation not available:", e.message); return null; }
+  }
+  function renderTamil(box, n) {
+    if (!box) return;
+    box.innerHTML = "";
+    box.hidden = lang !== "ta";
+    if (lang !== "ta") return;
+    if (taData) {
+      const s = taData.screens[n];
+      box.textContent = s && s.say ? s.say : "";
+      box.hidden = !box.textContent;
+      return;
+    }
+    box.textContent = "தமிழ் விளக்கம் தயாராகிறது… (first time only)";
+    ensureTamil()
+      .then(() => { if (box === currentTaBox) renderTamil(box, idx); })
+      .catch(e => {
+        if (box !== currentTaBox) return;
+        box.textContent = "Tamil explanation could not be made (" + e.message + "). ";
+        button(box, "Try again", () => renderTamil(box, idx), "btn ghost");
+      });
+  }
+  const langsw = document.getElementById("langsw");
+  function showLang() { [...langsw.children].forEach(b => b.classList.toggle("on", b.dataset.l === lang)); }
+  [...langsw.children].forEach(b => {
+    b.onclick = () => {
+      lang = b.dataset.l;
+      try { localStorage.setItem("cp_lang", lang); } catch (e) {}
+      stopClass(); stopVoice(); showLang();
+      if (lesson) renderTamil(currentTaBox, idx);
+    };
+  });
+  showLang();
 
   async function loadChapter(fresh) {
     redoBtn.hidden = true;
