@@ -928,6 +928,121 @@
       return () => { alive = false; window.removeEventListener("resize", onResize); };
     },
 
+    /* Balance scale (தராசு): whatever you do to one pan, do to the other, until x is alone */
+    balanceScale(h, ctl, p) {
+      const side = s => ({ x: clampInt(s && s.x, 0, 4, 0), u: clampInt(s && s.units, 0, 15, 0) });
+      const start = { L: side(p.left), R: side(p.right) };
+      if (!start.L.x && !start.R.x) start.L.x = 1;
+      const dx = start.L.x - start.R.x, du = start.R.u - start.L.u;
+      const val = dx !== 0 ? du / dx : NaN;
+      if (!(val > 0) || Math.abs(val - Math.round(val)) > 1e-9) {
+        tools.plainBoard(h, ctl, { heading: str(p.heading) || "Balance", lines: ["This example has no whole-number answer"] });
+        return;
+      }
+      const X = Math.round(val);
+      const eqSide = s => [s.x ? (s.x > 1 ? s.x + "x" : "x") : "", s.u ? String(s.u) : ""].filter(Boolean).join(" + ") || "0";
+      const startEq = eqSide(start.L) + " = " + eqSide(start.R);
+      let L = { ...start.L }, R = { ...start.R }, tilt = 0, timer = null, note = "";
+      const eqText = h.txt(320, 58, "", "t huge g", undefined, { "text-anchor": "middle" });
+      const g = h.el("g");
+      const out = readout(ctl);
+      const P = { x: 320, y: 170 }, half = 210;
+      function drawPan(E, s) {
+        h.setLine(h.el("line", { class: "cl thin" }, g), E, { x: E.x - 80, y: E.y + 95 });
+        h.setLine(h.el("line", { class: "cl thin" }, g), E, { x: E.x + 80, y: E.y + 95 });
+        h.el("path", { d: `M${E.x - 95} ${E.y + 95} Q${E.x} ${E.y + 125} ${E.x + 95} ${E.y + 95}`, class: "cl", style: "stroke-width:5" }, g);
+        const things = [];
+        for (let i = 0; i < s.x; i++) things.push("x");
+        for (let i = 0; i < s.u; i++) things.push("u");
+        const per = 5, gap = 34, base = E.y + 88;
+        things.forEach((t, i) => {
+          const row = Math.floor(i / per), col = i % per, n = Math.min(per, things.length - row * per);
+          const cx = E.x + (col - (n - 1) / 2) * gap, cy = base - row * 40;
+          if (t === "x") {
+            h.el("rect", { x: cx - 16, y: cy - 36, width: 32, height: 36, rx: 8, fill: "rgba(235,163,163,.35)", stroke: "var(--chalk-pink)", "stroke-width": 3 }, g);
+            h.txt(cx, cy - 10, "x", "t big", g, { "text-anchor": "middle" });
+          } else {
+            h.el("circle", { cx, cy: cy - 14, r: 14, class: "dot" }, g);
+            h.txt(cx, cy - 7, "1", "t", g, { "text-anchor": "middle", style: "fill:#2b1a12;font-size:18px" });
+          }
+        });
+      }
+      function draw() {
+        g.innerHTML = "";
+        h.el("path", { d: `M${P.x - 70} 440 L${P.x + 70} 440 L${P.x + 14} 420 L${P.x - 14} 420 Z`, class: "cl", fill: "rgba(201,168,76,.25)" }, g);
+        h.setLine(h.el("line", { class: "cl", style: "stroke-width:8" }, g), { x: P.x, y: 420 }, P);
+        const a = tilt * Math.PI / 180, c = Math.cos(a), sn = Math.sin(a);
+        const EL = { x: P.x - half * c, y: P.y - half * sn }, ER = { x: P.x + half * c, y: P.y + half * sn };
+        h.setLine(h.el("line", { class: "gold", style: "stroke-width:9" }, g), EL, ER);
+        h.el("circle", { cx: P.x, cy: P.y, r: 10, class: "odot" }, g);
+        drawPan(EL, L); drawPan(ER, R);
+        const solved = L.x === 1 && !L.u && !R.x;
+        eqText.textContent = solved ? "x = " + R.u : eqSide(L) + (tilt ? " ≠ " : " = ") + eqSide(R);
+        out.innerHTML = (note ? note + "<br>" : "") + (solved
+          ? `<strong>x = ${R.u}.</strong> Check in ${startEq}: put ${R.u} in place of x, and both sides are equal.`
+          : tilt ? "" : `The scale is level: <strong>${eqSide(L)} = ${eqSide(R)}</strong>`);
+        bOne.disabled = !(L.u && R.u) || !!tilt; bX.disabled = !(L.x && R.x) || !!tilt;
+        const k = L.x;
+        bSplit.disabled = !!tilt || !(k > 1 && !L.u && !R.x && R.u % k === 0);
+        bSplit.textContent = k > 1 ? `Share both sides into ${k} equal groups` : "Share into equal groups";
+        bWrong.disabled = !L.u || !!tilt;
+      }
+      const act = (fn, msg) => { fn(); note = msg; draw(); };
+      const bOne = button(ctl, "Take 1 off both sides", () => act(() => { L.u--; R.u--; }, "Took 1 off <strong>both</strong> sides. Still level."));
+      const bX = button(ctl, "Take 1 x off both sides", () => act(() => { L.x--; R.x--; }, "Took one x bag off <strong>both</strong> sides. Still level."));
+      const bSplit = button(ctl, "Share into equal groups", () => { const k = L.x; act(() => { L.x = 1; R.u = R.u / k; }, `Shared both sides into ${k} equal groups and kept one group. Still level.`); });
+      const bWrong = button(ctl, "Take 1 off one side only", () => {
+        L.u--; tilt = (L.x - R.x) * X + L.u - R.u < 0 ? 9 : -9;
+        note = "<strong>Not level!</strong> We changed only one side. Always do the same to both sides.";
+        draw();
+        timer = setTimeout(() => { L.u++; tilt = 0; note = "Put it back. Level again."; draw(); }, 2200);
+      }, "btn ghost");
+      button(ctl, "Start again", () => { clearTimeout(timer); L = { ...start.L }; R = { ...start.R }; tilt = 0; note = ""; draw(); }, "btn ghost");
+      draw();
+      return () => clearTimeout(timer);
+    },
+
+    /* Fraction strips: tap parts to colour them and compare, e.g. 1/2 = 2/4 = 4/8 */
+    fractionStrips(h, ctl, p) {
+      if (str(p.heading)) h.txt(20, 44, str(p.heading), "t big g");
+      const dens = (Array.isArray(p.denominators) ? p.denominators : [2, 4, 8]).map(d => clampInt(d, 1, 12, 2))
+        .filter((d, i, a) => a.indexOf(d) === i).slice(0, 5);
+      const shade = {};
+      dens.forEach(d => {
+        const v = p.shade && typeof p.shade === "object" ? clampInt(p.shade[d] != null ? p.shade[d] : p.shade[String(d)], 0, d, 0) : 0;
+        shade[d] = new Set(Array.from({ length: v }, (_, i) => i));
+      });
+      const x0 = 70, W = 520, sh = 44;
+      const top = 110, gap = Math.min(68, 330 / (dens.length + 1));
+      const g = h.el("g");
+      const out = readout(ctl);
+      const frac = (n, d) => n === 0 ? "0" : n === d ? "1" : `${n}/${d}`;
+      function draw() {
+        g.innerHTML = "";
+        h.el("rect", { x: x0, y: top, width: W, height: sh, class: "barp" }, g);
+        h.txt(x0 + W / 2, top + sh / 2 + 9, "1 whole", "t big", g, { "text-anchor": "middle" });
+        dens.forEach((d, row) => {
+          const y = top + (row + 1) * gap, w = W / d;
+          for (let i = 0; i < d; i++) {
+            const on = shade[d].has(i);
+            const r = h.el("rect", { x: x0 + i * w, y, width: w, height: sh, fill: on ? "rgba(201,168,76,.75)" : "rgba(241,236,223,.06)", stroke: "var(--chalk)", "stroke-width": 3, style: "cursor:pointer" }, g);
+            r.addEventListener("pointerdown", e => { e.preventDefault(); on ? shade[d].delete(i) : shade[d].add(i); draw(); });
+            if (w >= 44) h.txt(x0 + i * w + w / 2, y + sh / 2 + 8, `1/${d}`, "t", g, { "text-anchor": "middle", style: on ? "fill:#2b1a12;pointer-events:none" : "pointer-events:none" });
+          }
+          h.txt(x0 - 14, y + sh / 2 + 9, frac(shade[d].size, d), "t big g", g, { "text-anchor": "end" });
+        });
+        const coloured = dens.filter(d => shade[d].size > 0);
+        if (!coloured.length) { out.innerHTML = "Tap the parts of a strip to colour them."; return; }
+        const groups = {};
+        coloured.forEach(d => { const k = (shade[d].size / d).toFixed(6); (groups[k] = groups[k] || []).push(frac(shade[d].size, d)); });
+        out.innerHTML = Object.values(groups).map(gr => gr.length > 1
+          ? `<strong>${gr.join(" = ")}</strong>: the same length, so these are equal (equivalent) fractions.`
+          : `<strong>${gr[0]}</strong> is coloured.`).join("<br>");
+      }
+      draw();
+      button(ctl, "Clear", () => { dens.forEach(d => shade[d].clear()); draw(); }, "btn ghost");
+    },
+
     /* Rapid-fire questions with countdown and reveal */
     quickQuestions(h, ctl, p, api) {
       const qs = p.questions || [], secs = p.seconds || 6;
@@ -991,6 +1106,8 @@
     angleMaker: "Drag one arm to make any angle from 0° to 360°; shows the measure and its type (acute, right, obtuse, straight, reflex). Settings: start (degrees), heading",
     geometryBoard: "Labelled points joined as lines (arrows both ends), rays (arrow one end), segments, and named angles with their size shown; children drag any point and everything moves. For lines, rays, segments, naming angles, intersecting and parallel lines, shapes. Settings: points {A:[x,y]} with x 0-10 and y 0-7 (y goes up), items:[{type:'line'|'ray'|'segment', from:'A', to:'B', showLength:true|false}, {type:'angle', at:'B', from:'D', to:'E', size: 40}] (angle at B between arms BD and BE). ALWAYS give each angle its size in degrees: the tool then places point E itself so the picture shows exactly that size (E's coordinates can be left out). Use exactly those sizes in the screen's text. heading. Choose coordinates that make a clear picture: angles between 30° and 120° and points well apart, unless the screen is about obtuse, straight or reflex angles. To compare two angles, draw two separate angles side by side, one in the left half (x 0-4) and one in the right half (x 6-10), with sizes at least 30° apart and no arm crossing the other angle, so the class can see which turns more",
     photo: "A realistic photograph of ONE everyday Indian scene that shows the idea, with a short caption under it. Use on why, see or where screens when no moving tool fits; at most 3 per lesson. Settings: scene (under 25 words, one clear real-life scene a child knows, no writing or numbers in it, e.g. 'a carpenter holding a steel set square against the corner of a wooden door'), caption (under 60 characters)",
+    balanceScale: "Balance scale (தராசு) for equations: x bags and 1-weights on two pans; children take the same off both sides or share both sides into equal groups until x is alone, and see the scale tip if they change one side only. For simple equations. Settings: left {x: number of x bags 0-4, units: weights 0-15}, right {x, units}, heading. The equation must have a whole-number answer above 0 (e.g. left {x:1, units:3}, right {units:8} is x + 3 = 8)",
+    fractionStrips: "Fraction strips under a '1 whole' strip; children tap parts to colour them and see which fractions are the same length (equivalent fractions, comparing, adding like fractions). Settings: denominators [2,4,8] (1-12, up to 5 strips), shade {\"4\": 2} (parts coloured at the start, optional), heading",
     quickQuestions: "Rapid-fire questions with countdown and reveal. Settings: questions[[q,a]], seconds, intro, outro"
   };
 
