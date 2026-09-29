@@ -49,6 +49,57 @@ function req(method, path, body) {
   });
 }
 
+// ── Checking the signed login token (made by makeSessionToken above) ──
+function readSessionToken(raw) {
+  if (!raw) return null;
+  try {
+    const parts = String(raw).split('.');
+    if (parts.length !== 2) return null;
+    const payload = Buffer.from(parts[0], 'base64').toString();
+    const secret = process.env.SUPABASE_SECRET_KEY || '';
+    if (!secret) return null;
+    const expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const got = Buffer.from(parts[1], 'utf8'), want = Buffer.from(expect, 'utf8');
+    if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return null;
+    const data = JSON.parse(payload);
+    if (!data.exp || Date.now() > data.exp) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+// ── Which tables the tbl_* actions may touch ──
+// Before this, tbl_get/post/patch/delete worked on ANY table for ANYONE, so
+// schools, users and student records could be read or changed from outside.
+// Now: reading is allowed only for book and picture content (the same for every
+// school, and used by pages students also open). Changing needs a valid login:
+// a school's own book chapters and library chapters by staff, the rest by the
+// super admin only. Every other table is refused.
+const TBL_READ = ['textbook_library', 'textbook_chapters', 'textbook_sections', 'kg_pictures',
+                  'school_book_chapters', 'school_library_access'];
+const TBL_WRITE = {
+  school_book_chapters: 'staff',     // teachers edit their own school's book chapters (LearnBot)
+  textbook_chapters:    'staff',     // LearnBot adds chapter pages to library books
+  textbook_library:     'super_admin',
+  textbook_sections:    'super_admin',
+  kg_pictures:          'super_admin',
+  school_library_access:'super_admin',
+  schools:              'super_admin' // school logo from Super Admin
+};
+function tblCheck(action, table, params, who) {
+  // brackets let one request pull rows from linked tables, so they are not allowed
+  if (params && /[()]/.test(String(params))) return 'This filter is not allowed.';
+  if (action === 'tbl_get') {
+    if (TBL_READ.indexOf(table) !== -1) return '';
+    return 'Reading this table is not allowed.';
+  }
+  const need = TBL_WRITE[table];
+  if (!need) return 'Changing this table is not allowed.';
+  if (!who) return 'Please log in again to save this.';
+  if (who.role === 'super_admin') return '';
+  if (need === 'staff' && (who.role === 'teacher' || who.role === 'school_admin')) return '';
+  return 'Only the super admin can change this.';
+}
+
 module.exports = async function(req2, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -513,6 +564,12 @@ module.exports = async function(req2, res) {
     // ── TEXTBOOK LIBRARY ──
     // admin.html calls: tblDB(table, 'GET'/'POST'/'DELETE', body, params)
     // which sends: { action:'tbl_get'/'tbl_post'/'tbl_delete', table, body, params }
+
+    if (action === 'tbl_get' || action === 'tbl_post' || action === 'tbl_patch' || action === 'tbl_delete') {
+      const why = tblCheck(action, String(body.table || 'textbook_library'), body.params,
+                           readSessionToken(req2.headers && req2.headers['x-dss-session']));
+      if (why) return res.status(403).json({ error: why });
+    }
 
     if (action === 'tbl_get') {
       // table = 'textbook_library' or 'textbook_chapters' or 'school_library_access'
