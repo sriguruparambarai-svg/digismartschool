@@ -100,6 +100,73 @@ function tblCheck(action, table, params, who) {
   return 'Only the super admin can change this.';
 }
 
+// ── WHO MAY USE EACH ACTION ──
+// Before this, every action worked for anyone who knew its name. Now each one
+// checks the signed login (x-dss-session header, made at login) and, for school
+// data, that the school in the request is the logged-in person's own school.
+const ACT_OPEN = ['request_reset', 'confirm_reset', 'login', 'student_login',
+                  // student and parent diary screens have no login token yet (see note below)
+                  'get_report_cards', 'get_diary_entries',
+                  // only feature switches (which book sources a school uses), no personal data
+                  'get_school_sources'];
+const ACT_SUPER = ['register_school', 'get_schools', 'update_subscription', 'cleanup_user',
+                   'lib_access_toggle', 'lib_access_get', 'set_school_source'];
+const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers'];                     // principal of that school
+const ACT_STAFF = ['save_active_lesson', 'delete_active_lesson', 'get_active_lessons',
+                   'add_diary_student', 'bulk_add_diary_students', 'get_diary_students',
+                   'save_diary_entry', 'upload_diary_voice',
+                   'save_image_chapter', 'get_image_chapters',
+                   'save_book_record', 'upload_book', 'get_school_books'];      // teacher or principal of that school
+// deletes by row id: the row's own school is looked up and must be the caller's school
+const ACT_STAFF_ROW = {
+  delete_diary_student: { table: 'diary_students',        idField: 'id' },
+  delete_image_chapter: { table: 'school_image_chapters', idField: 'chapter_id' },
+  delete_school_book:   { table: 'school_books',          idField: 'book_id' }
+};
+
+// All the ways the logged-in person's school can be named (its id, code and short id).
+async function mySchoolKeys(who) {
+  const sid = String((who && who.sid) || '');
+  if (!sid) return [];
+  let r = await req('GET', '/rest/v1/schools?school_code=eq.' + encodeURIComponent(sid) + '&select=id,school_code,school_id&limit=1');
+  if ((!r.data || !r.data.length) && /^[0-9a-fA-F-]{36}$/.test(sid)) {
+    r = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(sid) + '&select=id,school_code,school_id&limit=1');
+  }
+  const keys = [sid];
+  if (r.data && r.data.length) {
+    const sc = r.data[0];
+    [sc.id, sc.school_code, sc.school_id].forEach(function (k) { if (k && keys.indexOf(String(k)) === -1) keys.push(String(k)); });
+  }
+  return keys;
+}
+
+// Returns '' when allowed, or the reason it is not.
+async function actionCheck(action, body, who) {
+  if (ACT_OPEN.indexOf(action) !== -1) return '';
+  if (action === 'tbl_get' || action === 'tbl_post' || action === 'tbl_patch' || action === 'tbl_delete') return ''; // checked by tblCheck
+  const known = ACT_SUPER.indexOf(action) !== -1 || ACT_SCHOOL_ADMIN.indexOf(action) !== -1 ||
+                ACT_STAFF.indexOf(action) !== -1 || ACT_STAFF_ROW[action] || action === 'get_school_info';
+  if (!known) return '';                       // not an action of this file; falls through to "unknown" as before
+  if (!who) return 'Please log in again.';
+  if (who.role === 'super_admin') return '';
+  if (ACT_SUPER.indexOf(action) !== -1) return 'Only the super admin can do this.';
+  if (who.role !== 'teacher' && who.role !== 'school_admin') return 'Please log in again.';
+  if (action === 'get_school_info') return '';  // checked after the school is found
+  if (ACT_SCHOOL_ADMIN.indexOf(action) !== -1 && who.role !== 'school_admin') return 'Only the school admin can do this.';
+  const keys = await mySchoolKeys(who);
+  if (ACT_STAFF_ROW[action]) {
+    const rule = ACT_STAFF_ROW[action], id = body[rule.idField];
+    if (!id) return '';                          // the action itself reports the missing id
+    const row = await req('GET', '/rest/v1/' + rule.table + '?id=eq.' + encodeURIComponent(id) + '&select=school_id&limit=1');
+    const owner = row.data && row.data.length ? String(row.data[0].school_id || '') : '';
+    if (!owner) return '';                       // nothing to delete
+    return keys.indexOf(owner) !== -1 ? '' : 'This belongs to another school.';
+  }
+  const asked = String(body.school_id || '');
+  if (!asked) return 'school_id required';
+  return keys.indexOf(asked) !== -1 ? '' : 'This belongs to another school.';
+}
+
 module.exports = async function(req2, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -111,6 +178,10 @@ module.exports = async function(req2, res) {
   const { action } = body;
 
   try {
+
+    const who = readSessionToken(req2.headers && req2.headers['x-dss-session']);
+    const denied = await actionCheck(String(action || ''), body, who);
+    if (denied) return res.status(403).json({ error: denied });
 
     // ── REQUEST PASSWORD RESET (send reset email) ──
     if (action === 'request_reset') {
@@ -350,12 +421,20 @@ module.exports = async function(req2, res) {
       if (userRole === 'teacher') {
         const tr = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(email)}&select=*,schools(*)`);
         if (tr.data && tr.data.length > 0 && tr.data[0].schools) {
+          if (who.role !== 'super_admin') {
+            const keys = await mySchoolKeys(who);
+            if (keys.indexOf(String(tr.data[0].schools.id)) === -1) return res.json({ school: null });
+          }
           return res.json({ success: true, school: tr.data[0].schools });
         }
         return res.json({ school: null });
       } else {
         const sr = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
         if (sr.data && sr.data.length > 0) {
+          if (who.role !== 'super_admin') {
+            const keys = await mySchoolKeys(who);
+            if (keys.indexOf(String(sr.data[0].id)) === -1) return res.json({ school: null });
+          }
           return res.json({ success: true, school: sr.data[0] });
         }
         return res.json({ school: null });
@@ -399,9 +478,8 @@ module.exports = async function(req2, res) {
     if (action === 'delete_active_lesson') {
       const { class_id, school_id } = body;
       // Always scope delete to school — never delete another school's lesson
-      const filter = school_id
-        ? `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}&school_id=eq.${encodeURIComponent(school_id)}`
-        : `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}`;
+      if (!school_id) return res.json({ error: 'school_id required' });
+      const filter = `/rest/v1/active_lessons?class_id=eq.${encodeURIComponent(class_id)}&school_id=eq.${encodeURIComponent(school_id)}`;
       await req('DELETE', filter, null);
       return res.json({ success: true });
     }
@@ -817,8 +895,11 @@ module.exports = async function(req2, res) {
 
     // ── DELETE SCHOOL BOOK ──
     if (action === 'delete_school_book') {
-      const { book_id, file_path } = body;
+      const { book_id } = body;
       if (!book_id) return res.json({ error: 'book_id required' });
+      // use the file saved with this book, never a path sent in by the page
+      const own = await req('GET', '/rest/v1/school_books?id=eq.' + encodeURIComponent(book_id) + '&select=file_path&limit=1');
+      const file_path = own.data && own.data.length ? own.data[0].file_path : '';
 
       // Delete from storage if file_path provided
       if (file_path) {
