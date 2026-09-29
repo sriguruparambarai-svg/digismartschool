@@ -2265,11 +2265,19 @@ async function mbLoadChapters(bookId, source){
   wrap.style.display = 'none';
   if(!bookId) return;
   try{
-    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'tbl_get',
-        table:(source==='private'?'school_book_chapters':'textbook_chapters'),
-        params:'book_id=eq.'+encodeURIComponent(bookId)+'&order=chapter_number&select=chapter_number,chapter_title,page_from,page_to,pdf_url'})});
-    var d = await r.json();
+    // School books (private) keep their chapters in school_book_chapters, which has
+    // no per-chapter PDF column, so asking for pdf_url there made the whole request
+    // fail and the dropdown stayed hidden. Ask for pdf_url only from the library
+    // table, and if a request is refused anyway, try once more without it.
+    // Order by start page: a term book repeats chapter numbers 1, 2, 3 for each subject.
+    var table = (source==='private'?'school_book_chapters':'textbook_chapters');
+    var base = 'book_id=eq.'+encodeURIComponent(bookId)+'&order=page_from&select=chapter_number,chapter_title,page_from,page_to';
+    var ask = function(params){
+      return fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'tbl_get', table:table, params:params})}).then(function(r){ return r.json(); });
+    };
+    var d = await ask(source==='private' ? base : base + ',pdf_url');
+    if(!Array.isArray(d) && source!=='private') d = await ask(base);
     var chs = Array.isArray(d) ? d : (d.chapters || []);
     chs = chs.filter(function(c){ return c && c.page_from && c.page_to; });
     if(!chs.length) return;
@@ -2610,7 +2618,7 @@ function injectMyBooksSection(){
       </div>
       <div style="margin-bottom:10px;">
         <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Lesson / Topic Name <span style="font-weight:400;color:#aaa;">(optional)</span></span>
-        <input id="mb-popup-lesson" placeholder="e.g. Nervous System, Chapter 3" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
+        <input id="mb-popup-lesson" autocomplete="off" placeholder="e.g. Nervous System, Chapter 3" style="width:100%;padding:9px 11px;font-size:0.88rem;border:2px solid #ddd;border-radius:8px;font-family:Nunito,sans-serif;outline:none;"/>
       </div>
       <div id="mb-popup-chwrap" style="display:none;margin-bottom:10px;">
         <span style="font-size:0.75rem;font-weight:700;color:var(--maroon);display:block;margin-bottom:4px;">Chapter <span style="font-weight:400;color:#aaa;">(fills the pages for you)</span></span>
