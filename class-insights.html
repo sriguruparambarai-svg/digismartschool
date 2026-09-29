@@ -30,6 +30,14 @@ h1{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.6rem;letter-sp
 #loading,#empty,#err{padding:26px;text-align:center;color:var(--sandal);font-size:0.9rem;line-height:1.7;}
 #err{color:#ffb0a5;display:none;}
 #empty{display:none;}
+.kids{margin-top:10px;padding-top:10px;border-top:1px dashed rgba(201,168,76,0.3);}
+.kids .kh{font-size:0.72rem;font-weight:800;letter-spacing:1px;color:var(--gold);margin-bottom:6px;}
+.kids .kg{display:flex;flex-wrap:wrap;gap:6px;}
+.kids .k{background:rgba(232,201,154,0.08);border:1px solid rgba(201,168,76,0.35);border-radius:8px;padding:3px 9px;font-size:0.8rem;font-weight:700;color:var(--sandal);}
+.kids .k small{opacity:0.6;margin-right:4px;}
+.kids .k.low{border-color:#e08a7a;color:#ffb0a5;background:rgba(179,58,58,0.12);}
+.kids .kn{font-size:0.76rem;color:#ffd9d2;margin-top:7px;line-height:1.5;}
+.kids .kw{font-size:0.72rem;color:rgba(232,201,154,0.65);margin-top:6px;}
 .spin{width:34px;height:34px;border:3px solid rgba(201,168,76,0.25);border-top-color:var(--gold);border-radius:50%;animation:sp 0.9s linear infinite;margin:0 auto 12px;}
 @keyframes sp{to{transform:rotate(360deg);}}
 </style>
@@ -38,7 +46,7 @@ h1{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.6rem;letter-sp
 <div class="wrap">
   <a class="back" href="learnbot.html">&larr; Back to TeachBot</a>
   <h1>&#128202; Class Insights</h1>
-  <div class="sub">What the class quizzes reveal: which concepts landed, which need another look. No individual marks — this is the honest pulse of the whole classroom.</div>
+  <div class="sub">What the class quizzes reveal: which concepts landed, which need another look. When answer cards were used, each child's score is shown too (card number = roll number).</div>
   <div class="legend">
     <span><span class="dot" style="background:#2f9e57;"></span> Most got it</span>
     <span><span class="dot" style="background:#d9a530;"></span> About half</span>
@@ -53,6 +61,7 @@ h1{font-family:'Cinzel',serif;color:var(--gold-light);font-size:1.6rem;letter-sp
   <div id="cards"></div>
 </div>
 
+<script src="js/class-roster.js"></script>
 <script>
 function esc(t){ return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -112,6 +121,7 @@ async function load(){
         '<div class="top"><div class="tt">' + esc(rec.topic || 'Lesson') + ' \u2014 ' + esc(rec.cls || '') + ' \u00B7 ' + esc(rec.subject || '') + '</div>' +
         '<div class="mt">' + fmtDate(rec.ts) + '</div></div>' + rows;
       cards.appendChild(card);
+      addKids(card, rec);
     });
   }catch(e){
     loading.style.display = 'none';
@@ -119,6 +129,41 @@ async function load(){
     err.textContent = 'Could not load insights \u2014 ' + e.message;
   }
 }
+/* Answer cards: each child's score in this lesson. Card number = roll number,
+   so names come from the class's student list (Dashboard → Students). */
+function kidScores(rec){
+  var sc = {};
+  (rec.results || []).forEach(function(q){
+    if (!q.cards || !q.correct) return;
+    for (var k in q.cards){ sc[k] = sc[k] || { r:0, n:0 }; sc[k].n++; if (q.cards[k] === q.correct) sc[k].r++; }
+  });
+  return sc;
+}
+function kidsHtml(sc, names, why){
+  names = names || {};
+  var ks = Object.keys(sc).map(Number).sort(function(a, b){ return a - b; });
+  var named = Object.keys(names).length > 0;
+  var low = ks.filter(function(k){ return sc[k].r / sc[k].n < 0.5; });
+  var nm = function(k){ return names[String(k)] || ('Card ' + k); };
+  return '<div class="kh">' + (named ? 'EACH CHILD' : 'CARD SCORES') + '</div><div class="kg">'
+    + ks.map(function(k){ var v = sc[k];
+        return '<span class="k' + (v.r / v.n < 0.5 ? ' low' : '') + '">' + (named ? '<small>' + k + '</small>' + esc(nm(k)) : 'Card ' + k) + ': ' + v.r + '/' + v.n + '</span>'; }).join('')
+    + '</div>'
+    + (low.length ? '<div class="kn">&#128204; Needs help: ' + low.map(function(k){ return esc(nm(k)); }).join(', ') + '</div>' : '')
+    + (!named && why ? '<div class="kw">' + esc(why) + '</div>' : '');
+}
+function addKids(card, rec){
+  var sc = kidScores(rec);
+  if (!Object.keys(sc).length) return;
+  var box = document.createElement('div');
+  box.className = 'kids';
+  box.innerHTML = kidsHtml(sc);
+  card.appendChild(box);
+  if (window.dssRoster && rec.cls){
+    dssRoster(rec.cls).then(function(r){ box.innerHTML = kidsHtml(sc, r.names, r.error); });
+  }
+}
+
 document.addEventListener('DOMContentLoaded', load);
 </script>
 </body>

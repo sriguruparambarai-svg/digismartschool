@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="js/session-header.js"></script>
+<script src="js/class-roster.js"></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Science Mystery Class — DigiSmartSchool</title>
@@ -121,6 +122,7 @@ button{font-family:inherit;}
 .cardgrid{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.5rem;}
 .cardgrid span{background:rgba(232,201,154,.1);border:1px solid rgba(201,168,76,.35);border-radius:8px;padding:.2rem .5rem;font-weight:700;font-size:.95rem;}
 .cardgrid span.low{border-color:#e08a7a;color:#f3c0b4;}
+.cardgrid span small{opacity:.7;font-weight:600;margin-right:.3rem;}
 
 /* activity card */
 .act{flex:1;display:grid;grid-template-columns:1fr 1.4fr auto;gap:1.4rem;align-items:start;}
@@ -1015,6 +1017,7 @@ async function startCheck(){
            $('q-retry').onclick = startCheck; return; }
   await liveOpen();
   QUIZ = { i: 0, shown: false, results: [] };
+  if(window.dssRoster) dssRoster(CLS);        // get the student list ready for the summary (card = roll number)
   showQuestion();
 }
 
@@ -1110,13 +1113,19 @@ async function showSummary(){
   body.innerHTML = '<div class="summary"><div><h4>' + (ta() ? 'முடிவு' : 'How the class did') + '</h4>'
     + res.map(function(x, n){ return '<div class="srow"><span>' + (n + 1) + '. ' + esc(x.a) + '</span><span>' + label[x.rating] + '</span></div>'; }).join('')
     + (weak.length ? '<div class="note">' + (ta() ? 'மீண்டும் கற்பிக்க வேண்டியவை: ' : 'Teach again tomorrow: ') + weak.map(function(x){ return esc(x.a); }).join(', ') + '</div>' : '')
-    + cardScoresHtml(res)
+    + '<div id="card-scores">' + cardScoresHtml(res) + '</div>'
     + '<div class="note" id="q-saved">Saving…</div></div>'
     + '<div><h4>' + (ta() ? 'வீட்டுப்பாடம்' : 'Homework') + '</h4><textarea class="hw" id="hw-text"></textarea>'
     + '<div class="qbar" style="justify-content:flex-start"><button class="qbtn main" id="hw-send">Send to Student Diary</button></div>'
     + '<div class="note" id="hw-note"></div></div></div>';
   $('hw-text').value = hwText;
   $('hw-send').onclick = sendHomework;
+  // card number = roll number: show each child's name once the class list arrives
+  if(window.dssRoster && res.some(function(x){ return x.cards; })){
+    dssRoster(CLS).then(function(r){
+      var box = $('card-scores'); if(box) box.innerHTML = cardScoresHtml(res, r.names, r.error);
+    });
+  }
   speakAsync(ta() ? 'நன்றாகச் செய்தீர்கள்! இன்றைய வீட்டுப்பாடம் திரையில் உள்ளது.' : 'Well done, class! Today\'s homework is on the screen.', ta() ? 'tamil' : 'english');
   try {
     var r = await fetch('/api/class-quiz', { method:'POST', headers:{'Content-Type':'application/json', 'x-dss-session': (localStorage.getItem('dss_session') || '')},
@@ -1129,7 +1138,8 @@ async function showSummary(){
 
 // Each card's score across the check, e.g. "7: 4/5". Low scores are marked so
 // the facilitator knows which children to sit with tomorrow.
-function cardScoresHtml(res){
+function cardScoresHtml(res, names, why){
+  names = names || {};
   var sc = {};
   res.forEach(function(x){
     if(!x.cards) return;
@@ -1137,9 +1147,16 @@ function cardScoresHtml(res){
   });
   var ks = Object.keys(sc).map(Number).sort(function(a, b){ return a - b; });
   if(!ks.length) return '';
-  return '<h4 style="margin-top:1rem">' + (ta() ? 'அட்டை மதிப்பெண்கள்' : 'Card scores') + '</h4><div class="cardgrid">'
-    + ks.map(function(k){ var v = sc[k]; return '<span class="' + (v.r / v.n < 0.5 ? 'low' : '') + '">' + k + ': ' + v.r + '/' + v.n + '</span>'; }).join('')
-    + '</div>';
+  var named = Object.keys(names).length > 0;
+  var low = ks.filter(function(k){ return sc[k].r / sc[k].n < 0.5; });
+  return '<h4 style="margin-top:1rem">' + (named ? (ta() ? 'மாணவர் மதிப்பெண்கள்' : 'Each child') : (ta() ? 'அட்டை மதிப்பெண்கள்' : 'Card scores')) + '</h4><div class="cardgrid">'
+    + ks.map(function(k){ var v = sc[k], who = names[String(k)];
+        var label = named ? ('<small>' + k + '</small>' + esc(who || ((ta() ? 'அட்டை ' : 'Card ') + k))) : String(k);
+        return '<span class="' + (v.r / v.n < 0.5 ? 'low' : '') + '">' + label + ': ' + v.r + '/' + v.n + '</span>'; }).join('')
+    + '</div>'
+    + (named && low.length ? '<div class="note">' + (ta() ? 'நாளை உடன் அமர வேண்டியவர்கள்: ' : 'Sit with tomorrow: ')
+        + low.map(function(k){ return esc(names[String(k)] || ((ta() ? 'அட்டை ' : 'Card ') + k)); }).join(', ') + '</div>' : '')
+    + (!named && why ? '<div class="note">' + esc(why) + '</div>' : '');
 }
 
 async function sendHomework(){
