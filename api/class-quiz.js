@@ -4,11 +4,42 @@
 //   rating: 3 = most got it, 2 = about half, 1 = only a few
 // GET  → { records:[ ...latest 30, newest first ] }   (for class-insights.html)
 //
-// Records live in Supabase Storage: lesson-audio/class-quiz/<time>_<rand>.json
+// Records live in Supabase Storage: lesson-audio/class-quiz/s-<school>/<time>_<rand>.json
+// The school comes from the signed login token (x-dss-session), never from the
+// page, so one school can never read another school's results.
+// Older records saved before this (lesson-audio/class-quiz/<file>.json, no school)
+// and any saved without a valid login are shown only to the super admin.
 // This is CLASS-level formative data (no student names) — the honest signal
 // of which concepts landed and which need reteaching.
 
 const https = require('https');
+const crypto = require('crypto');
+
+// Same signed login token check as concept-cache.js / gen-image.js.
+function readSession(raw) {
+  if (!raw) return null;
+  try {
+    var parts = String(raw).split('.');
+    if (parts.length !== 2) return null;
+    var payload = Buffer.from(parts[0], 'base64').toString();
+    var secret = process.env.SUPABASE_SECRET_KEY || '';
+    if (!secret) return null;
+    var expect = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    var got = Buffer.from(parts[1], 'utf8');
+    var want = Buffer.from(expect, 'utf8');
+    if (got.length !== want.length) return null;
+    if (!crypto.timingSafeEqual(got, want)) return null;
+    var data = JSON.parse(payload);
+    if (!data.exp || Date.now() > data.exp) return null;
+    return data;
+  } catch (e) { return null; }
+}
+
+// The school's own folder name, made safe for a storage path.
+function schoolFolder(sid) {
+  const clean = String(sid || '').replace(/[^A-Za-z0-9_-]/g, '').substring(0, 64);
+  return clean ? 's-' + clean : '';
+}
 
 module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 
@@ -122,7 +153,7 @@ module.exports = async function handler(req, res) {
         subject: String(b.subject || '').substring(0, 60),
         topic: String(b.topic || '').substring(0, 140),
         planKey: String(b.planKey || '').substring(0, 64),
-        school_id: b.school_id ? String(b.school_id).substring(0, 64) : undefined,
+        school_id: undefined,   // set below from the login token
         results: results.map(function (r) {
           return {
             q: String((r && r.q) || '').substring(0, 220),
@@ -134,15 +165,31 @@ module.exports = async function handler(req, res) {
           };
         }).filter(function (r) { return r.q && r.rating; })
       };
-      const fileName = Date.now() + '_' + Math.random().toString(36).substring(2, 8) + '.json';
+      const who = readSession(req.headers['x-dss-session']);
+      const folder = who ? schoolFolder(who.sid) : '';
+      if (folder) record.school_id = String(who.sid);
+      // no valid login: still saved (so a class's results are never lost), but only the super admin sees it
+      const fileName = (folder ? folder + '/' : '') + Date.now() + '_' + Math.random().toString(36).substring(2, 8) + '.json';
       const ok = await sbSaveObject(record, fileName);
       return res.json({ saved: !!ok });
     }
 
     if (req.method === 'GET') {
+      const who = readSession(req.headers['x-dss-session']);
+      if (!who) return res.status(401).json({ error: 'Please log in again to see class insights.', records: [] });
+      // a school sees only its own folder; the super admin may look at any school (?school=)
+      // and, without one, sees the older records saved before schools were separated
+      let sub = schoolFolder(who.sid);
+      if (who.role === 'super_admin') {
+        const asked = (req.query && req.query.school) ? schoolFolder(req.query.school) : '';
+        sub = asked || '';
+      } else if (!sub) {
+        return res.json({ records: [] });
+      }
+      const base = sub ? sub + '/' : '';
       // list latest files, then fetch up to 30 records
       const list = await sbReq('POST', '/storage/v1/object/list/lesson-audio', {
-        prefix: FOLDER + '/',
+        prefix: FOLDER + '/' + base,
         limit: 60,
         sortBy: { column: 'name', order: 'desc' }   // names start with timestamp → desc = newest first
       });
@@ -153,7 +200,7 @@ module.exports = async function handler(req, res) {
         .slice(0, 30);
       const records = [];
       for (let i = 0; i < names.length; i++) {
-        const rec = await sbFetchObject(names[i]);
+        const rec = await sbFetchObject(base + names[i]);
         if (rec && Array.isArray(rec.results)) records.push(rec);
       }
       return res.json({ records: records });
