@@ -254,7 +254,11 @@ if (localSchool.max_teachers)
     });
     const d = await r.json();
     const s = d.school;
-    if (!s) return;
+    if (!s) {
+      window._schoolInfoError = (d && d.error) || 'School details were not found for this login.';
+      if (/log in again/i.test(window._schoolInfoError)) showLoginExpired();
+      return;
+    }
     document.getElementById('school-name').textContent = s.name || user.name || 'DigiSmartSchool';
     document.getElementById('inf-name').textContent    = s.name  || '-';
     document.getElementById('inf-city').textContent    = s.city  || '-';
@@ -306,6 +310,12 @@ async function loadTeachers(){
   if(!window._schoolId){
     listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;">Loading...</div>';
     loadTeachers._tries = (loadTeachers._tries || 0) + 1;
+    if(window._schoolInfoError){
+      listEl.innerHTML='<div style="text-align:center;padding:20px;color:#c0392b;">'+esc(window._schoolInfoError)
+        +(/log in again/i.test(window._schoolInfoError) ? '<br><br><button onclick="doLogout()" style="padding:9px 18px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Log in again</button>' : '')
+        +'</div>';
+      loadTeachers._tries = 0; return;
+    }
     if(loadTeachers._tries <= 20){ setTimeout(loadTeachers, 500); }   // try again for up to 10 seconds
     else { listEl.innerHTML='<div style="text-align:center;padding:20px;color:#c0392b;">Could not load school details. Please refresh the page.</div>'; loadTeachers._tries = 0; }
     return;
@@ -442,6 +452,16 @@ async function showTeachers_old() {
   alert('Teachers:\n' + teachers.map(t => '- ' + t.name + ' (' + t.email + ')').join('\n'));
 }
 
+// Login older than 12 hours: say so plainly instead of pages quietly not loading
+function showLoginExpired(){
+  if (document.getElementById('login-expired')) return;
+  var b = document.createElement('div');
+  b.id = 'login-expired';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2000;background:#6B0F1A;color:#E8C96A;padding:12px 16px;text-align:center;font-family:Nunito,sans-serif;font-weight:800;box-shadow:0 2px 10px rgba(0,0,0,.25);';
+  b.innerHTML = '\u23F0 Your login has expired (logins last 12 hours). '
+    + '<button onclick="doLogout()" style="margin-left:10px;padding:6px 14px;background:#E8C96A;color:#6B0F1A;border:none;border-radius:8px;font-weight:900;cursor:pointer;">Log in again</button>';
+  document.body.appendChild(b);
+}
 function doLogout() {
   localStorage.clear();
   window.location.href = '/login.html';
