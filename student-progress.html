@@ -118,7 +118,7 @@
 
 <header>
   <div style="display:flex;align-items:center">
-    <div class="school-name" id="schoolNameHeader">ARK Global School</div>
+    <div class="school-name" id="schoolNameHeader"></div>
     <span class="badge">School Admin</span>
   </div>
   <a class="back-btn" href="dashboard.html">← Back</a>
@@ -220,9 +220,16 @@
 const SUPABASE_URL = 'https://pzxosqukijwpjdlfdfst.supabase.co';
 const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB6eG9zcXVraWp3cGpkbGZkZnN0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ5NzE3NzksImV4cCI6MjA2MDU0Nzc3OX0.ELmSQcAH3p_SfkCBdGf1Fx8buvMJfFnJ_DGCBVEtN_0';
 
-let schoolCode = sessionStorage.getItem('school_code') || 'ARK2024';
-let schoolName = sessionStorage.getItem('school_name') || 'ARK Global School';
-document.getElementById('schoolNameHeader').textContent = schoolName;
+// The school always comes from the logged-in account — never a default school.
+function spMySchoolId() {
+  try {
+    var u = JSON.parse(localStorage.getItem('dss_user') || '{}');
+    return u.school_id || u.id || '';
+  } catch (e) { return ''; }
+}
+let schoolCode = '';
+let schoolName = '';
+document.getElementById('schoolNameHeader').textContent = '';
 
 let reports=[], students=[], attendance=[], lessons=[], filteredReports=[];
 let charts={};
@@ -237,12 +244,29 @@ async function db(table, q='') {
 }
 
 window.onload = async () => {
-  [reports, students, attendance, lessons] = await Promise.all([
-    db('report_cards', `school_code=eq.${schoolCode}&select=*&order=class_name`),
-    db('diary_students', `school_code=eq.${schoolCode}&select=*`),
-    db('face_attendance', `school_code=eq.${schoolCode}&select=*`),
-    db('active_lessons', `school_code=eq.${schoolCode}&select=*&order=created_at.desc`)
-  ]);
+  // Data comes through our server, which only returns the logged-in school's own data.
+  var sid = spMySchoolId();
+  var token = '';
+  try { token = localStorage.getItem('dss_session') || ''; } catch (e) {}
+  if (!sid || !token) { spStop('Please log in again to see Student Progress.'); return; }
+  try {
+    const r = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-dss-session': token },
+      body: JSON.stringify({ action: 'get_progress_data', school_id: sid })
+    });
+    const d = await r.json();
+    if (!d || d.error) { spStop((d && d.error) || 'Could not load data.'); return; }
+    reports = d.reports || []; students = d.students || [];
+    attendance = d.attendance || []; lessons = d.lessons || [];
+    schoolCode = d.school_code || ''; schoolName = d.school_name || '';
+    document.getElementById('schoolNameHeader').textContent = schoolName;
+    // active_lessons stores "chapter" and "updated_at" — show them in the Topic and Date columns
+    lessons.forEach(function (l) {
+      if (!l.topic) l.topic = l.chapter || '';
+      if (!l.created_at) l.created_at = l.updated_at || '';
+    });
+  } catch (e) { spStop('Could not load data. Please check your internet and refresh.'); return; }
   filteredReports = [...reports];
 
   // Populate dropdowns
@@ -257,6 +281,14 @@ window.onload = async () => {
 
   renderAll();
 };
+
+// Shows a message instead of any student data (not logged in / wrong school / error)
+function spStop(msg) {
+  var b = document.getElementById('noDataBanner');
+  if (b) { b.style.display = 'flex'; b.textContent = '⚠️ ' + msg; }
+  var t = document.getElementById('tableContainer');
+  if (t) t.innerHTML = '';
+}
 
 function renderAll() {
   updateSummary(); renderTable(); renderCharts();
