@@ -712,19 +712,19 @@ module.exports = async function(req2, res) {
     // combination (e.g. Samacheer books + Foundation courses).
     if (action === 'get_school_sources') {
       const { school_id } = body;
-      if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false, has_ncert: false, has_foundation: false });
+      if (!school_id) return res.json({ success: true, has_text_upload: true, has_samacheer: false, has_image_upload: false, has_ncert: false, has_foundation: false, has_erp: false });
       // A school can be identified two ways: its short code (school_id text column)
       // or its system UUID (id column). Admin saves against the UUID, TeachBot may send
       // the short code. Resolve either form to the same school so both always match.
       let row = {};
       let canonicalId = school_id;
-      const byCode = await req('GET', '/rest/v1/schools?school_id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation&limit=1');
+      const byCode = await req('GET', '/rest/v1/schools?school_id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation,has_erp&limit=1');
       if (byCode.data && byCode.data[0]) {
         row = byCode.data[0];
         canonicalId = row.id;
       } else if (/^[0-9a-fA-F-]{36}$/.test(school_id)) {
         // Looks like a UUID — safe to query the id column
-        const byId = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation&limit=1');
+        const byId = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id) + '&select=id,has_text_upload,has_image_upload,has_ncert_library,has_foundation,has_erp&limit=1');
         if (byId.data && byId.data[0]) {
           row = byId.data[0];
           canonicalId = row.id;
@@ -745,12 +745,14 @@ module.exports = async function(req2, res) {
         // Both default to OFF, so every existing school is unaffected until
         // Super Admin switches them on.
         has_ncert: row.has_ncert_library === true,
-        has_foundation: row.has_foundation === true
+        has_foundation: row.has_foundation === true,
+        // School also uses DigiSmart ERP — hides TeachBot's Bulk Reports (report cards live in ERP).
+        has_erp: row.has_erp === true
       });
     }
 
     // Admin flips a content source or add-on on/off for one school.
-    // source: 'text' | 'image' | 'ncert' | 'foundation'
+    // source: 'text' | 'image' | 'ncert' | 'foundation' | 'erp'
     // ('samacheer' is not here — it stays in the school_library_access table.)
     if (action === 'set_school_source') {
       const { school_id, source, enabled } = body;
@@ -759,7 +761,8 @@ module.exports = async function(req2, res) {
         text: 'has_text_upload',
         image: 'has_image_upload',
         ncert: 'has_ncert_library',
-        foundation: 'has_foundation'
+        foundation: 'has_foundation',
+        erp: 'has_erp'
       };
       const col = SOURCE_COLS[source] || null;
       if (!col) return res.json({ error: 'invalid source' });
