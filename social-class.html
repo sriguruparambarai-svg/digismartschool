@@ -280,6 +280,8 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
   };
 })();
 </script>
+<script src="js/class-roster.js"></script>
+<script src="js/quiz-cards.js"></script>
 </head>
 <body>
 
@@ -2665,7 +2667,7 @@ function scQuizStyles(){
 }
 
 async function scQuizKey(){
-  var data = 'quiz2|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
+  var data = 'quiz3|' + LESSON.subject + '|' + LESSON.cls + '|' + LESSON.topic + '|' +
     LESSON.text.length + '|' + LESSON.text.substring(0, 8000);
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20)
@@ -2694,9 +2696,10 @@ async function scGetQuiz(){
       system: 'You write a 5-question oral CLASS QUIZ for ' + LESSON.cls + ' from the lesson just taught. ' +
         'Questions must be answerable ALOUD IN CHORUS by the whole class: very short factual answers ' +
         '(a name, a year, a word, a short phrase \u2014 never long sentences). Cover different parts of the lesson. ' +
-        'Reply ONLY with JSON: [{"q":"question","a":"short answer"}] \u2014 exactly 5 items, nothing else.',
+        (window.QC ? QC.promptAddon :
+        'Reply ONLY with JSON: [{"q":"question","a":"short answer"}] \u2014 exactly 5 items, nothing else.'),
       messages:[{ role:'user', content:'LESSON CONTENT:\n' + material }],
-      max_tokens: 800
+      max_tokens: 1200
     })
   });
   var d2 = await res.json();
@@ -2707,7 +2710,8 @@ async function scGetQuiz(){
   if (s === -1 || e <= s) throw new Error('quiz could not be generated \u2014 try again');
   var arr = JSON.parse(raw.substring(s, e + 1));
   QUIZ_QS = arr.slice(0, 5).map(function(x){
-    return { q: String((x && x.q) || '').substring(0, 220), a: String((x && x.a) || '').substring(0, 220) };
+    var it = { q: String((x && x.q) || '').substring(0, 220), a: String((x && x.a) || '').substring(0, 220) };
+    return (window.QC && it.q && it.a) ? QC.prepare(it, x) : it;   // adds A/B/C choices for answer cards
   }).filter(function(x){ return x.q && x.a; });
   if (QUIZ_QS.length === 0) throw new Error('quiz empty \u2014 try again');
   if (key){
@@ -2733,6 +2737,8 @@ async function scStartQuiz(){
     return;
   }
   QUIZ_IDX = 0; QUIZ_RESULTS = [];
+  if (window.QC) { try { await QC.open(QUIZ_QS); } catch(eQ){} }
+  if (window.dssRoster) { try { dssRoster(LESSON.cls); } catch(eR){} }   // student names ready for the end
   scShowQuizQ();
 }
 
@@ -2744,29 +2750,38 @@ function scShowQuizQ(){
     '<div class="qz-wrap">' +
       '<div class="qz-prog">CLASS QUIZ \u00B7 QUESTION ' + (QUIZ_IDX + 1) + ' OF ' + QUIZ_QS.length + '</div>' +
       '<div class="qz-q"></div>' +
+      (window.QC ? QC.html(item) : '') +
       '<div class="qz-chorus">\uD83D\uDDE3 Everyone answer together!</div>' +
       '<button class="qz-show" onclick="scQuizReveal()">\uD83D\uDC41 Show Answer</button>' +
       '<div class="qz-ans" id="qz-ans"></div>' +
       '<div class="qz-rate" id="qz-rate">' +
-        '<button class="qz-r3" onclick="scQuizRate(3)">\uD83D\uDE03 Most got it</button>' +
-        '<button class="qz-r2" onclick="scQuizRate(2)">\uD83D\uDE10 About half</button>' +
-        '<button class="qz-r1" onclick="scQuizRate(1)">\uD83D\uDE1F Only a few</button>' +
+        '<button class="qz-r3" data-r="3" onclick="scQuizRate(3)">\uD83D\uDE03 Most got it</button>' +
+        '<button class="qz-r2" data-r="2" onclick="scQuizRate(2)">\uD83D\uDE10 About half</button>' +
+        '<button class="qz-r1" data-r="1" onclick="scQuizRate(1)">\uD83D\uDE1F Only a few</button>' +
       '</div>' +
     '</div>';
   inner.querySelector('.qz-q').textContent = item.q;
   document.getElementById('qz-ans').textContent = '\u2705 ' + item.a;
   scSpeak(item.q);
+  if (window.QC && QC.has(item)) {
+    var chorusEl = inner.querySelector('.qz-chorus');
+    if (chorusEl) chorusEl.textContent = '\uD83C\uDCCF Hold up your answer card \u2014 or answer together!';
+    QC.ask(QUIZ_IDX, QUIZ_QS.length, LESSON.topic, item);
+  }
 }
 
 function scQuizReveal(){
   clearTimeout(scAdvanceTimer);
   document.getElementById('qz-ans').classList.add('on');
   document.getElementById('qz-rate').classList.add('on');
+  if (window.QC) QC.reveal(QUIZ_IDX, QUIZ_QS[QUIZ_IDX], document.getElementById('qz-rate'));
 }
 
 function scQuizRate(r){
   var item = QUIZ_QS[QUIZ_IDX];
-  QUIZ_RESULTS.push({ q: item.q, a: item.a, rating: r });
+  var rec = { q: item.q, a: item.a, rating: r };
+  if (window.QC) QC.record(rec, item);          // card number + letter, when cards were scanned
+  QUIZ_RESULTS.push(rec);
   QUIZ_IDX++;
   if (QUIZ_IDX < QUIZ_QS.length) scShowQuizQ();
   else scQuizFinish();
@@ -2783,11 +2798,13 @@ async function scQuizFinish(){
   inner.innerHTML =
     '<div class="qz-wrap"><div class="qz-prog">CLASS QUIZ \u00B7 RESULT</div>' +
     '<div class="qz-sum">' + rows + '</div>' +
+    '<div id="qz-kids"></div>' +
     '<div id="qz-save" style="margin:14px 0;color:var(--sandal);font-size:0.82rem;">\u23F3 Saving to Class Insights\u2026</div>' +
     '<button class="sc-done-btn ghost" onclick="scShowComplete()">\u2190 Done</button></div>';
   var spans = inner.querySelectorAll('.qz-row span:last-child');
   for (var i = 0; i < spans.length; i++) spans[i].textContent = QUIZ_RESULTS[i].q;
   document.getElementById('narr-text').textContent = '\uD83C\uDFAF Quiz complete \u2014 well done, class!';
+  if (window.QC) QC.finish(QUIZ_RESULTS, LESSON.cls, 'qz-kids');
   try{
     var key = await scQuizKey();
     var r = await fetch('/api/class-quiz', {
