@@ -580,6 +580,16 @@ html,body{
   display:none;
 }
 .your-turn-ans.show{display:block;}
+/* How many got the Your Turn sum right? (feeds Class Insights) */
+.your-turn-rate{margin-top:14px;display:none;}
+.your-turn-rate.show{display:block;}
+.your-turn-rate-q{font-family:'Caveat',cursive;font-size:1.3rem;color:#fff;margin-bottom:8px;}
+.your-turn-rate button{border:none;border-radius:10px;padding:9px 16px;margin:0 8px 8px 0;
+  font-weight:800;font-size:.92rem;cursor:pointer;box-shadow:0 4px 12px rgba(0,0,0,.3);}
+.ytr-3{background:linear-gradient(135deg,#2f9e57,#1f7a40);color:#eafff0;}
+.ytr-2{background:linear-gradient(135deg,#d9a530,#b3841f);color:#2a1c05;}
+.ytr-1{background:linear-gradient(135deg,#b33a3a,#8a2525);color:#ffe4de;}
+.your-turn-rated{font-size:.88rem;color:var(--chalk-yellow,#f5e87a);margin-top:4px;}
 
 /* LET'S MAKE IT - hands-on paper activity panel */
 .make-it{
@@ -1220,6 +1230,15 @@ html,body{
         <div class="your-turn-q" id="your-turn-q"></div>
         <button class="your-turn-reveal" id="your-turn-reveal" onclick="revealPracticeAnswer()">Show Answer</button>
         <div class="your-turn-ans" id="your-turn-ans"></div>
+        <div class="your-turn-rate" id="your-turn-rate">
+          <div class="your-turn-rate-q">How many got it right?</div>
+          <div id="your-turn-rate-btns">
+            <button class="ytr-3" onclick="mcRatePractice(3)">😃 Most got it</button>
+            <button class="ytr-2" onclick="mcRatePractice(2)">😐 About half</button>
+            <button class="ytr-1" onclick="mcRatePractice(1)">😟 Only a few</button>
+          </div>
+          <div class="your-turn-rated" id="your-turn-rated"></div>
+        </div>
       </div>
       <div class="make-it" id="make-it">
         <div class="make-it-title">&#9986; Let's Make It!</div>
@@ -4092,6 +4111,7 @@ function resetYourTurn(){
   $('your-turn-ans').textContent = '';
   $('your-turn-ans').classList.remove('show');
   $('your-turn-reveal').style.display = '';
+  try{ mcHideRate(); }catch(e){}
   resetMakeIt();
 }
 async function showYourTurn(){
@@ -4111,9 +4131,62 @@ async function revealPracticeAnswer(){
   $('your-turn-reveal').style.display = 'none';
   var ansEl = $('your-turn-ans');
   ansEl.classList.add('show');
+  try{ mcShowRate(); }catch(e){}
   await chalkWrite(ansEl, '✓ ' + a, 90);
   await speakStep(practiceAnswerLine());
 }
+
+// ═══ HOW MANY GOT IT? — Your Turn rating → Class Insights (Oct 2026) ═══
+// After Show Answer, the teacher taps Most / Half / Few. Taps are kept for the
+// whole class and saved together (same place as the Social/Science/English/Hindi
+// Class Quiz), when the last listed question is rated or when the teacher leaves.
+// Whole-class only — no student names. Skipping the tap is fine.
+var MC_RATINGS = [];        // [{q, a, rating}] not yet saved
+function mcShowRate(){
+  var box = $('your-turn-rate'); if(!box) return;
+  var q = SOLUTION && SOLUTION.practiceQuestion ? String(SOLUTION.practiceQuestion).trim() : '';
+  if(!q) return;
+  box.classList.add('show');
+  $('your-turn-rate-btns').style.display = '';
+  $('your-turn-rated').textContent = '';
+}
+function mcHideRate(){
+  var box = $('your-turn-rate'); if(!box) return;
+  box.classList.remove('show');
+  $('your-turn-rated').textContent = '';
+}
+function mcRatePractice(r){
+  var q = SOLUTION && SOLUTION.practiceQuestion ? String(SOLUTION.practiceQuestion).trim() : '';
+  if(!q) return;
+  var a = SOLUTION.practiceAnswer ? String(SOLUTION.practiceAnswer).trim() : '';
+  // tapping again on the same sum changes the answer instead of adding a second one
+  MC_RATINGS = MC_RATINGS.filter(function(x){ return x.q !== q; });
+  MC_RATINGS.push({ q: q, a: a, rating: r });
+  $('your-turn-rate-btns').style.display = 'none';
+  $('your-turn-rated').textContent = (r === 3 ? '😃' : r === 2 ? '😐' : '😟') + ' Noted for Class Insights';
+  var lastInList = !QUESTION_QUEUE.length || QUEUE_IDX >= QUESTION_QUEUE.length - 1;
+  if((QUESTION_QUEUE.length && lastInList) || MC_RATINGS.length >= 10) mcSaveRatings(false);
+}
+function mcSaveRatings(leaving){
+  if(!MC_RATINGS.length) return;
+  var list = MC_RATINGS; MC_RATINGS = [];
+  var cls = ($('meta-class') && $('meta-class').value.trim()) || (MC_LESSON && MC_LESSON.cls) || '';
+  var topic = ($('meta-chapter') && $('meta-chapter').value.trim()) || (MC_LESSON && MC_LESSON.chapter) || 'Maths practice';
+  var token = '';
+  try{ token = localStorage.getItem('dss_session') || ''; }catch(e){}
+  for(var i = 0; i < list.length; i += 10){
+    try{
+      fetch('/api/class-quiz', {
+        method: 'POST', keepalive: !!leaving,
+        headers: { 'Content-Type': 'application/json', 'x-dss-session': token },
+        body: JSON.stringify({ cls: cls, subject: 'Maths', topic: topic, planKey: '',
+                               results: list.slice(i, i + 10) })
+      }).catch(function(){});
+    }catch(e){}
+  }
+}
+// Closing the tab or leaving the page also saves what was rated
+window.addEventListener('pagehide', function(){ try{ mcSaveRatings(true); }catch(e){} });
 
 // = LET'S MAKE IT - hands-on paper activity (fold only, no glue, no cutting by children) =
 // The shape is read from the figure the lesson ALREADY carries, so this can never
@@ -7356,6 +7429,7 @@ function restartSetup(){
 }
 
 function goBack(){
+  try{ mcSaveRatings(true); }catch(e){}
   if(IS_PLAYING) pausePlayback();
   var r = null;
   try{ r = sessionStorage.getItem('mc_returnUrl'); }catch(e){}
