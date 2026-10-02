@@ -130,16 +130,16 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div>
         <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Teacher Name</label>
-        <input type="text" id="t-name" placeholder="e.g. Mrs. Shalini" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+        <input type="text" id="t-name" autocomplete="off" placeholder="e.g. Mrs. Shalini" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
       </div>
       <div>
         <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Email</label>
-        <input type="email" id="t-email" placeholder="teacher@school.com" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+        <input type="email" id="t-email" name="new-teacher-email" autocomplete="off" placeholder="teacher@school.com" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
       </div>
     </div>
     <div style="margin-bottom:10px;">
       <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Password</label>
-      <input type="password" id="t-pass" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      <input type="password" id="t-pass" name="new-teacher-password" autocomplete="new-password" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
     </div>
     <div id="teacher-limit-msg" style="display:none;background:#f8d7da;color:#721c24;border:1px solid #dc3545;border-radius:8px;padding:9px 12px;font-size:0.85rem;font-weight:700;margin-bottom:8px;"></div>
     <button id="add-teacher-btn" onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
@@ -291,6 +291,9 @@ if (localSchool.max_teachers)
 function showTeachersPage(){
   document.getElementById('teachers-page').style.display='block';
   document.body.style.overflow='hidden';
+  // Browsers sometimes fill the school's own login here — clear it (a little later too, after autofill)
+  var clearForm = function(){ ['t-name','t-email','t-pass'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; }); };
+  clearForm(); setTimeout(clearForm, 300);
   setTimeout(function(){ loadTeachers(); }, 500);
 }
 function hideTeachersPage(){
@@ -300,7 +303,14 @@ function hideTeachersPage(){
 async function loadTeachers(){
   var listEl=document.getElementById('t-list');
   var countEl=document.getElementById('t-count');
-  if(!window._schoolId){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;">Loading...</div>'; return; }
+  if(!window._schoolId){
+    listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;">Loading...</div>';
+    loadTeachers._tries = (loadTeachers._tries || 0) + 1;
+    if(loadTeachers._tries <= 20){ setTimeout(loadTeachers, 500); }   // try again for up to 10 seconds
+    else { listEl.innerHTML='<div style="text-align:center;padding:20px;color:#c0392b;">Could not load school details. Please refresh the page.</div>'; loadTeachers._tries = 0; }
+    return;
+  }
+  loadTeachers._tries = 0;
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({action:'get_teachers',school_id:window._schoolId})});
@@ -325,12 +335,24 @@ async function loadTeachers(){
 
     if(!teachers.length){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;font-style:italic;">No teachers added yet.</div>'; return; }
     listEl.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:.88rem;">'
-      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:center;">Slots Left</th></tr></thead><tbody>'
-      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td><td></td></tr>'; }).join('')
+      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:center;">Actions</th></tr></thead><tbody>'
+      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td>'
+        +'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;white-space:nowrap;">'
+        +'<button class="t-act" data-act="edit" data-id="'+esc(t.id)+'" style="background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;margin-right:6px;">&#9999;&#65039; Edit</button>'
+        +'<button class="t-act" data-act="del" data-id="'+esc(t.id)+'" style="background:#fdecea;border:1.5px solid #c0392b;color:#c0392b;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;">&#128465; Delete</button>'
+        +'</td></tr>'; }).join('')
       +'</tbody></table>'
       +'<div style="padding:10px 12px;font-size:0.82rem;color:'+(remaining>0?'#1a5c2a':'#c0392b')+';font-weight:700;">'+
         (remaining>0 ? '✅ '+remaining+' slot(s) remaining' : '🔒 No slots remaining — upgrade to add more teachers')
-      +'</div>';
+      +'</div>'
+      +'<div id="t-edit" style="display:none;margin-top:12px;background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:12px;padding:14px;"></div>';
+    window._teacherList = teachers;
+    listEl.querySelectorAll('.t-act').forEach(function(b){
+      b.onclick = function(){
+        var id = b.getAttribute('data-id');
+        if(b.getAttribute('data-act') === 'edit') openEditTeacher(id); else deleteTeacher(id);
+      };
+    });
   }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
 }
 async function addTeacher(){
@@ -354,6 +376,57 @@ async function addTeacher(){
     setTimeout(function(){msg.textContent='';},3000);
     loadTeachers();
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
+}
+function findTeacher(id){ return (window._teacherList || []).filter(function(t){ return String(t.id) === String(id); })[0]; }
+function openEditTeacher(id){
+  var t = findTeacher(id), box = document.getElementById('t-edit');
+  if(!t || !box) return;
+  var inp = 'width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;margin-bottom:8px;';
+  box.innerHTML = '<div style="font-weight:800;color:#6B0F1A;margin-bottom:8px;">&#9999;&#65039; Edit teacher — ' + esc(t.email) + '</div>'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">Name</label>'
+    + '<input id="te-name" autocomplete="off" style="' + inp + '">'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">New password <span style="font-weight:600;color:#888;">(leave empty to keep the old one)</span></label>'
+    + '<input id="te-pass" type="password" autocomplete="new-password" placeholder="At least 6 characters" style="' + inp + '">'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button id="te-save" style="flex:1;padding:9px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Save</button>'
+    + '<button id="te-cancel" style="padding:9px 16px;background:#eee;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Cancel</button></div>'
+    + '<div id="te-msg" style="font-size:0.82rem;font-weight:700;min-height:20px;padding-top:6px;"></div>';
+  document.getElementById('te-name').value = t.name || '';
+  box.style.display = 'block';
+  box.scrollIntoView({ behavior:'smooth', block:'center' });
+  document.getElementById('te-cancel').onclick = function(){ box.style.display = 'none'; box.innerHTML = ''; };
+  document.getElementById('te-save').onclick = async function(){
+    var name = document.getElementById('te-name').value.trim();
+    var pass = document.getElementById('te-pass').value;
+    var msg = document.getElementById('te-msg');
+    if(!name){ msg.style.color='#c0392b'; msg.textContent='Name cannot be empty.'; return; }
+    if(pass && pass.length < 6){ msg.style.color='#c0392b'; msg.textContent='Password must be at least 6 characters.'; return; }
+    msg.style.color='#6B0F1A'; msg.textContent='Saving...';
+    try{
+      var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'update_teacher',school_id:window._schoolId,teacher_id:t.id,name:name,new_password:pass})});
+      var d = await r.json();
+      if(d.error) throw new Error(d.error);
+      msg.style.color='#1a5c2a'; msg.textContent='✅ Saved' + (pass ? ' — tell the teacher their new password.' : '.');
+      setTimeout(loadTeachers, 1200);
+    }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  };
+}
+async function deleteTeacher(id){
+  var t = findTeacher(id);
+  if(!t) return;
+  if(!confirm('Remove ' + (t.name || t.email) + '?\n\nTheir login will stop working and the slot will be free for a new teacher.')) return;
+  var msg = document.getElementById('t-msg');
+  msg.style.color='#6B0F1A'; msg.textContent='Removing...';
+  try{
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'delete_teacher',school_id:window._schoolId,teacher_id:t.id})});
+    var d = await r.json();
+    if(d.error) throw new Error(d.error);
+    msg.style.color='#1a5c2a'; msg.textContent='✅ ' + (t.name || t.email) + ' removed.';
+    setTimeout(function(){ msg.textContent=''; }, 3000);
+    loadTeachers();
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
 }
 function showTeachers(){ showTeachersPage(); }
 async function showTeachers_old() {
