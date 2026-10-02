@@ -2682,6 +2682,11 @@ function mrLeft(s, i){
        this, "ar^8/ar^5" took only the 8 as the numerator. */
     if(c === '^' && absorbed){ j--; continue; }
     if(/[A-Za-z0-9._]/.test(c)){ j--; absorbed = true; continue; }
+    /* A maths command already made earlier (\\sqrt{3}, \\pi) keeps its backslash
+       inside the numerator, and the number in front of it comes too:
+       "20√3/3" is (20√3) over 3. Leaving the backslash outside used to break
+       the whole line into "20fracsqrt33". */
+    if(c === '\\' && absorbed){ j--; continue; }
     break;
   }
   /* A numerator may be negative: -10/-4. The minus counts as a SIGN only when
@@ -2723,6 +2728,18 @@ function mrRight(s, i){
       j += 2; absorbed = true; continue;
     }
     if(/[A-Za-z0-9._]/.test(c)){ j++; absorbed = true; continue; }
+    /* A maths command in the denominator - 1/√2 is 1 over \\sqrt{2} by now -
+       is taken whole, with its {...}, so it stacks like any other fraction. */
+    if(c === '\\' && /[A-Za-z]/.test(s.charAt(j + 1))){
+      j++;
+      while(j < s.length && /[A-Za-z]/.test(s.charAt(j))) j++;
+      if(s.charAt(j) === '{'){
+        j++; d = 1;
+        while(j < s.length && d > 0){ k = s.charAt(j); if(k === '{') d++; else if(k === '}') d--; j++; }
+        if(d > 0) return null;
+      }
+      absorbed = true; continue;
+    }
     break;
   }
   return absorbed ? { start: start, end: j } : null;
