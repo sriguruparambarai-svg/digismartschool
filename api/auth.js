@@ -111,7 +111,7 @@ const ACT_OPEN = ['request_reset', 'confirm_reset', 'login', 'student_login',
                   'get_school_sources'];
 const ACT_SUPER = ['register_school', 'get_schools', 'update_subscription', 'cleanup_user',
                    'lib_access_toggle', 'lib_access_get', 'set_school_source'];
-const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers', 'get_progress_data'];                     // principal of that school
+const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers', 'get_progress_data', 'update_teacher', 'delete_teacher'];                     // principal of that school
 const ACT_STAFF = ['save_active_lesson', 'delete_active_lesson', 'get_active_lessons',
                    'add_diary_student', 'bulk_add_diary_students', 'get_diary_students',
                    'save_diary_entry', 'upload_diary_voice',
@@ -123,6 +123,48 @@ const ACT_STAFF_ROW = {
   delete_image_chapter: { table: 'school_image_chapters', idField: 'chapter_id' },
   delete_school_book:   { table: 'school_books',          idField: 'book_id' }
 };
+
+// ── Find a login (Supabase Auth user) by its EXACT email ──
+// The login list may ignore an "?email=" filter and return other people's
+// accounts, so the first account in a reply is never trusted: every account is
+// compared with the email, and the list is read page by page if needed.
+async function findAuthUserByEmail(email) {
+  const want = String(email || '').trim().toLowerCase();
+  if (!want) return null;
+  const pick = function (r) {
+    const list = (r && r.data && Array.isArray(r.data.users)) ? r.data.users : [];
+    return { list: list, hit: list.find(function (u) { return String((u && u.email) || '').toLowerCase() === want; }) || null };
+  };
+  let p = pick(await req('GET', '/auth/v1/admin/users?email=' + encodeURIComponent(want)));
+  if (p.hit) return p.hit;
+  for (let page = 1; page <= 25; page++) {
+    p = pick(await req('GET', '/auth/v1/admin/users?page=' + page + '&per_page=200'));
+    if (p.hit) return p.hit;
+    if (p.list.length < 200) break;
+  }
+  return null;
+}
+const SUPER_ADMIN_EMAIL = 'sriguruparambarai@gmail.com';
+// same email whatever the capital letters ("_" and "%" are matched literally)
+function emailMatch(email) {
+  return 'ilike.' + encodeURIComponent(String(email || '').trim().replace(/[\\%_]/g, '\\$&'));
+}
+async function isSchoolEmail(email) {
+  const r = await req('GET', '/rest/v1/schools?email=' + emailMatch(email) + '&select=id&limit=1');
+  return !!(r.data && r.data.length);
+}
+// A teacher row may only be changed by its own school's admin (or the super admin).
+async function teacherOfMySchool(who, teacherId) {
+  if (!teacherId) return { error: 'teacher_id required' };
+  const tr = await req('GET', '/rest/v1/teachers?id=eq.' + encodeURIComponent(teacherId) + '&select=*&limit=1');
+  const t = (tr.data && tr.data[0]) || null;
+  if (!t) return { error: 'Teacher not found' };
+  if (who.role !== 'super_admin') {
+    const keys = await mySchoolKeys(who);
+    if (keys.indexOf(String(t.school_id)) === -1) return { error: 'This teacher is not in your school.' };
+  }
+  return { teacher: t };
+}
 
 // All the ways the logged-in person's school can be named (its id, code and short id).
 async function mySchoolKeys(who) {
@@ -293,9 +335,9 @@ module.exports = async function(req2, res) {
       const { school_name, email, password, phone, city, subscription_end } = body;
 
       // Step 1: Check if auth user already exists — delete if so (cleanup from failed attempt)
-      const existingUsers = await req('GET', `/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
-      if (existingUsers.data && existingUsers.data.users && existingUsers.data.users.length > 0) {
-        const existingUserId = existingUsers.data.users[0].id;
+      const existingAuth = await findAuthUserByEmail(email);
+      if (existingAuth) {
+        const existingUserId = existingAuth.id;
         // Check if school record exists for this email
         const existingSchool = await req('GET', `/rest/v1/schools?email=eq.${encodeURIComponent(email)}&select=*`);
         if (existingSchool.data && existingSchool.data.length > 0) {
@@ -343,7 +385,16 @@ module.exports = async function(req2, res) {
 
     // ── ADD TEACHER ──
     if (action === 'add_teacher') {
-      const { school_id, teacher_name, teacher_email, teacher_password } = body;
+      const { school_id, teacher_name, teacher_password } = body;
+      const teacher_email = String(body.teacher_email || '').trim();
+      if (!String(teacher_name || '').trim() || !teacher_email || !teacher_password) {
+        return res.json({ error: 'Please fill name, email and password.' });
+      }
+      if (String(teacher_password).length < 6) return res.json({ error: 'Password must be at least 6 characters.' });
+      // A school's own login or the super admin login can never be turned into a teacher.
+      if (teacher_email.toLowerCase() === SUPER_ADMIN_EMAIL || await isSchoolEmail(teacher_email)) {
+        return res.json({ error: 'This email is a school or admin login. Please use the teacher\'s own email.' });
+      }
 
       // ── TEACHER LIMIT CHECK ──
       // Get school's max_teachers setting
@@ -362,14 +413,19 @@ module.exports = async function(req2, res) {
       }
 
       // Check if auth user exists and clean up if orphan
-      const existingUsers = await req('GET', `/auth/v1/admin/users?email=${encodeURIComponent(teacher_email)}`);
-      if (existingUsers.data && existingUsers.data.users && existingUsers.data.users.length > 0) {
-        const existingId = existingUsers.data.users[0].id;
-        const existingTeacher = await req('GET', `/rest/v1/teachers?email=eq.${encodeURIComponent(teacher_email)}&select=*`);
-        if (existingTeacher.data && existingTeacher.data.length > 0) {
-          return res.json({ error: 'A teacher with this email already exists.' });
+      const existingTeacher = await req('GET', '/rest/v1/teachers?email=' + emailMatch(teacher_email) + '&select=id');
+      if (existingTeacher.data && existingTeacher.data.length > 0) {
+        return res.json({ error: 'A teacher with this email already exists.' });
+      }
+      const existingAuth = await findAuthUserByEmail(teacher_email);
+      if (existingAuth) {
+        // Only a half-made TEACHER login (from an earlier failed add) is cleaned up.
+        // Any other login with this email belongs to someone else and is never touched.
+        const meta = existingAuth.user_metadata || {};
+        if (meta.role !== 'teacher') {
+          return res.json({ error: 'This email already has a DigiSmart login. Please use a different email.' });
         }
-        await req('DELETE', `/auth/v1/admin/users/${existingId}`, null);
+        await req('DELETE', `/auth/v1/admin/users/${existingAuth.id}`, null);
       }
 
       const ar = await req('POST', '/auth/v1/admin/users', {
@@ -452,8 +508,56 @@ module.exports = async function(req2, res) {
 
     // ── GET TEACHERS ──
     if (action === 'get_teachers') {
-      const r = await req('GET', `/rest/v1/teachers?school_id=eq.${body.school_id}&select=*`);
-      return res.json({ success: true, teachers: Array.isArray(r.data) ? r.data : [] });
+      const r = await req('GET', `/rest/v1/teachers?school_id=eq.${encodeURIComponent(body.school_id)}&select=*`);
+      const list = Array.isArray(r.data) ? r.data : [];
+      // only what the page shows — no other saved details leave the server
+      return res.json({ success: true, teachers: list.map(function (t) {
+        return { id: t.id, name: t.name, email: t.email, school_id: t.school_id, role: t.role };
+      }) });
+    }
+
+    // ── EDIT TEACHER: new name and/or new password ──
+    if (action === 'update_teacher') {
+      const chk = await teacherOfMySchool(who, body.teacher_id);
+      if (chk.error) return res.json({ error: chk.error });
+      const t = chk.teacher;
+      const newName = String(body.name || '').trim();
+      const newPass = String(body.new_password || '');
+      if (!newName && !newPass) return res.json({ error: 'Nothing to change.' });
+      if (newPass && newPass.length < 6) return res.json({ error: 'Password must be at least 6 characters.' });
+      if (newName && newName !== t.name) {
+        const ur = await req('PATCH', '/rest/v1/teachers?id=eq.' + encodeURIComponent(t.id), { name: newName.substring(0, 80) });
+        if (ur.status >= 300) return res.json({ error: 'Could not save the new name.' });
+      }
+      if (newPass) {
+        const au = await findAuthUserByEmail(t.email);
+        if (!au) return res.json({ error: 'Login for this teacher was not found. Delete and add the teacher again.' });
+        if ((au.user_metadata || {}).role !== 'teacher' || String(t.email).toLowerCase() === SUPER_ADMIN_EMAIL) {
+          return res.json({ error: 'This login is not a teacher login, so its password cannot be changed here.' });
+        }
+        const pr = await req('PUT', '/auth/v1/admin/users/' + au.id, { password: newPass });
+        if (pr.status >= 300) {
+          const m = (pr.data && (pr.data.msg || pr.data.message)) || 'server';
+          return res.json({ error: 'Could not set the new password (' + m + ').' });
+        }
+      }
+      return res.json({ success: true });
+    }
+
+    // ── DELETE TEACHER: removes the teacher and their login, frees the slot ──
+    if (action === 'delete_teacher') {
+      const chk = await teacherOfMySchool(who, body.teacher_id);
+      if (chk.error) return res.json({ error: chk.error });
+      const t = chk.teacher;
+      const au = await findAuthUserByEmail(t.email);
+      // the login is removed only when it really is a teacher login (never a school or admin login)
+      if (au && (au.user_metadata || {}).role === 'teacher'
+          && String(t.email).toLowerCase() !== SUPER_ADMIN_EMAIL && !(await isSchoolEmail(t.email))) {
+        await req('DELETE', '/auth/v1/admin/users/' + au.id, null);
+      }
+      const dr = await req('DELETE', '/rest/v1/teachers?id=eq.' + encodeURIComponent(t.id));
+      if (dr.status >= 300) return res.json({ error: 'Could not remove the teacher record.' });
+      return res.json({ success: true });
     }
 
     // ── GET SCHOOL INFO (for dashboard) ──
@@ -673,9 +777,12 @@ module.exports = async function(req2, res) {
     // ── DELETE ORPHAN AUTH USERS (cleanup tool) ──
     if (action === 'cleanup_user') {
       const { email } = body;
-      const users = await req('GET', `/auth/v1/admin/users?email=${encodeURIComponent(email)}`);
-      if (users.data && users.data.users && users.data.users.length > 0) {
-        await req('DELETE', `/auth/v1/admin/users/${users.data.users[0].id}`, null);
+      if (String(email || '').trim().toLowerCase() === SUPER_ADMIN_EMAIL) {
+        return res.json({ error: 'The super admin login cannot be deleted.' });
+      }
+      const found = await findAuthUserByEmail(email);
+      if (found) {
+        await req('DELETE', `/auth/v1/admin/users/${found.id}`, null);
         return res.json({ success: true, message: 'User deleted' });
       }
       return res.json({ success: true, message: 'No user found' });
