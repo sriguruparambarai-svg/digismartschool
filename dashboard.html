@@ -245,6 +245,12 @@ if (localSchool.subscription_end)
 if (localSchool.max_teachers)
   document.getElementById('inf-teachers').textContent = localSchool.max_teachers;
 
+// The school's id is already known from login — use it straight away so My Teachers
+// does not depend on the fresh details below (the server checks it on every request).
+if (role === 'school_admin' && user.id) window._schoolId = user.id;
+else if (role === 'teacher' && (user.school_id || (user.schools && user.schools.id))) window._schoolId = user.school_id || user.schools.id;
+if (localSchool.max_teachers) window._maxTeachers = parseInt(localSchool.max_teachers) || 5;
+
 // Always fetch fresh from server
 (async function() {
   try {
@@ -252,8 +258,11 @@ if (localSchool.max_teachers)
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get_school_info', email: user.email, role: role })
     });
-    const d = await r.json();
+    const raw = await r.text();
+    let d = {};
+    try { d = JSON.parse(raw); } catch(pe) { d = { error: 'Server reply could not be read (status ' + r.status + ').' }; }
     const s = d.school;
+    if (s && s.id) { window._schoolId = s.id; window._maxTeachers = parseInt(s.max_teachers) || 5; }
     if (!s) {
       window._schoolInfoError = (d && d.error) || 'School details were not found for this login.';
       if (/log in again/i.test(window._schoolInfoError)) showLoginExpired();
@@ -289,7 +298,10 @@ if (localSchool.max_teachers)
     }
     window._schoolId = s.id;
     window._maxTeachers = parseInt(s.max_teachers) || 5;
-  } catch(e) { console.error('School info error:', e); }
+  } catch(e) {
+    console.error('School info error:', e);
+    if (!window._schoolId) window._schoolInfoError = 'Could not load school details: ' + (e.message || e);
+  }
 })();
 
 function showTeachersPage(){
