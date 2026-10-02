@@ -111,7 +111,7 @@ const ACT_OPEN = ['request_reset', 'confirm_reset', 'login', 'student_login',
                   'get_school_sources'];
 const ACT_SUPER = ['register_school', 'get_schools', 'update_subscription', 'cleanup_user',
                    'lib_access_toggle', 'lib_access_get', 'set_school_source'];
-const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers'];                     // principal of that school
+const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers', 'get_progress_data'];                     // principal of that school
 const ACT_STAFF = ['save_active_lesson', 'delete_active_lesson', 'get_active_lessons',
                    'add_diary_student', 'bulk_add_diary_students', 'get_diary_students',
                    'save_diary_entry', 'upload_diary_voice',
@@ -406,6 +406,48 @@ module.exports = async function(req2, res) {
     if (action === 'get_schools') {
       const r = await req('GET', '/rest/v1/schools?select=*&order=created_at.desc');
       return res.json({ success: true, schools: Array.isArray(r.data) ? r.data : [] });
+    }
+
+    // ── STUDENT PROGRESS PAGE DATA (school admin of that school, or super admin) ──
+    // The school lock above has already checked school_id belongs to the logged-in school.
+    // Tables use different school labels: report_cards → school_code;
+    // diary_students, face_attendance, active_lessons → school_id. So find every label
+    // this school has and read each table with the right one.
+    if (action === 'get_progress_data') {
+      const asked = String(body.school_id || '');
+      if (!asked) return res.json({ error: 'school_id required' });
+      const enc = encodeURIComponent(asked);
+      let sr = await req('GET', '/rest/v1/schools?school_code=eq.' + enc + '&select=id,school_code,school_id,name&limit=1');
+      if ((!sr.data || !sr.data.length) && /^[0-9a-fA-F-]{36}$/.test(asked)) {
+        sr = await req('GET', '/rest/v1/schools?id=eq.' + enc + '&select=id,school_code,school_id,name&limit=1');
+      }
+      if (!sr.data || !sr.data.length) {
+        sr = await req('GET', '/rest/v1/schools?school_id=eq.' + enc + '&select=id,school_code,school_id,name&limit=1');
+      }
+      const sch = (sr.data && sr.data[0]) || null;
+      if (!sch) return res.json({ error: 'School not found' });
+      const labels = [sch.id, sch.school_id, sch.school_code, asked]
+        .filter(function (v, i, a) { return v && a.indexOf(v) === i; })
+        .map(function (v) { return '"' + String(v).replace(/"/g, '') + '"'; });
+      const inList = encodeURIComponent('(' + labels.join(',') + ')');
+      const out = await Promise.all([
+        sch.school_code
+          ? req('GET', '/rest/v1/report_cards?school_code=eq.' + encodeURIComponent(sch.school_code) + '&select=*&order=class_name')
+          : Promise.resolve({ data: [] }),
+        req('GET', '/rest/v1/diary_students?school_id=in.' + inList + '&select=*'),
+        req('GET', '/rest/v1/face_attendance?school_id=in.' + inList + '&select=*'),
+        req('GET', '/rest/v1/active_lessons?school_id=in.' + inList + '&select=*&order=updated_at.desc')
+      ]);
+      const arr = function (r) { return Array.isArray(r && r.data) ? r.data : []; };
+      return res.json({
+        success: true,
+        school_name: sch.name || '',
+        school_code: sch.school_code || '',
+        reports: arr(out[0]),
+        students: arr(out[1]),
+        attendance: arr(out[2]),
+        lessons: arr(out[3])
+      });
     }
 
     // ── GET TEACHERS ──
