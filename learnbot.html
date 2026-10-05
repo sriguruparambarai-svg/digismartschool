@@ -1519,6 +1519,15 @@ async function mbLoadBooks(){
       chBtn.style.cssText='padding:7px 12px;background:#fff;color:var(--maroon);border:1.5px solid var(--gold-dark);border-radius:8px;font-family:Nunito,sans-serif;font-size:0.76rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-right:6px;';
       chBtn.onclick=(function(id,url){return function(){ mbToggleChapters(id,url,this); };})(b.id,b.pdf_url||'');
       card.insertBefore(chBtn, card.lastElementChild);
+      var _mbRole=''; try{ _mbRole=localStorage.getItem('dss_role')||''; }catch(re){}
+      if(_mbRole==='school_admin' || _mbRole==='super_admin'){
+        var delBtn=document.createElement('button');
+        delBtn.textContent='\uD83D\uDDD1 Delete';
+        delBtn.title='Delete this book';
+        delBtn.style.cssText='padding:7px 12px;background:#fff;color:#c0392b;border:1.5px solid #c0392b;border-radius:8px;font-family:Nunito,sans-serif;font-size:0.76rem;font-weight:800;cursor:pointer;white-space:nowrap;flex-shrink:0;margin-left:6px;';
+        delBtn.onclick=(function(bk){return function(){ mbDeleteBook(bk, this); };})(b);
+        card.appendChild(delBtn);
+      }
       list.appendChild(card);
       var wrap=document.createElement('div');
       wrap.id='mb-chwrap-'+b.id;
@@ -1526,6 +1535,25 @@ async function mbLoadBooks(){
       list.appendChild(wrap);
     });
   }catch(e){list.innerHTML='<div style="color:#c0392b;font-size:0.82rem;">Error: '+e.message+'</div>';}
+}
+
+// Delete a wrongly uploaded or old-term book: its chapters, the record and the PDF.
+// Principal only (the server checks this too).
+async function mbDeleteBook(b, btn){
+  var label=(b.book_name||'this book')+' ('+(b.class_name||'')+' \u00b7 Term '+(b.term||'')+')';
+  if(!confirm('Delete "'+label+'"?\n\nTeachers will not be able to use it any more. This cannot be undone.')) return;
+  if(btn){ btn.disabled=true; btn.textContent='Deleting\u2026'; }
+  try{
+    try{ await mbChDB('DELETE', null, 'book_id=eq.'+encodeURIComponent(b.id)); }catch(ce){ /* book may have no chapters */ }
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json','x-dss-session': (localStorage.getItem('dss_session') || '')},
+      body:JSON.stringify({action:'delete_school_book',book_id:b.id})});
+    var d=await r.json();
+    if(!d || d.error) throw new Error((d && d.error) || 'Delete failed');
+    mbLoadBooks();
+  }catch(e){
+    alert('Could not delete: '+e.message);
+    if(btn){ btn.disabled=false; btn.textContent='\uD83D\uDDD1 Delete'; }
+  }
 }
 
 // \u2500\u2500 CHAPTERS FOR PRIVATE / CBSE BOOKS \u2500\u2500
