@@ -178,6 +178,81 @@
     return out;
   }
 
+  // -- STRATEGY 1b: contents page written as "Chapter 1 Title 5" --
+  // All-in-One term books list chapters as "Chapter 1 Hello, Friends! 5",
+  // grouped under subject names (English / Mathematics / EVS / Hindi), and
+  // the chapter numbers start again at 1 for every subject. Strategy 1
+  // misses these: the line starts with the word "Chapter", there is only a
+  // start page, and a repeated "Chapter 1" looked like a duplicate.
+  var TOC_WORD = /^\s*(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson|\u0BAA\u0BBE\u0B9F\u0BAE\u0BCD|\u0B85\u0BB2\u0B95\u0BC1)\s*[-\u2013\u2014:.]?\s*(\d{1,2})\s*[-\u2013\u2014:.]?\s+(.+?)\s+(\d{1,3})\s*$/;
+
+  function plainText(t) {
+    return String(t || '').replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/\(\s+/g, '(').replace(/\s+\)/g, ')').replace(/\s{2,}/g, ' ').trim();
+  }
+
+  function fromContentsChapterWord(pages, map, totalPages, say) {
+    var scan = pages.filter(function (p) {
+      return p.n <= Math.min(25, totalPages) &&
+             /contents|CONTENTS|Contents|INDEX|\u0B89\u0BB3\u0BCD\u0BB3\u0B9F\u0B95\u0BCD\u0B95\u0BAE\u0BCD|\u0BAA\u0BCA\u0BB0\u0BC1\u0BB3\u0B9F\u0B95\u0BCD\u0B95\u0BAE\u0BCD/.test(p.text);
+    });
+    var rows = [];
+    scan.forEach(function (p) {
+      var subject = '';
+      p.text.split('\n').forEach(function (line) {
+        var clean = plainText(line);
+        if (!clean) return;
+        var m = TOC_WORD.exec(clean);
+        if (m) {
+          var title = cleanTitle(m[2]);
+          if (title.length < 2 || title.length > 80) return;
+          rows.push({ number: parseInt(m[1], 10), title: title, subject: subject,
+                      pStart: parseInt(m[3], 10) });
+          return;
+        }
+        // a short line with no page number is a subject name ("Mathematics")
+        if (clean.indexOf('|') !== -1) return;                 // running header
+        if (/^\d+$/.test(clean)) return;                      // page number
+        if (/^(contents|index|chapter\s+title|title|page|s\.?\s*no)/i.test(clean)) return;
+        if (/\d\s*$/.test(clean)) return;
+        if (clean.length >= 2 && clean.length <= 40) subject = clean;
+      });
+    });
+    if (rows.length < 2) return null;
+
+    // one row per start page, in page order (numbers may repeat across subjects)
+    rows.sort(function (a, b) { return a.pStart - b.pStart; });
+    var list = [];
+    rows.forEach(function (r) {
+      if (list.length && r.pStart <= list[list.length - 1].pStart) return;
+      list.push(r);
+    });
+    if (list.length < 2) return null;
+    var subjects = {};
+    list.forEach(function (r) { if (r.subject) subjects[r.subject] = 1; });
+    var manySubjects = Object.keys(subjects).length > 1;
+
+    var off = findOffset(pages);
+    if (say) say('Found ' + list.length + ' chapters in the contents page\u2026');
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var r = list[i];
+      var from = Math.max(1, Math.min(r.pStart + off, totalPages));
+      var to = list[i + 1] ? list[i + 1].pStart + off - 1 : totalPages;
+      // leave out a subject cover page (just a list of chapter names)
+      // sitting right before the next chapter
+      if (list[i + 1] && to > from) {
+        var lastTxt = map[to] || '';
+        if (lastTxt.length < 300 && /Chapter|CHAPTER|Unit|UNIT|Lesson|LESSON/.test(lastTxt)) to = to - 1;
+      }
+      to = Math.max(from, Math.min(to, totalPages));
+      var title = (manySubjects && r.subject) ? (r.subject + ' \u2013 ' + r.title) : r.title;
+      out.push({ number: r.number, title: title, pageFrom: from, pageTo: to,
+                 text: textOfRange(map, from, to, 130000), source: 'contents' });
+    }
+    return out;
+  }
+
   // -- STRATEGY 2: headings on the pages -----------------------
   var HEAD_PATTERNS = [
     /^\s*(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson)\s*[--:]?\s*(\d{1,2})\s*[--:.]?\s*(.{0,70})$/,
@@ -262,8 +337,31 @@
     var totalPages = pages[pages.length - 1].n;
 
     var result = fromContents(pages, map, totalPages, say)
-              || fromHeadings(pages, map, totalPages, say)
-              || fromBlocks(pages, map, totalPages, say);
+              || fromContentsChapterWord(pages, map, totalPages, say)
+              || fromHeadings(pages, map, totalPages, say);
+
+    // Free methods failed - ask AI once (the result is saved, so it never
+    // runs again for this book). Only then fall back to page blocks.
+    if (!result) {
+      var chars = pages.reduce(function (n, p) { return n + p.text.length; }, 0);
+      if (chars / Math.max(1, pages.length) < 40) {
+        if (say) say('This PDF has very little readable text (it may be scanned pictures) \u2014 splitting into page blocks\u2026');
+      } else if (typeof window.tblAiChapters === 'function') {
+        if (say) say('No chapter names found \u2014 asking AI\u2026');
+        try {
+          var ai = await window.tblAiChapters(raw);
+          if (ai && ai.length >= 2) {
+            result = ai.map(function (c) {
+              return { number: c.number, title: plainText(c.title), pageFrom: c.pageFrom,
+                       pageTo: c.pageTo, text: c.text, source: 'ai' };
+            });
+          }
+        } catch (e) {
+          if (say) say('AI could not read the chapters (' + e.message + ') \u2014 splitting into page blocks\u2026');
+        }
+      }
+    }
+    if (!result) result = fromBlocks(pages, map, totalPages, say);
 
     // drop chapters that came out empty of text
     result = result.filter(function (c) { return c.pageTo >= c.pageFrom; });
