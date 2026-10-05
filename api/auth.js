@@ -195,6 +195,8 @@ async function actionCheck(action, body, who) {
   if (who.role !== 'teacher' && who.role !== 'school_admin') return 'Please log in again.';
   if (action === 'get_school_info') return '';  // checked after the school is found
   if (ACT_SCHOOL_ADMIN.indexOf(action) !== -1 && who.role !== 'school_admin') return 'Only the school admin can do this.';
+  // Deleting a book removes it for every teacher, so only the principal may do it.
+  if (action === 'delete_school_book' && who.role !== 'school_admin') return 'Only the principal can delete books.';
   const keys = await mySchoolKeys(who);
   if (ACT_STAFF_ROW[action]) {
     const rule = ACT_STAFF_ROW[action], id = body[rule.idField];
