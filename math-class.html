@@ -1050,6 +1050,8 @@ html,body{
 }
 .step-why.show{ opacity:.96; transform:translateY(0); }
 .step-why:empty{ display:none; }
+/* Kayal, Oct 2026: the reason line is SPOKEN only, never written on the board. */
+.step-why{ display:none !important; }
 @media (max-width:820px){
   .mr-line{font-size:1.25rem;}
   .step-why{font-size:1rem;margin-left:0;}
@@ -1408,6 +1410,10 @@ document.addEventListener('DOMContentLoaded', function(){
 });
 var IS_PAUSED = false;
 var IS_SPEAKING_INTRO = false;  // True while intro voice plays (row narrations wait)
+// Rough Work pad is drawn SILENTLY for multiply / divide / small notes, so the same
+// sum is not explained twice. The maths step on the board does all the talking.
+// Column add/sub with carrying keeps its voice (the maths step does not repeat it).
+var ROUGH_SILENT = true;
 var SPEED = 1.0;
 var CURRENT_AUDIO = null;
 var AUDIO_CACHE = {};     // spokenLine -> base64 audio (pre-generated before class starts)
@@ -2002,6 +2008,7 @@ async function solveAndTeach(){
       + '1. STEPS MUST BE ATOMIC — one small operation per step.\n'
       + '2. main field = ONLY the math expression. NO English sentences on the board.\n'
       + '3. readScript = read the written line aloud, ONE short sentence. whyScript = empty unless a NEW idea appears (see VOICE RULES).\n'
+      + '3b. SAY EACH THING ONCE. Never repeat a step or a calculation that was already spoken. roughScript, whyScript and readScript of the same step must each say something DIFFERENT - never the same sum twice. A step that repeats the previous step\'s line is not allowed. Restate the answer only once, in the final answer.\n'
       + '4. Rough work ONLY for genuinely hard arithmetic. Multiplication: roughType="mul" ONLY when BOTH numbers have 2+ digits (40 × 41 yes; 21 × 2 no).\n'
       + '5. Division: roughType="div" ONLY when the DIVISOR has 2+ digits (true long division, e.g. 1640 ÷ 25). Dividing by a single digit (420/2, 6480/2) is a plain step with roughType="none" — the readScript alone states the result.\n'
       + '   Easy arithmetic gets NO rough work and NO extra commentary. Rough work is for calculations students genuinely cannot do mentally.\n'
@@ -3915,6 +3922,9 @@ async function showStep(idx){
 
   // ── PHASE 1: Rough working FIRST — the teacher works it out at the side,
   // THEN writes the step line on the board as its conclusion.
+  // Set true when the Rough Work pad was explained ALOUD. The maths step then
+  // writes its line without reading it out again - one telling per step.
+  var roughSpoken = false;
   var hasRough = (step.roughType && step.roughType !== 'none' && step.roughType !== '') || (step.roughAddends && parseAddends(step.roughAddends));
   if(hasRough){
     // Small pause before starting rough work
@@ -3936,6 +3946,7 @@ async function showStep(idx){
     // Place-value stack (multi-number addition) — checked first
     if(step.roughAddends && parseAddends(step.roughAddends)){
       await animateColumnStack(step);
+      roughSpoken = true;
       if(!IS_PLAYING) return;
     } else
     // For mul/div — use animated row-by-row reveal WITH voice narration per line
@@ -3950,13 +3961,15 @@ async function showStep(idx){
 
       // Start both in parallel: voice speaks while first rows appear visually
       // Note: row narrations skip until voice intro finishes (via IS_SPEAKING_INTRO flag)
-      IS_SPEAKING_INTRO = true;
-      var introPromise = speakStep(roughIntro).then(function(){ IS_SPEAKING_INTRO = false; });
+      IS_SPEAKING_INTRO = !ROUGH_SILENT;
+      var introPromise = ROUGH_SILENT
+        ? Promise.resolve()
+        : speakStep(roughIntro).then(function(){ IS_SPEAKING_INTRO = false; });
 
       await addRoughWorkAnimated(
         step.roughLabel || 'Rough working',
         roughData,
-        function(rowNarration){
+        ROUGH_SILENT ? null : function(rowNarration){
           // Wait for intro voice to finish before starting row narration
           // (prevents voice collision)
           return waitForIntroThenSpeak(rowNarration);
@@ -3964,17 +3977,20 @@ async function showStep(idx){
       );
       // Ensure intro voice also finishes
       await introPromise;
+      if(!ROUGH_SILENT) roughSpoken = true;
       if(!IS_PLAYING) return;
     } else if((step.roughType === 'add' || step.roughType === 'sub')
               && columnEligible(step.roughA, step.roughB, step.roughType)){
       // Column addition / subtraction — digit by digit with carries or borrowing
       await animateColumnAddSub(step);
+      roughSpoken = true;
       if(!IS_PLAYING) return;
     } else {
       // For simple add/sub/custom — instant render with single narration
       addRoughWork(step.roughLabel || 'Rough working', roughData);
       var roughText = step.roughScript || step.roughExplain;
-      if(roughText && roughText.trim()){
+      if(roughText && roughText.trim() && !ROUGH_SILENT){
+        roughSpoken = true;
         await speakStep(roughText);
         if(!IS_PLAYING) return;
       }
@@ -4051,6 +4067,13 @@ async function showStep(idx){
      end of every division step. */
   if(divStep){
     if(!IS_PLAYING) return;
+    return;
+  }
+  /* RULE (Kayal, Oct 2026): a step is told ONCE. If the Rough Work pad already
+     explained this calculation aloud, the board line is written but not read
+     out again. */
+  if(roughSpoken){
+    await sleep(500);
     return;
   }
   var spoken = step.readScript || step.teacherScript || step.explanation || step.main;
