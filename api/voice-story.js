@@ -98,10 +98,10 @@ const NARRATOR = {
 // storyteller voice above — a story never goes silent.
 // English stories only; Tamil stories keep the Tamil storyteller voice.
 const ROLE_VOICES = {
-  boy:   '',                       // not chosen yet — pick a young boy voice in the Voice Library
+  boy:   'sTnEzvFIBEtiPxnu10bj',   // Boy — chosen by Kayal (Oct 2026)
   girl:  'X5RWySWhCXiGdP9YIKck',   // Tripti — Indian, soft (already used for little classes)
   woman: 'Ms9OTvWb99V6DwRHZn6q',   // Monika Sogam — Indian woman (already used for Class 4–7)
-  man:   'LQ2auZHpAQ9h4azztqMT'    // Parveen — Indian man (Voice Library)
+  man:   '4iqKdEXMW8NRF8USiS3Q'    // Man (Educator) — chosen by Kayal (Oct 2026); was Parveen LQ2auZHpAQ9h4azztqMT
 };
 
 // Used if the language is unrecognised, and as the emergency voice if the
