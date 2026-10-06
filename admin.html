@@ -718,6 +718,32 @@ loadSchools();
         school forever — teachers never wait for a picture to be made.
       </p>
 
+
+      <!-- ══ UPLOAD MY OWN PICTURES (Oct 2026) ══ -->
+      <div id="mp-box" style="border:2px dashed #C9A84C;border-radius:12px;padding:16px;margin-bottom:16px;background:#fffaf0;">
+        <div style="font-weight:800;color:#6B0F1A;font-size:1rem;margin-bottom:4px;">📤 Upload my own pictures</div>
+        <div style="font-size:0.84rem;color:#666;line-height:1.6;margin-bottom:10px;">
+          Name each picture by its word: <b>fox.png</b>, <b>red apple.jpg</b>, <b>clap.png</b>.
+          (<b>fox (2).png</b> or <b>fox_2.png</b> also count as "fox".) Drop the pictures or a whole folder here.
+          They are made smaller before uploading, so classrooms load them quickly.
+        </div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+          <label class="btn bp bsm" style="cursor:pointer;">🖼 Choose pictures
+            <input type="file" id="mp-files" multiple accept="image/*" style="display:none" onchange="mpPick(this.files)"></label>
+          <label class="btn bg bsm" style="cursor:pointer;">📁 Choose a folder
+            <input type="file" id="mp-folder" webkitdirectory multiple style="display:none" onchange="mpPick(this.files)"></label>
+          <span style="font-size:0.84rem;color:#555;">Category:</span>
+          <input type="text" id="mp-cat" value="my pictures" style="padding:7px 10px;border:1.5px solid #e0d5bd;border-radius:8px;width:150px;">
+          <label style="display:inline-flex;align-items:center;gap:6px;margin:0;font-size:0.84rem;color:#555;font-weight:400;text-transform:none;letter-spacing:0;"><input type="checkbox" id="mp-replace" checked onchange="mpSummary()" style="width:auto;margin:0;"> Replace a picture already in the library</label>
+        </div>
+        <div id="mp-summary" style="font-size:0.88rem;color:#444;margin-bottom:8px;"></div>
+        <div style="display:flex;gap:10px;align-items:center;">
+          <button class="btn bp" id="mp-go" onclick="mpUpload()" style="display:none;">⬆ Upload</button>
+          <button class="btn bsm" id="mp-stop" onclick="mpStopFlag=true" style="display:none;background:#c0392b;color:#fff;">■ Stop</button>
+          <span id="mp-status" style="font-size:0.85rem;"></span>
+        </div>
+        <div id="mp-errors" style="font-size:0.8rem;color:#c0392b;margin-top:8px;line-height:1.5;"></div>
+      </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
         <select id="kg-cat" onchange="kgRender()" style="padding:8px 10px;border:1.5px solid #e0d5bd;border-radius:8px;">
           <option value="">All categories</option>
@@ -1237,6 +1263,126 @@ async function kgBatch(){
   }
 }
 
+
+// ══ UPLOAD MY OWN PICTURES (Oct 2026) ══
+// File name = word. Each picture is shrunk in the browser (longest side
+// 1024px, JPEG on white) and sent to the upload_kg_picture action, which
+// stores it and adds or updates the word in the Picture Library.
+var mpItems = [], mpStopFlag = false, mpBusy = false;
+
+function mpWordFrom(name){
+  var w = String(name || '').replace(/\.[a-z0-9]+$/i, '');      // drop .png
+  w = w.replace(/[_]+/g, ' ').replace(/\s*-\s*/g, ' ');
+  var cut = w.replace(/\s*\(?\s*(copy\s*)?\d*\s*\)?\s*$/i, '');   // "fox (2)", "fox 2", "fox copy"
+  if (cut.trim()) w = cut;
+  return w.replace(/\s+/g, ' ').trim();
+}
+
+function mpPick(files){
+  var seen = {}, list = [], dup = 0;
+  Array.prototype.forEach.call(files || [], function(f){
+    if (!/^image\//.test(f.type)) return;
+    var en = mpWordFrom(f.name), w = en.toLowerCase();
+    if (!w) return;
+    if (seen[w]){ dup++; return; }                                 // same word twice: keep the first
+    seen[w] = 1;
+    list.push({ file:f, word:w, en: en.charAt(0).toUpperCase() + en.substring(1) });
+  });
+  mpItems = list; mpItems.dup = dup;
+  document.getElementById('mp-errors').textContent = '';
+  document.getElementById('mp-status').textContent = '';
+  mpSummary();
+}
+
+function mpSummary(){
+  var have = {};
+  (kgRows || []).forEach(function(r){ if (r.colour_url) have[String(r.word).toLowerCase()] = 1; });
+  var replace = document.getElementById('mp-replace').checked;
+  var neu = 0, old = 0;
+  mpItems.forEach(function(it){ it.exists = !!have[it.word]; if (it.exists) old++; else neu++; });
+  var send = mpItems.filter(function(it){ return replace || !it.exists; }).length;
+  var sum = document.getElementById('mp-summary');
+  if (!mpItems.length){ sum.textContent = ''; document.getElementById('mp-go').style.display = 'none'; return; }
+  sum.innerHTML = '<b>' + mpItems.length + '</b> pictures: <b>' + neu + '</b> new words, <b>' + old + '</b> already have a picture' +
+    (replace ? ' (will be replaced by yours)' : ' (will be skipped)') +
+    (mpItems.dup ? ', ' + mpItems.dup + ' skipped because the same word came twice' : '') +
+    '.<br><span style="color:#888">Examples: ' + mpItems.slice(0, 8).map(function(it){ return it.file.name + ' \u2192 <b>' + it.word + '</b>'; }).join(', ') + '</span>';
+  var go = document.getElementById('mp-go');
+  go.style.display = send ? 'inline-block' : 'none';
+  go.textContent = '\u2B06 Upload ' + send + ' picture' + (send === 1 ? '' : 's');
+}
+
+function mpShrink(file){
+  return new Promise(function(resolve, reject){
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function(){
+      var max = 1024, w = img.naturalWidth, h = img.naturalHeight;
+      var k = Math.min(1, max / Math.max(w, h));
+      var c = document.createElement('canvas');
+      c.width = Math.round(w * k); c.height = Math.round(h * k);
+      var g = c.getContext('2d');
+      g.fillStyle = '#ffffff'; g.fillRect(0, 0, c.width, c.height);   // see-through parts become white
+      g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      var data = c.toDataURL('image/jpeg', 0.86);
+      resolve(data.substring(data.indexOf(',') + 1));
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('could not open this picture')); };
+    img.src = url;
+  });
+}
+
+async function mpUpload(){
+  if (mpBusy) return;
+  var replace = document.getElementById('mp-replace').checked;
+  var cat = document.getElementById('mp-cat').value.trim() || 'my pictures';
+  var todo = mpItems.filter(function(it){ return replace || !it.exists; });
+  if (!todo.length) return;
+  mpBusy = true; mpStopFlag = false;
+  var go = document.getElementById('mp-go'), stop = document.getElementById('mp-stop');
+  var st = document.getElementById('mp-status'), errBox = document.getElementById('mp-errors');
+  go.disabled = true; stop.style.display = 'inline-block'; errBox.innerHTML = '';
+  var done = 0, added = 0, replaced = 0, failed = [], fatalStop = false;
+  for (var i = 0; i < todo.length; i += 3){
+    if (mpStopFlag) break;
+    st.style.color = '#444';
+    st.textContent = 'Uploading ' + (done + 1) + ' of ' + todo.length + '\u2026';
+    var fatal = '';
+    await Promise.all(todo.slice(i, i + 3).map(async function(it){
+      try{
+        var b64 = await mpShrink(it.file);
+        var r = await callAuth({ action:'upload_kg_picture', word:it.word, en:it.en, cat:cat, file_base64:b64, mime:'image/jpeg' });
+        if (!r || r.error) throw new Error((r && r.error) || 'no reply from the server');
+        if (r.added) added++; else replaced++;
+      }catch(e){
+        failed.push(it.file.name + ': ' + e.message);
+        if (/super admin|log in/i.test(e.message)) fatal = e.message;
+      }
+      done++;
+    }));
+    if (fatal) fatalStop = true;
+    if (fatal){ st.style.color = '#c0392b'; st.textContent = 'Stopped: ' + fatal; break; }
+  }
+  if (!fatalStop){
+    st.style.color = failed.length ? '#b9770e' : '#1a5c2a';
+    st.textContent = (mpStopFlag ? 'Stopped. ' : 'Done. ') + added + ' new word' + (added === 1 ? '' : 's') + ' added, ' +
+      replaced + ' picture' + (replaced === 1 ? '' : 's') + ' replaced' + (failed.length ? ', ' + failed.length + ' failed (see below).' : '.');
+  }
+  if (failed.length) errBox.innerHTML = failed.slice(0, 30).map(function(m){ return '\u2022 ' + m.replace(/</g, '&lt;'); }).join('<br>') +
+    (failed.length > 30 ? '<br>\u2026 and ' + (failed.length - 30) + ' more' : '');
+  go.disabled = false; stop.style.display = 'none'; mpBusy = false;
+  await kgLoad();
+  mpSummary();
+}
+
+
+// drop pictures straight onto the upload box
+document.addEventListener('DOMContentLoaded', function(){
+  var box = document.getElementById('mp-box'); if (!box) return;
+  box.addEventListener('dragover', function(e){ e.preventDefault(); box.style.background = '#fff3d6'; });
+  box.addEventListener('dragleave', function(){ box.style.background = '#fffaf0'; });
+  box.addEventListener('drop', function(e){ e.preventDefault(); box.style.background = '#fffaf0'; mpPick(e.dataTransfer.files); });
+});
 function kgStop(){ kgStopFlag = true; kgSet('Stopping after this one\u2026'); }
 
 // Opens a concept class in a new tab with every class on the list
