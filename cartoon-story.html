@@ -2497,6 +2497,43 @@ function applySceneEntrance(){
 // ═══════════════════════════════════════════════════════
 var cineSeq = 0;
 
+/* Voices are fetched in the background as soon as a scene opens, so each
+   bubble speaks the moment it appears (no 1-3 second wait per line). */
+var CINE_AUD = {};
+function cineAudio(text){
+  var lang = storyLang || 'en';
+  var k = lang + '|' + text;
+  if (!CINE_AUD[k]){
+    CINE_AUD[k] = fetch('/api/voice-story', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text:text, lang:lang }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.audio_b64) return 'data:audio/mpeg;base64,' + d.audio_b64; delete CINE_AUD[k]; return null; })
+      .catch(function(){ delete CINE_AUD[k]; return null; });
+  }
+  return CINE_AUD[k];
+}
+function cinePreload(idx){
+  var sc = scenes[idx]; if (!sc) return;
+  cineLines(sc).forEach(function(l){ cineAudio(String(l.text).replace(/\*/g,'').trim()); });
+}
+/* plays a line from the background copy; falls back to the normal voice if it is missing */
+function cineSpeak(text, onEnd){
+  var clean = String(text || '').replace(/\*/g,'').trim();
+  if (!clean){ if (onEnd) onEnd(); return; }
+  stopSpeech();
+  var seq = ++storyAudioSeq;
+  cineAudio(clean).then(function(src){
+    if (seq !== storyAudioSeq) return;
+    if (!src){ speak(clean, storyLang || 'en', onEnd); return; }
+    var a = new Audio(src);
+    a.playbackRate = Math.max(.5, Math.min(1.4, spd));
+    storyAudio = a;
+    a.onended = function(){ if (seq === storyAudioSeq){ storyAudio = null; if (onEnd) onEnd(); } };
+    a.onerror = function(){ if (seq === storyAudioSeq){ storyAudio = null; speak(clean, storyLang || 'en', onEnd); } };
+    a.play().catch(function(){ if (seq === storyAudioSeq){ storyAudio = null; speak(clean, storyLang || 'en', onEnd); } });
+  });
+}
+
 function cineLittle(){
   return ['pre kg','lkg','ukg','class 1','class 2'].indexOf(String(storyClass||'').trim().toLowerCase()) !== -1;
 }
@@ -2640,6 +2677,7 @@ function cineBubble(line, side){
     _origRender(idx, isFirst);
     var sc = scenes[idx];
     cineCaption(sc ? (sc.caption || '') : '');
+    cinePreload(idx); cinePreload(idx + 1);
   };
 })();
 
@@ -2668,12 +2706,12 @@ function cineBubble(line, side){
       var who = String(ln.speaker || '').toLowerCase();
       if (!sides[who]){ sides[who] = nextSide; nextSide = (nextSide === 'left' ? 'right' : 'left'); }
       cineBubble(ln, sides[who]);
-      speak(ln.text, storyLang || 'en', function(){
+      cineSpeak(ln.text, function(){
         if (seq !== cineSeq) return;
-        dlgTimer = setTimeout(sayNext, 650);
+        dlgTimer = setTimeout(sayNext, 500);
       });
     }
-    dlgTimer = setTimeout(sayNext, 2000);   /* let the title card and picture settle first */
+    dlgTimer = setTimeout(sayNext, 1300);   /* let the title card and picture settle first */
   };
 })();
 
