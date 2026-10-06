@@ -884,7 +884,7 @@ input[type=range]{
   <div class="setup-card">
     <div class="setup-card-label">ARK Global Matriculation School</div>
     <div class="setup-card-title">📖 Cinematic Storybook Mode</div>
-    <div class="setup-card-desc">Watch your English story come alive as a beautifully illustrated storybook — with cinematic scenes, narration, and word-by-word subtitles.</div>
+    <div class="setup-card-desc">Watch the lesson come alive like a comic-book film — full-screen pictures, characters talking in speech bubbles with their own voices, and a "Let’s talk" screen at the end.</div>
   </div>
   <div class="lbl" style="margin-bottom:6px;">Story / Poem Text <span style="font-size:.65rem;color:rgba(232,201,154,.4);font-weight:400;">(optional — AI creates from title)</span></div>
   <textarea class="story-box" id="story-input" placeholder="Paste story or poem here — or just enter a title below and AI writes it!"></textarea>
@@ -3029,6 +3029,58 @@ document.addEventListener('keydown', function(e){
   if (!stage || !stage.classList.contains('show')) return;
   if (e.key === ' '){ e.preventDefault(); togglePlay(); }
 });
+
+/* ── OPENING FROM TEACH (Oct 2026) ──
+   Before: coming from Teach started painting the story at once, and the
+   Prepare button was only reachable after a page refresh.
+   Now: if the story is already prepared it opens straight away; if not,
+   the form shows filled in, so the teacher can choose "Prepare Story for
+   Class" (the night before) or "Open the Storybook" (now). */
+window.addEventListener('load', function(){
+  var raw = null; try{ raw = sessionStorage.getItem('cs_autostart'); }catch(e){}
+  if (!raw) return;
+  var d = null; try{ d = JSON.parse(raw); }catch(e){}
+  if (!d || d.prepare) return;                       /* a prepare request runs as before */
+  try{ sessionStorage.removeItem('cs_autostart'); }catch(e){}   /* the older start-up code now has nothing to do */
+  if (d.title) document.getElementById('meta-title').value = d.title;
+  if (d.cls)   document.getElementById('meta-class').value = d.cls;
+  if (d.text)  document.getElementById('story-input').value = d.text;
+  if (d.type){
+    document.querySelectorAll('.tc').forEach(function(c){
+      c.classList.remove('sel'); if (c.getAttribute('data-type') === d.type) c.classList.add('sel');
+    }); selT = d.type;
+  }
+  if (d.lang){ var le = document.getElementById('lang-' + d.lang); if (le) setLang(d.lang, le); }
+
+  /* same details generateStory() uses, so the saved-story check matches exactly */
+  storyTitle = document.getElementById('meta-title').value.trim() || 'English Story';
+  storyClass = document.getElementById('meta-class').value.trim() || '';
+  storyType  = selT;
+  srcText    = document.getElementById('story-input').value.trim();
+  showLoad(storyLang === 'ta' ? '\u0b95\u0ba4\u0bc8 \u0ba4\u0bc7\u0b9f\u0baa\u0bcd\u0baa\u0b9f\u0bc1\u0b95\u0bbf\u0bb1\u0ba4\u0bc1\u2026' : 'Checking if this story is ready\u2026', '');
+  cacheGetStory().then(function(hit){
+    hideLoad();
+    if (hit){ generateStory(); return; }             /* prepared before \u2014 opens instantly from the saved copy */
+    cineNotReadyNote();
+  });
+});
+
+function cineNotReadyNote(){
+  var setup = document.getElementById('setup'); if (!setup) return;
+  setup.classList.add('show');
+  var n = document.getElementById('cine-notready');
+  if (!n){
+    n = document.createElement('div'); n.id = 'cine-notready';
+    n.style.cssText = 'background:rgba(201,168,76,.12);border:1.5px solid rgba(201,168,76,.55);border-radius:12px;padding:14px 18px;margin-bottom:16px;color:#ffe9a8;font-size:.95rem;line-height:1.5;';
+    var card = setup.querySelector('.setup-card');
+    setup.insertBefore(n, card ? card.nextSibling : setup.firstChild);
+  }
+  var isTa = (storyLang === 'ta');
+  n.innerHTML = isTa
+    ? '<b>\u0b87\u0ba8\u0bcd\u0ba4\u0b95\u0bcd \u0b95\u0ba4\u0bc8 \u0b87\u0ba9\u0bcd\u0ba9\u0bc1\u0bae\u0bcd \u0ba4\u0baf\u0bbe\u0bb0\u0bbe\u0b95\u0bb5\u0bbf\u0bb2\u0bcd\u0bb2\u0bc8.</b>'
+    : '<b>This story is not prepared yet.</b><br>\u26A1 <b>Prepare Story for Class</b> \u2014 do it before class (about a minute); in class it then opens instantly.<br>\uD83D\uDCD6 <b>Open the Storybook</b> \u2014 make it now and play.';
+  window.scrollTo({ top:0, behavior:'smooth' });
+}
 
 // ═══════════════════════════════════════════════════════
 // END CINEMA MODE
