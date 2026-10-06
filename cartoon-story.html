@@ -815,6 +815,15 @@ input[type=range]{
 .comic-bubble.cine-right{left:70%;}
 .comic-bubble.cine-left::after,.comic-bubble.cine-left::before{left:28%;}
 .comic-bubble.cine-right::after,.comic-bubble.cine-right::before{left:72%;}
+/* 🎧 voice tester */
+#cine-vt{position:fixed;right:16px;bottom:76px;z-index:300;width:min(420px,92vw);background:#1a0a05;border:1.5px solid var(--gold);
+  border-radius:14px;padding:14px;color:var(--sandal);box-shadow:0 12px 40px rgba(0,0,0,.6);font-family:'Lexend',sans-serif;}
+#cine-vt .vt-h{display:flex;justify-content:space-between;align-items:center;font-weight:800;color:#ffe9a8;margin-bottom:10px;}
+#cine-vt .vt-h button{background:none;border:none;color:var(--sandal);font-size:1rem;cursor:pointer;}
+#cine-vt .vt-row{display:flex;align-items:center;gap:10px;margin:7px 0;}
+#cine-vt .vt-play{min-width:140px;text-align:left;padding:8px 12px;border-radius:9px;border:1px solid rgba(201,168,76,.45);background:rgba(255,255,255,.06);color:#fff;font-weight:700;cursor:pointer;font-family:inherit;}
+#cine-vt .vt-note{font-size:.72rem;opacity:.85;word-break:break-all;}
+#cine-vt .vt-foot{font-size:.7rem;opacity:.7;margin-top:10px;}
 /* Let's talk — after the story */
 #cine-talk{position:absolute;inset:0;z-index:20;background:rgba(13,8,6,.94);display:none;
   overflow-y:auto;padding:28px 6%;color:var(--sandal);}
@@ -2500,12 +2509,13 @@ var cineSeq = 0;
 /* Voices are fetched in the background as soon as a scene opens, so each
    bubble speaks the moment it appears (no 1-3 second wait per line). */
 var CINE_AUD = {};
-function cineAudio(text){
+function cineAudio(text, role){
   var lang = storyLang || 'en';
-  var k = lang + '|' + text;
+  role = role || '';
+  var k = lang + '|' + role + '|' + text;
   if (!CINE_AUD[k]){
     CINE_AUD[k] = fetch('/api/voice-story', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ text:text, lang:lang }) })
+      body: JSON.stringify({ text:text, lang:lang, role:role }) })
       .then(function(r){ return r.json(); })
       .then(function(d){ if (d && d.audio_b64) return 'data:audio/mpeg;base64,' + d.audio_b64; delete CINE_AUD[k]; return null; })
       .catch(function(){ delete CINE_AUD[k]; return null; });
@@ -2514,15 +2524,15 @@ function cineAudio(text){
 }
 function cinePreload(idx){
   var sc = scenes[idx]; if (!sc) return;
-  cineLines(sc).forEach(function(l){ cineAudio(String(l.text).replace(/\*/g,'').trim()); });
+  cineLines(sc).forEach(function(l){ cineAudio(String(l.text).replace(/\*/g,'').trim(), cineRole(l)); });
 }
 /* plays a line from the background copy; falls back to the normal voice if it is missing */
-function cineSpeak(text, onEnd){
+function cineSpeak(text, onEnd, role){
   var clean = String(text || '').replace(/\*/g,'').trim();
   if (!clean){ if (onEnd) onEnd(); return; }
   stopSpeech();
   var seq = ++storyAudioSeq;
-  cineAudio(clean).then(function(src){
+  cineAudio(clean, role).then(function(src){
     if (seq !== storyAudioSeq) return;
     if (!src){ speak(clean, storyLang || 'en', onEnd); return; }
     var a = new Audio(src);
@@ -2558,6 +2568,7 @@ function cineLines(sc){
       '"caption": one short narrator line, max 8 words, like a comic caption ("Next morning, at school\u2026")' + (isTa ? ' IN TAMIL SCRIPT' : '') + '.\n' +
       '"lines": [{"speaker":"Ravi","text":"Good morning, Kavin!"},{"speaker":"Kavin","text":"Good morning, Ravi!"}] \u2014 2 to 4 lines the characters SAY to each other in that moment, like a film. ' +
       'Each line max ' + cineMaxWords() + ' words, natural spoken words, using the lesson\u2019s own sentences and greetings where they fit' + (isTa ? ', IN TAMIL SCRIPT' : '') + '. ' +
+      'Every line also has "voice": "boy", "girl", "man" or "woman" \u2014 who the speaker is (a child, or a grown-up like Amma, Appa, a teacher, a postman); "" for "Everyone". ' +
       'No narrator explaining. For a poem or rhyme, "lines" are the poem lines with speaker "Everyone".';
   };
 })();
@@ -2579,10 +2590,10 @@ async function cineAddLines(){
       body: JSON.stringify({
         system: 'You turn storybook scenes into a short comic-book film for ' + (storyClass || 'school') + ' children in Tamil Nadu. ' +
           'For EVERY scene write: "caption" \u2014 one short narrator line, max 8 words, like a comic caption; and "lines" \u2014 2 to 4 things the characters SAY to each other in that moment, like a film. ' +
-          'Each line max ' + cineMaxWords() + ' words, natural spoken words. Keep the scene\u2019s existing dialogue as one of the lines when it fits. Use the characters\u2019 names as speaker. ' +
+          'Each line max ' + cineMaxWords() + ' words, natural spoken words. Keep the scene\u2019s existing dialogue as one of the lines when it fits. Use the characters\u2019 names as speaker. Every line also has "voice": "boy", "girl", "man" or "woman" (who the speaker is); "" for "Everyone". ' +
           'No narrator explaining. If a scene has a poem stanza, its lines are the poem lines with speaker "Everyone". ' +
           (isTa ? 'Write caption and lines IN TAMIL SCRIPT. ' : 'Write in simple English. ') +
-          'Reply ONLY with JSON: {"scenes":[{"num":1,"caption":"...","lines":[{"speaker":"...","text":"..."}]}]} \u2014 one entry per scene, same order.',
+          'Reply ONLY with JSON: {"scenes":[{"num":1,"caption":"...","lines":[{"speaker":"...","text":"...","voice":"boy"}]}]} \u2014 one entry per scene, same order.',
         messages: [{ role:'user', content: 'CHARACTERS: ' + (charSheet || '') + '\n\nSCENES:\n' + JSON.stringify(brief).substring(0, 12000) }],
         max_tokens: 3000
       })
@@ -2599,7 +2610,7 @@ async function cineAddLines(){
     (res.scenes || []).forEach(function(x, i){
       var sc = scenes[i]; if (!sc || !x) return;
       if (Array.isArray(x.lines)) sc.lines = x.lines.slice(0, 4).map(function(l){
-        return { speaker: String((l && l.speaker) || '').substring(0, 30), text: String((l && l.text) || '').substring(0, 140) };
+        return { speaker: String((l && l.speaker) || '').substring(0, 30), text: String((l && l.text) || '').substring(0, 140), voice: String((l && l.voice) || '').toLowerCase().substring(0, 8) };
       }).filter(function(l){ return l.text.trim(); });
       if (x.caption) sc.caption = String(x.caption).substring(0, 80);
     });
@@ -2616,6 +2627,7 @@ async function cineAddLines(){
   var _origPrep = showPrepared;
   showPrepared = async function(wasAlreadyReady){
     await cineAddLines();
+    await cineAddCast();
     _origPrep(wasAlreadyReady);
   };
 })();
@@ -2624,10 +2636,86 @@ async function cineAddLines(){
   var _origBuild = buildStage;
   buildStage = async function(){
     await cineAddLines();
+    await cineAddCast();
     cineEnsureDom();
     _origBuild();
   };
 })();
+
+/* ── CHARACTER VOICES ──
+   Each line says who is speaking: boy, girl, man or woman. Lines for
+   "Everyone" (and anything unknown) use the storyteller voice. */
+var CINE_ROLES = ['boy','girl','man','woman'];
+function cineRole(l){
+  var v = String((l && l.voice) || '').trim().toLowerCase();
+  return CINE_ROLES.indexOf(v) !== -1 ? v : '';
+}
+
+/* stories saved before character voices: ask once who each speaker is, then save */
+async function cineAddCast(){
+  if (storyLang === 'ta') return;   /* Tamil stories keep the Tamil storyteller */
+  var names = {};
+  scenes.forEach(function(sc){ cineLines(sc).forEach(function(l){
+    if (!l.voice && l.speaker && String(l.speaker).toLowerCase() !== 'everyone') names[l.speaker] = 1;
+  }); });
+  var list = Object.keys(names);
+  if (!list.length) return;
+  try{
+    var resp = await fetch('/api/ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'For each story character name, say which voice suits them: "boy", "girl", "man" or "woman". Children are boy or girl; grown-ups (Amma, Appa, teacher, postman, shopkeeper, grandmother) are man or woman. Animals: pick the one that best fits how they are described. Reply ONLY with JSON like {"Ravi":"boy","Amma":"woman"}.',
+        messages: [{ role:'user', content: 'CHARACTER DESCRIPTIONS: ' + (charSheet || 'none') + '\nNAMES: ' + list.join(', ') }],
+        max_tokens: 400
+      })
+    });
+    var d = await resp.json();
+    var raw = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+    var a = raw.indexOf('{'), z = raw.lastIndexOf('}');
+    if (a === -1 || z <= a) throw new Error((d && d.error && (d.error.message || d.error)) || 'empty reply');
+    var cast = JSON.parse(raw.substring(a, z + 1));
+    var lower = {}; Object.keys(cast).forEach(function(k){ lower[k.toLowerCase()] = String(cast[k]).toLowerCase(); });
+    scenes.forEach(function(sc){ (sc.lines || []).forEach(function(l){
+      if (l && !l.voice && lower[String(l.speaker || '').toLowerCase()]) l.voice = lower[String(l.speaker).toLowerCase()];
+    }); });
+    cacheSaveStory();
+  }catch(err){
+    try{ showErr('Could not choose character voices (' + (err.message || err) + '). The storyteller voice will speak.'); }catch(e2){}
+  }
+}
+
+/* 🎧 Voices — hear each character voice once (each sample is saved, so it costs only the first time) */
+function cineVoiceTest(){
+  var old = document.getElementById('cine-vt'); if (old){ old.remove(); return; }
+  var p = document.createElement('div'); p.id = 'cine-vt';
+  var rows = [['boy','\uD83D\uDC66 Boy','Good morning, Kavin! Shall we go to school?'],
+              ['girl','\uD83D\uDC67 Girl','Hello! My name is Meena. I like to sing.'],
+              ['woman','\uD83D\uDC69 Woman','Good morning, children! Come, sit down.'],
+              ['man','\uD83D\uDC68 Man','Here is a letter for you, my boy.'],
+              ['','\uD83D\uDCD6 Storyteller','Once upon a time, in a small village, there lived a little frog.']];
+  p.innerHTML = '<div class="vt-h">\uD83C\uDFA7 Character voices <button onclick="document.getElementById(\'cine-vt\').remove()">\u2715</button></div>' +
+    rows.map(function(r){ return '<div class="vt-row"><button class="vt-play" data-role="' + r[0] + '" data-text="' + escH(r[2]) + '">\u25B6 ' + r[1] + '</button><span class="vt-note" id="vt-' + (r[0] || 'story') + '"></span></div>'; }).join('') +
+    '<div class="vt-foot">To change a voice: in voice-story.js, paste a new Voice ID next to boy, girl, woman or man.</div>';
+  document.body.appendChild(p);
+  p.querySelectorAll('.vt-play').forEach(function(btn){
+    btn.onclick = function(){
+      var role = btn.getAttribute('data-role'), text = btn.getAttribute('data-text');
+      var note = document.getElementById('vt-' + (role || 'story'));
+      note.textContent = 'loading\u2026';
+      stopSpeech();
+      fetch('/api/voice-story', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ text:text, lang:'en', role:role }) })
+        .then(function(r){ return r.json(); })
+        .then(function(d){
+          if (!d || !d.audio_b64){ note.textContent = 'Error: ' + ((d && d.error) || 'no audio'); return; }
+          var a = new Audio('data:audio/mpeg;base64,' + d.audio_b64); storyAudio = a; a.play();
+          note.textContent = (role && !d.role) ? 'not set \u2014 storyteller speaking'
+            : (d.fellBack ? '\u26A0 this voice was refused \u2014 storyteller spoke instead' : '\u2713 ' + (d.voiceId || ''));
+        })
+        .catch(function(e){ note.textContent = 'Error: ' + (e.message || e); });
+    };
+  });
+}
 
 function cineEnsureDom(){
   var v = document.getElementById('scene-viewer');
@@ -2642,6 +2730,13 @@ function cineEnsureDom(){
     b.onclick = function(){ cineShowTalk(false); };
     var music = document.getElementById('btn-music');
     bar.insertBefore(b, music || null);
+  }
+  if (bar && !document.getElementById('btn-voices')){
+    var vb = document.createElement('button');
+    vb.className = 'cb cb-nav'; vb.id = 'btn-voices'; vb.textContent = '\uD83C\uDFA7 Voices';
+    vb.title = 'Listen to the character voices';
+    vb.onclick = cineVoiceTest;
+    bar.insertBefore(vb, document.getElementById('btn-music') || null);
   }
 }
 
@@ -2709,7 +2804,7 @@ function cineBubble(line, side){
       cineSpeak(ln.text, function(){
         if (seq !== cineSeq) return;
         dlgTimer = setTimeout(sayNext, 500);
-      });
+      }, cineRole(ln));
     }
     dlgTimer = setTimeout(sayNext, 1300);   /* let the title card and picture settle first */
   };
