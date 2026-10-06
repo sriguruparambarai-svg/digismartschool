@@ -2505,6 +2505,7 @@ function applySceneEntrance(){
 // once (one small AI call, pictures kept) and saved back.
 // ═══════════════════════════════════════════════════════
 var cineSeq = 0;
+var CINE_PAUSED = false, cinePending = null;   /* Pause keeps the place; Resume carries on */
 
 /* Voices are fetched in the background as soon as a scene opens, so each
    bubble speaks the moment it appears (no 1-3 second wait per line). */
@@ -2534,6 +2535,7 @@ function cineSpeak(text, onEnd, role){
   var seq = ++storyAudioSeq;
   cineAudio(clean, role).then(function(src){
     if (seq !== storyAudioSeq) return;
+    if (CINE_PAUSED){ cinePending = function(){ cineSpeak(text, onEnd, role); }; return; }   /* paused while the voice was loading */
     if (!src){ speak(clean, storyLang || 'en', onEnd); return; }
     var a = new Audio(src);
     a.playbackRate = Math.max(.5, Math.min(1.4, spd));
@@ -2885,6 +2887,7 @@ function cineBubble(line, side){
 (function(){
   var _origRender = renderScene;
   renderScene = function(idx, isFirst){
+    CINE_PAUSED = false; cinePending = null;
     var t = document.getElementById('cine-talk'); if (t) t.classList.remove('show');
     _origRender(idx, isFirst);
     var sc = scenes[idx];
@@ -2905,9 +2908,11 @@ function cineBubble(line, side){
     var i = 0;
     function sayNext(){
       if (seq !== cineSeq || !playing) return;
+      if (CINE_PAUSED){ cinePending = sayNext; return; }   /* paused: carry on from here on Resume */
       if (i >= lines.length){
-        dlgTimer = setTimeout(function(){
+        dlgTimer = setTimeout(function endScene(){
           if (seq !== cineSeq || !playing) return;
+          if (CINE_PAUSED){ cinePending = endScene; return; }
           hideComicBubble();
           if (curIdx < scenes.length - 1) renderScene(curIdx + 1, false);
           else cineEnd();
@@ -2979,6 +2984,52 @@ function cineWatchAgain(){
     _origNext();
   };
 })();
+/* ── PAUSE / RESUME (Oct 2026) ──
+   The play button now reads "Pause" while the story plays. Pause freezes the
+   voice mid-line; Resume carries on from the same word — it does not restart
+   the scene. Space bar does the same. */
+function cineSetPlayLabel(){
+  var b = document.getElementById('btn-play'); if (!b) return;
+  if (!playing) b.innerHTML = '\u25B6 Play';
+  else if (CINE_PAUSED) b.innerHTML = '\u25B6 Resume';
+  else b.innerHTML = '<span class="voice-dot"></span>\u23F8 Pause';
+}
+(function(){
+  var _origToggle = togglePlay;
+  togglePlay = function(){
+    if (playing && !CINE_PAUSED){
+      CINE_PAUSED = true;
+      try{ if (storyAudio && !storyAudio.paused) storyAudio.pause(); }catch(e){}
+      try{ if (window.speechSynthesis && window.speechSynthesis.speaking) window.speechSynthesis.pause(); }catch(e){}
+      cineSetPlayLabel();
+      return;
+    }
+    if (playing && CINE_PAUSED){
+      CINE_PAUSED = false;
+      cineSetPlayLabel();
+      var resumed = false;
+      try{ if (storyAudio && storyAudio.paused && !storyAudio.ended){ storyAudio.play(); resumed = true; } }catch(e){}
+      try{ if (window.speechSynthesis && window.speechSynthesis.paused){ window.speechSynthesis.resume(); resumed = true; } }catch(e){}
+      if (!resumed && cinePending){ var f = cinePending; cinePending = null; f(); }
+      return;
+    }
+    _origToggle();
+    cineSetPlayLabel();
+  };
+})();
+/* any other place that starts playing shows "Pause" too */
+(function(){
+  var _origR = renderScene;
+  renderScene = function(idx, isFirst){ _origR(idx, isFirst); cineSetPlayLabel(); };
+})();
+document.addEventListener('keydown', function(e){
+  var tag = (e.target && e.target.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT' || tag === 'SELECT') return;
+  var stage = document.getElementById('stage');
+  if (!stage || !stage.classList.contains('show')) return;
+  if (e.key === ' '){ e.preventDefault(); togglePlay(); }
+});
+
 // ═══════════════════════════════════════════════════════
 // END CINEMA MODE
 // ═══════════════════════════════════════════════════════
