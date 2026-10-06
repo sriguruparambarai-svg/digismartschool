@@ -110,7 +110,8 @@ const ACT_OPEN = ['request_reset', 'confirm_reset', 'login', 'student_login',
                   // only feature switches (which book sources a school uses), no personal data
                   'get_school_sources'];
 const ACT_SUPER = ['register_school', 'get_schools', 'update_subscription', 'cleanup_user',
-                   'lib_access_toggle', 'lib_access_get', 'set_school_source'];
+                   'lib_access_toggle', 'lib_access_get', 'set_school_source',
+                   'upload_kg_picture'];   // your own pictures into the shared Picture Library (Oct 2026)
 const ACT_SCHOOL_ADMIN = ['add_teacher', 'get_teachers', 'get_progress_data', 'update_teacher', 'delete_teacher'];                     // principal of that school
 const ACT_STAFF = ['save_active_lesson', 'delete_active_lesson', 'get_active_lessons',
                    'add_diary_student', 'bulk_add_diary_students', 'get_diary_students',
@@ -978,6 +979,68 @@ module.exports = async function(req2, res) {
     }
 
     // ── UPLOAD BOOK TO SUPABASE STORAGE ──
+    // ── UPLOAD MY PICTURE (Oct 2026) — super admin only ──
+    // Kayal's own pictures (Adobe Firefly, term books) go into the shared
+    // Picture Library under their word. Activity English and the KG
+    // worksheets look there first, so no AI drawing is paid for that word.
+    // The browser shrinks each picture before sending (well under the
+    // server's size limit). A word already in the library gets its colour
+    // picture replaced; a new word is added.
+    if (action === 'upload_kg_picture') {
+      const { word, en, cat, file_base64, mime } = body;
+      const w = String(word || '').toLowerCase().replace(/\s+/g, ' ').trim().substring(0, 60);
+      if (!w || !file_base64) return res.json({ error: 'Missing the word or the picture.' });
+      const type = (mime === 'image/png' || mime === 'image/webp') ? mime : 'image/jpeg';
+      const ext = type === 'image/png' ? 'png' : (type === 'image/webp' ? 'webp' : 'jpg');
+      const key = process.env.SUPABASE_SECRET_KEY;
+      const fileBuffer = Buffer.from(file_base64, 'base64');
+      // time in the name, so a replaced picture never shows the old one from a browser cache
+      const filePath = 'my-pictures/' + (w.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'pic') + '-' + Date.now() + '.' + ext;
+      try {
+        await new Promise((resolve, reject) => {
+          const opts = {
+            hostname: HOST,
+            path: '/storage/v1/object/lesson-audio/' + filePath,
+            method: 'POST',
+            headers: { 'Content-Type': type, 'apikey': key, 'Authorization': 'Bearer ' + key,
+                       'x-upsert': 'true', 'Content-Length': fileBuffer.length }
+          };
+          const r = https.request(opts, response => {
+            let d = '';
+            response.on('data', c => d += c);
+            response.on('end', () => {
+              if (response.statusCode >= 200 && response.statusCode < 300) resolve(d);
+              else reject(new Error('Storage upload failed: ' + d));
+            });
+          });
+          r.on('error', reject);
+          r.write(fileBuffer);
+          r.end();
+        });
+      } catch (e) {
+        return res.json({ error: e.message });
+      }
+      const url = 'https://' + HOST + '/storage/v1/object/public/lesson-audio/' + filePath;
+      const found = await req('GET', '/rest/v1/kg_pictures?word=eq.' + encodeURIComponent(w) + '&select=word&limit=1');
+      const exists = Array.isArray(found.data) && found.data.length > 0;
+      let sr;
+      if (exists) {
+        sr = await req('PATCH', '/rest/v1/kg_pictures?word=eq.' + encodeURIComponent(w), { colour_url: url });
+      } else {
+        sr = await req('POST', '/rest/v1/kg_pictures', {
+          word: w,
+          en: String(en || w).trim().substring(0, 60),
+          cat: String(cat || 'my pictures').trim().substring(0, 40),
+          colour_url: url
+        });
+      }
+      if (sr.status < 200 || sr.status >= 300) {
+        const msg = typeof sr.data === 'object' ? JSON.stringify(sr.data) : sr.data;
+        return res.json({ error: 'Picture saved, but the library row was not: ' + msg });
+      }
+      return res.json({ success: true, word: w, url: url, added: !exists });
+    }
+
     if (action === 'upload_book') {
       const { school_id, book_name, class_name, term, file_base64, file_name } = body;
       if (!school_id || !book_name || !class_name || !term || !file_base64) {
