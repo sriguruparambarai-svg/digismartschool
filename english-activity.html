@@ -43,7 +43,7 @@ button:focus-visible{outline:3px solid var(--sky);outline-offset:3px;}
 /* stage */
 #stage{position:absolute;top:118px;left:16px;right:16px;bottom:96px;background:var(--paper);border-radius:22px;box-shadow:0 6px 0 rgba(107,26,26,0.18);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 24px;text-align:center;}
 .pic{width:min(62vw,820px);height:min(46vh,480px);border-radius:18px;background:#f3e6cf;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 1 auto;}
-.pic img{width:100%;height:100%;object-fit:contain;animation:pop .5s ease both;}
+.pic img{width:100%;height:100%;object-fit:contain;animation:pop .5s ease both;background:#fff;}
 .pic .wait{font-size:1rem;color:#9a7b52;}
 .pic.err{background:#fbe9e4;}
 .pic.err .wait{color:#8b2a1a;font-size:0.85rem;padding:12px;}
@@ -264,10 +264,19 @@ function planPrompt(){
   '- Plain text only, no emojis. Keep the JSON strictly valid.';
 }
 
-async function planKey(){
-  var data = PLAN_VERSION + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 9000);
+async function hashKey(data){
   var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
   return Array.from(new Uint8Array(buf)).slice(0, 20).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+/* The same chapter is recognised by its TEXT, whatever name the teacher typed,
+   so every school using the same book gets the same saved lesson and pictures. */
+function sameText(t){ return String(t || '').replace(/\s+/g, ' ').trim().toLowerCase().substring(0, 9000); }
+function planKey(){
+  return hashKey(PLAN_VERSION + '|text|' + String(LESSON.cls || '').trim().toLowerCase() + '|' + sameText(LESSON.text));
+}
+/* the first version also used the typed chapter name — still checked, so lessons saved before are not lost */
+function planKeyOld(){
+  return hashKey(PLAN_VERSION + '|' + LESSON.cls + '|' + LESSON.topic + '|' + LESSON.text.substring(0, 9000));
 }
 
 function parseJSON(raw){
@@ -331,6 +340,22 @@ async function getPlan(fresh){
         if (c && Array.isArray(c.steps) && c.steps[0] && c.steps[0].activities){
           var saved = cleanPlan(c.steps[0]);
           if (saved) return saved;
+        }
+      }
+    }catch(e){}
+    /* not found by text — look for a lesson saved the old way, and copy it to the new key */
+    try{
+      var oldKey = await planKeyOld();
+      var r2 = await fetch('/api/lesson-plan?key=' + oldKey);
+      if (r2.ok){
+        var c2 = await r2.json();
+        if (c2 && Array.isArray(c2.steps) && c2.steps[0] && c2.steps[0].activities){
+          var saved2 = cleanPlan(c2.steps[0]);
+          if (saved2){
+            fetch('/api/lesson-plan', { method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({ key:key, steps:[saved2], meta:{ kind:'kid-activity', cls:LESSON.cls, topic:LESSON.topic } }) }).catch(function(){});
+            return saved2;
+          }
         }
       }
     }catch(e){}
@@ -403,7 +428,7 @@ function buildBeats(plan){
     }
     if (k === 'robo'){
       a.items.forEach(function(it){
-        B.push({ act:ai, view:'robo', it:it, pics:[it], ops:[['say', 'Robo says, ' + it.word + '!'], ['wait', 4.5, 'Do it!']] });
+        B.push({ act:ai, view:'robo', it:it, pics:[{ act:it.word, lib:it.lib, pic:it.pic }], ops:[['say', 'Robo says, ' + it.word + '!'], ['wait', 4.5, 'Do it!']] });
       });
       B.push({ act:ai, view:'cue', icon:'\uD83E\uDDCA', text:'Freeze!', ops:[['say', 'Robo says, freeze! Do not move!'], ['wait', 4, 'Freeze!'], ['say', 'Well done! Now sit down.']] });
     }
@@ -440,11 +465,22 @@ function loadLibrary(){
 function getPic(p){
   if (!p) return Promise.resolve({ none:true });
   if (p.lib && LIB[p.lib]) return Promise.resolve({ url:LIB[p.lib] });
-  var q = p.pic || p.lib || p.word || '';
-  if (q.length < 3) return Promise.resolve({ none:true });
+  /* Shared pictures: a single thing (fox, kite) is saved under the WORD,
+     and an action (clap, jump) under the ACTION — so one drawing serves
+     every book and every school. Only full scenes are drawn per book. */
+  var body;
+  if (p.lib){
+    body = { query:p.lib, context:'', mode:'kg-colour' };
+  } else if (p.act){
+    body = { query:'a happy Indian school child doing the action: ' + String(p.act).toLowerCase(), context:'' };
+  } else {
+    body = { query:(p.pic || p.word || ''), context:'For an English class for small children in Tamil Nadu, India.' };
+  }
+  var q = body.query + '|' + (body.mode || 'scene');
+  if (body.query.length < 3) return Promise.resolve({ none:true });
   if (!PICS[q]){
     PICS[q] = fetch('/api/gen-image', { method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ query:q, context:'For an English class for small children in Tamil Nadu, India.' }) })
+      body: JSON.stringify(body) })
       .then(function(r){ return r.json(); })
       .then(function(d){
         if (d && d.images && d.images[0] && d.images[0].url) return { url:d.images[0].url };
