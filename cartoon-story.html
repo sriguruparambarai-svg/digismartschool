@@ -2622,12 +2622,48 @@ async function cineAddLines(){
   hideLoad();
 }
 
+/* ── NOTHING WAITS IN CLASS (Oct 2026) ──
+   Pictures: all scene pictures start loading in the background as soon as
+   the story opens (current scene first), so the next scene is already there.
+   Voices: "Prepare Story" creates every character line in advance, so on
+   the day each bubble speaks at once. */
+var CINE_IMGS = {};
+function cineLoadPictures(){
+  var urls = [];
+  for (var i = 0; i < scenes.length; i++){
+    var j = (curIdx + i) % scenes.length;           /* start from the scene on screen */
+    if (bgCache[j] && !CINE_IMGS[bgCache[j]]) urls.push(bgCache[j]);
+  }
+  (function next(){
+    var u = urls.shift(); if (!u) return;
+    var im = new Image(); CINE_IMGS[u] = im;
+    im.onload = im.onerror = next;                   /* one at a time, so the first one is quickest */
+    im.src = u;
+  })();
+}
+
+async function cineReadyVoices(){
+  var todo = [];
+  scenes.forEach(function(sc){ cineLines(sc).forEach(function(l){
+    var t = String(l.text || '').replace(/\*/g,'').trim(); if (t) todo.push([t, cineRole(l)]);
+  }); });
+  if (!todo.length) return;
+  var done = 0, isTa = (storyLang === 'ta');
+  for (var i = 0; i < todo.length; i += 3){
+    showLoad(isTa ? '\u0b95\u0bc1\u0bb0\u0bb2\u0bcd\u0b95\u0bb3\u0bcd \u0ba4\u0baf\u0bbe\u0bb0\u0bbe\u0b95\u0bbf\u0ba9\u0bcd\u0bb1\u0ba9\u2026' : 'Getting the voices ready\u2026',
+             (done) + ' of ' + todo.length + (isTa ? '' : ' lines \u2014 only the first time'));
+    await Promise.all(todo.slice(i, i + 3).map(function(x){ return cineAudio(x[0], x[1]).then(function(){ done++; }); }));
+  }
+  hideLoad();
+}
+
 /* Prepare Story (night before) also adds the lines, so nothing waits in class */
 (function(){
   var _origPrep = showPrepared;
   showPrepared = async function(wasAlreadyReady){
     await cineAddLines();
     await cineAddCast();
+    await cineReadyVoices();
     _origPrep(wasAlreadyReady);
   };
 })();
@@ -2639,6 +2675,7 @@ async function cineAddLines(){
     await cineAddCast();
     cineEnsureDom();
     _origBuild();
+    cineLoadPictures();
   };
 })();
 
