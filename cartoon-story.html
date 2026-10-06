@@ -2685,7 +2685,23 @@ async function cineReadyVoices(){
 var CINE_ROLES = ['boy','girl','man','woman'];
 function cineRole(l){
   var v = String((l && l.voice) || '').trim().toLowerCase();
-  return CINE_ROLES.indexOf(v) !== -1 ? v : '';
+  if (CINE_ROLES.indexOf(v) === -1) return '';
+  /* two boys in one story (Ravi and Kavin) get two different boy voices */
+  if (v === 'boy'){
+    var boys = cineBoyOrder();
+    var n = boys.indexOf(String(l.speaker || '').trim().toLowerCase());
+    if (n > 0 && n % 2 === 1) return 'boy2';
+  }
+  return v;
+}
+function cineBoyOrder(){
+  var order = [];
+  scenes.forEach(function(sc){ (sc.lines || []).forEach(function(x){
+    if (String((x && x.voice) || '').toLowerCase() !== 'boy') return;
+    var who = String(x.speaker || '').trim().toLowerCase();
+    if (who && order.indexOf(who) === -1) order.push(who);
+  }); });
+  return order;
 }
 
 /* stories saved before character voices: ask once who each speaker is, then save */
@@ -2725,7 +2741,8 @@ async function cineAddCast(){
 function cineVoiceTest(){
   var old = document.getElementById('cine-vt'); if (old){ old.remove(); return; }
   var p = document.createElement('div'); p.id = 'cine-vt';
-  var rows = [['boy','\uD83D\uDC66 Boy','Good morning, Kavin! Shall we go to school?'],
+  var rows = [['boy','\uD83D\uDC66 Boy 1','Good morning, Kavin! Shall we go to school?'],
+              ['boy2','\uD83D\uDC66 Boy 2','Good morning, Ravi! Yes, let us go together.'],
               ['girl','\uD83D\uDC67 Girl','Hello! My name is Meena. I like to sing.'],
               ['woman','\uD83D\uDC69 Woman','Good morning, children! Come, sit down.'],
               ['man','\uD83D\uDC68 Man','Here is a letter for you, my boy.'],
