@@ -723,9 +723,10 @@ loadSchools();
       <div id="mp-box" style="border:2px dashed #C9A84C;border-radius:12px;padding:16px;margin-bottom:16px;background:#fffaf0;">
         <div style="font-weight:800;color:#6B0F1A;font-size:1rem;margin-bottom:4px;">📤 Upload my own pictures</div>
         <div style="font-size:0.84rem;color:#666;line-height:1.6;margin-bottom:10px;">
-          Name each picture by its word: <b>fox.png</b>, <b>red apple.jpg</b>, <b>clap.png</b>.
-          (<b>fox (2).png</b> or <b>fox_2.png</b> also count as "fox".) Drop the pictures or a whole folder here.
-          They are made smaller before uploading, so classrooms load them quickly.
+          Drop the pictures or a whole folder here. Short names like <b>fox.png</b> are used as they are.
+          Long Firefly names are read for you: the AI suggests the word (<b>ostrich</b>) and marks each picture
+          as <b>one thing</b> (goes in the library) or a <b>scene</b> (left out). Check the list, fix any word, then upload.
+          Pictures are made smaller first, so classrooms load them quickly.
         </div>
         <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
           <label class="btn bp bsm" style="cursor:pointer;">🖼 Choose pictures
@@ -1265,9 +1266,12 @@ async function kgBatch(){
 
 
 // ══ UPLOAD MY OWN PICTURES (Oct 2026) ══
-// File name = word. Each picture is shrunk in the browser (longest side
-// 1024px, JPEG on white) and sent to the upload_kg_picture action, which
-// stores it and adds or updates the word in the Picture Library.
+// File name = word. Long Firefly names ("Firefly_Gemini Flash_An ostrich
+// -Cartoon drawing… 998889.png") are read by the AI in one go, which
+// suggests the word (ostrich) and says whether the picture is ONE THING
+// (goes in the library) or a SCENE (left out — scenes are kept per chapter).
+// Kayal checks the list, fixes any word, and uploads only the ticked rows.
+// Each picture is shrunk in the browser (longest side 1024px, JPEG on white).
 var mpItems = [], mpStopFlag = false, mpBusy = false;
 
 function mpWordFrom(name){
@@ -1277,20 +1281,165 @@ function mpWordFrom(name){
   if (cut.trim()) w = cut;
   return w.replace(/\s+/g, ' ').trim();
 }
+/* what Firefly was asked to draw, without the "Firefly_Gemini Flash_" front and the number at the end */
+function mpPromptFrom(name){
+  var t = String(name || '').replace(/\.[a-z0-9]+$/i, '');
+  t = t.replace(/^firefly[\s_]*(gemini[\s_]*flash)?[\s_-]*/i, '');
+  t = t.replace(/\s*\(\d+\)\s*$/, '').replace(/\s+\d{4,}\s*$/, '');
+  return t.replace(/[_]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s-]+/, '').trim();
+}
+function mpIsLong(name){ return /^firefly/i.test(name) || mpPromptFrom(name).split(' ').length > 3; }
 
-function mpPick(files){
-  var seen = {}, list = [], dup = 0;
+async function mpPick(files){
+  var list = [];
   Array.prototype.forEach.call(files || [], function(f){
     if (!/^image\//.test(f.type)) return;
-    var en = mpWordFrom(f.name), w = en.toLowerCase();
-    if (!w) return;
-    if (seen[w]){ dup++; return; }                                 // same word twice: keep the first
-    seen[w] = 1;
-    list.push({ file:f, word:w, en: en.charAt(0).toUpperCase() + en.substring(1) });
+    var long = mpIsLong(f.name);
+    var en = long ? '' : mpWordFrom(f.name);
+    list.push({ file:f, prompt: mpPromptFrom(f.name), word: en.toLowerCase(), en: en,
+                kind: long ? '' : 'thing', include: !long, note:'' });
   });
-  mpItems = list; mpItems.dup = dup;
+  mpItems = list;
   document.getElementById('mp-errors').textContent = '';
   document.getElementById('mp-status').textContent = '';
+  mpReview();
+  var needAI = mpItems.filter(function(it){ return !it.kind; });
+  if (needAI.length) await mpSuggest(needAI);
+  mpDedupe();
+  mpReview();
+}
+
+/* ask the AI for a word + one-thing/scene for every long name — 60 names per call */
+async function mpSuggest(items){
+  var st = document.getElementById('mp-status');
+  for (var i = 0; i < items.length; i += 60){
+    var part = items.slice(i, i + 60);
+    st.style.color = '#444';
+    st.textContent = 'Reading the picture names\u2026 ' + Math.min(i + 60, items.length) + ' of ' + items.length;
+    try{
+      var r = await fetch('/api/ai', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          system: 'Each line is the description used to make a picture for a children\u2019s book. For each, decide: ' +
+            '"thing" if the picture shows ONE main object, animal, food, person-type or action on its own (a single ostrich, a dustbin, a laddoo, a child clapping); ' +
+            '"scene" if it shows a place or several people doing something together (a village, a kitchen, a family by a fire, a postman at a gate). ' +
+            'For a "thing", give the simple English word a small child would learn (lowercase, 1\u20132 words, singular): ostrich, dustbin, laddoo, clap. For a "scene", give a 2\u20134 word name. ' +
+            'If the line does not say WHAT is in the picture (only style words like "bright cheerful illustration, soft shapes"), answer kind "unclear" with word "". ' +
+            'Reply ONLY with JSON: [{"i":0,"kind":"thing","word":"ostrich"}, ...] \u2014 one entry per line, same numbers.',
+          messages: [{ role:'user', content: part.map(function(it, k){ return k + ': ' + it.prompt.substring(0, 220); }).join('\n') }],
+          max_tokens: 4000
+        }) });
+      var d = await r.json();
+      var raw = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+      var a = raw.indexOf('['), z = raw.lastIndexOf(']');
+      if (a === -1 || z <= a) throw new Error((d && d.error && (d.error.message || d.error)) || 'the AI reply could not be read');
+      JSON.parse(raw.substring(a, z + 1)).forEach(function(x){
+        var it = part[x && x.i]; if (!it) return;
+        it.kind = (x.kind === 'thing') ? 'thing' : (x.kind === 'unclear' ? 'unclear' : 'scene');
+        it.en = String(x.word || '').trim();
+        it.word = it.en.toLowerCase();
+        it.include = (it.kind === 'thing' && !!it.word);
+      });
+    }catch(e){
+      document.getElementById('mp-errors').innerHTML = 'Could not suggest names for some pictures (' + String(e.message || e).replace(/</g, '&lt;') + '). Type their words yourself below.';
+    }
+    part.forEach(function(it){ if (!it.kind){ it.kind = 'scene'; it.include = false; } });
+  }
+  var unclear = items.filter(function(it){ return it.kind === 'unclear'; });
+  if (unclear.length) await mpLook(unclear);
+  st.textContent = '';
+}
+
+/* names that do not say what is in the picture: the AI looks at a small copy of each (8 per call) */
+function mpThumbB64(file){
+  return new Promise(function(resolve, reject){
+    var img = new Image(), url = URL.createObjectURL(file);
+    img.onload = function(){
+      var k = Math.min(1, 320 / Math.max(img.naturalWidth, img.naturalHeight));
+      var c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+      var g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      var d = c.toDataURL('image/jpeg', 0.7); resolve(d.substring(d.indexOf(',') + 1));
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); reject(new Error('could not open')); };
+    img.src = url;
+  });
+}
+async function mpLook(items){
+  var st = document.getElementById('mp-status');
+  for (var i = 0; i < items.length; i += 8){
+    var part = items.slice(i, i + 8);
+    st.style.color = '#444';
+    st.textContent = 'Looking at pictures whose names don\u2019t say what they show\u2026 ' + Math.min(i + 8, items.length) + ' of ' + items.length;
+    try{
+      var content = [];
+      for (var k = 0; k < part.length; k++){
+        content.push({ type:'text', text:'Picture ' + k + ':' });
+        content.push({ type:'image', source:{ type:'base64', media_type:'image/jpeg', data: await mpThumbB64(part[k].file) } });
+      }
+      content.push({ type:'text', text:'For each picture: "thing" if it shows ONE main object, animal, food or a single child doing an action; "scene" if it shows a place or several people together. ' +
+        'For a "thing" give the simple English word a small child would learn (lowercase, 1\u20132 words, singular). For a "scene" give a 2\u20134 word name. ' +
+        'Reply ONLY with JSON: [{"i":0,"kind":"scene","word":"village playground"}, ...]' });
+      var r = await fetch('/api/ai', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ messages:[{ role:'user', content:content }], max_tokens: 800 }) });
+      var d = await r.json();
+      var raw = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+      var a = raw.indexOf('['), z = raw.lastIndexOf(']');
+      if (a === -1 || z <= a) throw new Error((d && d.error && (d.error.message || d.error)) || 'the AI reply could not be read');
+      JSON.parse(raw.substring(a, z + 1)).forEach(function(x){
+        var it = part[x && x.i]; if (!it) return;
+        it.kind = (x.kind === 'thing') ? 'thing' : 'scene';
+        it.en = String(x.word || '').trim(); it.word = it.en.toLowerCase();
+        it.include = (it.kind === 'thing' && !!it.word);
+        it.looked = true;
+      });
+    }catch(e){
+      document.getElementById('mp-errors').innerHTML = 'Could not look at some pictures (' + String(e.message || e).replace(/</g, '&lt;') + '). Type their words yourself below.';
+    }
+    part.forEach(function(it){ if (it.kind === 'unclear'){ it.kind = 'scene'; it.include = false; } });
+    mpReview();
+  }
+}
+
+/* the same word twice: keep the first ticked one, untick the rest and say why */
+function mpDedupe(){
+  var seen = {};
+  mpItems.forEach(function(it){
+    it.note = '';
+    if (!it.include || !it.word) return;
+    if (seen[it.word]){ it.include = false; it.note = 'same word as another picture'; return; }
+    seen[it.word] = 1;
+  });
+}
+
+function mpReview(){
+  var have = {};
+  (kgRows || []).forEach(function(r){ if (r.colour_url) have[String(r.word).toLowerCase()] = 1; });
+  var box = document.getElementById('mp-review');
+  if (!box){
+    box = document.createElement('div'); box.id = 'mp-review';
+    box.style.cssText = 'max-height:460px;overflow:auto;border:1px solid #e6dcc4;border-radius:8px;background:#fff;margin:8px 0;display:none;';
+    var sum = document.getElementById('mp-summary'); sum.parentNode.insertBefore(box, sum.nextSibling);
+  }
+  if (!mpItems.length){ box.style.display = 'none'; mpSummary(); return; }
+  box.style.display = 'block';
+  box.innerHTML = '<table style="width:100%;border-collapse:collapse;font-size:0.82rem;">' +
+    '<tr style="background:#f7f0e0;position:sticky;top:0;"><th style="padding:6px;">Use</th><th>Picture</th><th style="text-align:left;">Word</th><th>Type</th><th style="text-align:left;">From the file name</th></tr>' +
+    mpItems.map(function(it, i){
+      if (!it.thumb) it.thumb = URL.createObjectURL(it.file);
+      var tag = it.kind === 'thing' ? '<span style="background:#e3f2e7;color:#1a5c2a;border-radius:10px;padding:2px 8px;">one thing</span>'
+              : it.kind === 'scene' ? '<span style="background:#f3e6cf;color:#7a4a2a;border-radius:10px;padding:2px 8px;">scene</span>'
+              : '<span style="color:#999;">reading\u2026</span>';
+      var already = it.word && have[it.word] ? '<div style="color:#b9770e;font-size:0.72rem;">already in library</div>' : '';
+      if (it.looked) already += '<div style="color:#888;font-size:0.7rem;">named from the picture</div>';
+      return '<tr style="border-top:1px solid #f0e8d6;' + (it.include ? '' : 'opacity:.6;') + '">' +
+        '<td style="text-align:center;padding:4px;"><input type="checkbox" style="width:auto;" ' + (it.include ? 'checked' : '') + ' onchange="mpItems[' + i + '].include=this.checked;mpItems[' + i + '].note=\'\';mpReview()"></td>' +
+        '<td style="padding:4px;"><img loading="lazy" src="' + it.thumb + '" style="width:64px;height:48px;object-fit:cover;border-radius:4px;display:block;"></td>' +
+        '<td style="padding:4px;"><input type="text" value="' + String(it.en || '').replace(/"/g, '&quot;') + '" placeholder="word" style="width:130px;padding:4px 6px;border:1px solid #ddd;border-radius:6px;" ' +
+          'onchange="mpItems[' + i + '].en=this.value.trim();mpItems[' + i + '].word=this.value.trim().toLowerCase();mpReview()">' + already +
+          (it.note ? '<div style="color:#c0392b;font-size:0.72rem;">' + it.note + '</div>' : '') + '</td>' +
+        '<td style="text-align:center;padding:4px;">' + tag + '</td>' +
+        '<td style="padding:4px;color:#888;max-width:420px;">' + String(it.prompt).replace(/</g, '&lt;').substring(0, 120) + '</td></tr>';
+    }).join('') + '</table>';
   mpSummary();
 }
 
@@ -1298,16 +1447,19 @@ function mpSummary(){
   var have = {};
   (kgRows || []).forEach(function(r){ if (r.colour_url) have[String(r.word).toLowerCase()] = 1; });
   var replace = document.getElementById('mp-replace').checked;
-  var neu = 0, old = 0;
-  mpItems.forEach(function(it){ it.exists = !!have[it.word]; if (it.exists) old++; else neu++; });
-  var send = mpItems.filter(function(it){ return replace || !it.exists; }).length;
-  var sum = document.getElementById('mp-summary');
-  if (!mpItems.length){ sum.textContent = ''; document.getElementById('mp-go').style.display = 'none'; return; }
-  sum.innerHTML = '<b>' + mpItems.length + '</b> pictures: <b>' + neu + '</b> new words, <b>' + old + '</b> already have a picture' +
-    (replace ? ' (will be replaced by yours)' : ' (will be skipped)') +
-    (mpItems.dup ? ', ' + mpItems.dup + ' skipped because the same word came twice' : '') +
-    '.<br><span style="color:#888">Examples: ' + mpItems.slice(0, 8).map(function(it){ return it.file.name + ' \u2192 <b>' + it.word + '</b>'; }).join(', ') + '</span>';
-  var go = document.getElementById('mp-go');
+  var things = 0, scenes = 0, ticked = 0, neu = 0, old = 0, send = 0;
+  mpItems.forEach(function(it){
+    if (it.kind === 'scene') scenes++; else things++;
+    it.exists = !!(it.word && have[it.word]);
+    if (!it.include || !it.word) return;
+    ticked++; if (it.exists) old++; else neu++;
+    if (replace || !it.exists) send++;
+  });
+  var sum = document.getElementById('mp-summary'), go = document.getElementById('mp-go');
+  if (!mpItems.length){ sum.textContent = ''; go.style.display = 'none'; return; }
+  sum.innerHTML = '<b>' + mpItems.length + '</b> pictures: <b>' + things + '</b> one-thing pictures, <b>' + scenes + '</b> scenes (left out \u2014 keep these per chapter). ' +
+    '<b>' + ticked + '</b> ticked: ' + neu + ' new words, ' + old + ' already in the library' + (replace ? ' (yours will replace them)' : ' (will be skipped)') + '. ' +
+    '<span style="color:#888">Check the words below; tick or untick anything.</span>';
   go.style.display = send ? 'inline-block' : 'none';
   go.textContent = '\u2B06 Upload ' + send + ' picture' + (send === 1 ? '' : 's');
 }
@@ -1334,9 +1486,10 @@ function mpShrink(file){
 
 async function mpUpload(){
   if (mpBusy) return;
+  mpDedupe(); mpReview();
   var replace = document.getElementById('mp-replace').checked;
   var cat = document.getElementById('mp-cat').value.trim() || 'my pictures';
-  var todo = mpItems.filter(function(it){ return replace || !it.exists; });
+  var todo = mpItems.filter(function(it){ return it.include && it.word && (replace || !it.exists); });
   if (!todo.length) return;
   mpBusy = true; mpStopFlag = false;
   var go = document.getElementById('mp-go'), stop = document.getElementById('mp-stop');
@@ -1351,17 +1504,17 @@ async function mpUpload(){
     await Promise.all(todo.slice(i, i + 3).map(async function(it){
       try{
         var b64 = await mpShrink(it.file);
-        var r = await callAuth({ action:'upload_kg_picture', word:it.word, en:it.en, cat:cat, file_base64:b64, mime:'image/jpeg' });
+        var r = await callAuth({ action:'upload_kg_picture', word:it.word, en:(it.en.charAt(0).toUpperCase() + it.en.substring(1)), cat:cat, file_base64:b64, mime:'image/jpeg' });
         if (!r || r.error) throw new Error((r && r.error) || 'no reply from the server');
         if (r.added) added++; else replaced++;
+        it.include = false; it.note = 'uploaded \u2713';
       }catch(e){
         failed.push(it.file.name + ': ' + e.message);
         if (/super admin|log in/i.test(e.message)) fatal = e.message;
       }
       done++;
     }));
-    if (fatal) fatalStop = true;
-    if (fatal){ st.style.color = '#c0392b'; st.textContent = 'Stopped: ' + fatal; break; }
+    if (fatal){ fatalStop = true; st.style.color = '#c0392b'; st.textContent = 'Stopped: ' + fatal; break; }
   }
   if (!fatalStop){
     st.style.color = failed.length ? '#b9770e' : '#1a5c2a';
@@ -1372,9 +1525,8 @@ async function mpUpload(){
     (failed.length > 30 ? '<br>\u2026 and ' + (failed.length - 30) + ' more' : '');
   go.disabled = false; stop.style.display = 'none'; mpBusy = false;
   await kgLoad();
-  mpSummary();
+  mpReview();
 }
-
 
 // drop pictures straight onto the upload box
 document.addEventListener('DOMContentLoaded', function(){
