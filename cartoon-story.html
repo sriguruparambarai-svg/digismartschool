@@ -781,6 +781,58 @@ input[type=range]{
   40%{opacity:.5;filter:blur(3px);}
   100%{opacity:0;filter:blur(0px);}
 }
+/* ═══════════════════════════════════════════
+   CINEMA MODE (additive, Oct 2026)
+   Full picture, nothing cut; characters talk in comic bubbles;
+   the long description, words and question move to "Let's talk" at the end.
+═══════════════════════════════════════════ */
+.stage .subtitle-wrap,.stage .dialogue-panel,.stage .scene-meta-bar,.stage .kws,
+.stage .q-panel,.stage #poem-area,.stage .moral-box{display:none !important;}
+.stage .story-title-bar{padding:6px 16px;display:flex;align-items:center;justify-content:center;gap:12px;}
+.stage .stb-badge{margin:0;}
+.stage .stb-title{font-size:1.15rem;}
+.stage .stb-meta{margin:0;}
+.stage .scene-nav{padding:6px 16px;}
+.stage .scene-viewer{
+  width:min(100%, calc((100vh - 200px) * 1.5));
+  height:auto;aspect-ratio:3 / 2;margin:0 auto;
+}
+.stage .letterbox-top,.stage .letterbox-bottom{display:none;}
+/* gentle camera move only, so heads and feet stay in the frame */
+.stage .scene-viewer .scene-bg.ken-burns-1,.stage .scene-viewer .scene-bg.ken-burns-3{animation:cineKbA 14s ease-in-out forwards !important;}
+.stage .scene-viewer .scene-bg.ken-burns-2,.stage .scene-viewer .scene-bg.ken-burns-4{animation:cineKbB 14s ease-in-out forwards !important;}
+@keyframes cineKbA{from{transform:scale(1);}to{transform:scale(1.035);}}
+@keyframes cineKbB{from{transform:scale(1.035);}to{transform:scale(1);}}
+/* the narrator's one short line, like a comic caption box */
+#cine-caption{position:absolute;top:4%;left:50%;z-index:6;max-width:60%;text-align:center;
+  background:#ffe9a8;color:#2a0a05;border:3px solid #2a0a05;border-radius:6px;
+  padding:8px 16px;font-family:'Crimson Pro',serif;font-size:clamp(1rem,1.8vw,1.4rem);font-weight:700;font-style:italic;
+  box-shadow:4px 4px 0 rgba(0,0,0,.45);opacity:0;transform:translate(-50%,-8px);transition:opacity .4s,transform .4s;}
+#cine-caption.show{opacity:1;transform:translate(-50%,0);}
+/* bubbles sit on the left or right, so a conversation reads like a comic */
+.comic-bubble{font-size:clamp(1.3rem,2.4vw,2rem);}
+.comic-bubble.cine-left{left:30%;}
+.comic-bubble.cine-right{left:70%;}
+.comic-bubble.cine-left::after,.comic-bubble.cine-left::before{left:28%;}
+.comic-bubble.cine-right::after,.comic-bubble.cine-right::before{left:72%;}
+/* Let's talk — after the story */
+#cine-talk{position:absolute;inset:0;z-index:20;background:rgba(13,8,6,.94);display:none;
+  overflow-y:auto;padding:28px 6%;color:var(--sandal);}
+#cine-talk.show{display:block;}
+#cine-talk h2{font-family:'Crimson Pro',serif;font-size:clamp(1.6rem,3vw,2.4rem);color:#ffe9a8;text-align:center;margin-bottom:16px;}
+#cine-talk .ct-moral{background:rgba(201,168,76,.14);border:1.5px solid rgba(201,168,76,.45);border-radius:12px;
+  padding:12px 18px;font-family:'Crimson Pro',serif;font-size:clamp(1.1rem,2vw,1.5rem);text-align:center;margin-bottom:18px;color:#fff3d6;}
+#cine-talk .ct-h{color:var(--gold);font-weight:800;font-size:.95rem;margin:14px 0 8px;}
+#cine-talk .ct-q{font-size:clamp(1rem,1.9vw,1.4rem);padding:8px 0 8px 34px;position:relative;line-height:1.4;color:#fff;}
+#cine-talk .ct-q::before{content:'\2753';position:absolute;left:0;top:8px;}
+#cine-talk .ct-words{display:flex;flex-wrap:wrap;gap:10px;}
+#cine-talk .ct-w{background:rgba(255,255,255,.06);border:1px solid rgba(201,168,76,.35);border-radius:10px;padding:8px 14px;}
+#cine-talk .ct-w b{display:block;color:#ffe9a8;font-size:1.15rem;}
+#cine-talk .ct-w span{font-size:.85rem;opacity:.85;}
+#cine-talk .ct-btns{display:flex;gap:10px;justify-content:center;margin-top:22px;}
+#cine-talk .ct-btns button{padding:10px 20px;border-radius:10px;border:none;font-family:'Lexend',sans-serif;font-weight:700;cursor:pointer;}
+#cine-talk .ct-btns .pri{background:var(--maroon);color:#fff;border:1.5px solid var(--gold);}
+#cine-talk .ct-btns .sec{background:rgba(255,255,255,.1);color:var(--sandal);}
 </style>
 </head>
 <body>
@@ -2432,6 +2484,253 @@ function applySceneEntrance(){
 
 // ═══════════════════════════════════════════════════════
 // END LEVEL 1+2 ENHANCEMENTS
+// ═══════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════
+// CINEMA MODE (additive, Oct 2026)
+// Each scene is a short comic: the characters TALK to each other in
+// bubbles (one storyteller voice, cheaper), a one-line caption sets the
+// scene, and nothing is read out from a long description.
+// Keywords, questions and the moral move to a "Let's talk" screen at
+// the end. Stories saved before this get their conversation lines added
+// once (one small AI call, pictures kept) and saved back.
+// ═══════════════════════════════════════════════════════
+var cineSeq = 0;
+
+function cineLittle(){
+  return ['pre kg','lkg','ukg','class 1','class 2'].indexOf(String(storyClass||'').trim().toLowerCase()) !== -1;
+}
+function cineMaxWords(){ return cineLittle() ? 8 : 14; }
+
+function cineLines(sc){
+  if (!sc) return [];
+  if (Array.isArray(sc.lines) && sc.lines.length){
+    return sc.lines.filter(function(l){ return l && String(l.text||'').trim(); });
+  }
+  if (sc.dialogue && String(sc.dialogue).trim()) return [{ speaker: sc.speaker || '', text: sc.dialogue }];
+  return [];
+}
+
+/* new stories: ask for the conversation lines straight away */
+(function(){
+  var _orig = buildScenePrompt;
+  buildScenePrompt = function(text, type, title, cls){
+    var isTa = (storyLang === 'ta');
+    return _orig(text, type, title, cls) +
+      '\n\nCINEMA RULES \u2014 ALSO put these two fields in EVERY scene object:\n' +
+      '"caption": one short narrator line, max 8 words, like a comic caption ("Next morning, at school\u2026")' + (isTa ? ' IN TAMIL SCRIPT' : '') + '.\n' +
+      '"lines": [{"speaker":"Ravi","text":"Good morning, Kavin!"},{"speaker":"Kavin","text":"Good morning, Ravi!"}] \u2014 2 to 4 lines the characters SAY to each other in that moment, like a film. ' +
+      'Each line max ' + cineMaxWords() + ' words, natural spoken words, using the lesson\u2019s own sentences and greetings where they fit' + (isTa ? ', IN TAMIL SCRIPT' : '') + '. ' +
+      'No narrator explaining. For a poem or rhyme, "lines" are the poem lines with speaker "Everyone".';
+  };
+})();
+
+/* stories saved before Cinema Mode: add the lines once, keep the pictures */
+async function cineAddLines(){
+  var need = scenes.some(function(sc){ return !(Array.isArray(sc.lines) && sc.lines.length); });
+  if (!need) return;
+  var isTa = (storyLang === 'ta');
+  showLoad(isTa ? '\u0b95\u0ba4\u0bc8 \u0ba4\u0baf\u0bbe\u0bb0\u0bbe\u0b95\u0bbf\u0bb1\u0ba4\u0bc1\u2026' : 'Turning the story into a film\u2026',
+           isTa ? '' : 'Writing what the characters say \u2014 only this once');
+  try{
+    var brief = scenes.map(function(sc, i){
+      return { num: i + 1, name: sc.name || '', characters: sc.characters || [], narration: sc.narration || '',
+               dialogue: sc.dialogue || '', speaker: sc.speaker || '', stanza: sc.stanza || '' };
+    });
+    var resp = await fetch('/api/ai', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        system: 'You turn storybook scenes into a short comic-book film for ' + (storyClass || 'school') + ' children in Tamil Nadu. ' +
+          'For EVERY scene write: "caption" \u2014 one short narrator line, max 8 words, like a comic caption; and "lines" \u2014 2 to 4 things the characters SAY to each other in that moment, like a film. ' +
+          'Each line max ' + cineMaxWords() + ' words, natural spoken words. Keep the scene\u2019s existing dialogue as one of the lines when it fits. Use the characters\u2019 names as speaker. ' +
+          'No narrator explaining. If a scene has a poem stanza, its lines are the poem lines with speaker "Everyone". ' +
+          (isTa ? 'Write caption and lines IN TAMIL SCRIPT. ' : 'Write in simple English. ') +
+          'Reply ONLY with JSON: {"scenes":[{"num":1,"caption":"...","lines":[{"speaker":"...","text":"..."}]}]} \u2014 one entry per scene, same order.',
+        messages: [{ role:'user', content: 'CHARACTERS: ' + (charSheet || '') + '\n\nSCENES:\n' + JSON.stringify(brief).substring(0, 12000) }],
+        max_tokens: 3000
+      })
+    });
+    var d = await resp.json();
+    var raw = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+    if (!raw){
+      var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || 'empty reply';
+      throw new Error(typeof why === 'string' ? why : JSON.stringify(why));
+    }
+    raw = raw.replace(/```json|```/g, '').trim();
+    var s = raw.indexOf('{'), e = raw.lastIndexOf('}');
+    var res = JSON.parse(raw.substring(s, e + 1));
+    (res.scenes || []).forEach(function(x, i){
+      var sc = scenes[i]; if (!sc || !x) return;
+      if (Array.isArray(x.lines)) sc.lines = x.lines.slice(0, 4).map(function(l){
+        return { speaker: String((l && l.speaker) || '').substring(0, 30), text: String((l && l.text) || '').substring(0, 140) };
+      }).filter(function(l){ return l.text.trim(); });
+      if (x.caption) sc.caption = String(x.caption).substring(0, 80);
+    });
+    cacheSaveStory();   /* saved with the same pictures, so this never runs again for this story */
+  }catch(err){
+    /* not fatal: the story still plays with its one dialogue line per scene */
+    try{ showErr('Could not add the conversation lines (' + (err.message || err) + '). Playing with the saved lines.'); }catch(e2){}
+  }
+  hideLoad();
+}
+
+/* Prepare Story (night before) also adds the lines, so nothing waits in class */
+(function(){
+  var _origPrep = showPrepared;
+  showPrepared = async function(wasAlreadyReady){
+    await cineAddLines();
+    _origPrep(wasAlreadyReady);
+  };
+})();
+
+(function(){
+  var _origBuild = buildStage;
+  buildStage = async function(){
+    await cineAddLines();
+    cineEnsureDom();
+    _origBuild();
+  };
+})();
+
+function cineEnsureDom(){
+  var v = document.getElementById('scene-viewer');
+  if (v && !document.getElementById('cine-caption')){
+    var c = document.createElement('div'); c.id = 'cine-caption'; v.appendChild(c);
+    var t = document.createElement('div'); t.id = 'cine-talk'; v.appendChild(t);
+  }
+  var bar = document.querySelector('.ctrl-bar');
+  if (bar && !document.getElementById('btn-talk')){
+    var b = document.createElement('button');
+    b.className = 'cb cb-nav'; b.id = 'btn-talk'; b.textContent = '\uD83D\uDCAC Let\u2019s talk';
+    b.onclick = function(){ cineShowTalk(false); };
+    var music = document.getElementById('btn-music');
+    bar.insertBefore(b, music || null);
+  }
+}
+
+function cineCaption(text){
+  var c = document.getElementById('cine-caption'); if (!c) return;
+  c.classList.remove('show');
+  if (text && String(text).trim()){
+    c.textContent = text;
+    setTimeout(function(){ c.classList.add('show'); }, 600);
+  }
+}
+
+function cineBubble(line, side){
+  var b = document.getElementById('comic-bubble');
+  showComicBubble(line.speaker || '', line.text);
+  if (b){ b.classList.remove('cine-left', 'cine-right'); b.classList.add(side === 'right' ? 'cine-right' : 'cine-left'); }
+}
+
+/* the scene's own dialogue bubble from the older code would clash — hand it ours */
+(function(){
+  var _origTrig = triggerCinematicMotion;
+  triggerCinematicMotion = function(sc){
+    var calm = sc ? Object.assign({}, sc, { dialogue: '' }) : sc;
+    _origTrig(calm);
+  };
+})();
+
+/* every scene change: caption on, Let's talk off */
+(function(){
+  var _origRender = renderScene;
+  renderScene = function(idx, isFirst){
+    var t = document.getElementById('cine-talk'); if (t) t.classList.remove('show');
+    _origRender(idx, isFirst);
+    var sc = scenes[idx];
+    cineCaption(sc ? (sc.caption || '') : '');
+  };
+})();
+
+/* playback: the characters speak, one bubble after another */
+(function(){
+  var _origBegin = beginPlayback;
+  beginPlayback = function(sc){
+    var lines = cineLines(sc);
+    if (!lines.length){ _origBegin(sc); return; }   /* nothing to say — old behaviour */
+    clearTimers();
+    var seq = ++cineSeq;
+    var sides = {}, nextSide = 'left';
+    var i = 0;
+    function sayNext(){
+      if (seq !== cineSeq || !playing) return;
+      if (i >= lines.length){
+        dlgTimer = setTimeout(function(){
+          if (seq !== cineSeq || !playing) return;
+          hideComicBubble();
+          if (curIdx < scenes.length - 1) renderScene(curIdx + 1, false);
+          else cineEnd();
+        }, 1500);
+        return;
+      }
+      var ln = lines[i++];
+      var who = String(ln.speaker || '').toLowerCase();
+      if (!sides[who]){ sides[who] = nextSide; nextSide = (nextSide === 'left' ? 'right' : 'left'); }
+      cineBubble(ln, sides[who]);
+      speak(ln.text, storyLang || 'en', function(){
+        if (seq !== cineSeq) return;
+        dlgTimer = setTimeout(sayNext, 650);
+      });
+    }
+    dlgTimer = setTimeout(sayNext, 2000);   /* let the title card and picture settle first */
+  };
+})();
+
+function cineEnd(){
+  playing = false;
+  document.getElementById('btn-play').innerHTML = '\u25B6 Play';
+  cineShowTalk(true);
+}
+
+function cineShowTalk(sayMoral){
+  var t = document.getElementById('cine-talk'); if (!t) return;
+  stopSpeech(); clearTimers(); hideComicBubble();
+  var cap = document.getElementById('cine-caption'); if (cap) cap.classList.remove('show');
+  if (playing){ playing = false; document.getElementById('btn-play').innerHTML = '\u25B6 Play'; }
+  var isTa = (storyLang === 'ta');
+  var qs = [], words = [], seen = {};
+  scenes.forEach(function(sc){
+    if (sc.question && String(sc.question).trim()) qs.push(sc.question);
+    (sc.keywords || []).forEach(function(k){
+      var w = String((k && k.word) || '').trim(); if (!w || seen[w.toLowerCase()]) return;
+      seen[w.toLowerCase()] = 1; words.push(k);
+    });
+  });
+  t.innerHTML =
+    '<h2>' + (isTa ? '\u0baa\u0bc7\u0b9a\u0bc1\u0bb5\u0bcb\u0bae\u0bcd!' : 'Let\u2019s talk about the story') + '</h2>' +
+    (moral ? '<div class="ct-moral">\u2B50 ' + escH(moral) + '</div>' : '') +
+    (qs.length ? '<div class="ct-h">' + (isTa ? '\u0b95\u0bc7\u0bb3\u0bcd\u0bb5\u0bbf\u0b95\u0bb3\u0bcd' : 'Think and answer') + '</div>' +
+      qs.map(function(q){ return '<div class="ct-q">' + escH(q) + '</div>'; }).join('') : '') +
+    (words.length ? '<div class="ct-h">' + (isTa ? '\u0b9a\u0bca\u0bb1\u0bcd\u0b95\u0bb3\u0bcd' : 'Words from the story') + '</div><div class="ct-words">' +
+      words.map(function(k){ return '<div class="ct-w"><b>' + escH(k.word) + '</b><span>' + escH(k.meaning || '') + '</span></div>'; }).join('') + '</div>' : '') +
+    '<div class="ct-btns"><button class="pri" onclick="cineWatchAgain()">\u21BB ' + (isTa ? '\u0bae\u0bc0\u0ba3\u0bcd\u0b9f\u0bc1\u0bae\u0bcd' : 'Watch again') + '</button>' +
+    '<button class="sec" onclick="document.getElementById(\'cine-talk\').classList.remove(\'show\')">' + (isTa ? '\u0bae\u0bc2\u0b9f\u0bc1' : 'Close') + '</button></div>';
+  t.classList.add('show');
+  t.scrollTop = 0;
+  if (sayMoral && moral){
+    speak((isTa ? '\u0b87\u0b95\u0bcd\u0b95\u0ba4\u0bc8\u0baf\u0bbf\u0ba9\u0bcd \u0baa\u0b9f\u0bbf\u0baa\u0bcd\u0baa\u0bbf\u0ba9\u0bc8: ' : 'The moral of this story is: ') + moral, storyLang || 'en', null);
+  }
+}
+
+function cineWatchAgain(){
+  var t = document.getElementById('cine-talk'); if (t) t.classList.remove('show');
+  stopSpeech(); clearTimers();
+  playing = true;
+  document.getElementById('btn-play').innerHTML = '<span class="voice-dot"></span>Speaking\u2026';
+  renderScene(0, false);
+}
+
+/* the last scene's ⏭ opens Let's talk instead of the old moral box */
+(function(){
+  var _origNext = nextScene;
+  nextScene = function(){
+    if (curIdx >= scenes.length - 1){ cineShowTalk(false); return; }
+    _origNext();
+  };
+})();
+// ═══════════════════════════════════════════════════════
+// END CINEMA MODE
 // ═══════════════════════════════════════════════════════
 
 // ═══════════════════════════════════════════════════════
