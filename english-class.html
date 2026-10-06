@@ -152,6 +152,14 @@ body{background:linear-gradient(135deg,#120a08,#1a0d0a 60%,#120a08);color:var(--
 .eng-ex-step{background:rgba(201,168,76,0.08);border-left:3px solid rgba(201,168,76,0.6);border-radius:0 10px 10px 0;padding:9px 14px;margin-bottom:8px;font-size:clamp(0.82rem,1.3vw,0.98rem);color:var(--sandal);line-height:1.5;opacity:0;animation:scFadeUp 0.5s ease forwards;}
 .eng-ex-ans{margin-top:12px;background:linear-gradient(135deg,rgba(60,150,80,0.2),rgba(30,12,8,0.5));border:1.5px solid rgba(90,200,120,0.6);border-radius:12px;padding:12px 16px;font-size:clamp(0.95rem,1.6vw,1.2rem);font-weight:800;color:#a5eab8;text-align:center;opacity:0;animation:scFadeUp 0.5s ease forwards;}
 .eng-ex-why{margin-top:8px;text-align:center;font-size:0.84rem;color:var(--sandal);line-height:1.5;opacity:0;animation:scFadeUp 0.5s ease forwards;}
+/* Exercise think time (Oct 2026): answer stays hidden until the teacher taps Show Answer */
+.eng-ex-held .eng-ex-step,.eng-ex-held .eng-ex-ans,.eng-ex-held .eng-ex-why{display:none;}
+.eng-ex-show{display:none;margin:6px auto 0;padding:14px 30px;border-radius:14px;border:2px solid var(--gold);background:linear-gradient(135deg,var(--maroon),#8a2525);color:var(--gold-light);font-size:clamp(1rem,1.7vw,1.25rem);font-weight:800;cursor:pointer;box-shadow:0 10px 30px rgba(201,168,76,0.25);}
+.eng-ex-held .eng-ex-show{display:block;animation:engPulse 1.6s ease-in-out infinite;}
+.eng-ex-think{display:none;text-align:center;font-family:'Caveat',cursive;font-size:clamp(1.3rem,2.4vw,1.8rem);color:var(--gold-light);margin:4px 0 12px;}
+.eng-ex-held .eng-ex-think{display:block;}
+/* Pause freezes anything still appearing on screen */
+body.sc-paused #stage-inner,body.sc-paused #stage-inner *{animation-play-state:paused !important;}
 
 /* ── 3D MODEL STEP (Science) ── */
 .sc-mdl-frame{position:relative;width:100%;height:100%;max-width:1080px;border-radius:14px;overflow:hidden;box-shadow:0 18px 60px rgba(0,0,0,0.65);border:1.5px solid rgba(201,168,76,0.35);background:radial-gradient(ellipse at 50% 40%,#141824,#07090f 70%);animation:scFadeUp 0.8s ease both;}
@@ -596,7 +604,8 @@ function scRender(idx){
   else if (step.type === 'stat') renderStat(inner, step);
   else renderConcept(inner, step);
 
-  scSpeak(step.speech || step.title);
+  if (step.type === 'exercise') scSpeak(engExIntro(step));
+  else scSpeak(step.speech || step.title);
   scPrefetchNextPhoto(idx);
   sciPrefetchModels(idx);
 }
@@ -856,7 +865,11 @@ function renderHomophones(inner, step){
 }
 
 function renderExercise(inner, step){
-  var html = '<div class="eng-ex-wrap"><h2></h2><div class="eng-ex-q"></div><div class="eng-ex-steps"></div>' +
+  ENG_EX_REVEALED = false;
+  var html = '<div class="eng-ex-wrap eng-ex-held"><h2></h2><div class="eng-ex-q"></div>' +
+             '<div class="eng-ex-think">\uD83E\uDD14 Class, think and tell your answer!</div>' +
+             '<button class="eng-ex-show" onclick="engExReveal()">\uD83D\uDC41 Show Answer</button>' +
+             '<div class="eng-ex-steps"></div>' +
              '<div class="eng-ex-ans"></div><div class="eng-ex-why"></div></div>';
   inner.innerHTML = html;
   inner.querySelector('h2').textContent = step.title;
@@ -880,7 +893,41 @@ function renderExercise(inner, step){
   }
   var why = inner.querySelector('.eng-ex-why');
   why.style.animationDelay = (1.2 + n * 1.1).toFixed(2) + 's';
-  why.textContent = step.why ? ('Because: ' + step.why) : '';
+  why.textContent = step.why ? ('Because: ' + engExWhy(step.why)) : '';
+}
+
+/* ── Exercise think time helpers (Oct 2026) ── */
+var ENG_EX_REVEALED = false;
+function engExWhy(w){ return String(w || '').replace(/^\s*because[\s,:]*/i, ''); }
+function engExNorm(t){ return String(t || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+/* What Robo says BEFORE the answer — never the answer itself */
+function engExIntro(step){
+  var sp = step.speech || '';
+  var a = engExNorm(step.answer);
+  if (!sp || (a && engExNorm(sp).indexOf(a) !== -1)) sp = 'Let us solve this question. ' + step.question;
+  return sp + ' Class, think carefully and tell me your answer.';
+}
+function engExWait(){
+  document.getElementById('narr-text').textContent = '\uD83E\uDD14 Class, think and answer \u2014 teacher presses Show Answer when ready.';
+}
+function engExReveal(){
+  if (ENG_EX_REVEALED) return;
+  var step = STEPS[CUR];
+  if (!step || step.type !== 'exercise') return;
+  ENG_EX_REVEALED = true;
+  if (isPaused){
+    isPaused = false;
+    document.getElementById('btn-pause').textContent = '\u23F8 Pause';
+    document.body.classList.remove('sc-paused');
+  }
+  var wrap = document.querySelector('.eng-ex-wrap');
+  if (wrap) wrap.classList.remove('eng-ex-held');
+  var talk = 'Let us check. ';
+  (step.exSteps || []).forEach(function(s){ talk += s + '. '; });
+  talk += 'So the answer is: ' + step.answer + ' ';
+  if (step.why) talk += 'Because ' + engExWhy(step.why);
+  document.getElementById('narr-text').textContent = talk;
+  scSpeak(talk);
 }
 
 /* ══ WORKING SOLAR SYSTEM (hand-built — planets revolve around the Sun) ══
@@ -1507,6 +1554,8 @@ function scScheduleAdvance(sec){
      and the TEACHER presses Continue when ready (Kayal's choice). */
   var st = STEPS[CUR];
   if (st && st.type === 'word'){ engShowRepeat(); return; }
+  /* Exercise steps wait for the teacher's Show Answer tap (Kayal's choice, Oct 2026) */
+  if (st && st.type === 'exercise' && !ENG_EX_REVEALED){ engExWait(); return; }
   scAdvanceTimer = setTimeout(function(){
     if (isPaused) return;
     if (CUR < STEPS.length - 1) scRender(CUR + 1);
@@ -2812,6 +2861,7 @@ function scTogglePause(){
   isPaused = !isPaused;
   var b = document.getElementById('btn-pause');
   b.textContent = isPaused ? '\u25B6 Resume' : '\u23F8 Pause';
+  document.body.classList.toggle('sc-paused', isPaused);
   if (isPaused){
     clearTimeout(scAdvanceTimer);
     if (scAudio){ try{ scAudio.pause(); }catch(e){} }
