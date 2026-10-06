@@ -1031,6 +1031,17 @@ html,body{
   border-bottom:8px solid #F5E87A;
 }
 @media (prefers-reduced-motion: reduce){ .mk-ptr{ transition:opacity .18s; } }
+/* Matrix pointing hand: moves from number to number while adding matrices. */
+.mx-hand{
+  position:absolute;pointer-events:none;z-index:7;
+  font-size:26px;line-height:1;opacity:0;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.7));
+  transition:left .35s cubic-bezier(.4,0,.2,1),top .35s cubic-bezier(.4,0,.2,1),opacity .2s;
+}
+.mx-hand.on{opacity:1;animation:mxHandTap 1s ease-in-out infinite;}
+@keyframes mxHandTap{0%,100%{transform:translateY(0);}50%{transform:translateY(-4px);}}
+.mx-cell.mx-hand-on{color:#F5E87A;}
+@media (prefers-reduced-motion: reduce){ .mx-hand{ transition:opacity .2s; } .mx-hand.on{ animation:none; } }
 
 /* The one sentence a teacher writes before a new stage of the solution.
    Only appears when the lesson marks that step as a new idea. */
@@ -3297,6 +3308,7 @@ function ptrHide(){
   if(!board) return;
   var el = board.querySelector('.mk-ptr');
   if(el) el.classList.remove('on');
+  try { mxHandHide(); } catch(e){}
 }
 
 function ptrMoveTo(el, box){
@@ -3364,6 +3376,206 @@ function ptrRun(stepIdx, step){
   PTR_RAF = requestAnimationFrame(tick);
 }
 
+
+// ═══════════════════════════════════════════
+// MATRIX POINTING HAND  (added -- nothing above is changed)
+// On a matrix add / subtract step like "2 + 7 = 9", a small hand points at
+// the 2 in A, then the 7 in B, then the "2+7" place in the A + B box, in time
+// with the voice. Works out the places by itself from the numbers, so sums
+// already saved get the hand too. Only matrix sums are affected.
+// ═══════════════════════════════════════════
+var MXH_RAF = null;
+
+function mxhNorm(s){
+  return String(s || '').replace(/\s+/g, '').replace(/[\u2212\u2013\u2014]/g, '-');
+}
+
+// Read a rendered .mx box back into rows of cell elements.
+function mxhGrid(mx){
+  var grid = mx.querySelector('.mx-grid');
+  if(!grid) return null;
+  var m = String(grid.style.gridTemplateColumns || '').match(/repeat\(\s*(\d+)/);
+  var cols = m ? parseInt(m[1], 10) : 1;
+  var cells = Array.prototype.slice.call(grid.querySelectorAll('.mx-cell'));
+  if(!cells.length || !cols) return null;
+  var rows = [];
+  for(var i = 0; i < cells.length; i += cols) rows.push(cells.slice(i, i + cols));
+  var allNum = cells.every(function(c){ return /^-?\d+(\.\d+)?$/.test(mxhNorm(c.textContent)); });
+  var isExpr = cells.some(function(c){ return /\d[+\-]-?\d/.test(mxhNorm(c.textContent)); });
+  return { el: mx, rows: rows, cols: cols, nrows: rows.length, allNum: allNum, isExpr: isExpr };
+}
+
+function mxhHand(){
+  var board = mkBoard();
+  if(!board) return null;
+  var el = board.querySelector('.mx-hand');
+  if(!el){
+    el = document.createElement('div');
+    el.className = 'mx-hand';
+    el.textContent = '\uD83D\uDC46';
+    board.appendChild(el);
+  }
+  return el;
+}
+
+function mxHandHide(){
+  if(MXH_RAF){ cancelAnimationFrame(MXH_RAF); MXH_RAF = null; }
+  var board = mkBoard();
+  if(!board) return;
+  var el = board.querySelector('.mx-hand');
+  if(el) el.classList.remove('on');
+  board.querySelectorAll('.mx-hand-on').forEach(function(c){ c.classList.remove('mx-hand-on'); });
+}
+
+// Find the cells to point at for this step. Returns a list of cell elements.
+function mxhTargets(stepIdx, step){
+  if(!step || hasMatrixNotation(step.main)) return null;
+  var main = mxhNorm(step.main).replace(/^row\d+:/i, '');
+  var m = main.match(/(-?\d+(?:\.\d+)?)([+\-])(-?\d+(?:\.\d+)?)=/);
+  if(!m) return null;
+  var a = parseFloat(m[1]), op = m[2], b = parseFloat(m[3]);
+  var list = $('steps-list');
+  if(!list) return null;
+  var current = document.getElementById('step-content-' + stepIdx);
+  var grids = [];
+  list.querySelectorAll('.mx').forEach(function(mx){
+    if(current && current.contains(mx)) return;
+    var g = mxhGrid(mx);
+    if(g) grids.push(g);
+  });
+  if(grids.length < 2) return null;
+
+  function after(g, pos){
+    var last = parseInt(g.el.getAttribute('data-mxh-last') || '-1', 10);
+    return pos > last;
+  }
+
+  // 1. The A + B box: the newest one holding this exact sum.
+  var want = mxhNorm(m[1] + op + m[3]);
+  var expr = null, er = -1, ec = -1;
+  for(var gi = grids.length - 1; gi >= 0 && !expr; gi--){
+    var g = grids[gi];
+    if(!g.isExpr) continue;
+    var first = null, firstAfter = null;
+    for(var r = 0; r < g.nrows; r++){
+      for(var c = 0; c < g.cols; c++){
+        var cell = g.rows[r][c];
+        if(!cell || mxhNorm(cell.textContent) !== want) continue;
+        var pos = r * g.cols + c;
+        if(!first) first = [r, c];
+        if(!firstAfter && after(g, pos)) firstAfter = [r, c];
+      }
+    }
+    var pick = firstAfter || first;
+    if(pick){ expr = g; er = pick[0]; ec = pick[1]; expr.idx = gi; }
+  }
+
+  // 2. A and B: the two plain-number boxes before it, same size, holding a and b.
+  var limit = expr ? expr.idx : grids.length;
+  for(var j = limit - 1; j >= 1; j--){
+    var gB = grids[j];
+    if(!gB.allNum) continue;
+    for(var i = j - 1; i >= 0; i--){
+      var gA = grids[i];
+      if(!gA.allNum || gA.nrows !== gB.nrows || gA.cols !== gB.cols) continue;
+      var spots = [];
+      if(expr){
+        if(er < gA.nrows && ec < gA.cols) spots.push([er, ec]);
+      } else {
+        for(var r2 = 0; r2 < gA.nrows; r2++) for(var c2 = 0; c2 < gA.cols; c2++) spots.push([r2, c2]);
+        var lastA = parseInt(gA.el.getAttribute('data-mxh-last') || '-1', 10);
+        spots.sort(function(p, q){
+          var pp = p[0] * gA.cols + p[1], qq = q[0] * gA.cols + q[1];
+          return ((pp > lastA) ? 0 : 1) - ((qq > lastA) ? 0 : 1) || pp - qq;
+        });
+      }
+      for(var s = 0; s < spots.length; s++){
+        var rr = spots[s][0], cc = spots[s][1];
+        var ca = gA.rows[rr][cc], cb = gB.rows[rr][cc];
+        if(!ca || !cb) continue;
+        if(parseFloat(mxhNorm(ca.textContent)) === a && parseFloat(mxhNorm(cb.textContent)) === b){
+          var p2 = rr * gA.cols + cc;
+          gA.el.setAttribute('data-mxh-last', String(p2));
+          var out = [ca, cb];
+          if(expr){
+            expr.el.setAttribute('data-mxh-last', String(er * expr.cols + ec));
+            out.push(expr.rows[er][ec]);
+          }
+          return out;
+        }
+      }
+    }
+  }
+  // Only the A + B box was found: point at that alone.
+  if(expr){
+    expr.el.setAttribute('data-mxh-last', String(er * expr.cols + ec));
+    return [expr.rows[er][ec]];
+  }
+  return null;
+}
+
+// Bring a spot into view on the board only if it is off screen.
+function mxhShow(box){
+  var board = mkBoard();
+  if(!board || !box) return;
+  var top = board.scrollTop, h = board.clientHeight;
+  if(box.y < top + 8 || box.y + box.h > top + h - 8){
+    try { board.scrollTo({ top: Math.max(0, box.y - h / 3), behavior: 'smooth' }); }
+    catch(e){ board.scrollTop = Math.max(0, box.y - h / 3); }
+  }
+}
+
+function mxhPointAt(hand, cell){
+  var board = mkBoard();
+  var box = mkBox(cell);
+  if(!hand || !box) return;
+  mxhShow(box);
+  if(board) board.querySelectorAll('.mx-hand-on').forEach(function(c){ c.classList.remove('mx-hand-on'); });
+  cell.classList.add('mx-hand-on');
+  // Fingertip just under the middle of the number.
+  hand.style.left = (box.x + box.w / 2 - 9) + 'px';
+  hand.style.top  = (box.y + box.h - 4) + 'px';
+  hand.classList.add('on');
+}
+
+function mxHandRun(stepIdx, step){
+  mxHandHide();
+  var cells = mxhTargets(stepIdx, step);
+  if(!cells || !cells.length) return;
+  var hand = mxhHand();
+  if(!hand) return;
+  var host = document.getElementById('step-content-' + stepIdx);
+  var n = cells.length, last = -1, started = Date.now();
+
+  function finish(){
+    mxHandHide();
+    // Come back to the line being taught.
+    var hb = host ? mkBox(host) : null;
+    if(hb) mxhShow(hb);
+  }
+  function tick(){
+    MXH_RAF = null;
+    var a = (typeof CURRENT_AUDIO !== 'undefined') ? CURRENT_AUDIO : null;
+    var p;
+    var since = Date.now() - started;
+    if(a && isFinite(a.duration) && a.duration > 0){
+      p = a.currentTime / a.duration;
+    } else if(a){
+      p = -1;                                   // clip still loading, wait
+    } else if(since < 900){
+      p = -1;                                   // clip has not started yet
+    } else {
+      p = (since - 900) / (n * 900);            // no clip: about a second per spot
+    }
+    if(p >= 1){ finish(); return; }
+    if(p >= 0){
+      var k = Math.min(n - 1, Math.floor(p * n));
+      if(k !== last){ mxhPointAt(hand, cells[k]); last = k; }
+    }
+    MXH_RAF = requestAnimationFrame(tick);
+  }
+  MXH_RAF = requestAnimationFrame(tick);
+}
 
 // ═══════════════════════════════════════════
 // MATH-TO-SPEECH — convert math expressions to spoken words (Indian classroom style)
@@ -4082,8 +4294,10 @@ async function showStep(idx){
   // can see which piece is being spoken instead of having to guess.
   var spokenPromise = speakStep(spoken);
   try { ptrRun(idx, step); } catch(e){}
+  try { mxHandRun(idx, step); } catch(e){}
   await spokenPromise;
   try { ptrHide(); } catch(e){}
+  try { mxHandHide(); } catch(e){}
   if(!IS_PLAYING) return;
   // (whyScript already spoken during PHASE 2, while the chalk was writing.)
 }
