@@ -90,6 +90,20 @@ const NARRATOR = {
   ta: 'EXAVITQu4vr4xnSDxMaL'
 };
 
+// ─── CHARACTER VOICES (Cinema Mode, Oct 2026) ─────────────
+// In the Storybook, each character speaks in a voice that suits them.
+// CHANGE THESE LINES to swap a voice: paste the Voice ID from ElevenLabs
+// (Voice Library → pick a voice → "Add to my voices" → copy its ID).
+// A slot left empty, or a voice ElevenLabs refuses, falls back to the
+// storyteller voice above — a story never goes silent.
+// English stories only; Tamil stories keep the Tamil storyteller voice.
+const ROLE_VOICES = {
+  boy:   '',                       // not chosen yet — pick a young boy voice in the Voice Library
+  girl:  'X5RWySWhCXiGdP9YIKck',   // Tripti — Indian, soft (already used for little classes)
+  woman: 'Ms9OTvWb99V6DwRHZn6q',   // Monika Sogam — Indian woman (already used for Class 4–7)
+  man:   'LQ2auZHpAQ9h4azztqMT'    // Parveen — Indian man (Voice Library)
+};
+
 // Used if the language is unrecognised, and as the emergency voice if the
 // chosen narrator is ever missing from the ElevenLabs account.
 const SAFE_VOICE = 'EXAVITQu4vr4xnSDxMaL';
@@ -137,7 +151,7 @@ module.exports = async (req, res) => {
   }
 
   try {
-    const { text, lang } = req.body || {};
+    const { text, lang, role } = req.body || {};
 
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Missing text' });
@@ -148,9 +162,13 @@ module.exports = async (req, res) => {
       return res.status(400).json({ error: 'Text empty after cleaning' });
     }
 
-    const speechText = addStoryPauses(cleanedText);
     const useLang = (lang === 'ta') ? 'ta' : 'en';
-    const voiceId = NARRATOR[useLang] || SAFE_VOICE;
+    // A character speaking (role given) talks naturally, without the long
+    // storyteller pauses — those made short lines like "Good morning, Kavin!"
+    // trail off into silence.
+    const roleVoice = (useLang === 'en' && role && ROLE_VOICES[role]) ? ROLE_VOICES[role] : '';
+    const speechText = roleVoice ? cleanedText : addStoryPauses(cleanedText);
+    const voiceId = roleVoice || NARRATOR[useLang] || SAFE_VOICE;
 
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) {
@@ -166,6 +184,7 @@ module.exports = async (req, res) => {
           audio_b64: cached.toString('base64'),
           voiceId: voiceId,
           lang: useLang,
+          role: roleVoice ? role : '',
           cached: true
         });
       }
@@ -220,12 +239,19 @@ module.exports = async (req, res) => {
 
     let usedVoice = voiceId;
     let audioBuffer;
+    let refusedForGood = false;   // the character voice was refused outright (not a passing hiccup)
     try {
       audioBuffer = await callEleven(voiceId);
     } catch (firstErr) {
       // 🛟 Safety net: if the narrator voice is not in this account, use Sarah.
       // The response reports which voice actually spoke, so this is never silent.
-      if (String(firstErr.message).indexOf('voice_not_found') !== -1 && voiceId !== SAFE_VOICE) {
+      if (roleVoice) {
+        // a character voice failed (not in the account, or refused) — use the storyteller instead
+        refusedForGood = /ElevenLabs error 4\d\d/.test(String(firstErr.message)) && String(firstErr.message).indexOf('error 429') === -1;
+        console.warn('[voice-story] Character voice ' + roleVoice + ' (' + role + ') failed: ' + firstErr.message + ' — using storyteller');
+        usedVoice = NARRATOR[useLang] || SAFE_VOICE;
+        audioBuffer = await callEleven(usedVoice);
+      } else if (String(firstErr.message).indexOf('voice_not_found') !== -1 && voiceId !== SAFE_VOICE) {
         console.warn('[voice-story] Narrator ' + voiceId + ' missing — using safe voice');
         usedVoice = SAFE_VOICE;
         audioBuffer = await callEleven(SAFE_VOICE);
@@ -236,12 +262,19 @@ module.exports = async (req, res) => {
 
     if (supaKey) {
       await saveCachedAudio(audioKey(usedVoice, speechText), supaKey, audioBuffer);
+      // refused character voice: remember the storyteller copy under the character's
+      // key too, so replays don't pay again. Pasting a new Voice ID starts fresh.
+      if (refusedForGood && usedVoice !== voiceId) {
+        await saveCachedAudio(audioKey(voiceId, speechText), supaKey, audioBuffer);
+      }
     }
 
     return res.status(200).json({
       audio_b64: audioBuffer.toString('base64'),
       voiceId: usedVoice,
       lang: useLang,
+      role: roleVoice ? role : '',
+      fellBack: usedVoice !== voiceId,
       cached: false
     });
 
