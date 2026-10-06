@@ -3424,6 +3424,7 @@ function mxHandHide(){
   if(!board) return;
   var el = board.querySelector('.mx-hand');
   if(el) el.classList.remove('on');
+  MXW_TOKEN++;
   board.querySelectorAll('.mx-hand-on').forEach(function(c){ c.classList.remove('mx-hand-on'); });
 }
 
@@ -3575,6 +3576,164 @@ function mxHandRun(stepIdx, step){
     MXH_RAF = requestAnimationFrame(tick);
   }
   MXH_RAF = requestAnimationFrame(tick);
+}
+
+// ═══════════════════════════════════════════
+// MATRIX HAND FOR WHOLE-MATRIX STEPS  (added -- nothing above is changed)
+// Some solutions add the whole matrix in one go ("A + B = [[1+1,2+7,...]]"
+// then "A + B = [[2,9,...]]") with no separate "2 + 7 = 9" lines, so the
+// hand above never had a line to follow. Here the hand walks the matrix
+// place by place instead:
+//   - on the box of sums: points at the number in A, then the number in B,
+//     and the matching "2+7" place lights up;
+//   - on the answer box: the "2+7" place lights up and the hand points at
+//     its answer 9.
+// The class waits for the hand to finish before moving to the next step.
+// ═══════════════════════════════════════════
+var MXW_TOKEN = 0;
+var MXW_DONE = null;
+var MXW_DWELL = 600;   // time on each number (ms)
+
+function mxwNum(s){
+  var t = mxhNorm(s);
+  if(/^-?\d+(\.\d+)?$/.test(t)) return parseFloat(t);
+  var m = t.match(/^(-?\d+(?:\.\d+)?)([+\-])(-?\d+(?:\.\d+)?)$/);
+  if(!m) return null;
+  return m[2] === '+' ? parseFloat(m[1]) + parseFloat(m[3]) : parseFloat(m[1]) - parseFloat(m[3]);
+}
+
+function mxwSame(g1, g2){ return g1 && g2 && g1.nrows === g2.nrows && g1.cols === g2.cols; }
+
+function mxwLight(cells){
+  var board = mkBoard();
+  if(board) board.querySelectorAll('.mx-hand-on').forEach(function(c){ c.classList.remove('mx-hand-on'); });
+  (cells || []).forEach(function(c){ if(c) c.classList.add('mx-hand-on'); });
+}
+
+function mxwMove(hand, cell){
+  var box = mkBox(cell);
+  if(!hand || !box) return;
+  mxhShow(box);
+  hand.style.left = (box.x + box.w / 2 - 9) + 'px';
+  hand.style.top  = (box.y + box.h - 4) + 'px';
+  hand.classList.add('on');
+}
+
+// Work out the plan of moves for this step, or null if it is not a matrix sum step.
+function mxwPlan(stepIdx, step){
+  if(!step || !hasMatrixNotation(step.main)) return null;
+  var host = document.getElementById('step-content-' + stepIdx);
+  var list = $('steps-list');
+  if(!host || !list) return null;
+  var curMx = host.querySelector('.mx');
+  var cur = curMx ? mxhGrid(curMx) : null;
+  if(!cur) return null;
+  var before = [];
+  list.querySelectorAll('.mx').forEach(function(mx){
+    if(host.contains(mx)) return;
+    if(curMx.compareDocumentPosition(mx) & Node.DOCUMENT_POSITION_PRECEDING){
+      var g = mxhGrid(mx); if(g) before.push(g);
+    }
+  });
+  var plan = [], r, c;
+
+  // Find the nearest two plain-number boxes A, B (same size as cur) that
+  // pass a check on every place.
+  function findAB(check){
+    for(var j = before.length - 1; j >= 1; j--){
+      var gB = before[j];
+      if(!gB.allNum || !mxwSame(gB, cur)) continue;
+      for(var i = j - 1; i >= 0; i--){
+        var gA = before[i];
+        if(!gA.allNum || !mxwSame(gA, cur)) continue;
+        var ok = true;
+        for(r = 0; r < cur.nrows && ok; r++) for(c = 0; c < cur.cols && ok; c++){
+          if(!check(gA.rows[r][c], gB.rows[r][c], cur.rows[r][c])) ok = false;
+        }
+        if(ok) return [gA, gB];
+      }
+    }
+    return null;
+  }
+
+  if(cur.isExpr){
+    // Box of sums: each place must read "a+b" (or "a-b") using A's and B's numbers.
+    var ab = findAB(function(ca, cb, ce){
+      var t = mxhNorm(ce && ce.textContent);
+      var a = mxhNorm(ca && ca.textContent), b = mxhNorm(cb && cb.textContent);
+      return t === a + '+' + b || t === a + '-' + b;
+    });
+    if(!ab) return null;
+    for(r = 0; r < cur.nrows; r++) for(c = 0; c < cur.cols; c++){
+      plan.push({ hand: ab[0].rows[r][c], light: [ab[0].rows[r][c]] });
+      plan.push({ hand: ab[1].rows[r][c], light: [ab[0].rows[r][c], ab[1].rows[r][c], cur.rows[r][c]] });
+    }
+    return plan;
+  }
+
+  if(cur.allNum){
+    // Answer box after a box of sums: each sum must work out to the answer.
+    for(var k = before.length - 1; k >= 0; k--){
+      var ge = before[k];
+      if(!ge.isExpr || !mxwSame(ge, cur)) continue;
+      var good = true;
+      for(r = 0; r < cur.nrows && good; r++) for(c = 0; c < cur.cols && good; c++){
+        var v = mxwNum(ge.rows[r][c] && ge.rows[r][c].textContent);
+        var w = mxwNum(cur.rows[r][c] && cur.rows[r][c].textContent);
+        if(v === null || w === null || Math.abs(v - w) > 1e-9) good = false;
+      }
+      if(!good) continue;
+      for(r = 0; r < cur.nrows; r++) for(c = 0; c < cur.cols; c++){
+        plan.push({ hand: cur.rows[r][c], light: [ge.rows[r][c], cur.rows[r][c]] });
+      }
+      return plan;
+    }
+    // Answer box straight after A and B (no box of sums written).
+    var ab2 = findAB(function(ca, cb, cr){
+      var a = mxwNum(ca && ca.textContent), b = mxwNum(cb && cb.textContent), x = mxwNum(cr && cr.textContent);
+      return a !== null && b !== null && x !== null && Math.abs(a + b - x) < 1e-9;
+    }) || findAB(function(ca, cb, cr){
+      var a = mxwNum(ca && ca.textContent), b = mxwNum(cb && cb.textContent), x = mxwNum(cr && cr.textContent);
+      return a !== null && b !== null && x !== null && Math.abs(a - b - x) < 1e-9;
+    });
+    if(!ab2) return null;
+    for(r = 0; r < cur.nrows; r++) for(c = 0; c < cur.cols; c++){
+      plan.push({ hand: cur.rows[r][c], light: [ab2[0].rows[r][c], ab2[1].rows[r][c], cur.rows[r][c]] });
+    }
+    return plan;
+  }
+  return null;
+}
+
+function mxHandWholeRun(stepIdx, step){
+  var plan = mxwPlan(stepIdx, step);
+  if(!plan || !plan.length){ MXW_DONE = null; return; }
+  var hand = mxhHand();
+  if(!hand){ MXW_DONE = null; return; }
+  var token = ++MXW_TOKEN;
+  var host = document.getElementById('step-content-' + stepIdx);
+  MXW_DONE = (async function(){
+    for(var i = 0; i < plan.length; i++){
+      if(token !== MXW_TOKEN || !IS_PLAYING) return;
+      while(IS_PAUSED && token === MXW_TOKEN && IS_PLAYING) await sleep(120);
+      if(token !== MXW_TOKEN || !IS_PLAYING) return;
+      mxwLight(plan[i].light);
+      mxwMove(hand, plan[i].hand);
+      await sleep(MXW_DWELL);
+    }
+    if(token !== MXW_TOKEN) return;
+    hand.classList.remove('on');
+    mxwLight([]);
+    var hb = host ? mkBox(host) : null;
+    if(hb) mxhShow(hb);
+  })();
+}
+
+// The class waits here so the next step does not start under the hand.
+async function mxHandWait(){
+  var p = MXW_DONE;
+  MXW_DONE = null;
+  if(p){ try { await p; } catch(e){} }
 }
 
 // ═══════════════════════════════════════════
@@ -4295,7 +4454,9 @@ async function showStep(idx){
   var spokenPromise = speakStep(spoken);
   try { ptrRun(idx, step); } catch(e){}
   try { mxHandRun(idx, step); } catch(e){}
+  try { mxHandWholeRun(idx, step); } catch(e){}
   await spokenPromise;
+  try { await mxHandWait(); } catch(e){}
   try { ptrHide(); } catch(e){}
   try { mxHandHide(); } catch(e){}
   if(!IS_PLAYING) return;
