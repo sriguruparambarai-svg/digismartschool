@@ -2657,13 +2657,74 @@ async function cineReadyVoices(){
   hideLoad();
 }
 
+/* ── PICTURES: honest errors, no throw-away pictures saved (Oct 2026) ──
+   If OpenAI cannot draw a scene, the real reason is shown (for example a
+   billing or credit message) instead of silently using the free
+   Pollinations picture — that one is slow, often blank, carries a watermark,
+   and was being saved into the story forever.
+   A saved story with missing pictures redraws only those scenes the next
+   time it opens, and saves them. */
+var CINE_PIC_ERR = '';
+genSceneImage = async function(scenePrompt){
+  var q = String(scenePrompt || '').trim();
+  if (q.length < 3) q = 'A gentle Indian village scene';
+  try{
+    var r = await fetch('/api/gen-image', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query:q, context:charSheet }) });
+    var j = await r.json();
+    if (j && j.images && j.images[0] && j.images[0].url) return j.images[0].url;
+    CINE_PIC_ERR = (j && (j.note || j.error)) || ('the picture service replied ' + r.status);
+  }catch(e){ CINE_PIC_ERR = 'could not reach the picture service (' + (e.message || e) + ')'; }
+  return null;
+};
+function cineBadPic(u){ return !u || String(u).indexOf('pollinations.ai') !== -1; }
+
+(function(){
+  var _origSave = cacheSaveStory;
+  cacheSaveStory = async function(){
+    /* never store a free fallback picture — leave the slot empty so it is redrawn properly later */
+    var keep = {};
+    for (var i = 0; i < scenes.length; i++){ keep[i] = bgCache[i]; if (cineBadPic(bgCache[i])) bgCache[i] = null; }
+    try{ await _origSave(); } finally { for (var k in keep) bgCache[k] = keep[k]; }
+  };
+})();
+
+async function cineHealPictures(){
+  if (!lastFromCache) return;          /* a story just drawn has already tried once */
+  var missing = [];
+  for (var i = 0; i < scenes.length; i++) if (cineBadPic(bgCache[i])) missing.push(i);
+  if (!missing.length) return;
+  CINE_PIC_ERR = '';
+  var drawn = 0;
+  for (var s = 0; s < missing.length; s += 3){
+    showLoad('Drawing missing pictures\u2026', drawn + ' of ' + missing.length + ' \u2014 only once, then saved');
+    await Promise.all(missing.slice(s, s + 3).map(function(idx){
+      return genSceneImage(scenes[idx].bg_prompt || scenes[idx].name || 'Indian landscape')
+        .then(function(u){ if (u){ bgCache[idx] = u; drawn++; } else if (cineBadPic(bgCache[idx])) bgCache[idx] = null; });
+    }));
+    if (CINE_PIC_ERR) break;           /* the service is refusing — stop asking for the rest */
+  }
+  hideLoad();
+  if (drawn) await cacheSaveStory();
+}
+
+function cineReportPictures(){
+  if (!CINE_PIC_ERR) return;
+  var n = 0; for (var i = 0; i < scenes.length; i++) if (cineBadPic(bgCache[i])) n++;
+  if (!n) return;
+  showErr('\u26A0 ' + n + ' picture' + (n > 1 ? 's' : '') + ' could not be drawn. Reason: ' + CINE_PIC_ERR +
+          ' \u2014 the story still plays; the pictures will be drawn the next time it is opened.');
+}
+
 /* Prepare Story (night before) also adds the lines, so nothing waits in class */
 (function(){
   var _origPrep = showPrepared;
   showPrepared = async function(wasAlreadyReady){
+    await cineHealPictures();
     await cineAddLines();
     await cineAddCast();
     await cineReadyVoices();
+    cineReportPictures();
     _origPrep(wasAlreadyReady);
   };
 })();
@@ -2671,11 +2732,13 @@ async function cineReadyVoices(){
 (function(){
   var _origBuild = buildStage;
   buildStage = async function(){
+    await cineHealPictures();
     await cineAddLines();
     await cineAddCast();
     cineEnsureDom();
     _origBuild();
     cineLoadPictures();
+    cineReportPictures();
   };
 })();
 
