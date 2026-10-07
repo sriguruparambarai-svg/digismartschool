@@ -1529,6 +1529,7 @@ async function solveAndTeach(){
   var mcFigPic = mcIsFig ? mcCurrentFigPic() : null;
   var mcSaveKey = mcIsFig ? (problem + ' [book picture]') : problem;
   var mcCanSave = true;
+  MC_LAST_PICS = null;
 
   hideError();
   $('solve-btn').disabled = true;
@@ -1563,7 +1564,6 @@ async function solveAndTeach(){
            Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0 &&
            mcSavedOk(savedData.solution, mcIsFig)){
           // A saved class that fails the calculator check is made again (and overwritten).
-          if(mcIsFig && !mcFigPic) MC_FIG_PICS[QUEUE_IDX] = mcPicFromDataUrl(savedData.solution.bookPic);
           SOLUTION = normaliseBoardDivisions(savedData.solution);
           try{ mcRefreshModelBtn(); }catch(e){}
           await warmVoices(SOLUTION);
@@ -1574,13 +1574,15 @@ async function solveAndTeach(){
       }
     }catch(savedErr){ /* saved-class lookup failed — generate normally below */ }
 
-    // Never solve a picture question blind.
+    // Picture question: open the book page it is printed on and look at it.
     if(mcIsFig && !mcFigPic){
-      $('loading').classList.remove('show');
-      $('solve-btn').disabled = false;
-      mcAskForPicture();
-      return;
+      if(lt) lt.textContent = 'Looking at the picture in the book...';
+      if(ls) ls.textContent = 'Opening the textbook page this question is printed on.';
+      mcFigPic = await mcBookPagesFor(problem);
+      if(mcFigPic) MC_FIG_PICS[QUEUE_IDX] = mcFigPic;
+      if(lt) lt.textContent = 'Preparing the class...';
     }
+    MC_LAST_PICS = mcFigPic;
 
     // Different system prompts based on language mode
     var systemPrompt, styleGuide;
@@ -2118,7 +2120,13 @@ async function solveAndTeach(){
       if(!mcGo){ $('solve-btn').disabled = false; return; }
       $('loading').classList.add('show');
     }
-    if(mcIsFig && mcFigPic) solution.bookPic = 'data:' + mcFigPic.mediaType + ';base64,' + mcFigPic.base64;
+    // Only the page numbers and where the picture sits are kept - never the picture.
+    if(mcIsFig && mcFigPic){
+      solution.readFromBook = true;
+      solution.figPages = mcFigPic.map(function(pp){ return pp.page || 0; });
+    } else if(mcIsFig){
+      mcCanSave = false;      // solved without seeing the picture: do not keep it
+    }
 
     // ── AUTO-FIX MISSING ROUGH WORK ──
     // Scan each step: if previous step showed a/b (division) and current step shows result,
@@ -7044,6 +7052,132 @@ var MC_FIG_PICS = {};       // queue index -> {base64, mediaType}
 var MC_SKIP_PIC = {};       // queue index -> teacher said no picture is needed
 var MC_CHOSEN_FIGS = [];    // built alongside collectChosenQuestions()
 var MC_REVIEW_PHOTO = null; // the page photo the review list came from (photo upload only)
+var MC_SRC_TEXT = '';       // the book text the current question list was read from
+var MC_BLOCK = null;        // the exercise block picked (has page_from / page_to)
+var MC_LAST_PICS = null;    // book pages the AI looked at for the current class
+var MC_PDF = null;          // the opened book, kept for the whole session
+
+// ---------- reading the book page itself ----------
+// The teacher already picked the book and pages in Teacher Panel; that PDF is
+// saved on this device. A picture question is solved by opening the page it
+// is printed on and letting the AI look at it - nothing for the teacher to do.
+function mcBookInfo(){
+  try{
+    var a = JSON.parse(sessionStorage.getItem('tm_activated') || 'null');
+    if(!a) return null;
+    if(MC_LESSON && MC_LESSON.bookId && a.bookId && a.bookId !== MC_LESSON.bookId) return null;
+    return a;
+  }catch(e){ return null; }
+}
+function mcPdfFromDevice(key){
+  return new Promise(function(resolve){
+    try{
+      var rq = indexedDB.open('dss_textbooks');
+      rq.onerror = function(){ resolve(null); };
+      rq.onsuccess = function(e){
+        try{
+          var db = e.target.result;
+          if(!db.objectStoreNames.contains('pdfs')){ resolve(null); return; }
+          var g = db.transaction('pdfs', 'readonly').objectStore('pdfs').get(key);
+          g.onsuccess = function(){ resolve(g.result && g.result.data ? g.result.data : null); };
+          g.onerror = function(){ resolve(null); };
+        }catch(x){ resolve(null); }
+      };
+    }catch(x){ resolve(null); }
+  });
+}
+function mcLoadPdfLib(){
+  if(window.pdfjsLib) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    var sc = document.createElement('script');
+    sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    sc.onload = function(){
+      try{ pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; }catch(e){}
+      resolve();
+    };
+    sc.onerror = reject;
+    document.head.appendChild(sc);
+  });
+}
+async function mcGetPdf(){
+  if(MC_PDF) return MC_PDF;
+  var info = mcBookInfo();
+  if(!info) return null;
+  try{
+    await mcLoadPdfLib();
+    var data = info.pdfKey ? await mcPdfFromDevice(info.pdfKey) : null;
+    if(data){
+      MC_PDF = await pdfjsLib.getDocument({ data: data.slice(0) }).promise;
+    } else if(info.pdfUrl && !/_ch\d+$/.test(String(info.pdfKey || ''))){
+      // Not on this device: open it from the cloud (whole-book PDFs only -
+      // a chapter PDF's page numbers would not match the book's).
+      MC_PDF = await pdfjsLib.getDocument(info.pdfUrl).promise;
+    }
+  }catch(e){ console.warn('[BOOK] Could not open the book PDF:', e); MC_PDF = null; }
+  return MC_PDF;
+}
+async function mcRenderPage(n){
+  try{
+    var pdf = await mcGetPdf();
+    if(!pdf || n < 1 || n > pdf.numPages) return null;
+    var page = await pdf.getPage(n);
+    var v1 = page.getViewport({ scale: 1 });
+    var vp = page.getViewport({ scale: Math.min(2.5, 1568 / Math.max(v1.width, v1.height)) });
+    var c = document.createElement('canvas');
+    c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    var ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: ctx, viewport: vp }).promise;
+    return { base64: c.toDataURL('image/jpeg', 0.85).split(',')[1], mediaType: 'image/jpeg', page: n };
+  }catch(e){ console.warn('[BOOK] Could not draw page ' + n, e); return null; }
+}
+function mcNormT(s){
+  return String(s || '').toLowerCase().replace(/\[page\s*(\d+)\]/g, ' qpg$1q ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+// Finds which book page(s) a question is printed on, from the [Page N] marks
+// in the chapter text. Adds the next page when the question sits near the
+// bottom, because the picture often runs onto it.
+function mcFindPages(question){
+  var w = mcNormT(String(question).replace(/^\s*\[FIGURE\]\s*/i, '')).split(' ').filter(function(x){ return x; });
+  var texts = [MC_SRC_TEXT, MC_LESSON && MC_LESSON.lessonText].filter(function(t){ return t && /\[Page\s*\d+\]/i.test(t); });
+  for(var ti = 0; ti < texts.length; ti++){
+    var T = mcNormT(texts[ti]);
+    var lens = [10, 8, 6, 5, 4];
+    for(var li = 0; li < lens.length; li++){
+      var L = lens[li];
+      for(var st = 0; st + L <= w.length && st <= 8; st++){
+        var idx = T.indexOf(w.slice(st, st + L).join(' '));
+        if(idx < 0) continue;
+        var before = T.substring(0, idx), m, last = null, re = /qpg(\d+)q/g;
+        while((m = re.exec(before)) !== null) last = m;
+        if(!last) continue;
+        var pg = parseInt(last[1], 10);
+        var pages = [pg];
+        var nx = T.indexOf('qpg', idx);
+        var pageLen = (nx < 0 ? T.length : nx) - last.index;
+        if(nx < 0 || (nx - idx) < pageLen * 0.35) pages.push(pg + 1);
+        return pages;
+      }
+    }
+  }
+  // No match: a short exercise block is sent whole.
+  var from = MC_BLOCK ? MC_BLOCK.page_from : (MC_LESSON && MC_LESSON.pageFrom);
+  var to = MC_BLOCK ? MC_BLOCK.page_to : (MC_LESSON && MC_LESSON.pageTo);
+  from = parseInt(from, 10); to = parseInt(to, 10);
+  if(from && to && to >= from && to - from <= 2){
+    var all = []; for(var p = from; p <= to; p++) all.push(p); return all;
+  }
+  return [];
+}
+async function mcBookPagesFor(question){
+  var pages = mcFindPages(question);
+  var out = [];
+  for(var i = 0; i < pages.length; i++){
+    var img = await mcRenderPage(pages[i]);
+    if(img) out.push(img);
+  }
+  return out.length ? out : null;
+}
 
 function mcLooksLikeFigure(text){
   return /\b(figure|fig\.|diagram|picture|ruler|strips?|each letter|letters? marked|marked (?:by|as|on|in)|shown (?:below|above|in|on|here|by))\b/i.test(String(text || ''));
@@ -7056,28 +7190,34 @@ function mcIsFigureQ(problem){
   return QUESTION_QUEUE.length > 0 && QUESTION_QUEUE[QUEUE_IDX] === problem
     && !!MC_FIG_FLAGS[QUEUE_IDX] && !MC_SKIP_PIC[QUEUE_IDX];
 }
-function mcCurrentFigPic(){ return MC_FIG_PICS[QUEUE_IDX] || null; }
+function mcCurrentFigPic(){ return MC_FIG_PICS[QUEUE_IDX] || null; }   // a list of images
 function mcPicFromDataUrl(u){
   var m = /^data:([^;]+);base64,(.*)$/.exec(String(u || ''));
   return m ? { mediaType: m[1], base64: m[2] } : null;
 }
 
 // What goes to the AI: the picture first (if any), then the instructions.
-function mcBuildContent(promptText, pic){
+function mcBuildContent(promptText, pics){
   var rule = '\n\nNEVER invent a number, length or value that is not given in the question'
-    + (pic ? ' or shown in the attached picture.' : '. If the question depends on a picture you cannot see, say so in the first step instead of guessing.');
-  if(!pic) return promptText + rule;
-  var picRule = 'A PHOTO OF THE TEXTBOOK PICTURE FOR THIS QUESTION IS ATTACHED. Take every value from this picture:\n'
+    + (pics && pics.length ? ' or shown in the attached textbook page.' : '. If the question depends on a picture you cannot see, say so in the first step instead of guessing.');
+  if(!pics || !pics.length) return promptText + rule;
+  var picRule = 'THE TEXTBOOK PAGE' + (pics.length > 1 ? 'S' : '') + ' THIS QUESTION IS PRINTED ON '
+    + (pics.length > 1 ? 'ARE' : 'IS') + ' ATTACHED (image 0' + (pics.length > 1 ? ' onwards, in page order' : '') + '). '
+    + 'Find THIS question on the page and the picture that belongs to it, and take every value from that picture:\n'
     + '- First work out the scale: what one small division stands for. Make the first step state it.\n'
     + '- Then count the divisions for each item mark by mark, and count twice.\n'
-    + '- Use the labels exactly as printed (A, B, C... or x, y, z...). Include EVERY item in the picture, leave none out.\n\n';
-  return [
-    { type: 'image', source: { type: 'base64', media_type: pic.mediaType, data: pic.base64 } },
-    { type: 'text', text: picRule + promptText + rule }
-  ];
+    + '- Use the labels exactly as printed (A, B, C... or x, y, z...). Include EVERY item in the picture, leave none out.\n'
+    + '- Ignore the other questions on the page.\n'
+    + '- Add one more field to the JSON: "figBox": {"img": 0, "x0": 0.1, "y0": 0.4, "x1": 0.9, "y1": 0.6} - where that picture sits, as fractions of the image width and height (img = which attached image, counting from 0). Leave figBox out if you are not sure.\n\n';
+  var content = pics.map(function(pic){
+    return { type: 'image', source: { type: 'base64', media_type: pic.mediaType, data: pic.base64 } };
+  });
+  content.push({ type: 'text', text: picRule + promptText + rule });
+  return content;
 }
 
-// Shown when a picture question comes up and no picture is attached yet.
+// No longer used: picture questions now read the book page directly.
+// Kept (not called) in case a manual photo option is wanted later.
 function mcAskForPicture(){
   var old = document.getElementById('mc-pic-ask');
   if(old) old.parentNode.removeChild(old);
@@ -7122,7 +7262,7 @@ function mcAskForPicture(){
       if(!f) return;
       if(!/^image\//.test(f.type)){ showError('Please choose a photo (JPG or PNG).'); return; }
       compressPhoto(f).then(function(res){
-        MC_FIG_PICS[idx] = res;
+        MC_FIG_PICS[idx] = [res];
         close();
         if(QUEUE_IDX === idx) solveAndTeach();
       }).catch(function(){ showError('Could not read this photo file. Please try another one.'); });
@@ -7144,10 +7284,31 @@ function mcAskForPicture(){
 }
 
 // Puts the book picture on the board, just under the question.
-function mcShowBookPic(){
+async function mcShowBookPic(){
   var old = document.getElementById('mc-book-pic');
-  var src = (SOLUTION && SOLUTION.bookPic) ? SOLUTION.bookPic : '';
-  if(!src){ if(old) old.style.display = 'none'; return; }
+  if(old) old.style.display = 'none';
+  var sol = SOLUTION;
+  var box = sol && sol.figBox;
+  if(!box) return;
+  var k = parseInt(box.img, 10) || 0;
+  var pic = MC_LAST_PICS && MC_LAST_PICS[k];
+  if(!pic && sol.figPages && sol.figPages[k]) pic = await mcRenderPage(sol.figPages[k]);   // replay
+  if(!pic || SOLUTION !== sol) return;
+  var src = await new Promise(function(resolve){
+    var im = new Image();
+    im.onload = function(){
+      var x0 = Math.max(0, (+box.x0 || 0) - 0.03), y0 = Math.max(0, (+box.y0 || 0) - 0.03);
+      var x1 = Math.min(1, (+box.x1 || 1) + 0.03), y1 = Math.min(1, (+box.y1 || 1) + 0.03);
+      if(x1 - x0 < 0.05 || y1 - y0 < 0.03){ resolve(''); return; }
+      var c = document.createElement('canvas');
+      c.width = Math.round((x1 - x0) * im.width); c.height = Math.round((y1 - y0) * im.height);
+      c.getContext('2d').drawImage(im, x0 * im.width, y0 * im.height, c.width, c.height, 0, 0, c.width, c.height);
+      resolve(c.toDataURL('image/jpeg', 0.9));
+    };
+    im.onerror = function(){ resolve(''); };
+    im.src = 'data:' + pic.mediaType + ';base64,' + pic.base64;
+  });
+  if(!src || SOLUTION !== sol) return;
   var pt = $('problem-text');
   if(!pt || !pt.parentNode) return;
   var wrap = old;
@@ -7283,7 +7444,7 @@ function mcCheckSolution(sol){
   return probs;
 }
 function mcSavedOk(sol, isFig){
-  if(isFig && !sol.bookPic) return false;
+  if(isFig && !sol.readFromBook) return false;
   return mcCheckSolution(sol).length === 0;
 }
 
@@ -7405,6 +7566,8 @@ async function mcTeachBlock(b){
     showError('No text stored for ' + b.label + '. Ask the admin to press "Detect Exercises" for this book in the Super Admin panel, or use the photo upload.');
     return;
   }
+  MC_SRC_TEXT = txt;
+  MC_BLOCK = b;
   await mcSplitQuestions(txt, b.label, b.kind);
 }
 
@@ -7449,6 +7612,8 @@ async function mcLoadWholeLesson(){
     showError('No lesson text found. Please re-activate the Maths lesson from Teacher Panel \u2192 My Books, then come back.');
     return;
   }
+  MC_SRC_TEXT = MC_LESSON.lessonText;
+  MC_BLOCK = null;
   await mcSplitQuestions(mcExercisePart(MC_LESSON.lessonText), '', '');
 }
 
@@ -7711,7 +7876,7 @@ function showReviewScreen(questions){
 
 function figureNote(isFigure){
   return isFigure
-    ? '<div class="rq-note">\uD83D\uDCF7 This question uses a picture from the book \u2014 the AI Teacher will ask for a photo of it before teaching.</div>'
+    ? '<div class="rq-note">\uD83D\uDCF7 This question uses a picture \u2014 the AI Teacher will look at it on the book page.</div>'
     : '';
 }
 
@@ -7874,7 +8039,7 @@ function startSelectedQuestions(){
   MC_SKIP_PIC = {};
   if(MC_REVIEW_PHOTO){
     // Questions read from a photo: that photo already shows the picture.
-    MC_FIG_FLAGS.forEach(function(f, k){ if(f) MC_FIG_PICS[k] = MC_REVIEW_PHOTO; });
+    MC_FIG_FLAGS.forEach(function(f, k){ if(f) MC_FIG_PICS[k] = [MC_REVIEW_PHOTO]; });
   }
   $('review').classList.remove('show');
   $('setup').classList.remove('hidden');
