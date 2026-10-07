@@ -1503,6 +1503,7 @@ function startFromPasteBox(){
     QUEUE_IDX = 0;
     updateNextQButton();
     hideError();
+    MC_REVIEW_PHOTO = null;
     showReviewScreen([problem]);
     return;
   }
@@ -1523,6 +1524,11 @@ async function solveAndTeach(){
   }
   SCHOOL_CLASS = $('meta-class').value.trim() || 'Class 7';
   var chapter = $('meta-chapter').value.trim();
+  // Picture questions are saved under their own name, together with the picture.
+  var mcIsFig = mcIsFigureQ(problem);
+  var mcFigPic = mcIsFig ? mcCurrentFigPic() : null;
+  var mcSaveKey = mcIsFig ? (problem + ' [book picture]') : problem;
+  var mcCanSave = true;
 
   hideError();
   $('solve-btn').disabled = true;
@@ -1549,12 +1555,15 @@ async function solveAndTeach(){
       var savedRes = await fetch('/api/math-solutions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'get', question: problem, cls: SCHOOL_CLASS, lang: solutionLangKey() })
+        body: JSON.stringify({ action: 'get', question: mcSaveKey, cls: SCHOOL_CLASS, lang: solutionLangKey() })
       });
       if(savedRes.ok){
         var savedData = await savedRes.json();
         if(savedData && savedData.found && savedData.solution &&
-           Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0){
+           Array.isArray(savedData.solution.steps) && savedData.solution.steps.length > 0 &&
+           mcSavedOk(savedData.solution, mcIsFig)){
+          // A saved class that fails the calculator check is made again (and overwritten).
+          if(mcIsFig && !mcFigPic) MC_FIG_PICS[QUEUE_IDX] = mcPicFromDataUrl(savedData.solution.bookPic);
           SOLUTION = normaliseBoardDivisions(savedData.solution);
           try{ mcRefreshModelBtn(); }catch(e){}
           await warmVoices(SOLUTION);
@@ -1564,6 +1573,14 @@ async function solveAndTeach(){
         }
       }
     }catch(savedErr){ /* saved-class lookup failed — generate normally below */ }
+
+    // Never solve a picture question blind.
+    if(mcIsFig && !mcFigPic){
+      $('loading').classList.remove('show');
+      $('solve-btn').disabled = false;
+      mcAskForPicture();
+      return;
+    }
 
     // Different system prompts based on language mode
     var systemPrompt, styleGuide;
@@ -2046,7 +2063,7 @@ async function solveAndTeach(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system: systemPrompt,
-        messages: [{ role: 'user', content: userPrompt }],
+        messages: [{ role: 'user', content: mcBuildContent(userPrompt, mcFigPic) }],
         max_tokens: 6000
       })
     });
@@ -2083,6 +2100,25 @@ async function solveAndTeach(){
     if(!solution.steps || !Array.isArray(solution.steps) || solution.steps.length === 0){
       throw new Error('Could not break down the problem into steps. Try a simpler problem.');
     }
+
+    // ── CALCULATOR CHECK ── every written line is worked out by the computer.
+    var mcProblems = mcCheckSolution(solution);
+    if(mcProblems.length){
+      console.log('[CHECK] Mistakes found, asking AI to fix:', mcProblems);
+      if(lt) lt.textContent = 'Double-checking the working...';
+      if(ls) ls.textContent = 'A calculation did not check out. The AI Teacher is correcting it before class.';
+      var mcFixed = await mcFixSolution(solution, mcProblems, systemPrompt);
+      if(mcFixed){ solution = mcFixed; mcProblems = mcCheckSolution(solution); }
+    }
+    if(mcProblems.length){
+      mcCanSave = false;
+      $('loading').classList.remove('show');
+      var mcGo = confirm('The AI Teacher\'s working still has a calculation that does not check out:\n\n'
+        + mcProblems.slice(0, 3).join('\n') + '\n\nPress OK to teach it anyway (please check that line yourself - it will not be saved), or Cancel to skip it.');
+      if(!mcGo){ $('solve-btn').disabled = false; return; }
+      $('loading').classList.add('show');
+    }
+    if(mcIsFig && mcFigPic) solution.bookPic = 'data:' + mcFigPic.mediaType + ';base64,' + mcFigPic.base64;
 
     // ── AUTO-FIX MISSING ROUGH WORK ──
     // Scan each step: if previous step showed a/b (division) and current step shows result,
@@ -2154,10 +2190,10 @@ async function solveAndTeach(){
     // Fire-and-forget: teaching the same question again loads it from Supabase
     // with zero AI cost and zero new voice generation.
     try{
-      fetch('/api/math-solutions', {
+      if(mcCanSave) fetch('/api/math-solutions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'save', question: problem, cls: SCHOOL_CLASS, lang: solutionLangKey(), solution: solution })
+        body: JSON.stringify({ action: 'save', question: mcSaveKey, cls: SCHOOL_CLASS, lang: solutionLangKey(), solution: solution })
       });
     }catch(saveErr){}
 
@@ -2195,6 +2231,7 @@ function showClassroom(){
 
   // Render problem title and text
   $('problem-text').textContent = SOLUTION.problem || $('problem-input').value;
+  try{ mcShowBookPic(); }catch(e){}
 
   // Bring the figure area back under the problem before the steps list is
   // rebuilt — last class may have parked it inside the steps.
@@ -6992,6 +7029,288 @@ var FORCE_FRESH = false;   // Ignore the saved class once, and replace it
 var FIG_STEP_IDX = -1;     // Step the single figure belongs under (-1 = keep it at the top)
 var MC_LESSON = null;      // Activated Maths lesson from Teacher Panel (mc_activated)
 
+// ===========================================================
+//  BOOK PICTURES + CALCULATOR CHECK  (Oct 2026)
+//  1. A question that depends on a picture in the book is never solved
+//     blind. The teacher adds a photo of the picture once; the AI reads the
+//     values from it, the picture shows on the board, and it is saved with
+//     the class so every later class gets it without asking again.
+//  2. Every written line is checked by the computer before the class sees
+//     it. A wrong line goes back to the AI once to be fixed; a class that
+//     still does not check out is never saved.
+// ===========================================================
+var MC_FIG_FLAGS = [];      // per queued question: does it need a book picture?
+var MC_FIG_PICS = {};       // queue index -> {base64, mediaType}
+var MC_SKIP_PIC = {};       // queue index -> teacher said no picture is needed
+var MC_CHOSEN_FIGS = [];    // built alongside collectChosenQuestions()
+var MC_REVIEW_PHOTO = null; // the page photo the review list came from (photo upload only)
+
+function mcLooksLikeFigure(text){
+  return /\b(figure|fig\.|diagram|picture|ruler|strips?|each letter|letters? marked|marked (?:by|as|on|in)|shown (?:below|above|in|on|here|by))\b/i.test(String(text || ''));
+}
+function mcPushQ(list, text, isFig){
+  list.push(text);
+  MC_CHOSEN_FIGS[list.length - 1] = !!isFig;
+}
+function mcIsFigureQ(problem){
+  return QUESTION_QUEUE.length > 0 && QUESTION_QUEUE[QUEUE_IDX] === problem
+    && !!MC_FIG_FLAGS[QUEUE_IDX] && !MC_SKIP_PIC[QUEUE_IDX];
+}
+function mcCurrentFigPic(){ return MC_FIG_PICS[QUEUE_IDX] || null; }
+function mcPicFromDataUrl(u){
+  var m = /^data:([^;]+);base64,(.*)$/.exec(String(u || ''));
+  return m ? { mediaType: m[1], base64: m[2] } : null;
+}
+
+// What goes to the AI: the picture first (if any), then the instructions.
+function mcBuildContent(promptText, pic){
+  var rule = '\n\nNEVER invent a number, length or value that is not given in the question'
+    + (pic ? ' or shown in the attached picture.' : '. If the question depends on a picture you cannot see, say so in the first step instead of guessing.');
+  if(!pic) return promptText + rule;
+  var picRule = 'A PHOTO OF THE TEXTBOOK PICTURE FOR THIS QUESTION IS ATTACHED. Take every value from this picture:\n'
+    + '- First work out the scale: what one small division stands for. Make the first step state it.\n'
+    + '- Then count the divisions for each item mark by mark, and count twice.\n'
+    + '- Use the labels exactly as printed (A, B, C... or x, y, z...). Include EVERY item in the picture, leave none out.\n\n';
+  return [
+    { type: 'image', source: { type: 'base64', media_type: pic.mediaType, data: pic.base64 } },
+    { type: 'text', text: picRule + promptText + rule }
+  ];
+}
+
+// Shown when a picture question comes up and no picture is attached yet.
+function mcAskForPicture(){
+  var old = document.getElementById('mc-pic-ask');
+  if(old) old.parentNode.removeChild(old);
+  var idx = QUEUE_IDX;
+  var ov = document.createElement('div');
+  ov.id = 'mc-pic-ask';
+  ov.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.65);z-index:9999;display:flex;align-items:center;justify-content:center;padding:16px;';
+  var box = document.createElement('div');
+  box.style.cssText = 'background:#2A0A0F;border:2px solid #C9A84C;border-radius:16px;max-width:540px;width:100%;max-height:85vh;overflow:auto;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,0.5);';
+  var h = document.createElement('div');
+  h.style.cssText = 'font-size:1.05rem;font-weight:800;color:#C9A84C;margin-bottom:6px;';
+  h.textContent = '\uD83D\uDCF7 This question needs the picture from the book';
+  box.appendChild(h);
+  var q = document.createElement('div');
+  q.style.cssText = 'font-size:0.85rem;color:#F5E6C8;background:rgba(255,255,255,0.06);border-radius:8px;padding:8px 10px;margin-bottom:10px;line-height:1.5;';
+  q.textContent = QUESTION_QUEUE[idx] || '';
+  box.appendChild(q);
+  var sub = document.createElement('div');
+  sub.style.cssText = 'font-size:0.8rem;color:#E8C99A;opacity:0.9;margin-bottom:13px;line-height:1.5;';
+  sub.textContent = 'The AI Teacher cannot see your textbook. Take a photo of just this picture (hold the phone straight above it), so it reads the real values instead of guessing. You only need to do this once \u2014 the picture is saved with the class.';
+  box.appendChild(sub);
+
+  function close(){ if(ov.parentNode) ov.parentNode.removeChild(ov); }
+  function addBtn(text, onClick, plain){
+    var b = document.createElement('button');
+    b.style.cssText = 'display:block;width:100%;text-align:left;padding:11px 13px;margin-bottom:7px;'
+      + 'border:2px solid ' + (plain ? 'rgba(232,201,154,0.35)' : '#C9A84C') + ';border-radius:10px;'
+      + 'background:' + (plain ? 'transparent' : 'rgba(201,168,76,0.12)') + ';font-family:inherit;'
+      + 'font-size:0.9rem;font-weight:700;color:#F5E6C8;cursor:pointer;';
+    b.textContent = text;
+    b.addEventListener('click', onClick);
+    box.appendChild(b);
+  }
+  addBtn('\uD83D\uDCF7 Add photo of the picture', function(){
+    var inp = document.createElement('input');
+    inp.type = 'file'; inp.accept = 'image/*';
+    inp.setAttribute('capture', 'environment');
+    inp.style.display = 'none';
+    inp.addEventListener('change', function(){
+      var f = inp.files && inp.files[0];
+      if(inp.parentNode) inp.parentNode.removeChild(inp);
+      if(!f) return;
+      if(!/^image\//.test(f.type)){ showError('Please choose a photo (JPG or PNG).'); return; }
+      compressPhoto(f).then(function(res){
+        MC_FIG_PICS[idx] = res;
+        close();
+        if(QUEUE_IDX === idx) solveAndTeach();
+      }).catch(function(){ showError('Could not read this photo file. Please try another one.'); });
+    });
+    document.body.appendChild(inp);
+    inp.click();
+  });
+  addBtn('All its numbers are already written in the question \u2014 teach without a picture', function(){
+    MC_SKIP_PIC[idx] = true;
+    close();
+    if(QUEUE_IDX === idx) solveAndTeach();
+  }, true);
+  if(idx < QUESTION_QUEUE.length - 1){
+    addBtn('Skip this question', function(){ close(); nextQueuedQuestion(); }, true);
+  }
+  addBtn('Cancel', close, true);
+  ov.appendChild(box);
+  document.body.appendChild(ov);
+}
+
+// Puts the book picture on the board, just under the question.
+function mcShowBookPic(){
+  var old = document.getElementById('mc-book-pic');
+  var src = (SOLUTION && SOLUTION.bookPic) ? SOLUTION.bookPic : '';
+  if(!src){ if(old) old.style.display = 'none'; return; }
+  var pt = $('problem-text');
+  if(!pt || !pt.parentNode) return;
+  var wrap = old;
+  if(!wrap){
+    wrap = document.createElement('div');
+    wrap.id = 'mc-book-pic';
+    wrap.style.cssText = 'margin:10px 0 14px;text-align:center;';
+    var img = document.createElement('img');
+    img.alt = 'Picture from the textbook';
+    img.style.cssText = 'max-width:100%;max-height:280px;background:#fff;border:3px solid #C9A84C;border-radius:8px;padding:4px;';
+    wrap.appendChild(img);
+    pt.parentNode.insertBefore(wrap, pt.nextSibling);
+  }
+  wrap.querySelector('img').src = src;
+  wrap.style.display = 'block';
+}
+
+// ---------- calculator check ----------
+// Works out a plain arithmetic expression. Returns null for anything it
+// cannot be sure about (letters, roots, pi, percent...), so it never
+// complains about a line it does not understand.
+function mcCalc(expr){
+  var t = String(expr || '').replace(/\s+/g, '');
+  if(!t || /[^0-9.+\-*\/()^]/.test(t)) return null;
+  var i = 0;
+  function num(){
+    var m = /^\d+(?:\.\d+)?|^\.\d+/.exec(t.substring(i));
+    if(!m) throw 0;
+    i += m[0].length; return parseFloat(m[0]);
+  }
+  function prim(){
+    var c = t.charAt(i);
+    if(c === '-'){ i++; return -prim(); }
+    if(c === '('){ i++; var v = add(); if(t.charAt(i) !== ')') throw 0; i++; return v; }
+    return num();
+  }
+  function pow(){ var b = prim(); if(t.charAt(i) === '^'){ i++; return Math.pow(b, pow()); } return b; }
+  function mul(){
+    var v = pow();
+    while(t.charAt(i) === '*' || t.charAt(i) === '/' || t.charAt(i) === '('){
+      var op = t.charAt(i);
+      if(op === '('){ v *= pow(); continue; }      // 20(21) means 20 x 21
+      i++; var r = pow();
+      if(op === '*') v *= r; else { if(r === 0) throw 0; v /= r; }
+    }
+    return v;
+  }
+  function add(){
+    var v = mul();
+    while(t.charAt(i) === '+' || t.charAt(i) === '-'){ var op = t.charAt(i); i++; var r = mul(); v = (op === '+') ? v + r : v - r; }
+    return v;
+  }
+  try{ var v = add(); return (i === t.length && isFinite(v)) ? v : null; }catch(e){ return null; }
+}
+
+// One side of a line: its value plus the unit words it carries, so that
+// "5 units = 50 tenths" is never compared as 5 = 50.
+function mcSide(raw){
+  var s = String(raw || '').replace(/(\d),(?=\d{2,3}(?!\d))/g, '$1');   // 2,00,000 -> 200000
+  if(/[,%\u221A\u03C0\u2248:\u2220]/.test(s)) return null;           // lists, %, roots, pi, approx, ratios, angles names
+  s = s.replace(/[\u2212\u2013\u2014]/g, '-').replace(/[\u00D7\u2715\u00B7]/g, '*').replace(/\u00F7/g, '/')
+       .replace(/\u20B9/g, '').replace(/\u00B2/g, '^2').replace(/\u00B3/g, '^3').replace(/\u00B0/g, ' deg ');
+  var words = (s.match(/[A-Za-z]+/g) || []).map(function(w){ return w.toLowerCase(); });
+  for(var k = 0; k < words.length; k++){ if(words[k].length < 2) return null; }   // algebra letters: leave alone
+  s = s.replace(/[A-Za-z]+/g, ' ');
+  // mixed numbers as the book writes them: 5 2/10  or  4 2/10 7/100
+  s = s.replace(/(\d+(?:\.\d+)?)((?:\s+\d+\/\d+)+)/g, function(all, whole, fr){
+    return '(' + whole + fr.trim().split(/\s+/).map(function(f){ return '+' + f; }).join('') + ')';
+  });
+  var v = mcCalc(s);
+  if(v === null) return null;
+  var lit = /^\s*-?\d+(?:\.(\d+))?\s*$/.exec(s);
+  return { v: v, key: words.filter(function(w, j){ return words.indexOf(w) === j; }).sort().join(' '),
+           dec: lit ? (lit[1] ? lit[1].length : 0) : -1 };
+}
+function mcFmt(n){ return String(Math.round(n * 1e8) / 1e8); }
+function mcSameValue(a, b){
+  if(Math.abs(a.v - b.v) <= 1e-9 * Math.max(1, Math.abs(a.v))) return true;
+  // A rounded answer is fine only when the exact value never ends (10/3 = 3.33).
+  function endless(x){ return Math.abs(x * 1e6 - Math.round(x * 1e6)) > 1e-6; }
+  var lit = a.dec >= 0 ? a : (b.dec >= 0 ? b : null);
+  var other = lit === a ? b : a;
+  if(lit && endless(other.v)) return Math.abs(a.v - b.v) <= 0.5 * Math.pow(10, -lit.dec) + 1e-9;
+  return false;
+}
+function mcCheckLine(line){
+  var parts = String(line || '').split(/(\u2264|\u2265|<=|>=|=|<|>)/);
+  var out = [];
+  for(var j = 0; j + 2 < parts.length; j += 2){
+    var a = mcSide(parts[j]), rel = parts[j + 1], b = mcSide(parts[j + 2]);
+    if(!a || !b || a.key !== b.key) continue;
+    var ok = (rel === '=') ? mcSameValue(a, b)
+      : (rel === '<') ? a.v < b.v : (rel === '>') ? a.v > b.v
+      : (rel === '\u2264' || rel === '<=') ? a.v <= b.v + 1e-9 : a.v >= b.v - 1e-9;
+    if(!ok){
+      out.push('In the line "' + line + '": "' + parts[j].trim() + '" works out to ' + mcFmt(a.v)
+        + ' and "' + parts[j + 2].trim() + '" works out to ' + mcFmt(b.v) + ', so "' + rel + '" is wrong.');
+    }
+  }
+  return out;
+}
+function mcCheckRough(st){
+  var type = String(st.roughType || '');
+  if(['add', 'sub', 'mul', 'div'].indexOf(type) < 0) return [];
+  var A = parseFloat(String(st.roughA || '').replace(/,/g, ''));
+  var B = parseFloat(String(st.roughB || '').replace(/,/g, ''));
+  var Rtxt = String(st.roughResult || '').replace(/,/g, '');
+  var R = parseFloat(Rtxt);
+  if(isNaN(A) || isNaN(B) || isNaN(R)) return [];
+  var want;
+  if(type === 'add') want = A + B;
+  else if(type === 'sub') want = A - B;
+  else if(type === 'mul') want = A * B;
+  else {
+    if(B === 0) return [];
+    var rem = /r(?:emainder)?\s*(\d+)/i.exec(Rtxt);
+    if(rem){
+      if(R * B + parseFloat(rem[1]) === A) return [];
+      return ['Rough work: ' + A + ' \u00F7 ' + B + ' is not ' + Rtxt + '.'];
+    }
+    want = A / B;
+  }
+  if(mcSameValue({ v: want, dec: -1 }, { v: R, dec: (Rtxt.split('.')[1] || '').length })) return [];
+  var sym = { add: '+', sub: '-', mul: '\u00D7', div: '\u00F7' }[type];
+  return ['Rough work: ' + A + ' ' + sym + ' ' + B + ' = ' + mcFmt(want) + ', but it says ' + Rtxt + '.'];
+}
+function mcCheckSolution(sol){
+  var probs = [];
+  (sol && sol.steps || []).forEach(function(st){
+    if(!st) return;
+    probs = probs.concat(mcCheckLine(st.main), mcCheckRough(st));
+  });
+  return probs;
+}
+function mcSavedOk(sol, isFig){
+  if(isFig && !sol.bookPic) return false;
+  return mcCheckSolution(sol).length === 0;
+}
+
+// Sends the wrong lines back to the AI once. Returns the corrected
+// solution, or null if the fix did not come back usable.
+async function mcFixSolution(sol, problems, sys){
+  try{
+    var msg = 'Below is a worked maths class as JSON. A calculator checked every line and found these mistakes:\n'
+      + problems.map(function(p){ return '- ' + p; }).join('\n')
+      + '\n\nCorrect these mistakes, and every later line, script or answer that depends on them. '
+      + 'Keep everything else exactly as it is - same steps, same fields, same JSON shape. '
+      + 'Return ONLY the corrected JSON.\n\n' + JSON.stringify(sol);
+    var r = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system: sys, messages: [{ role: 'user', content: msg }], max_tokens: 8000 })
+    });
+    if(!r.ok) return null;
+    var d = await r.json();
+    var tx = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+    var fb = tx.indexOf('{'), lb = tx.lastIndexOf('}');
+    if(fb < 0 || lb <= fb) return null;
+    var fixed = JSON.parse(tx.substring(fb, lb + 1));
+    return (fixed && Array.isArray(fixed.steps) && fixed.steps.length) ? fixed : null;
+  }catch(e){ return null; }
+}
+
 // Split the activated lesson text into individual questions via AI,
 // then reuse the same review screen (tick + edit) as the photo flow.
 // ===========================================================
@@ -7190,6 +7509,7 @@ async function mcSplitQuestions(lessonText, label, kind){
       showError('No questions were found in ' + (label || 'this lesson') + '. Please check the page range in Teacher Panel, or use the photo upload instead.');
       return;
     }
+    MC_REVIEW_PHOTO = null;
     showReviewScreen(qs);
   }catch(e){
     $('loading').classList.remove('show');
@@ -7322,6 +7642,7 @@ async function extractQuestionsFromPhoto(base64, mediaType){
       showError('Could not read any questions from the photo. Please retake it with better lighting, holding the camera straight above the page.');
       return;
     }
+    MC_REVIEW_PHOTO = { base64: base64, mediaType: mediaType };
     showReviewScreen(qs);
   }catch(e){
     $('loading').classList.remove('show');
@@ -7375,13 +7696,12 @@ function showReviewScreen(questions){
   questions.forEach(function(q){
     var isFigure = /^\s*\[FIGURE\]\s*/i.test(q);
     var cleanQ = q.replace(/^\s*\[FIGURE\]\s*/i, '');
+    if(!isFigure && mcLooksLikeFigure(cleanQ)) isFigure = true;
     var split = splitIntoParts(cleanQ);
 
-    if(split){
-      list.appendChild(buildGroupRow(split, isFigure));
-    } else {
-      list.appendChild(buildPlainRow(cleanQ, isFigure));
-    }
+    var rowEl = split ? buildGroupRow(split, isFigure) : buildPlainRow(cleanQ, isFigure);
+    if(isFigure) rowEl.setAttribute('data-figure', '1');
+    list.appendChild(rowEl);
   });
   updateReviewCount();
   $('setup').classList.add('hidden');
@@ -7391,7 +7711,7 @@ function showReviewScreen(questions){
 
 function figureNote(isFigure){
   return isFigure
-    ? '<div class="rq-note">\uD83D\uDCD0 This question uses a diagram \u2014 please verify the angle values against the book.</div>'
+    ? '<div class="rq-note">\uD83D\uDCF7 This question uses a picture from the book \u2014 the AI Teacher will ask for a photo of it before teaching.</div>'
     : '';
 }
 
@@ -7482,9 +7802,11 @@ function refreshGroupLabel(group){
 // teacher is told matches what they get.
 function collectChosenQuestions(){
   var chosen = [];
+  MC_CHOSEN_FIGS = [];
   var children = $('review-list').children;
   for(var i = 0; i < children.length; i++){
     var el = children[i];
+    var elFig = el.getAttribute('data-figure') === '1';
 
     if(el.classList.contains('rq-group')){
       var stem = el.querySelector('.rq-stem').value.trim();
@@ -7499,19 +7821,19 @@ function collectChosenQuestions(){
 
       if(el.getAttribute('data-mode') === 'whole'){
         // One class covering the stem and every ticked part together.
-        chosen.push((stem + ' ' + ticked.join(' ')).trim());
+        mcPushQ(chosen, (stem + ' ' + ticked.join(' ')).trim(), elFig);
       } else {
         // Each part becomes its own class, carrying the stem so the AI
         // still knows what is being asked of it.
         ticked.forEach(function(t){
-          chosen.push(stem ? (stem + ' ' + t) : t);
+          mcPushQ(chosen, stem ? (stem + ' ' + t) : t, elFig);
         });
       }
 
     } else if(el.classList.contains('rq-row')){
       var cb = el.querySelector('input[type=checkbox]');
       var txt = el.querySelector('.rq-text').value.trim();
-      if(cb && cb.checked && txt.length > 4) chosen.push(txt);
+      if(cb && cb.checked && txt.length > 4) mcPushQ(chosen, txt, elFig);
     }
   }
   return chosen;
@@ -7547,6 +7869,13 @@ function startSelectedQuestions(){
   QUESTION_QUEUE = chosen;
   QUEUE_IDX = 0;
   TAUGHT_FLAGS = {};
+  MC_FIG_FLAGS = MC_CHOSEN_FIGS.slice();
+  MC_FIG_PICS = {};
+  MC_SKIP_PIC = {};
+  if(MC_REVIEW_PHOTO){
+    // Questions read from a photo: that photo already shows the picture.
+    MC_FIG_FLAGS.forEach(function(f, k){ if(f) MC_FIG_PICS[k] = MC_REVIEW_PHOTO; });
+  }
   $('review').classList.remove('show');
   $('setup').classList.remove('hidden');
   teachQuestionAt(0);
