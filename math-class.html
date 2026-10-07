@@ -1527,7 +1527,8 @@ async function solveAndTeach(){
   // Picture questions are saved under their own name, together with the picture.
   var mcIsFig = mcIsFigureQ(problem);
   var mcFigPic = mcIsFig ? mcCurrentFigPic() : null;
-  var mcSaveKey = mcIsFig ? (problem + ' [book picture]') : problem;
+  var mcSaveKey = mcIsFig ? (problem + ' [book picture v2]') : problem;
+  var mcLoc = null, mcCrop = null, mcFacts = null;
   var mcCanSave = true;
   MC_LAST_PICS = null;
 
@@ -1583,6 +1584,17 @@ async function solveAndTeach(){
       if(lt) lt.textContent = 'Preparing the class...';
     }
     MC_LAST_PICS = mcFigPic;
+    if(mcFigPic && mcFigPic.length){
+      if(lt) lt.textContent = 'Finding the picture on the page...';
+      mcLoc = await mcLocateFigure(problem, mcFigPic);
+      if(mcLoc) mcCrop = await mcCropFigure(mcFigPic[mcLoc.img], mcLoc.box);
+      if(mcLoc && mcLoc.kind === 'scale' && mcCrop){
+        if(lt) lt.textContent = 'Measuring the picture...';
+        if(ls) ls.textContent = 'The computer is reading every mark exactly.';
+        mcFacts = await mcMeasureFigure(problem, mcCrop);
+      }
+      if(lt) lt.textContent = 'Preparing the class...';
+    }
 
     // Different system prompts based on language mode
     var systemPrompt, styleGuide;
@@ -2065,7 +2077,8 @@ async function solveAndTeach(){
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         system: systemPrompt,
-        messages: [{ role: 'user', content: mcBuildContent(userPrompt, mcFigPic) }],
+        model: (mcFigPic && mcFigPic.length) ? MC_VISION_MODEL : undefined,
+        messages: [{ role: 'user', content: mcBuildContent(userPrompt, mcFigPic, mcCrop, mcFacts) }],
         max_tokens: 6000
       })
     });
@@ -2104,13 +2117,13 @@ async function solveAndTeach(){
     }
 
     // ── CALCULATOR CHECK ── every written line is worked out by the computer.
-    var mcProblems = mcCheckSolution(solution);
+    var mcProblems = mcCheckSolution(solution).concat(mcCheckFacts(solution, mcFacts));
     if(mcProblems.length){
       console.log('[CHECK] Mistakes found, asking AI to fix:', mcProblems);
       if(lt) lt.textContent = 'Double-checking the working...';
       if(ls) ls.textContent = 'A calculation did not check out. The AI Teacher is correcting it before class.';
-      var mcFixed = await mcFixSolution(solution, mcProblems, systemPrompt);
-      if(mcFixed){ solution = mcFixed; mcProblems = mcCheckSolution(solution); }
+      var mcFixed = await mcFixSolution(solution, mcProblems, systemPrompt, (mcFigPic && mcFigPic.length) ? MC_VISION_MODEL : undefined);
+      if(mcFixed){ solution = mcFixed; mcProblems = mcCheckSolution(solution).concat(mcCheckFacts(solution, mcFacts)); }
     }
     if(mcProblems.length){
       mcCanSave = false;
@@ -2124,6 +2137,8 @@ async function solveAndTeach(){
     if(mcIsFig && mcFigPic){
       solution.readFromBook = true;
       solution.figPages = mcFigPic.map(function(pp){ return pp.page || 0; });
+      // The picture on the board is the tight box the AI found for this question.
+      if(mcLoc) solution.figBox = { img: mcLoc.img, x0: mcLoc.box.x0, y0: mcLoc.box.y0, x1: mcLoc.box.x1, y1: mcLoc.box.y1 };
     } else if(mcIsFig){
       mcCanSave = false;      // solved without seeing the picture: do not keep it
     }
@@ -3863,6 +3878,7 @@ function spellOutLargeNumbers(text){
 function mathToSpeech(text){
   if(!text) return '';
   var t = String(text);
+  t = mcUnitsToWords(t);
   // Matrices first: [[1,2],[3,4]] -> spoken rows (safety net; scripts should already be in words)
   if(hasMatrixNotation(t)) t = matrixToSpeech(t);
   // Superscripts (must run first)
@@ -7197,7 +7213,7 @@ function mcPicFromDataUrl(u){
 }
 
 // What goes to the AI: the picture first (if any), then the instructions.
-function mcBuildContent(promptText, pics){
+function mcBuildContent(promptText, pics, crop, facts){
   var rule = '\n\nNEVER invent a number, length or value that is not given in the question'
     + (pics && pics.length ? ' or shown in the attached textbook page.' : '. If the question depends on a picture you cannot see, say so in the first step instead of guessing.');
   if(!pics || !pics.length) return promptText + rule;
@@ -7212,7 +7228,11 @@ function mcBuildContent(promptText, pics){
   var content = pics.map(function(pic){
     return { type: 'image', source: { type: 'base64', media_type: pic.mediaType, data: pic.base64 } };
   });
-  content.push({ type: 'text', text: picRule + promptText + rule });
+  if(crop){
+    content.push({ type: 'image', source: { type: 'base64', media_type: crop.mediaType, data: crop.base64 } });
+    picRule += 'The LAST image is a close-up of this question\'s picture.\n\n';
+  }
+  content.push({ type: 'text', text: picRule + mcFactsText(facts) + promptText + rule });
   return content;
 }
 
@@ -7297,8 +7317,8 @@ async function mcShowBookPic(){
   var src = await new Promise(function(resolve){
     var im = new Image();
     im.onload = function(){
-      var x0 = Math.max(0, (+box.x0 || 0) - 0.03), y0 = Math.max(0, (+box.y0 || 0) - 0.03);
-      var x1 = Math.min(1, (+box.x1 || 1) + 0.03), y1 = Math.min(1, (+box.y1 || 1) + 0.03);
+      var x0 = Math.max(0, (+box.x0 || 0) - 0.012), y0 = Math.max(0, (+box.y0 || 0) - 0.012);
+      var x1 = Math.min(1, (+box.x1 || 1) + 0.012), y1 = Math.min(1, (+box.y1 || 1) + 0.012);
       if(x1 - x0 < 0.05 || y1 - y0 < 0.03){ resolve(''); return; }
       var c = document.createElement('canvas');
       c.width = Math.round((x1 - x0) * im.width); c.height = Math.round((y1 - y0) * im.height);
@@ -7324,6 +7344,201 @@ async function mcShowBookPic(){
   }
   wrap.querySelector('img').src = src;
   wrap.style.display = 'block';
+}
+
+
+// ---------- units read out in full ----------
+// "4.3 cm" is said "4.3 centimetres", never "c m". Single-letter units (m, g, l, p)
+// are only expanded straight after a number, so "lines m and n" is left alone.
+function mcUnitsToWords(t){
+  var U = { mm:'millimetre', cm:'centimetre', km:'kilometre', m:'metre', kg:'kilogram', mg:'milligram', g:'gram',
+            ml:'millilitre', mL:'millilitre', l:'litre', L:'litre', p:'paise', ps:'paise', hr:'hour', hrs:'hour', min:'minute', mins:'minute', sec:'second', secs:'second' };
+  function word(u, n){
+    var w = U[u];
+    if(w === 'paise') return 'paise';
+    var one = (n !== undefined && /^1(\.0+)?$/.test(String(n).trim()));
+    return one ? w : w + 's';
+  }
+  t = String(t);
+  t = t.replace(/\u20B9\s*([\d][\d,]*(?:\.\d+)?)/g, '$1 rupees');
+  t = t.replace(/\b(mm|cm|km|m)\s*(?:\u00B2|\^2)/g, function(a, u){ return ' square ' + U[u] + 's '; });
+  t = t.replace(/\b(mm|cm|km|m)\s*(?:\u00B3|\^3)/g, function(a, u){ return ' cubic ' + U[u] + 's '; });
+  t = t.replace(/\bsq\.?\s*(mm|cm|km|m)\b/g, function(a, u){ return ' square ' + U[u] + 's '; });
+  // after a number: 4.3 cm, 7mm, 2 kg, 35 p
+  t = t.replace(/(\d(?:[\d,]*\d)?(?:\.\d+)?)\s*(mm|cm|km|kg|mg|mL|ml|hrs|hr|mins|min|secs|sec|ps|m|g|l|L|p)\b/g, function(a, n, u){
+    return n + ' ' + word(u, n);
+  });
+  // a unit on its own in words: "in cm", "(cm)", "cm and mm"
+  t = t.replace(/\b(mm|cm|km|kg|mg|ml)\b/g, function(a, u){ return word(u) ; });
+  return t;
+}
+
+// ---------- measuring a picture: the computer does the exact reading ----------
+var MC_VISION_MODEL = 'claude-sonnet-5-5';   // newer model, sharper eyes - used for picture questions only
+
+async function mcAskAI(content, sys, maxTokens, model){
+  var r = await fetch('/api/ai', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system: sys, model: model || undefined, messages: [{ role: 'user', content: content }], max_tokens: maxTokens || 1500 })
+  });
+  if(!r.ok) throw new Error('API error ' + r.status);
+  var d = await r.json();
+  var tx = (d && Array.isArray(d.content)) ? d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('') : '';
+  var fb = tx.indexOf('{'), lb = tx.lastIndexOf('}');
+  if(fb < 0 || lb <= fb) throw new Error('no JSON');
+  return JSON.parse(tx.substring(fb, lb + 1));
+}
+
+// Step 1: where on the page is this question's picture, and does it need measuring?
+async function mcLocateFigure(question, pics){
+  try{
+    var content = pics.map(function(p){ return { type: 'image', source: { type: 'base64', media_type: p.mediaType, data: p.base64 } }; });
+    content.push({ type: 'text', text:
+      'These are textbook page(s), image 0 onwards. Find the picture that belongs to THIS question:\n"' + question + '"\n\n'
+      + 'Return ONLY JSON: {"img":0,"x0":0.1,"y0":0.3,"x1":0.9,"y1":0.5,"kind":"scale"}\n'
+      + '- img: which image the picture is on. x0,y0,x1,y1: a TIGHT box around that picture only, as fractions of the image width and height. '
+      + 'Do not include other questions or their text. If the picture has several parts (for example three number lines), the box covers all of them.\n'
+      + '- kind: "scale" if the answer is read off a ruler, number line, scale or measuring marks; otherwise "other".\n'
+      + '- If there is no picture for this question, return {"img":-1}.' });
+    var j = await mcAskAI(content, 'You locate figures on textbook pages. Return ONLY valid JSON.', 400, MC_VISION_MODEL);
+    var img = parseInt(j.img, 10);
+    if(!(img >= 0 && img < pics.length)) return null;
+    var b = { x0: +j.x0, y0: +j.y0, x1: +j.x1, y1: +j.y1 };
+    if(!(b.x1 > b.x0 && b.y1 > b.y0) || b.x0 < 0 || b.y1 > 1.01) return null;
+    return { img: img, box: b, kind: j.kind === 'scale' ? 'scale' : 'other' };
+  }catch(e){ console.warn('[FIG] locate failed', e); return null; }
+}
+
+// Step 2: cut the picture out, sharp. From the PDF it is drawn again at high
+// resolution, so the small marks stay crisp.
+async function mcCropFigure(pic, box){
+  var pad = 0.012;
+  var x0 = Math.max(0, box.x0 - pad), y0 = Math.max(0, box.y0 - pad), x1 = Math.min(1, box.x1 + pad), y1 = Math.min(1, box.y1 + pad);
+  try{
+    if(pic.page){
+      var pdf = await mcGetPdf();
+      if(pdf){
+        var page = await pdf.getPage(pic.page);
+        var v1 = page.getViewport({ scale: 1 });
+        var bw = (x1 - x0) * v1.width, bh = (y1 - y0) * v1.height;
+        var sc = Math.max(1, Math.min(6, 1600 / bw, 1600 / bh));
+        var vp = page.getViewport({ scale: sc });
+        var c = document.createElement('canvas');
+        c.width = Math.round(bw * sc); c.height = Math.round(bh * sc);
+        var ctx = c.getContext('2d');
+        ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+        await page.render({ canvasContext: ctx, viewport: vp, transform: [1, 0, 0, 1, -x0 * vp.width, -y0 * vp.height] }).promise;
+        return { canvas: c, base64: c.toDataURL('image/png').split(',')[1], mediaType: 'image/png' };
+      }
+    }
+  }catch(e){ console.warn('[FIG] sharp crop failed, using page image', e); }
+  return await new Promise(function(resolve){
+    var im = new Image();
+    im.onload = function(){
+      var c = document.createElement('canvas');
+      c.width = Math.round((x1 - x0) * im.width); c.height = Math.round((y1 - y0) * im.height);
+      c.getContext('2d').drawImage(im, x0 * im.width, y0 * im.height, c.width, c.height, 0, 0, c.width, c.height);
+      resolve({ canvas: c, base64: c.toDataURL('image/png').split(',')[1], mediaType: 'image/png' });
+    };
+    im.onerror = function(){ resolve(null); };
+    im.src = 'data:' + pic.mediaType + ';base64,' + pic.base64;
+  });
+}
+
+// A guide scale 0-100 drawn above and below the picture (not part of the book),
+// so the AI can say exactly where each mark is.
+function mcFramed(crop){
+  var src = crop.canvas, M = 46;
+  var w = src.width, h = src.height;
+  var c = document.createElement('canvas');
+  c.width = w; c.height = h + 2 * M;
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  ctx.drawImage(src, 0, M);
+  ctx.strokeStyle = 'rgba(0,120,255,0.18)'; ctx.lineWidth = 1;
+  for(var g = 10; g < 100; g += 10){ var gx = g / 100 * (w - 1); ctx.beginPath(); ctx.moveTo(gx, M); ctx.lineTo(gx, M + h); ctx.stroke(); }
+  ctx.fillStyle = '#0050c8'; ctx.strokeStyle = '#0050c8'; ctx.font = 'bold 13px Arial'; ctx.textAlign = 'center';
+  [[M - 2, -1, 16], [M + h + 2, 1, M + h + 32]].forEach(function(e){
+    var y = e[0], dir = e[1], ly = e[2];
+    for(var i = 0; i <= 100; i++){
+      var x = i / 100 * (w - 1);
+      var len = (i % 10 === 0) ? 14 : (i % 5 === 0) ? 9 : 5;
+      ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + dir * len); ctx.stroke();
+      if(i % 10 === 0) ctx.fillText(String(i), Math.min(Math.max(x, 10), w - 12), ly);
+    }
+  });
+  return { base64: c.toDataURL('image/png').split(',')[1], mediaType: 'image/png' };
+}
+
+// Step 3: the AI only points; the computer measures and rounds to the nearest mark.
+async function mcMeasureFigure(question, crop){
+  try{
+    var fr = mcFramed(crop);
+    var j = await mcAskAI([
+      { type: 'image', source: { type: 'base64', media_type: fr.mediaType, data: fr.base64 } },
+      { type: 'text', text:
+        'This textbook picture belongs to the question:\n"' + question + '"\n\n'
+        + 'The BLUE scale from 0 to 100 above and below the picture, with faint blue guide lines, is NOT part of the book. It is only for giving positions: 0 is the left edge of the picture, 100 the right edge.\n'
+        + 'For every ruler / number line / scale in the picture:\n'
+        + '- give the position on the blue scale of EVERY numbered mark (the printed numbers), to one decimal place;\n'
+        + '- "smallest": the value of ONE smallest division. Count the small divisions between two neighbouring numbered marks and divide (e.g. 10 divisions between 1 and 2 means 0.1; 10 divisions between 2 and 4 means 0.2).\n'
+        + 'For every item the question asks about (end of each strip, each arrow, each letter, each point), give the position on the blue scale of the exact spot that is read (for a strip: its right end), to one decimal place. Look straight up or down from that spot to the blue scale.\n'
+        + 'Return ONLY JSON:\n{"lines":[{"id":"L1","unit":"cm","smallest":0.1,"marks":[{"value":0,"x":4.1},{"value":1,"x":20.2}]}],\n "items":[{"label":"A","line":"L1","x":73.5,"what":"right end of strip A"}]}' }
+    ], 'You read positions in figures precisely. Return ONLY valid JSON.', 2500, MC_VISION_MODEL);
+    var lines = {};
+    (j.lines || []).forEach(function(L){
+      var pts = (L.marks || []).map(function(m){ return { v: parseFloat(m.value), x: parseFloat(m.x) }; })
+        .filter(function(m){ return isFinite(m.v) && isFinite(m.x); });
+      if(pts.length < 2) return;
+      // straight-line fit: value = a * position + b
+      var n = pts.length, sx = 0, sv = 0, sxx = 0, sxv = 0;
+      pts.forEach(function(m){ sx += m.x; sv += m.v; sxx += m.x * m.x; sxv += m.x * m.v; });
+      var den = n * sxx - sx * sx;
+      if(Math.abs(den) < 1e-9) return;
+      var a = (n * sxv - sx * sv) / den, b = (sv - a * sx) / n;
+      var sm = parseFloat(L.smallest);
+      lines[L.id] = { a: a, b: b, base: pts[0].v, sm: (sm > 0 ? sm : 0), unit: L.unit || '' };
+    });
+    var ids = Object.keys(lines);
+    var facts = [];
+    (j.items || []).forEach(function(it){
+      var L = lines[it.line] || (ids.length === 1 ? lines[ids[0]] : null);
+      var x = parseFloat(it.x);
+      if(!L || !isFinite(x)) return;
+      var raw = L.a * x + L.b, val = raw, unsure = false;
+      if(L.sm){
+        var k = Math.round((raw - L.base) / L.sm);
+        val = L.base + k * L.sm;
+        unsure = Math.abs((raw - L.base) / L.sm - k) > 0.35;
+        var dec = (String(L.sm).split('.')[1] || '').length;
+        val = Number(val.toFixed(Math.max(dec, (String(L.base).split('.')[1] || '').length)));
+      } else {
+        val = Number(raw.toFixed(2));
+      }
+      facts.push({ label: String(it.label || ''), what: String(it.what || ''), value: val, unit: L.unit, unsure: unsure });
+    });
+    console.log('[FIG] measured:', facts);
+    return facts.length ? facts : null;
+  }catch(e){ console.warn('[FIG] measuring failed', e); return null; }
+}
+function mcFactsText(facts){
+  if(!facts || !facts.length) return '';
+  return 'MEASURED FROM THE PICTURE BY THE COMPUTER (exact - use these values, do NOT measure again yourself):\n'
+    + facts.map(function(f){ return '- ' + f.label + ' (' + f.what + ') = ' + f.value + (f.unit ? ' ' + f.unit : ''); }).join('\n')
+    + '\nShow on the board how each value is read from the picture (the whole number it passes, then the small divisions after it).\n\n';
+}
+// Every measured value must appear in the working.
+function mcCheckFacts(sol, facts){
+  if(!facts || !facts.length) return [];
+  var all = JSON.stringify([sol.steps, sol.finalAnswer]);
+  var out = [];
+  facts.forEach(function(f){
+    var vs = String(f.value).replace('.', '\\.');
+    if(!new RegExp('(^|[^0-9.])' + vs + '(?![0-9])').test(all)){
+      out.push('The picture was measured exactly: ' + f.label + ' (' + f.what + ') is ' + f.value + (f.unit ? ' ' + f.unit : '') + ', but the working does not use ' + f.value + '.');
+    }
+  });
+  return out;
 }
 
 // ---------- calculator check ----------
@@ -7450,7 +7665,7 @@ function mcSavedOk(sol, isFig){
 
 // Sends the wrong lines back to the AI once. Returns the corrected
 // solution, or null if the fix did not come back usable.
-async function mcFixSolution(sol, problems, sys){
+async function mcFixSolution(sol, problems, sys, model){
   try{
     var msg = 'Below is a worked maths class as JSON. A calculator checked every line and found these mistakes:\n'
       + problems.map(function(p){ return '- ' + p; }).join('\n')
@@ -7460,7 +7675,7 @@ async function mcFixSolution(sol, problems, sys){
     var r = await fetch('/api/ai', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ system: sys, messages: [{ role: 'user', content: msg }], max_tokens: 8000 })
+      body: JSON.stringify({ system: sys, model: model || undefined, messages: [{ role: 'user', content: msg }], max_tokens: 8000 })
     });
     if(!r.ok) return null;
     var d = await r.json();
