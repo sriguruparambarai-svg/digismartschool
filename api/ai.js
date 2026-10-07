@@ -23,7 +23,7 @@ const ALLOWED_HOSTS = [
 ];
 
 // Only these models may be used, whatever the caller asks for.
-const ALLOWED_MODELS = ['claude-sonnet-4-5'];
+const ALLOWED_MODELS = ['claude-sonnet-4-5', 'claude-sonnet-5-5'];  // 5.5: picture questions in Maths Class
 
 const MAX_TOKENS_CAP = 16000;  // a full chapter plan is the long one; the rest ask for far less
 const MAX_MESSAGES   = 40;     // a normal conversation never comes near this
