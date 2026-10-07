@@ -1,0 +1,911 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Activity Maths — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Andika:wght@400;700&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   ACTIVITY MATHS — LKG to Class 2 (new page, Oct 2026)
+   The school's own maths chapter is run as short activities:
+   count along, story, fingers, more/less, ten frame, bundles,
+   number chart, number train, biggest/smallest, write in the air,
+   play time, notebook. English only.
+   The AI only decides WHAT to show (which numbers, which things).
+   The page itself draws every object, hand, counter and stick and
+   works out every answer, so a count on screen is always exact.
+   math-class.html is untouched apart from a link to this page.
+   ══════════════════════════════════════════════════════════════ */
+:root{
+  --maroon:#6B1A1A; --maroon-dark:#4a1010; --gold:#C9A84C; --gold-deep:#a8862f;
+  --sandal:#E8C99A; --paper:#FFF8EC; --ink:#3a1410; --leaf:#2F7D4F; --sky:#2f6fa8; --skin:#f1c48a; --skin-line:#b9803f;
+}
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;}
+body{background:var(--sandal);color:var(--ink);font-family:'Andika',sans-serif;overflow:hidden;}
+button{font-family:inherit;cursor:pointer;}
+button:focus-visible{outline:3px solid var(--sky);outline-offset:3px;}
+
+#top{height:60px;background:var(--maroon);display:flex;align-items:center;gap:12px;padding:0 16px;color:var(--paper);}
+#top .back{background:transparent;border:2px solid var(--gold);color:var(--paper);border-radius:10px;padding:7px 14px;font-size:0.95rem;font-weight:700;}
+#top .cls{background:var(--gold);color:var(--maroon-dark);border-radius:999px;padding:4px 14px;font-weight:700;font-size:0.95rem;}
+#top .chap{flex:1;min-width:0;font-size:1.35rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tog{background:transparent;border:2px solid rgba(232,201,154,0.5);color:var(--sandal);border-radius:10px;padding:7px 12px;font-size:0.9rem;font-weight:700;}
+.tog.on{background:var(--sandal);color:var(--maroon-dark);border-color:var(--sandal);}
+.m-tabs{display:flex;background:rgba(0,0,0,0.22);border-radius:12px;padding:3px;gap:3px;flex:0 0 auto;}
+.m-tab{background:transparent;border:none;border-radius:9px;padding:4px 14px;color:var(--sandal);text-align:left;line-height:1.15;}
+.m-tab b{display:block;font-size:0.9rem;}
+.m-tab small{display:block;font-size:0.7rem;opacity:0.85;}
+.m-tab.on{background:var(--sandal);color:var(--maroon-dark);}
+
+#acts{display:flex;gap:8px;padding:10px 16px;overflow-x:auto;}
+.act{flex:0 0 auto;display:flex;align-items:center;gap:7px;background:rgba(255,248,236,0.55);border:2px solid transparent;border-radius:999px;padding:6px 14px 6px 8px;font-size:0.95rem;font-weight:700;color:var(--maroon);}
+.act .ic{font-size:1.25rem;}
+.act.done{opacity:0.55;}
+.act.now{background:var(--paper);border-color:var(--maroon);}
+
+#stage{position:absolute;top:118px;left:16px;right:16px;bottom:96px;background:var(--paper);border-radius:22px;box-shadow:0 6px 0 rgba(107,26,26,0.18);overflow:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:18px 24px;text-align:center;gap:14px;}
+@keyframes pop{from{transform:scale(.6);opacity:0;}to{transform:scale(1);opacity:1;}}
+
+.line{font-size:clamp(1.6rem,3.4vw,2.8rem);font-weight:700;line-height:1.25;max-width:1100px;}
+.hint{font-size:clamp(1.1rem,1.9vw,1.5rem);color:#7a4a2a;}
+.say-big{font-size:clamp(1.8rem,3.8vw,3rem);font-weight:700;color:var(--maroon);}
+
+/* hidden until the reveal */
+.answer{visibility:hidden;}
+.revealed .answer{visibility:visible;animation:pop .45s ease both;}
+
+/* objects drawn by the page: always exactly n of them */
+.objs{display:flex;flex-wrap:wrap;justify-content:center;align-content:center;gap:10px;max-width:1100px;}
+.obj{width:var(--sz,96px);height:var(--sz,96px);border-radius:14px;display:flex;align-items:center;justify-content:center;background:#f6ead4;overflow:hidden;}
+.obj img{width:100%;height:100%;object-fit:contain;}
+.obj .dot{width:70%;height:70%;border-radius:50%;background:var(--maroon);}
+.count .obj{opacity:0;}
+.count .obj.in{opacity:1;animation:pop .35s ease both;}
+.badge{display:inline-flex;align-items:baseline;gap:18px;}
+.badge .num{font-size:clamp(4rem,10vw,8rem);font-weight:700;color:var(--maroon);line-height:1;}
+.badge .word{font-size:clamp(1.8rem,4vw,3.2rem);font-weight:700;color:var(--gold-deep);}
+
+/* more / less / same: two rows lined up one to one */
+.cmp{display:flex;flex-direction:column;gap:16px;align-items:flex-start;}
+.cmp .row{display:flex;align-items:center;gap:10px;}
+.cmp .row .lbl{min-width:140px;text-align:right;font-size:clamp(1.2rem,2.2vw,1.8rem);font-weight:700;padding-right:8px;}
+.cmp .row .cnt{font-size:clamp(1.6rem,3vw,2.4rem);font-weight:700;color:var(--maroon);margin-left:10px;}
+.revealed .cmp .obj.extra{box-shadow:0 0 0 5px var(--gold);background:#fff3cf;}
+
+/* hands */
+.hands{display:flex;gap:26px;justify-content:center;align-items:flex-end;}
+.hands svg{width:clamp(130px,17vw,220px);height:auto;}
+
+/* ten frame */
+.tf{display:grid;grid-template-columns:repeat(5,1fr);border:5px solid var(--maroon);border-radius:10px;background:#fff;}
+.tf div{width:clamp(70px,9vw,110px);height:clamp(70px,9vw,110px);border:3px solid var(--maroon);display:flex;align-items:center;justify-content:center;}
+.tf i{width:72%;height:72%;border-radius:50%;display:block;}
+.tf i.a{background:var(--maroon);}
+.tf i.b{background:var(--gold);visibility:hidden;}
+.revealed .tf i.b{visibility:visible;animation:pop .4s ease both;}
+
+/* sticks and bundles */
+.sticks{display:flex;gap:28px;align-items:flex-end;justify-content:center;flex-wrap:wrap;}
+.sticks svg{height:clamp(130px,22vh,200px);width:auto;}
+.tens-ones{display:flex;gap:30px;font-size:clamp(1.6rem,3vw,2.6rem);font-weight:700;}
+.tens-ones span b{color:var(--maroon);}
+
+/* number chart */
+.chart{display:grid;grid-template-columns:repeat(10,1fr);gap:5px;}
+.chart div{width:clamp(44px,5.6vw,78px);height:clamp(38px,6.6vh,64px);display:flex;align-items:center;justify-content:center;background:#fff;border:2px solid #e2cfa9;border-radius:8px;font-size:clamp(1.1rem,2.2vw,1.9rem);font-weight:700;}
+.chart div.lit{background:var(--maroon);color:var(--paper);border-color:var(--maroon);transform:scale(1.08);}
+.chart div.hid{background:#f3e6cf;color:var(--maroon);}
+.chart div.ask{box-shadow:0 0 0 4px var(--gold);}
+
+/* number train */
+.train{display:flex;align-items:flex-end;gap:8px;}
+.train .eng{font-size:clamp(4rem,9vw,7rem);line-height:1;}
+.car{width:clamp(110px,14vw,170px);height:clamp(90px,12vw,140px);background:var(--maroon);border-radius:14px 14px 6px 6px;position:relative;display:flex;align-items:center;justify-content:center;color:var(--paper);font-size:clamp(2.6rem,5.5vw,4.4rem);font-weight:700;}
+.car::before,.car::after{content:'';position:absolute;bottom:-16px;width:30px;height:30px;border-radius:50%;background:#333;border:4px solid var(--gold);}
+.car::before{left:14px;} .car::after{right:14px;}
+.car.q{background:var(--gold);color:var(--maroon-dark);}
+.car .ans{display:none;}
+.revealed .car.q .ans{display:inline;animation:pop .4s ease both;}
+.revealed .car.q .qm{display:none;}
+
+/* number cards */
+.cards{display:flex;gap:20px;flex-wrap:wrap;justify-content:center;}
+.card{min-width:clamp(110px,13vw,170px);padding:18px 10px;background:#fff;border:4px solid var(--maroon);border-radius:18px;font-size:clamp(3rem,7vw,5.5rem);font-weight:700;color:var(--maroon);position:relative;}
+.revealed .card.pick{background:var(--gold);border-color:var(--gold-deep);}
+.revealed .card.pick::after{content:'\2605';position:absolute;top:-34px;left:50%;transform:translateX(-50%);font-size:2.4rem;color:var(--gold-deep);animation:pop .4s ease both;}
+.sorted{display:flex;gap:14px;font-size:clamp(2rem,4vw,3.2rem);font-weight:700;color:var(--leaf);}
+
+/* write in the air */
+.trace svg{width:min(60vw,560px);height:min(48vh,420px);}
+.trace text{font-family:'Andika',sans-serif;font-weight:700;fill:transparent;stroke:var(--maroon);stroke-width:5;stroke-dasharray:2600;stroke-dashoffset:2600;}
+.trace.draw text{animation:drawit 3.2s ease forwards;}
+@keyframes drawit{80%{fill:transparent;}100%{stroke-dashoffset:0;fill:#f3d9a4;}}
+
+/* opener, play, notebook */
+.opener .ic{font-size:clamp(5rem,12vw,9rem);line-height:1;}
+.opener h2{font-size:clamp(2.2rem,5vw,4rem);color:var(--maroon);margin-top:10px;}
+.opener .en{font-size:clamp(1.4rem,2.8vw,2.2rem);margin-top:10px;}
+.steps{list-style:none;text-align:left;max-width:1000px;}
+.steps li{font-size:clamp(1.3rem,2.6vw,2.1rem);font-weight:700;padding:8px 0 8px 54px;position:relative;line-height:1.3;}
+.steps li::before{content:'\2605';position:absolute;left:8px;top:6px;color:var(--gold-deep);}
+.steps.book li::before{content:'\270E';}
+.teacher-note{background:#f3e6cf;border-radius:12px;padding:10px 18px;font-size:1.05rem;color:#6a3b1d;}
+.caller{display:flex;align-items:center;gap:20px;}
+.caller .called{font-size:clamp(4rem,10vw,7.5rem);font-weight:700;color:var(--maroon);min-width:1.5em;}
+.cheer .ic{font-size:clamp(5rem,14vw,10rem);}
+.cheer h2{font-size:clamp(2.4rem,6vw,4.6rem);color:var(--maroon);}
+
+#turn{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);width:min(560px,80%);height:54px;border-radius:999px;background:#dfeee4;overflow:hidden;display:none;}
+#turn.on{display:block;}
+#turn .fill{position:absolute;inset:0;background:var(--leaf);transform-origin:left;}
+#turn .lbl{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-size:1.5rem;font-weight:700;text-shadow:0 1px 2px rgba(0,0,0,0.35);}
+
+#ctrl{position:absolute;left:0;right:0;bottom:0;height:96px;display:flex;align-items:center;justify-content:center;gap:16px;}
+.cb{background:var(--paper);color:var(--maroon);border:3px solid var(--maroon);border-radius:16px;padding:12px 26px;font-size:1.3rem;font-weight:700;min-width:130px;}
+.cb.main{background:var(--maroon);color:var(--paper);}
+.cb.pulse{animation:pulse 1.4s ease-in-out infinite;}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(107,26,26,0.45);}50%{box-shadow:0 0 0 12px rgba(107,26,26,0);}}
+.cb:disabled{opacity:0.4;cursor:default;}
+
+#cover{position:fixed;inset:0;background:var(--sandal);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+#cover .card2{background:var(--paper);border-radius:24px;padding:34px 40px;max-width:680px;width:100%;text-align:center;box-shadow:0 8px 0 rgba(107,26,26,0.18);}
+#cover h1{color:var(--maroon);font-size:2.3rem;line-height:1.2;}
+#cover p{font-size:1.15rem;margin-top:12px;line-height:1.5;color:#5a2a1a;}
+#cover .row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:22px;}
+#cover .err{margin-top:16px;background:#fbe9e4;color:#8b2a1a;border-radius:12px;padding:12px 16px;font-size:1rem;display:none;text-align:left;}
+#cover .err.on{display:block;}
+.link-btn{background:none;border:none;color:var(--sky);text-decoration:underline;font-size:1rem;margin-top:16px;}
+.spin{width:46px;height:46px;border:5px solid rgba(107,26,26,0.15);border-top-color:var(--maroon);border-radius:50%;margin:20px auto 0;animation:spin .9s linear infinite;}
+@keyframes spin{to{transform:rotate(360deg);}}
+
+@media (prefers-reduced-motion: reduce){ *{animation:none !important;} .trace text{stroke-dashoffset:0;fill:#f3d9a4;} }
+@media (max-width:760px){
+  #stage{top:112px;bottom:84px;left:8px;right:8px;padding:12px;}
+  .cb{min-width:0;padding:10px 14px;font-size:1rem;}
+  #ctrl{height:84px;gap:8px;}
+  #top .chap{font-size:1.05rem;}
+  .m-tab small{display:none;}
+  .cmp .row .lbl{min-width:80px;}
+}
+</style>
+</head>
+<body>
+
+<div id="top">
+  <button class="back" onclick="goBack()">&#8592; Back</button>
+  <span class="cls" id="t-cls">Class</span>
+  <span class="chap" id="t-chap">Maths</span>
+  <button class="tog on" id="tog-voice" onclick="toggleVoice()">&#128264; Voice</button>
+  <div class="m-tabs" title="Two maths classes. Activity Maths: counting, stories, fingers, games &mdash; for LKG to Class 2. Maths Class: step-by-step sums on the board &mdash; for Class 3 and up.">
+    <button class="m-tab on"><b>&#127880; Activity Maths</b><small>Count, play, games</small></button>
+    <button class="m-tab" onclick="openOldClass()"><b>&#128208; Maths Class</b><small>Step-by-step sums</small></button>
+  </div>
+</div>
+
+<div id="acts"></div>
+<div id="stage"></div>
+<div id="turn"><div class="fill" id="turn-fill"></div><div class="lbl" id="turn-lbl">Your turn!</div></div>
+
+<div id="ctrl">
+  <button class="cb" id="b-back" onclick="goPrev()">&#9664; Back</button>
+  <button class="cb" id="b-again" onclick="again()">&#8635; Again</button>
+  <button class="cb" id="b-pause" onclick="togglePause()">&#10074;&#10074; Pause</button>
+  <button class="cb main" id="b-next" onclick="goNext()">Next &#9654;</button>
+</div>
+
+<div id="cover"><div class="card2" id="cover-card">
+  <h1>Getting today's maths class ready</h1>
+  <p id="cover-msg">Reading the chapter&hellip;</p>
+  <div class="spin" id="cover-spin"></div>
+  <div class="err" id="cover-err"></div>
+</div></div>
+
+<script>
+/* ── state ── */
+var LESSON = { cls:'', topic:'', text:'' };
+var PLAN = null, BEATS = [], CUR = -1, RUN = 0, PAUSED = false, VOICE_ON = true;
+var RATE = 0.92;
+var LIB = {}, PICS = {}, AUD = {};
+var curAudio = null, curAudioDone = null;
+var PLAN_VERSION = 'kidmath1';
+
+var KINDS = {
+  count:    { ic:'\uD83D\uDD22', name:'Count with me' },
+  story:    { ic:'\uD83D\uDCD6', name:'Story time' },
+  fingers:  { ic:'\u270B',       name:'Show me with fingers' },
+  compare:  { ic:'\u2696\uFE0F', name:'More, less or same' },
+  tenframe: { ic:'\uD83D\uDD1F', name:'Make 10' },
+  bundles:  { ic:'\uD83E\uDEB5', name:'Tens and ones' },
+  chart:    { ic:'\uD83D\uDCCB', name:'Number chart' },
+  train:    { ic:'\uD83D\uDE82', name:'Number train' },
+  bigger:   { ic:'\uD83C\uDFC6', name:'Biggest and smallest' },
+  trace:    { ic:'\u270D\uFE0F', name:'Write in the air' },
+  play:     { ic:'\u2B50',       name:'Play time' },
+  notebook: { ic:'\u270F\uFE0F', name:'Notebook' }
+};
+var LIMITS = { count:6, story:12, fingers:6, compare:4, tenframe:6, bundles:5, chart:2, train:6, bigger:4, trace:10, play:6, notebook:10 };
+
+/* ── numbers in words ── */
+var ONES = ['zero','one','two','three','four','five','six','seven','eight','nine','ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
+var TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
+function numWord(n){
+  n = Math.round(n);
+  if (n < 20) return ONES[n];
+  if (n < 100) return TENS[Math.floor(n / 10)] + (n % 10 ? '-' + ONES[n % 10] : '');
+  if (n === 100) return 'one hundred';
+  return String(n);
+}
+function cap(s){ s = String(s || ''); return s.charAt(0).toUpperCase() + s.substring(1); }
+function nounFor(g, n){ return n === 1 ? (g.one || g.thing) : g.thing; }
+
+/* ── read the activated chapter ── */
+function readLesson(){
+  var cands = [];
+  ['mc_activated','tm_activated'].forEach(function(k){
+    try{ var a = JSON.parse(sessionStorage.getItem(k) || 'null'); if (a) cands.push(a); }catch(e){}
+  });
+  var base = cands[0] || {};
+  LESSON.cls = base.cls || '';
+  LESSON.topic = base.topic || base.chapter || 'Maths';
+  var texts = cands.map(function(a){ return a.lessonText || ''; });
+  try{ texts.push(sessionStorage.getItem('tm_lesson') || ''); }catch(e){}
+  texts.sort(function(a,b){ return b.length - a.length; });
+  LESSON.text = texts[0] || '';
+  document.getElementById('t-cls').textContent = LESSON.cls || 'Class';
+  document.getElementById('t-chap').textContent = LESSON.topic;
+  return LESSON.text.trim().length > 40;
+}
+function goBack(){
+  stopVoice(); RUN++;
+  var url = 'learnbot.html';
+  try{ url = sessionStorage.getItem('mc_returnUrl') || url; }catch(e){}
+  window.location.href = url;
+}
+function openOldClass(){ stopVoice(); RUN++; window.location.href = 'math-class.html'; }
+
+/* ── the plan: the AI decides WHAT to show; the page draws it and works out answers ── */
+function planPrompt(){
+  return 'You turn a maths textbook chapter into an ACTIVITY class for ' + (LESSON.cls || 'Class 1') +
+  ' children (age 4 to 7) in a Tamil Nadu school. They know very little English, so every spoken line is very short and simple. ' +
+  'The class runs on a projector with an AI voice; a teacher stands with the children. ' +
+  'Little children do not listen to explanations. Every moment must be LOOK, COUNT ALOUD, SAY, or DO WITH HANDS AND BODY.\n\n' +
+  'The SCREEN DRAWS the objects and WORKS OUT every answer itself. You only give the numbers and things exactly as the book has them. NEVER write an answer.\n\n' +
+  'Go through the chapter in its own order and turn each part into one activity:\n' +
+  '- counting pictures, "count and say", numbers 1 to 20 with pictures, zero -> "count"\n' +
+  '- a story where things join, leave, pop or are eaten one by one -> "story" (one item per moment, with how many things are seen at that moment)\n' +
+  '- showing numbers on fingers -> "fingers"\n' +
+  '- more / less / same, comparing two groups -> "compare"\n' +
+  '- ten frame, pairs that make 10 -> "tenframe"\n' +
+  '- sticks, bundles, tens and ones, counting in tens -> "bundles"\n' +
+  '- number chart, counting to 50 or 100, missing numbers in a chart -> "chart"\n' +
+  '- before, after, between -> "train"\n' +
+  '- biggest, smallest, bigger, arranging numbers in order -> "bigger"\n' +
+  '- tracing or writing numbers -> "trace"\n' +
+  '- games, "Let\'s play", outdoor games -> "play" (steps the teacher reads out)\n' +
+  '- written exercises (match, colour, tick, fill in, draw) -> ONE "notebook" activity at the very end (titles only).\n\n' +
+  'Return ONLY valid JSON, no markdown, in exactly this shape (include only the activities the chapter really has):\n' +
+  '{"title":"chapter title","welcome":"short warm welcome","activities":[\n' +
+  ' {"kind":"count","name":"Count with me","intro":"Let us count together!","items":[{"n":3,"thing":"mangoes","one":"mango","lib":"mango"}]},\n' +
+  ' {"kind":"story","name":"The Laddoo Party","intro":"Listen to the story.","items":[{"line":"Now 2 ants are eating the laddoo.","n":2,"thing":"ants","one":"ant","lib":"ant","ask":true}]},\n' +
+  ' {"kind":"fingers","name":"Count on your fingers","intro":"Hands up! Show me.","items":[{"n":7}]},\n' +
+  ' {"kind":"compare","name":"More, less or same","intro":"Count and compare.","items":[{"a":{"n":5,"thing":"apples","one":"apple","lib":"apple"},"b":{"n":3,"thing":"bananas","one":"banana","lib":"banana"}}]},\n' +
+  ' {"kind":"tenframe","name":"Pairs that make 10","intro":"Let us fill the ten frame.","items":[{"n":3}]},\n' +
+  ' {"kind":"bundles","name":"Tens and ones","intro":"Ten sticks make one bundle.","items":[{"tens":2,"ones":3}]},\n' +
+  ' {"kind":"chart","name":"Counting to 50","intro":"Read the numbers with me.","items":[{"from":1,"to":50,"hide":[]},{"from":1,"to":50,"hide":[4,7,12,23]}]},\n' +
+  ' {"kind":"train","name":"Before, after and between","intro":"Look at the number train.","items":[{"mode":"before","of":18},{"mode":"after","of":29},{"mode":"between","a":33,"b":35}]},\n' +
+  ' {"kind":"bigger","name":"Bigger and smaller","intro":"Which number is bigger?","items":[{"nums":[24,42,19],"ask":"biggest"},{"nums":[27,50,9,41],"ask":"order"}]},\n' +
+  ' {"kind":"trace","name":"Write the numbers","intro":"Write in the air with your finger.","items":[{"n":1},{"n":2}]},\n' +
+  ' {"kind":"play","name":"Make a Group","intro":"Let us play!","items":[{"step":"Hold hands and walk in a big circle."}],"caller":{"min":2,"max":9}},\n' +
+  ' {"kind":"notebook","name":"Notebook work","intro":"Now open your books.","items":[{"task":"Count and match each group with the hand."}]}\n' +
+  ']}\n\n' +
+  'Rules:\n' +
+  '- Use the book\'s OWN numbers, things, names and story lines. Copy numbers exactly.\n' +
+  '- "thing": the plural noun, "one": the singular, "lib": ONE lowercase singular noun for a simple picture of one such thing (ant, apple, balloon, star).\n' +
+  '- count: n from 0 to 20. story: n from 0 to 20, "ask": true when the class should count before the line is read. compare: each n from 0 to 10.\n' +
+  '- tenframe: n from 0 to 10 (the number already in the frame). bundles: tens 0 to 9, ones 0 to 9.\n' +
+  '- chart: from 1, to 10 to 100 (whole rows of ten); "hide" lists numbers covered for a missing-number game (use the book\'s own missing numbers when it has them, else []).\n' +
+  '- train: before/after use "of"; between uses "a" and "b" with b = a + 2. bigger: "ask" is "biggest", "smallest" or "order" (smallest to biggest) - write "order_big" for biggest to smallest.\n' +
+  '- play: add "caller" only when the teacher calls out numbers in the game.\n' +
+  '- "intro" and "welcome": max 10 words, simple English. "line": max 12 words.\n' +
+  '- Limits: count 6, story 12, fingers 6, compare 4, tenframe 6, bundles 5, chart 2, train 6, bigger 4, trace 10, play 6 steps, notebook 10.\n' +
+  '- Plain text only, no emojis. Keep the JSON strictly valid.';
+}
+
+async function hashKey(data){
+  var buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(data));
+  return Array.from(new Uint8Array(buf)).slice(0, 20).map(function(b){ return b.toString(16).padStart(2,'0'); }).join('');
+}
+function sameText(t){ return String(t || '').replace(/\s+/g, ' ').trim().toLowerCase().substring(0, 9000); }
+function planKey(){ return hashKey(PLAN_VERSION + '|text|' + String(LESSON.cls || '').trim().toLowerCase() + '|' + sameText(LESSON.text)); }
+
+function parseJSON(raw){
+  var t = String(raw).trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  var s = t.indexOf('{'), e = t.lastIndexOf('}');
+  if (s === -1 || e <= s) return null;
+  t = t.substring(s, e + 1);
+  try{ return JSON.parse(t); }catch(err){}
+  try{ return JSON.parse(t.replace(/,\s*([}\]])/g,'$1')); }catch(err){}
+  return null;
+}
+function str(v, n){ return String(v == null ? '' : v).trim().substring(0, n || 200); }
+function int(v, lo, hi){ var n = parseInt(v, 10); return (isFinite(n) && n >= lo && n <= hi) ? n : null; }
+function group(g, hi){
+  if (!g) return null;
+  var n = int(g.n, 0, hi);
+  if (n === null) return null;
+  var thing = str(g.thing, 30) || 'things', one = str(g.one, 30) || thing;
+  return { n:n, thing:thing, one:one, lib:str(g.lib, 30).toLowerCase() };
+}
+/* A story line carries the book's own number: if the AI's count disagrees, the book wins. */
+function numInLine(line){
+  var m = String(line).match(/\b\d+\b/g);
+  return (m && m.length === 1) ? parseInt(m[0], 10) : null;
+}
+
+function cleanPlan(p){
+  if (!p || !Array.isArray(p.activities)) return null;
+  var acts = [];
+  p.activities.forEach(function(a){
+    if (!a || !KINDS[a.kind]) return;
+    var items = Array.isArray(a.items) ? a.items.slice(0, LIMITS[a.kind]) : [];
+    var out = [];
+    items.forEach(function(it){
+      if (!it) return;
+      var k = a.kind, g;
+      if (k === 'count'){ g = group(it, 20); if (g) out.push(g); }
+      if (k === 'story' && it.line){
+        g = group(it, 20); if (!g) return;
+        var ln = numInLine(it.line);
+        if (ln !== null && ln <= 20) g.n = ln;
+        g.line = str(it.line, 160); g.ask = it.ask !== false;
+        out.push(g);
+      }
+      if (k === 'fingers'){ var f = int(it.n, 0, 10); if (f !== null) out.push({ n:f }); }
+      if (k === 'compare'){ var A = group(it.a, 10), B = group(it.b, 10); if (A && B) out.push({ a:A, b:B }); }
+      if (k === 'tenframe'){ var t = int(it.n, 0, 10); if (t !== null) out.push({ n:t }); }
+      if (k === 'bundles'){ var te = int(it.tens, 0, 9), on = int(it.ones, 0, 9); if (te !== null && on !== null && te + on > 0) out.push({ tens:te, ones:on }); }
+      if (k === 'chart'){
+        var fr = int(it.from, 1, 91) || 1, to = int(it.to, 10, 100);
+        if (!to) return;
+        fr = Math.floor((fr - 1) / 10) * 10 + 1; to = Math.ceil(to / 10) * 10;
+        if (to - fr > 99) to = fr + 99;
+        var hide = (Array.isArray(it.hide) ? it.hide : []).map(function(h){ return int(h, fr, to); }).filter(function(h){ return h !== null; });
+        out.push({ from:fr, to:to, hide:hide.filter(function(h, i){ return hide.indexOf(h) === i; }).slice(0, 10) });
+      }
+      if (k === 'train'){
+        var mode = str(it.mode, 10).toLowerCase();
+        if (mode === 'before'){ var o1 = int(it.of, 1, 100); if (o1 !== null) out.push({ mode:mode, of:o1 }); }
+        if (mode === 'after'){ var o2 = int(it.of, 0, 99); if (o2 !== null) out.push({ mode:mode, of:o2 }); }
+        if (mode === 'between'){ var a1 = int(it.a, 0, 98), b1 = int(it.b, 2, 100); if (a1 !== null && b1 === a1 + 2) out.push({ mode:mode, a:a1, b:b1 }); }
+      }
+      if (k === 'bigger'){
+        var nums = (Array.isArray(it.nums) ? it.nums : []).map(function(x){ return int(x, 0, 1000); }).filter(function(x){ return x !== null; }).slice(0, 6);
+        var ask = ['biggest','smallest','order','order_big'].indexOf(it.ask) !== -1 ? it.ask : 'biggest';
+        if (nums.length >= 2) out.push({ nums:nums, ask:ask });
+      }
+      if (k === 'trace'){ var tr = int(it.n, 0, 100); if (tr !== null) out.push({ n:tr }); }
+      if (k === 'play' && it.step) out.push({ step:str(it.step, 160) });
+      if (k === 'notebook' && it.task) out.push({ task:str(it.task, 160) });
+    });
+    if (!out.length) return;
+    var act = { kind:a.kind, name:str(a.name, 60) || KINDS[a.kind].name, intro:str(a.intro, 120), items:out };
+    if (a.kind === 'play' && a.caller){
+      var mn = int(a.caller.min, 0, 99), mx = int(a.caller.max, 1, 100);
+      if (mn !== null && mx !== null && mx > mn) act.caller = { min:mn, max:mx };
+    }
+    acts.push(act);
+  });
+  if (!acts.length) return null;
+  acts.sort(function(x, y){ return (x.kind === 'notebook') - (y.kind === 'notebook'); });
+  return { title:str(p.title, 80) || LESSON.topic, welcome:str(p.welcome, 160), activities:acts };
+}
+
+async function getPlan(fresh){
+  var key = null;
+  try{ key = await planKey(); }catch(e){}
+  if (key && !fresh){
+    try{
+      var r = await fetch('/api/lesson-plan?key=' + key);
+      if (r.ok){
+        var c = await r.json();
+        if (c && Array.isArray(c.steps) && c.steps[0] && c.steps[0].activities){
+          var saved = cleanPlan(c.steps[0]);
+          if (saved) return saved;
+        }
+      }
+    }catch(e){}
+  }
+  setCover('Reading the chapter and turning it into activities. This takes about a minute, only the first time.');
+  var res = await fetch('/api/ai', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ system: planPrompt(), messages:[{ role:'user', content:'CHAPTER TEXT:\n\n' + LESSON.text.substring(0, 14000) }], max_tokens: 8000 })
+  });
+  var d = null;
+  try{ d = await res.json(); }catch(e){ throw new Error('the AI server replied ' + res.status); }
+  var raw = '';
+  if (d && Array.isArray(d.content)) raw = d.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('');
+  else if (d && d.text) raw = String(d.text);
+  if (!raw){
+    var why = (d && (d.message || (d.error && (d.error.message || d.error)))) || ('empty AI reply, status ' + res.status);
+    if (typeof why !== 'string') why = JSON.stringify(why);
+    throw new Error(why.substring(0, 220));
+  }
+  var plan = cleanPlan(parseJSON(raw));
+  if (!plan) throw new Error('the AI reply could not be read as a lesson. Press Try again.');
+  if (key){
+    try{
+      fetch('/api/lesson-plan', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ key:key, steps:[plan], meta:{ kind:'kid-maths', cls:LESSON.cls, topic:LESSON.topic } }) });
+    }catch(e){}
+  }
+  return plan;
+}
+
+/* ── beats: one screen + things to do.
+   ['say', text] speak · ['wait', sec, label] class's turn · ['reveal'] show the answer
+   ['pop', i] show object i (counting) · ['lit', n] light chart cell n · ['open', n] uncover chart cell n
+   ['draw'] start the write-in-the-air drawing · hold:true waits for the teacher's Next ── */
+function buildBeats(plan){
+  var B = [];
+  B.push({ act:-1, view:'welcome', ops:[['say', plan.welcome || 'Hello, children! Let us count and play.']] });
+  plan.activities.forEach(function(a, ai){
+    B.push({ act:ai, view:'opener', a:a, ops:[['say', a.intro || a.name]] });
+    var k = a.kind;
+
+    if (k === 'count') a.items.forEach(function(g){
+      var ops = [];
+      if (g.n === 0){
+        ops.push(['say', 'How many ' + g.thing + '? Look!'], ['wait', 3, 'How many?'], ['reveal'], ['say', 'None at all! Zero ' + g.thing + '. Zero is a number too.']);
+      } else {
+        ops.push(['say', 'Count the ' + nounFor(g, g.n === 1 ? 1 : 2) + ' with me.']);
+        for (var i = 1; i <= g.n; i++) ops.push(['pop', i - 1], ['say', cap(numWord(i)) + '.']);
+        ops.push(['reveal'], ['say', g.n + ' ' + nounFor(g, g.n) + '. ' + cap(numWord(g.n)) + '!'], ['wait', 3, 'Say it!']);
+      }
+      B.push({ act:ai, view:'count', g:g, pics:[g], ops:ops });
+    });
+
+    if (k === 'story') a.items.forEach(function(g){
+      var ops = g.ask
+        ? [['say', 'How many ' + g.thing + ' now?'], ['wait', 4.5, 'Count!'], ['reveal'], ['say', g.line]]
+        : [['reveal'], ['say', g.line]];
+      ops.push(['wait', 1.5, '']);
+      B.push({ act:ai, view:'story', g:g, pics:[g], ops:ops });
+    });
+
+    if (k === 'fingers') a.items.forEach(function(it){
+      var n = it.n;
+      var tell = n > 5 ? ('5 and ' + (n - 5) + ' make ' + n + '.') : (n + (n === 1 ? ' finger.' : ' fingers.'));
+      B.push({ act:ai, view:'fingers', it:it, ops:[['say', 'Show me ' + n + '! ' + cap(numWord(n)) + '!'], ['wait', 5, 'Show me!'], ['reveal'], ['say', tell], ['wait', 2, '']] });
+    });
+
+    if (k === 'compare') a.items.forEach(function(it){
+      var A = it.a, Bg = it.b, res;
+      if (A.n === Bg.n) res = 'They are the same.';
+      else if (A.n > Bg.n) res = 'There are more ' + A.thing + ' than ' + Bg.thing + '.';
+      else res = 'There are less ' + A.thing + ' than ' + Bg.thing + '.';
+      B.push({ act:ai, view:'compare', it:it, pics:[A, Bg],
+        ops:[['say', 'Count the ' + A.thing + '. Count the ' + Bg.thing + '. Which is more?'], ['wait', 7, 'Count!'], ['reveal'],
+             ['say', A.n + ' ' + nounFor(A, A.n) + ' and ' + Bg.n + ' ' + nounFor(Bg, Bg.n) + '. ' + res], ['wait', 2, '']] });
+    });
+
+    if (k === 'tenframe') a.items.forEach(function(it){
+      var need = 10 - it.n;
+      B.push({ act:ai, view:'tenframe', it:it,
+        ops:[['say', it.n + ' and how many make 10?'], ['wait', 6, 'How many more?'], ['reveal'], ['say', it.n + ' and ' + need + ' make 10.'], ['wait', 3, 'Say it!']] });
+    });
+
+    if (k === 'bundles') a.items.forEach(function(it){
+      var num = it.tens * 10 + it.ones;
+      var tl = it.tens + (it.tens === 1 ? ' ten' : ' tens'), ol = it.ones + (it.ones === 1 ? ' one' : ' ones');
+      B.push({ act:ai, view:'bundles', it:it,
+        ops:[['say', 'How many bundles? How many loose sticks?'], ['wait', 6, 'Count!'], ['reveal'], ['say', tl + ' and ' + ol + ' make ' + num + '.'], ['wait', 3, 'Say it!']] });
+    });
+
+    if (k === 'chart') a.items.forEach(function(it){
+      var ops = [];
+      if (!it.hide.length){
+        ops.push(['say', 'Read the numbers with me.']);
+        for (var n = it.from; n <= it.to; n++) ops.push(['lit', n], ['wait', 0.85, '']);
+        ops.push(['lit', 0]);
+      } else {
+        ops.push(['say', 'Some numbers are hiding! What is hiding?']);
+        it.hide.slice().sort(function(x, y){ return x - y; }).forEach(function(h){
+          ops.push(['ask', h], ['wait', 4.5, 'What is hiding?'], ['open', h], ['say', String(h) + '.']);
+        });
+      }
+      B.push({ act:ai, view:'chart', it:it, ops:ops });
+    });
+
+    if (k === 'train') a.items.forEach(function(it){
+      var q, ans, tell;
+      if (it.mode === 'before'){ ans = it.of - 1; q = 'What comes just before ' + it.of + '?'; tell = ans + ' comes just before ' + it.of + '.'; }
+      else if (it.mode === 'after'){ ans = it.of + 1; q = 'What comes just after ' + it.of + '?'; tell = ans + ' comes just after ' + it.of + '.'; }
+      else { ans = it.a + 1; q = 'What comes between ' + it.a + ' and ' + it.b + '?'; tell = ans + ' comes between ' + it.a + ' and ' + it.b + '.'; }
+      it.ans = ans;
+      B.push({ act:ai, view:'train', it:it, ops:[['say', q], ['wait', 5, 'Think!'], ['reveal'], ['say', tell], ['wait', 2, '']] });
+    });
+
+    if (k === 'bigger') a.items.forEach(function(it){
+      var mx = Math.max.apply(null, it.nums), mn = Math.min.apply(null, it.nums), q, tell;
+      var anyTwo = it.nums.some(function(x){ return x >= 10; });
+      if (it.ask === 'biggest'){ q = 'Which is the biggest number?'; tell = mx + ' is the biggest.'; it.pick = mx; }
+      else if (it.ask === 'smallest'){ q = 'Which is the smallest number?'; tell = mn + ' is the smallest.'; it.pick = mn; }
+      else {
+        var s = it.nums.slice().sort(function(x, y){ return x - y; });
+        if (it.ask === 'order_big') s.reverse();
+        it.sorted = s;
+        q = it.ask === 'order_big' ? 'Put them in order, biggest first.' : 'Put them in order, smallest first.';
+        tell = s.join(', ') + '.';
+      }
+      var ops = [['say', q]];
+      if (anyTwo) ops.push(['say', 'Look at the tens first.']);
+      ops.push(['wait', 7, 'Think!'], ['reveal'], ['say', tell], ['wait', 2, '']);
+      B.push({ act:ai, view:'bigger', it:it, ops:ops });
+    });
+
+    if (k === 'trace') a.items.forEach(function(it){
+      B.push({ act:ai, view:'trace', it:it,
+        ops:[['say', 'This is ' + it.n + '. ' + cap(numWord(it.n)) + '.'], ['draw'], ['say', 'Watch, then write it in the air with your finger.'], ['wait', 5, 'Write in the air!'], ['say', cap(numWord(it.n)) + '!']] });
+    });
+
+    if (k === 'play') B.push({ act:ai, view:'play', a:a, hold:true, ops:a.items.map(function(it){ return ['say', it.step]; }) });
+    if (k === 'notebook') B.push({ act:ai, view:'notebook', a:a, hold:true, ops:[['say', 'Now open your books. Your teacher will help you.']] });
+  });
+  B.push({ act:-2, view:'cheer', ops:[['say', 'Well done, children! You did very well today. Give yourselves a big clap!']] });
+  return B;
+}
+
+/* ── drawing (the page draws; numbers are always exact) ── */
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function sizeFor(n){ return n <= 3 ? 150 : n <= 6 ? 120 : n <= 10 ? 96 : n <= 15 ? 78 : 66; }
+function objs(n, pi, cls){
+  var h = '';
+  for (var i = 0; i < n; i++) h += '<div class="obj ' + (cls ? cls(i) : '') + '" id="o' + pi + '_' + i + '" data-p="' + pi + '"></div>';
+  return h;
+}
+/* one hand: k fingers up (index, middle, ring, little, then thumb) */
+function handSVG(k, mirror){
+  var up = [k >= 1, k >= 2, k >= 3, k >= 4], thumb = k >= 5;
+  var xs = [30, 52, 74, 96], tall = [62, 70, 64, 52], h = '';
+  xs.forEach(function(x, i){
+    var tl = up[i] ? tall[i] : 16;
+    h += '<rect x="' + (x - 9) + '" y="' + (96 - tl) + '" width="19" height="' + (tl + 12) + '" rx="9.5" fill="var(--skin)" stroke="var(--skin-line)" stroke-width="2.5"/>';
+  });
+  h += thumb
+    ? '<rect x="2" y="96" width="19" height="52" rx="9.5" fill="var(--skin)" stroke="var(--skin-line)" stroke-width="2.5" transform="rotate(-38 12 140)"/>'
+    : '<rect x="14" y="118" width="17" height="30" rx="8.5" fill="var(--skin)" stroke="var(--skin-line)" stroke-width="2.5" transform="rotate(-20 22 140)"/>';
+  h += '<rect x="18" y="94" width="92" height="84" rx="26" fill="var(--skin)" stroke="var(--skin-line)" stroke-width="2.5"/>';
+  return '<svg viewBox="0 0 120 184" role="img" aria-label="' + k + ' fingers"' + (mirror ? ' style="transform:scaleX(-1)"' : '') + '>' + h + '</svg>';
+}
+function bundleSVG(){
+  var h = '';
+  for (var i = 0; i < 10; i++) h += '<rect x="' + (4 + i * 6.4) + '" y="4" width="4.6" height="150" rx="2" fill="#d79b4a" stroke="#8a5a1c" stroke-width="1"/>';
+  h += '<rect x="0" y="66" width="72" height="18" rx="5" fill="var(--maroon)"/>';
+  return '<svg viewBox="0 0 72 158" aria-label="a bundle of ten sticks">' + h + '</svg>';
+}
+function stickSVG(){ return '<svg viewBox="0 0 12 158" aria-label="one stick"><rect x="3" y="4" width="5.5" height="150" rx="2.5" fill="#d79b4a" stroke="#8a5a1c" stroke-width="1"/></svg>'; }
+
+function render(b){
+  var h = '', st = document.getElementById('stage');
+  if (b.view === 'welcome'){
+    h = '<div class="opener"><div class="ic">\uD83C\uDF88</div><h2>' + esc(PLAN.title) + '</h2><div class="en">' + esc(PLAN.welcome) + '</div></div>';
+  } else if (b.view === 'opener'){
+    h = '<div class="opener"><div class="ic">' + KINDS[b.a.kind].ic + '</div><h2>' + esc(b.a.name) + '</h2><div class="en">' + esc(b.a.intro) + '</div></div>';
+  } else if (b.view === 'count'){
+    var g = b.g;
+    h = '<div class="objs count" style="--sz:' + sizeFor(g.n) + 'px">' + (g.n ? objs(g.n, 0) : '<div class="say-big">\u2205</div>') + '</div>' +
+        '<div class="answer badge"><span class="num">' + g.n + '</span><span class="word">' + esc(numWord(g.n)) + '</span></div>';
+  } else if (b.view === 'story'){
+    var s = b.g;
+    h = '<div class="objs" style="--sz:' + sizeFor(s.n) + 'px">' + (s.n ? objs(s.n, 0) : '<div class="say-big">0</div>') + '</div>' +
+        '<div class="answer"><div class="badge"><span class="num">' + s.n + '</span></div><div class="line">' + esc(s.line) + '</div></div>';
+  } else if (b.view === 'fingers'){
+    var n = b.it.n;
+    h = '<div class="badge"><span class="num">' + n + '</span><span class="word">' + esc(numWord(n)) + '</span></div>' +
+        '<div class="answer hands">' + (n > 5 ? handSVG(5, false) + handSVG(n - 5, true) : handSVG(n, false)) + '</div>' +
+        (n > 5 ? '<div class="answer say-big">5 and ' + (n - 5) + ' make ' + n + '</div>' : '');
+  } else if (b.view === 'compare'){
+    var A = b.it.a, Bg = b.it.b, mn = Math.min(A.n, Bg.n), sz = sizeFor(Math.max(A.n, Bg.n, 6));
+    function row(G, pi){
+      return '<div class="row" style="--sz:' + sz + 'px"><span class="lbl">' + esc(cap(G.thing)) + '</span>' +
+        objs(G.n, pi, function(i){ return i >= mn ? 'extra' : ''; }) + '<span class="cnt answer">' + G.n + '</span></div>';
+    }
+    var res = A.n === Bg.n ? 'Same!' : (A.n > Bg.n ? 'More ' + A.thing : 'More ' + Bg.thing);
+    h = '<div class="cmp">' + row(A, 0) + row(Bg, 1) + '</div><div class="answer say-big">' + esc(res) + '</div>';
+  } else if (b.view === 'tenframe'){
+    var cells = '';
+    for (var c = 0; c < 10; c++) cells += '<div>' + (c < b.it.n ? '<i class="a"></i>' : '<i class="b"></i>') + '</div>';
+    h = '<div class="tf">' + cells + '</div><div class="say-big">' + b.it.n + ' and <span class="answer">' + (10 - b.it.n) + '</span> make 10</div>';
+  } else if (b.view === 'bundles'){
+    var sh = '';
+    for (var t = 0; t < b.it.tens; t++) sh += bundleSVG();
+    for (var o = 0; o < b.it.ones; o++) sh += stickSVG();
+    h = '<div class="sticks">' + sh + '</div>' +
+        '<div class="answer tens-ones"><span><b>' + b.it.tens + '</b> tens</span><span><b>' + b.it.ones + '</b> ones</span><span>= <b>' + (b.it.tens * 10 + b.it.ones) + '</b></span></div>';
+  } else if (b.view === 'chart'){
+    var ch = '';
+    for (var v = b.it.from; v <= b.it.to; v++){
+      var hid = b.it.hide.indexOf(v) !== -1;
+      ch += '<div id="c' + v + '"' + (hid ? ' class="hid">?' : '>' + v) + '</div>';
+    }
+    h = '<div class="chart">' + ch + '</div>';
+  } else if (b.view === 'train'){
+    var it = b.it, cars;
+    var q = '<div class="car q"><span class="qm">?</span><span class="ans">' + it.ans + '</span></div>';
+    if (it.mode === 'before') cars = q + '<div class="car">' + it.of + '</div>';
+    else if (it.mode === 'after') cars = '<div class="car">' + it.of + '</div>' + q;
+    else cars = '<div class="car">' + it.a + '</div>' + q + '<div class="car">' + it.b + '</div>';
+    h = '<div class="train"><span class="eng">\uD83D\uDE82</span>' + cars + '</div>';
+  } else if (b.view === 'bigger'){
+    h = '<div class="cards">' + b.it.nums.map(function(x){ return '<div class="card' + (x === b.it.pick ? ' pick' : '') + '">' + x + '</div>'; }).join('') + '</div>' +
+        (b.it.sorted ? '<div class="answer sorted">' + b.it.sorted.join(' , ') + '</div>' : '');
+  } else if (b.view === 'trace'){
+    h = '<div class="trace" id="trace"><svg viewBox="0 0 600 440"><text x="300" y="370" text-anchor="middle" font-size="' + (b.it.n >= 10 ? 330 : 420) + '">' + b.it.n + '</text></svg></div>' +
+        '<div class="say-big">' + esc(cap(numWord(b.it.n))) + '</div>';
+  } else if (b.view === 'play'){
+    h = '<div class="opener"><h2>' + esc(b.a.name) + '</h2></div><ul class="steps">' + b.a.items.map(function(it){ return '<li>' + esc(it.step) + '</li>'; }).join('') + '</ul>' +
+        (b.a.caller ? '<div class="caller"><button class="cb main" onclick="callNumber(' + b.a.caller.min + ',' + b.a.caller.max + ')">Call a number</button><span class="called" id="called"></span></div>' : '') +
+        '<div class="teacher-note">Teacher: play the game with the children, then press Next.</div>';
+  } else if (b.view === 'notebook'){
+    h = '<div class="opener"><div class="ic">\u270F\uFE0F</div><h2>' + esc(b.a.name) + '</h2></div><ul class="steps book">' + b.a.items.map(function(it){ return '<li>' + esc(it.task) + '</li>'; }).join('') + '</ul>' +
+        '<div class="teacher-note">Teacher: these are done in the book or notebook, not on the screen.</div>';
+  } else if (b.view === 'cheer'){
+    h = '<div class="cheer"><div class="ic">\uD83C\uDF1F\uD83D\uDC4F\uD83C\uDF1F</div><h2>Well done, children!</h2></div>';
+  }
+  st.className = '';
+  st.innerHTML = h;
+}
+
+function callNumber(min, max){
+  var last = callNumber.last, n;
+  do { n = min + Math.floor(Math.random() * (max - min + 1)); } while (n === last && max > min);
+  callNumber.last = n;
+  var el = document.getElementById('called');
+  if (el){ el.textContent = n; el.style.animation = 'none'; void el.offsetWidth; el.style.animation = 'pop .4s ease both'; }
+  speak(cap(numWord(n)) + '!', RUN, true);
+}
+
+function renderActs(){
+  var el = document.getElementById('acts');
+  var curAct = BEATS[CUR] ? BEATS[CUR].act : -1;
+  el.innerHTML = PLAN.activities.map(function(a, i){
+    var cls = 'act' + (i === curAct ? ' now' : '') + ((curAct === -2 || i < curAct) ? ' done' : '');
+    return '<button class="' + cls + '" onclick="jumpAct(' + i + ')"><span class="ic">' + KINDS[a.kind].ic + '</span>' + esc(a.name) + '</button>';
+  }).join('');
+  var now = el.querySelector('.now');
+  if (now && now.scrollIntoView) now.scrollIntoView({ block:'nearest', inline:'center' });
+}
+
+/* ── pictures: Picture Library first, then a saved drawing of ONE thing.
+   The same picture is repeated n times, so the count is always exact. ── */
+function loadLibrary(){
+  return fetch('/api/auth', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ action:'tbl_get', table:'kg_pictures', params:'select=word,colour_url,outline_url&order=word' }) })
+    .then(function(r){ return r.ok ? r.json() : []; })
+    .then(function(rows){ if (Array.isArray(rows)) rows.forEach(function(r){ if (r && r.word) LIB[String(r.word).toLowerCase()] = r.colour_url || r.outline_url || ''; }); })
+    .catch(function(){});
+}
+function getPic(g){
+  var w = (g && (g.lib || g.one || '')).toLowerCase().trim();
+  if (!w) return Promise.resolve({ none:true });
+  if (LIB[w]) return Promise.resolve({ url:LIB[w] });
+  if (!PICS[w]){
+    PICS[w] = fetch('/api/gen-image', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ query:w, context:'', mode:'kg-colour' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.images && d.images[0] && d.images[0].url) return { url:d.images[0].url }; delete PICS[w]; return { none:true }; })
+      .catch(function(){ delete PICS[w]; return { none:true }; });
+  }
+  return PICS[w];
+}
+function fillPics(beat, run){
+  (beat.pics || []).forEach(function(g, pi){
+    getPic(g).then(function(r){
+      if (run !== RUN) return;
+      document.querySelectorAll('#stage .obj[data-p="' + pi + '"]').forEach(function(box){
+        box.innerHTML = r.url ? '<img alt="' + esc(g.one || '') + '" src="' + esc(r.url) + '">' : '<span class="dot"></span>';
+      });
+    });
+  });
+}
+
+/* ── voice ── */
+function getAudio(text){
+  if (!AUD[text]){
+    AUD[text] = fetch('/api/voice-class', { method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text:text, cls: LESSON.cls || 'Class 1' }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){ if (d && d.audio_b64) return 'data:audio/mpeg;base64,' + d.audio_b64; delete AUD[text]; return null; })
+      .catch(function(){ delete AUD[text]; return null; });
+  }
+  return AUD[text];
+}
+function stopVoice(){
+  if (curAudio){ try{ curAudio.pause(); }catch(e){} curAudio = null; }
+  try{ window.speechSynthesis.cancel(); }catch(e){}
+  if (curAudioDone){ var f = curAudioDone; curAudioDone = null; f(); }
+}
+async function speak(text, run, loose){
+  if (!text) return;
+  if (!VOICE_ON){ await waitSec(Math.min(5, text.split(/\s+/).length * 0.45), run, null); return; }
+  var src = await getAudio(text);
+  if (!loose && run !== RUN) return;
+  if (!src) return browserSay(text);
+  await new Promise(function(resolve){
+    var a = new Audio(src);
+    a.playbackRate = RATE;
+    curAudio = a; curAudioDone = resolve;
+    a.onended = a.onerror = function(){ if (curAudio === a){ curAudio = null; curAudioDone = null; } resolve(); };
+    a.play().catch(function(){ curAudio = null; curAudioDone = null; browserSay(text).then(resolve); });
+  });
+  if (!loose) await waitWhilePaused(run);
+}
+function browserSay(text){
+  return new Promise(function(resolve){
+    if (!('speechSynthesis' in window)) return resolve();
+    var u = new SpeechSynthesisUtterance(text);
+    u.lang = 'en-IN'; u.rate = 0.85; u.pitch = 1.1;
+    u.onend = u.onerror = function(){ resolve(); };
+    curAudioDone = resolve;
+    window.speechSynthesis.speak(u);
+  });
+}
+function waitWhilePaused(run){
+  return new Promise(function(resolve){
+    (function tick(){ if (run !== RUN || !PAUSED) return resolve(); setTimeout(tick, 150); })();
+  });
+}
+function waitSec(sec, run, label){
+  var bar = document.getElementById('turn'), fill = document.getElementById('turn-fill');
+  if (label){ document.getElementById('turn-lbl').textContent = label; bar.classList.add('on'); }
+  var left = sec * 1000;
+  return new Promise(function(resolve){
+    var last = Date.now();
+    (function tick(){
+      if (run !== RUN){ bar.classList.remove('on'); return resolve(); }
+      var now = Date.now();
+      if (!PAUSED) left -= (now - last);
+      last = now;
+      if (label) fill.style.transform = 'scaleX(' + Math.max(0, left / (sec * 1000)) + ')';
+      if (left <= 0){ bar.classList.remove('on'); return resolve(); }
+      setTimeout(tick, 60);
+    })();
+  });
+}
+
+/* ── the runner ── */
+async function play(i){
+  if (i < 0 || i >= BEATS.length) return;
+  stopVoice();
+  var run = ++RUN;
+  CUR = i;
+  PAUSED = false; setPauseBtn();
+  document.getElementById('turn').classList.remove('on');
+  var b = BEATS[i];
+  render(b);
+  renderActs();
+  fillPics(b, run);
+  prefetch(i + 1); prefetch(i + 2);
+  document.getElementById('b-back').disabled = (i === 0);
+  var nx = document.getElementById('b-next');
+  nx.classList.remove('pulse');
+  nx.textContent = (i === BEATS.length - 1) ? 'Finish' : 'Next \u25B6';
+  var st = document.getElementById('stage');
+
+  for (var k = 0; k < b.ops.length; k++){
+    if (run !== RUN) return;
+    var op = b.ops[k];
+    if (op[0] === 'say') await speak(op[1], run);
+    else if (op[0] === 'wait') await waitSec(op[1], run, op[2]);
+    else if (op[0] === 'reveal') st.classList.add('revealed');
+    else if (op[0] === 'pop'){ var ob = document.getElementById('o0_' + op[1]); if (ob) ob.classList.add('in'); }
+    else if (op[0] === 'lit'){
+      st.querySelectorAll('.chart .lit').forEach(function(c){ c.classList.remove('lit'); });
+      var cl = document.getElementById('c' + op[1]); if (cl) cl.classList.add('lit');
+    }
+    else if (op[0] === 'ask'){ var ca = document.getElementById('c' + op[1]); if (ca) ca.classList.add('ask'); }
+    else if (op[0] === 'open'){ var co = document.getElementById('c' + op[1]); if (co){ co.textContent = op[1]; co.classList.remove('ask'); co.style.animation = 'pop .4s ease both'; } }
+    else if (op[0] === 'draw'){ var tr = document.getElementById('trace'); if (tr) tr.classList.add('draw'); }
+    if (run !== RUN) return;
+    await waitWhilePaused(run);
+  }
+  if (run !== RUN) return;
+  if (b.hold || i === BEATS.length - 1){ nx.classList.add('pulse'); return; }
+  await waitSec(0.9, run, null);
+  if (run === RUN) play(i + 1);
+}
+function prefetch(i){
+  var b = BEATS[i]; if (!b) return;
+  (b.pics || []).forEach(function(p){ getPic(p); });
+  if (VOICE_ON) b.ops.forEach(function(op){ if (op[0] === 'say' && op[1]) getAudio(op[1]); });
+}
+function goNext(){ if (CUR >= BEATS.length - 1){ goBack(); return; } play(CUR + 1); }
+function goPrev(){ if (CUR > 0) play(CUR - 1); }
+function again(){ if (CUR >= 0) play(CUR); }
+function jumpAct(ai){ for (var i = 0; i < BEATS.length; i++) if (BEATS[i].act === ai){ play(i); return; } }
+function togglePause(){
+  PAUSED = !PAUSED;
+  if (curAudio){ try{ PAUSED ? curAudio.pause() : curAudio.play(); }catch(e){} }
+  try{ PAUSED ? window.speechSynthesis.pause() : window.speechSynthesis.resume(); }catch(e){}
+  setPauseBtn();
+}
+function setPauseBtn(){
+  var b = document.getElementById('b-pause');
+  b.innerHTML = PAUSED ? '\u25B6 Play' : '&#10074;&#10074; Pause';
+  b.classList.toggle('main', PAUSED);
+}
+function toggleVoice(){
+  VOICE_ON = !VOICE_ON;
+  document.getElementById('tog-voice').classList.toggle('on', VOICE_ON);
+  if (!VOICE_ON) stopVoice();
+}
+
+/* ── cover card ── */
+function setCover(msg){ var m = document.getElementById('cover-msg'); if (m) m.textContent = msg; }
+function coverError(msg){
+  document.getElementById('cover-spin').style.display = 'none';
+  var e = document.getElementById('cover-err');
+  e.innerHTML = esc(msg) + '<div class="row" style="justify-content:flex-start;margin-top:12px">' +
+    '<button class="cb main" onclick="location.reload()">Try again</button>' +
+    '<button class="cb" onclick="openOldClass()">Open Maths Class</button></div>';
+  e.classList.add('on');
+}
+function showStart(){
+  document.getElementById('cover-card').innerHTML =
+    '<h1>' + esc(PLAN.title) + '</h1>' +
+    '<p>' + PLAN.activities.length + ' activities: ' + PLAN.activities.map(function(a){ return KINDS[a.kind].ic + ' ' + esc(a.name); }).join(', ') + '</p>' +
+    '<div class="row"><button class="cb main" onclick="startClass()">Start class</button>' +
+    '<button class="cb" id="ready-btn" onclick="getReady()">Get pictures ready</button></div>' +
+    '<p id="ready-msg" style="font-size:1rem"></p>' +
+    '<button class="link-btn" onclick="rebuild()">Make this lesson again</button>';
+}
+function startClass(){ document.getElementById('cover').style.display = 'none'; play(0); }
+async function getReady(){
+  var btn = document.getElementById('ready-btn'), msg = document.getElementById('ready-msg');
+  btn.disabled = true;
+  var specs = [], seen = {};
+  BEATS.forEach(function(b){ (b.pics || []).forEach(function(p){ var w = (p.lib || p.one || '').toLowerCase(); if (w && !seen[w]){ seen[w] = 1; specs.push(p); } }); });
+  var done = 0;
+  msg.textContent = 'Preparing pictures: 0 of ' + specs.length;
+  for (var i = 0; i < specs.length; i += 3){
+    await Promise.all(specs.slice(i, i + 3).map(function(p){ return getPic(p).then(function(){ done++; msg.textContent = 'Preparing pictures: ' + done + ' of ' + specs.length; }); }));
+  }
+  msg.textContent = 'All ' + specs.length + ' pictures are ready.';
+  btn.disabled = false;
+}
+async function rebuild(){
+  if (!confirm('Make this lesson again from the chapter?\n\nThe saved lesson is replaced. It takes about a minute.')) return;
+  document.getElementById('cover-card').innerHTML =
+    '<h1>Making the lesson again</h1><p id="cover-msg">Reading the chapter\u2026</p><div class="spin" id="cover-spin"></div><div class="err" id="cover-err"></div>';
+  try{ PLAN = await getPlan(true); BEATS = buildBeats(PLAN); showStart(); }
+  catch(e){ coverError('Could not make the lesson: ' + (e.message || e)); }
+}
+
+document.addEventListener('keydown', function(e){
+  if (document.getElementById('cover').style.display !== 'none') return;
+  if (e.key === 'ArrowRight') goNext();
+  else if (e.key === 'ArrowLeft') goPrev();
+  else if (e.key === ' '){ e.preventDefault(); togglePause(); }
+  else if (e.key === 'r' || e.key === 'R') again();
+});
+
+(async function init(){
+  if (!readLesson()){
+    coverError('No chapter is open. In the Teacher Panel, pick the Maths book, enter the pages, press Go to Teach Tab, then open Maths Class.');
+    return;
+  }
+  try{
+    var lib = loadLibrary();
+    PLAN = await getPlan(false);
+    await Promise.race([lib, new Promise(function(r){ setTimeout(r, 4000); })]);
+    BEATS = buildBeats(PLAN);
+    showStart();
+  }catch(e){
+    coverError('Could not prepare the class: ' + (e.message || e));
+  }
+})();
+</script>
+</body>
+</html>
