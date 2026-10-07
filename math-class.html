@@ -7100,12 +7100,37 @@ async function loadQuestionsFromLesson(){
   await mcLoadWholeLesson();
 }
 
+// Long chapters: the questions sit in the exercise, usually at the end.
+// Send the AI only that part, so nothing is cut off and the cost stays low.
+//   1. From the first "Exercise" heading to the end of the chapter
+//   2. Else every "Figure it Out" block (new NCERT books)
+//   3. Else the last part of the chapter
+function mcExercisePart(text){
+  var t = String(text || '');
+  var CAP = 40000;
+  if(t.length <= 15000) return t;
+  var h = /(^|\n)[ \t]*(?:\[Page \d+\][ \t]*)?(?:exercises?|let us practi[cs]e)[ \t]*(?:[0-9]+(?:\.[0-9]+)?)?[ \t]*[:.]?[ \t]*(?=\n|$)/i.exec(t);
+  if(h){
+    var at = h.index;
+    var pg = t.lastIndexOf('[Page ', at);            // keep the page marker just before it
+    if(pg >= 0 && at - pg < 40) at = pg;
+    return t.substring(at, at + CAP);
+  }
+  var fio = /figure it out/ig, parts = [], f;
+  while((f = fio.exec(t)) && parts.join('').length < CAP){
+    var next = t.toLowerCase().indexOf('figure it out', f.index + 13);
+    parts.push(t.substring(f.index, next > 0 ? Math.min(next, f.index + 4000) : f.index + 4000));
+  }
+  if(parts.length) return parts.join('\n\n').substring(0, CAP);
+  return t.substring(Math.max(0, t.length - 20000));
+}
+
 async function mcLoadWholeLesson(){
   if(!MC_LESSON || !MC_LESSON.lessonText || MC_LESSON.lessonText.length < 20){
     showError('No lesson text found. Please re-activate the Maths lesson from Teacher Panel \u2192 My Books, then come back.');
     return;
   }
-  await mcSplitQuestions(MC_LESSON.lessonText, '', '');
+  await mcSplitQuestions(mcExercisePart(MC_LESSON.lessonText), '', '');
 }
 
 async function mcSplitQuestions(lessonText, label, kind){
