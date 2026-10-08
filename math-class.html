@@ -2352,6 +2352,8 @@ function showClassroom(){
     var figArea = $('figure-area');
     if(figArea) figArea.style.display = 'none';
   }
+  // Hide the finished figure - it is drawn live when the class reaches it.
+  try{ mcFigPrepare(); }catch(eFig){ MC_FIG_DRAWN = true; }
 
   STEP_IDX = -1;
   updateStepIndicator();
@@ -4240,6 +4242,7 @@ function stopClass(){
   resetYourTurn();
   $('rough-content').innerHTML = '<div class="rough-empty">Rough calculations will appear here as the teacher solves...</div>';
   resetRoughMemory();
+  try{ mcFigInstant(-1); }catch(e){}   // the figure is drawn again on the next Play
   updateStepIndicator();
   updateNavButtons();
   showStatusToast('⏹ Class stopped. Click ▶ Play to start again.');
@@ -4371,6 +4374,8 @@ async function showStep(idx){
   applyStepFigRef(step);
   // Bring the figure down to this step if it belongs here
   try{ mcPlaceFigure(idx); }catch(e){}
+  // Draw the figure (or the piece this step talks about) like chalk
+  try{ await mcFigLiveStep(idx); }catch(e){ try{ mcFigInstant(idx); }catch(e2){} }
 
   // Wait for parent fade-in to finish so chalk animation isn't masked
   await sleep(100);
@@ -5508,6 +5513,7 @@ function showStepInstant(idx){
     }
   });
   try{ mcPlaceFigure(idx); }catch(e){}
+  try{ mcFigInstant(idx); }catch(e){}
   var stepEl = $('step-' + idx);
   if(stepEl){
     stepEl.classList.add('current');
@@ -7077,6 +7083,174 @@ function applyStepFigRef(step){
     key = fig + '|' + at + '|' + fr.pos;
   }
   if(key) highlightFigureAngle(key);
+}
+
+
+// ===========================================================
+//  DRAW-AS-YOU-TEACH  (Oct 2026)
+//  The geometry figure used to appear fully drawn. Now it is drawn
+//  on the board like a teacher with chalk: each line, circle and arc
+//  is traced out one after another, then the letters and values are
+//  written in. An angle or side that a LATER step talks about is
+//  held back and drawn at that step, as the voice reaches it.
+//  Jumping with Prev / Next shows everything at once (no waiting).
+//  Nothing in the figure builders above is changed - this only
+//  hides the finished drawing and reveals it piece by piece.
+// ===========================================================
+var MC_FIG_DRAWN = true;     // false = figure is waiting to be drawn
+var MC_FIG_DRAW_STEP = 0;    // the step at which the figure is drawn
+var MC_FIG_LATER = {};       // figure key -> step that draws it later
+var MC_FIG_SHAPES = { line:1, path:1, circle:1, ellipse:1, polyline:1, polygon:1, rect:1, text:1, image:1 };
+
+// Same key rule as applyStepFigRef, so we know which piece a step points at.
+function mcFigKeyOf(step){
+  if(!step || !step.figRef) return null;
+  var fr = step.figRef;
+  var fig = (fr.figure != null) ? String(fr.figure) : '';
+  if(typeof fr.angleIndex === 'number') return fig + '|s' + fr.angleIndex;
+  if(fr.vertex) return fig + '|v' + fr.vertex;
+  if(fr.seg) return fig + '|sg' + fr.seg;
+  if(fr.side) return fig + '|sd' + fr.side;
+  if(fr.elev) return fig + '|elev';
+  if(fr.point) return fig + '|pt' + fr.point;
+  if(typeof fr.line === 'number') return fig + '|ln' + fr.line;
+  if(typeof fr.parabola === 'number') return fig + '|pb' + fr.parabola;
+  if(fr.pos) return fig + '|' + (fr.at || 'c') + '|' + fr.pos;
+  return null;
+}
+// Every drawable piece of the figure(s), in the order it was drawn.
+function mcFigPieces(){
+  var area = $('figure-area');
+  if(!area) return [];
+  var out = [];
+  area.querySelectorAll('svg *').forEach(function(el){
+    var tag = String(el.tagName || '').toLowerCase();
+    if(!MC_FIG_SHAPES[tag]) return;
+    if(el.closest('defs') || el.closest('marker')) return;
+    if(tag !== 'text' && el.closest('text')) return;
+    out.push(el);
+  });
+  return out;
+}
+function mcFigPieceKey(el){
+  var g = el.closest ? el.closest('[data-figkey]') : null;
+  return g ? g.getAttribute('data-figkey') : null;
+}
+// Called when the classroom is built: hide the finished figure.
+function mcFigPrepare(){
+  MC_FIG_DRAWN = true;
+  MC_FIG_LATER = {};
+  var pieces = mcFigPieces();
+  if(!pieces.length || !SOLUTION) return;
+  MC_FIG_DRAW_STEP = (FIG_STEP_IDX >= 0) ? FIG_STEP_IDX : 0;
+  (SOLUTION.steps || []).forEach(function(st, i){
+    var k = mcFigKeyOf(st);
+    if(k && i > MC_FIG_DRAW_STEP && !(k in MC_FIG_LATER)) MC_FIG_LATER[k] = i;
+  });
+  pieces.forEach(function(el){ el.style.opacity = '0'; el.setAttribute('data-mcwait', '1'); });
+  MC_FIG_DRAWN = false;
+  if(FIG_STEP_IDX < 0){
+    var area = $('figure-area');
+    if(area) area.style.display = 'none';    // shown when the drawing starts
+  }
+}
+function mcFigShowArea(){
+  if(FIG_STEP_IDX >= 0) return;               // mcPlaceFigure handles that case
+  var area = $('figure-area');
+  if(area && area.children.length) area.style.display = 'flex';
+}
+function mcFigShowNow(el){
+  el.style.transition = ''; el.style.strokeDasharray = ''; el.style.strokeDashoffset = '';
+  el.style.opacity = '';
+  el.removeAttribute('data-mcwait');
+  if(el.__mcMk){
+    if(el.__mcMk[0]) el.setAttribute('marker-start', el.__mcMk[0]);
+    if(el.__mcMk[1]) el.setAttribute('marker-end', el.__mcMk[1]);
+    el.__mcMk = null;
+  }
+}
+// Draw one piece: lines and curves are traced, letters fade in.
+function mcFigDrawPiece(el, speed){
+  return new Promise(function(resolve){
+    var tag = String(el.tagName || '').toLowerCase();
+    var fill = el.getAttribute('fill');
+    var stroke = el.getAttribute('stroke');
+    var dashed = el.getAttribute('stroke-dasharray');
+    var len = 0;
+    var traceable = tag !== 'text' && tag !== 'image' && stroke && stroke !== 'none'
+      && !dashed && (!fill || fill === 'none' || fill === 'transparent');
+    if(tag === 'circle' && parseFloat(el.getAttribute('r') || '0') < 5) traceable = false;
+    if(traceable){ try{ len = el.getTotalLength(); }catch(e){ len = 0; } }
+    if(traceable && len > 2){
+      var ms = Math.max(220, Math.min(800, len * 4)) * speed;
+      el.__mcMk = [el.getAttribute('marker-start'), el.getAttribute('marker-end')];
+      el.removeAttribute('marker-start'); el.removeAttribute('marker-end');
+      el.style.strokeDasharray = len + ' ' + len;
+      el.style.strokeDashoffset = String(len);
+      el.style.opacity = '';
+      void el.getBoundingClientRect();
+      el.style.transition = 'stroke-dashoffset ' + Math.round(ms) + 'ms linear';
+      el.style.strokeDashoffset = '0';
+      setTimeout(function(){ mcFigShowNow(el); resolve(); }, ms + 30);
+    } else {
+      var fm = Math.round(220 * speed);
+      el.style.transition = 'opacity ' + fm + 'ms ease-out';
+      void el.getBoundingClientRect();
+      el.style.opacity = '';
+      setTimeout(function(){ mcFigShowNow(el); resolve(); }, fm + 20);
+    }
+  });
+}
+// Draw a list of pieces one after another. If the class is paused or
+// stopped midway, the rest appears at once so no half figure is left.
+async function mcFigDrawList(list){
+  if(!list.length) return;
+  var est = 0;
+  list.forEach(function(el){ est += (String(el.tagName).toLowerCase() === 'text') ? 240 : 600; });
+  var speed = est > 8000 ? 8000 / est : 1;   // a busy figure is drawn faster, never over ~8 seconds
+  for(var i = 0; i < list.length; i++){
+    if(!IS_PLAYING){ for(var j = i; j < list.length; j++) mcFigShowNow(list[j]); return; }
+    await mcFigDrawPiece(list[i], speed);
+  }
+}
+// Playback hook: called from showStep for every step.
+async function mcFigLiveStep(idx){
+  if(MC_FIG_DRAWN === false && idx >= MC_FIG_DRAW_STEP){
+    MC_FIG_DRAWN = true;
+    mcFigShowArea();
+    var now = mcFigPieces().filter(function(el){
+      if(!el.hasAttribute('data-mcwait')) return false;
+      var k = mcFigPieceKey(el);
+      return !(k && MC_FIG_LATER[k] > idx);
+    });
+    await mcFigDrawList(now);
+  }
+  // A piece held back for this step is drawn now, as the voice gets to it.
+  var key = mcFigKeyOf(SOLUTION && SOLUTION.steps ? SOLUTION.steps[idx] : null);
+  if(key && MC_FIG_LATER[key] === idx){
+    var held = mcFigPieces().filter(function(el){
+      return el.hasAttribute('data-mcwait') && mcFigPieceKey(el) === key;
+    });
+    await mcFigDrawList(held);
+  }
+}
+// Prev / Next / jump: everything up to this step at once, later pieces hidden.
+function mcFigInstant(idx){
+  var pieces = mcFigPieces();
+  if(!pieces.length) return;
+  if(idx < MC_FIG_DRAW_STEP){
+    pieces.forEach(function(el){ el.style.opacity = '0'; el.setAttribute('data-mcwait', '1'); });
+    MC_FIG_DRAWN = false;
+    if(FIG_STEP_IDX < 0){ var ar = $('figure-area'); if(ar) ar.style.display = 'none'; }
+    return;
+  }
+  MC_FIG_DRAWN = true;
+  mcFigShowArea();
+  pieces.forEach(function(el){
+    var k = mcFigPieceKey(el);
+    if(k && MC_FIG_LATER[k] > idx){ el.style.opacity = '0'; el.setAttribute('data-mcwait', '1'); }
+    else mcFigShowNow(el);
+  });
 }
 
 // ═══════════════════════════════════════════
