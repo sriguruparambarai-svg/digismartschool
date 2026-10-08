@@ -1075,6 +1075,24 @@ html,body{
   .mr-line{font-size:1.25rem;}
   .step-why{font-size:1rem;margin-left:0;}
 }
+
+/* ===== PRINTED MATHS FONT ON THE WHOLE BOARD =====
+   The board used to mix chalk handwriting with printed maths, which looked
+   untidy. Everything written on the board now uses the same printed maths
+   font as the fractions and roots (KaTeX's own font). Figure labels inside
+   drawings are left as they are. */
+.problem-title,.problem-text,.formula-block,.step-num,.step-content,.final-answer,
+.verification,.your-turn-title,.your-turn-q,.your-turn-ans,.your-turn-rate-q,
+.make-it-title,.make-it-steps,.rough-label,.rough-entry,.rough-empty,.chalk,
+.ask-line,.blocks-label,.colcalc-cell,.calc-simple,.mx-cell,.fig-card .fig-caption{
+  font-family:'KaTeX_Main','Times New Roman',serif !important;
+}
+.problem-text,.step-content,.formula-block,.your-turn-q,.your-turn-ans,
+.rough-entry,.mx-cell,.colcalc-cell,.calc-simple{font-weight:400 !important;}
+.step-content{font-size:1.5rem;}          /* same size as the printed maths lines */
+.problem-text{font-size:1.3rem;}
+.mx-cell{padding:0 4px;}
+.mx-cell .mr-line{font-size:1em;}         /* a root or fraction inside a matrix stays cell-sized */
 </style>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" crossorigin="anonymous">
 <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.js" crossorigin="anonymous"></script>
@@ -2262,7 +2280,9 @@ function showClassroom(){
   $('toolbar').style.display = 'flex';
 
   // Render problem title and text
-  $('problem-text').textContent = SOLUTION.problem || $('problem-input').value;
+  var mcProbTxt = SOLUTION.problem || $('problem-input').value;
+  if(hasMatrixNotation(mcProbTxt)){ try{ renderMathWithMatrices($('problem-text'), mcProbTxt); }catch(e){ $('problem-text').textContent = mcProbTxt; } }
+  else $('problem-text').textContent = mcProbTxt;
   try{ mcShowBookPic(); }catch(e){}
 
   // Bring the figure area back under the problem before the steps list is
@@ -2979,6 +2999,10 @@ function needsPrintMath(text){
      this list, so a formula like "an = ar^(n-1)" went to the chalk writer
      and the caret was printed as a literal symbol on the board. */
   if(/[\^\/\u221a\u00b2\u00b3\u2074-\u2079\u00b0\u03c0\u00d7\u00f7]/.test(t)) return true;
+  /* Short working lines ("a24 = 5", "Number of rows = 4") are printed as
+     maths too, so the whole board looks the same. Long sentences stay as
+     plain text, because printed maths does not wrap onto a new line. */
+  if(/[=<>\u2264\u2265\u2260]/.test(t) && t.length <= 70) return true;
   return mrHasSubscript(t);
 }
 
@@ -4102,7 +4126,10 @@ function buildMatrixEl(mtext){
     for(var ci = 0; ci < cols; ci++){
       var cell = document.createElement('span');
       cell.className = 'mx-cell';
-      cell.textContent = (r[ci] != null && r[ci] !== '') ? r[ci] : '';
+      var cv = (r[ci] != null && r[ci] !== '') ? r[ci] : '';
+      var cellDrawn = false;
+      try{ if(cv && needsPrintMath(cv)) cellDrawn = katexSet(cell, cv); }catch(e){ cellDrawn = false; }
+      if(!cellDrawn) cell.textContent = cv;
       grid.appendChild(cell);
     }
   });
