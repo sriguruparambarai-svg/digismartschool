@@ -83,6 +83,14 @@ html,body{
   transition:border-color .2s;
 }
 .problem-box:focus{border-color:var(--gold);}
+/* Maths symbol keypad - appears under whichever question box is being typed in */
+.mk-pad{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 4px;padding:8px;
+  background:rgba(107,26,26,.35);border:1px solid rgba(201,168,76,.35);border-radius:10px;}
+.mk-pad button{min-width:42px;height:38px;padding:0 10px;border-radius:8px;cursor:pointer;
+  border:1px solid rgba(201,168,76,.45);background:rgba(255,255,255,.07);color:#F5E6C8;
+  font-family:'Crimson Pro',serif;font-size:1.15rem;font-weight:700;}
+.mk-pad button:hover{background:rgba(201,168,76,.25);}
+.mk-pad .mk-lbl{width:100%;font-size:.72rem;font-weight:800;color:rgba(232,201,154,.65);font-family:inherit;}
 .problem-box::placeholder{color:rgba(232,201,154,.35);font-style:italic;}
 .meta-row{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;}
 .meta-row .field{flex:1;min-width:180px;}
@@ -7833,12 +7841,144 @@ async function mcLoadWholeLesson(){
   await mcSplitQuestions(mcExercisePart(MC_LESSON.lessonText), '', '');
 }
 
+// ===========================================================
+//  READ QUESTIONS FROM THE BOOK PAGE PICTURES
+//  Text pulled out of a PDF loses maths symbols: a square root
+//  vanishes, x² becomes x2, a stacked fraction becomes two numbers,
+//  minus signs drop. So when the book pages can be opened, the AI
+//  reads the questions from the page PICTURE (like a person would),
+//  using the stored text only as a helper. Falls back to the old
+//  text-only reading when the pages cannot be opened.
+// ===========================================================
+var MC_PAGE_CHUNK = 3;    // pages per AI call
+var MC_PAGE_MAX   = 12;   // above this, keep the old text reading (cost)
+
+// Book pages this text came from: [Page N] marks first, else the block's range.
+function mcPagesOfText(text){
+  var nums = [], m, re = /\[Page\s*(\d+)\]/gi;
+  while((m = re.exec(String(text || ''))) !== null){
+    var n = parseInt(m[1], 10);
+    if(nums.indexOf(n) < 0) nums.push(n);
+  }
+  if(!nums.length && MC_BLOCK){
+    var a = parseInt(MC_BLOCK.page_from, 10), b = parseInt(MC_BLOCK.page_to, 10);
+    if(a && b && b >= a) for(var i = a; i <= b; i++) nums.push(i);
+  }
+  return nums.sort(function(x, y){ return x - y; });
+}
+// The stored text of one page (between its [Page N] mark and the next).
+function mcTextOfPage(text, n){
+  var t = String(text || '');
+  var re = new RegExp('\\[Page\\s*' + n + '\\]', 'i');
+  var m = re.exec(t);
+  if(!m) return '';
+  var rest = t.substring(m.index + m[0].length);
+  var nx = rest.search(/\[Page\s*\d+\]/i);
+  return nx < 0 ? rest : rest.substring(0, nx);
+}
+// Safety check: is page n of the opened PDF really the page the text talks about?
+// (A chapter-only PDF has different page numbers from the whole book.)
+async function mcPageMatches(n, pageText){
+  try{
+    var pdf = await mcGetPdf();
+    if(!pdf || n < 1 || n > pdf.numPages) return false;
+    if(!pageText || pageText.trim().length < 40) return true;   // nothing to compare - trust it
+    var tc = await (await pdf.getPage(n)).getTextContent();
+    var live = mcNormT(tc.items.map(function(i){ return i.str; }).join(' '));
+    var words = mcNormT(pageText).split(' ').filter(function(w){ return w.length > 3; }).slice(0, 40);
+    if(words.length < 5) return true;
+    var hit = 0;
+    words.forEach(function(w){ if(live.indexOf(w) >= 0) hit++; });
+    return hit / words.length >= 0.5;
+  }catch(e){ return false; }
+}
+async function mcSplitFromPages(lessonText, label, kind){
+  var pages = mcPagesOfText(lessonText);
+  if(!pages.length || pages.length > MC_PAGE_MAX) return null;
+  if(!(await mcGetPdf())) return null;
+  for(var c = 0; c < pages.length; c++){
+    if(!(await mcPageMatches(pages[c], mcTextOfPage(lessonText, pages[c])))){
+      console.warn('[BOOK] Page ' + pages[c] + ' of the PDF does not match the stored text - reading text only.');
+      return null;
+    }
+  }
+  var ls = document.querySelector('.loading-sub');
+  var all = [];
+  for(var i = 0; i < pages.length; i += MC_PAGE_CHUNK){
+    var grp = pages.slice(i, i + MC_PAGE_CHUNK);
+    if(ls) ls.textContent = 'Looking at book page' + (grp.length > 1 ? 's ' : ' ') + grp.join(', ') + ' so every \u221a, fraction and sign is read correctly.';
+    var content = [], helper = '';
+    for(var g = 0; g < grp.length; g++){
+      var img = await mcRenderPage(grp[g]);
+      if(!img) return null;
+      content.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
+      helper += '[Page ' + grp[g] + ']\n' + mcTextOfPage(lessonText, grp[g]) + '\n';
+    }
+    if(!helper.replace(/\[Page \d+\]/g, '').trim()) helper = lessonText;
+    content.push({ type: 'text', text:
+        'These are maths textbook page pictures' + (label ? (' containing "' + label + '"') : '') + '.\n'
+      + 'Extract the questions printed on these pages.\n'
+      + 'Rules:\n'
+      + '- Return ONLY valid JSON in this exact shape: {"questions":["question 1","question 2"]}\n'
+      + '- READ THE MATHS FROM THE PICTURE, NOT FROM THE HELPER TEXT. The helper text was pulled out of the PDF and has LOST symbols: square roots, powers, stacked fractions, minus signs. Use it only to spell words.\n'
+      + '- Copy every expression EXACTLY as printed. Use these symbols: \u221a for square root with brackets around everything under the bar, e.g. \u221a(4x\u00b2 + 20x + 25); \u221b for cube root; \u00b2 \u00b3 \u2074 for powers (x^n for other powers); \u00d7 \u00f7 \u2212 \u00b1; stacked fractions as (top)/(bottom), e.g. (x\u00b2 \u2212 1)/(x + 1).\n'
+      + '- Check every minus sign, power and root twice against the picture before writing it.\n'
+      + '- Remove question numbers like "3." or "Q5)" from the start of each question.\n'
+      + '- If a question has sub-parts (i), (ii) or (a), (b), keep them together as ONE question, with the labels.\n'
+      + ((kind === 'example')
+          ? '- These pages hold WORKED EXAMPLES. Take the question statement of each example and leave out the printed solution.\n'
+          : '- Skip explanations, definitions, solved examples and answers - questions ONLY.\n')
+      + (label ? ('- Take only the questions of "' + label + '". Ignore other exercises that share these pages.\n') : '')
+      + '- If a question needs a figure whose values are not printed as text, start it with [FIGURE].\n'
+      + '- If a question continues from the previous page, or runs onto the next, write it once, complete.\n'
+      + '- Keep the questions in the book\'s order. If there are none, return {"questions":[]}\n\n'
+      + 'HELPER TEXT (symbols missing - do not copy maths from it):\n' + helper });
+    var resp = await fetch('/api/ai', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: MC_VISION_MODEL,
+        system: 'You read maths textbook page pictures and copy the questions with every symbol exactly as printed. You return ONLY valid JSON - no markdown, no explanation.',
+        messages: [{ role: 'user', content: content }],
+        max_tokens: 8000
+      })
+    });
+    if(!resp.ok) throw new Error('Book page reading failed (API error ' + resp.status + ')');
+    var data = await resp.json();
+    var text = (data && Array.isArray(data.content))
+      ? data.content.map(function(b){ return b.type === 'text' ? b.text : ''; }).join('').trim()
+      : String((data && data.text) || '').trim();
+    var fb = text.indexOf('{'), lb = text.lastIndexOf('}');
+    if(fb < 0 || lb <= fb) throw new Error('Book page reading gave no question list');
+    var parsed = JSON.parse(text.substring(fb, lb + 1));
+    (parsed && Array.isArray(parsed.questions) ? parsed.questions : []).forEach(function(q){
+      q = String(q).trim();
+      if(q.length > 4 && all.indexOf(q) < 0) all.push(q);   // a question split over two calls is kept once
+    });
+  }
+  return all;
+}
+
 async function mcSplitQuestions(lessonText, label, kind){
   hideError();
   $('loading').classList.add('show');
   var lt = document.querySelector('.loading-text');
   var ls = document.querySelector('.loading-sub');
   if(lt) lt.textContent = label ? ('Reading ' + label + '...') : 'Reading questions from the lesson...';
+  if(ls) ls.textContent = 'Splitting the book text into individual questions. This takes a few seconds.';
+
+  // Best way first: read the questions off the page pictures.
+  try{
+    var fromPages = await mcSplitFromPages(lessonText, label, kind);
+    if(fromPages && fromPages.length){
+      $('loading').classList.remove('show');
+      MC_REVIEW_PHOTO = null;
+      showReviewScreen(fromPages);
+      return;
+    }
+  }catch(pgErr){
+    console.warn('[BOOK] Reading from page pictures failed, using the text instead:', pgErr);
+  }
   if(ls) ls.textContent = 'Splitting the book text into individual questions. This takes a few seconds.';
 
   try{
@@ -8730,5 +8870,58 @@ window.addEventListener('load', function(){
   </div>
   <iframe id="mc-model-frame" title="" style="flex:1 1 auto;width:100%;border:0;background:#140A0A;"></iframe>
 </div>
+<script>
+// ===========================================================
+//  MATHS SYMBOL KEYPAD
+//  Teachers cannot type √, x² or fractions on a normal keyboard.
+//  Tap into any question box (the typing box or a box on the
+//  review screen) and this row of buttons appears under it.
+// ===========================================================
+(function(){
+  var KEYS = [
+    ['\u221a', '\u221a()', 2],   ['\u221b', '\u221b()', 2],
+    ['x\u00b2', '\u00b2'],       ['x\u00b3', '\u00b3'],      ['x\u207f', '^'],
+    ['a/b', '()/()', 1],
+    ['\u00d7', ' \u00d7 '],      ['\u00f7', ' \u00f7 '],     ['\u2212', ' \u2212 '], ['\u00b1', ' \u00b1 '],
+    ['=', ' = '], ['\u2260', ' \u2260 '], ['\u2264', ' \u2264 '], ['\u2265', ' \u2265 '],
+    ['(', '('], [')', ')'], ['\u03c0', '\u03c0'], ['\u03b8', '\u03b8'], ['\u00b0', '\u00b0']
+  ];
+  var pad = null, target = null;
+  function insert(txt, back){
+    if(!target) return;
+    var a = target.selectionStart, b = target.selectionEnd, v = target.value;
+    // With text selected, a root or fraction wraps around it: select "x+1", tap \u221a -> \u221a(x+1)
+    if(a !== b && (txt === '\u221a()' || txt === '\u221b()')) { txt = txt.charAt(0) + '(' + v.substring(a, b) + ')'; back = 0; }
+    else if(a !== b && txt === '()/()') { txt = '(' + v.substring(a, b) + ')/()'; back = 1; }
+    target.value = v.substring(0, a) + txt + v.substring(b);
+    var pos = a + txt.length - (back || 0);
+    target.focus();
+    target.setSelectionRange(pos, pos);
+    target.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  function build(){
+    pad = document.createElement('div');
+    pad.className = 'mk-pad';
+    pad.innerHTML = '<div class="mk-lbl">\u2795 Maths symbols \u2014 tap to insert (select text first to put it under a \u221a or into a fraction)</div>';
+    KEYS.forEach(function(k){
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = k[0];
+      // mousedown + preventDefault keeps the cursor in the question box
+      b.addEventListener('mousedown', function(e){ e.preventDefault(); });
+      b.addEventListener('click', function(e){ e.preventDefault(); insert(k[1], k[2]); });
+      pad.appendChild(b);
+    });
+  }
+  document.addEventListener('focusin', function(e){
+    var t = e.target;
+    if(!t || t.tagName !== 'TEXTAREA') return;
+    if(t.id !== 'problem-input' && !t.classList.contains('rq-text')) return;
+    if(!pad) build();
+    target = t;
+    if(t.nextSibling !== pad) t.parentNode.insertBefore(pad, t.nextSibling);
+  });
+})();
+</script>
 </body>
 </html>
