@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homework Planner — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!--
+  homework-planner.html — Homework Planner (Oct 2026)
+  Teacher: sees one class's week, writes homework (types it, AI writes one, or AI
+  plans the week) and SENDS it to the principal.
+  Principal (school_admin): sees every class × Mon–Sat, reads waiting homework,
+  adds it to the week / edits / sends back, and can add homework directly.
+  Added homework goes to the Student Diary (and ERP Parent Portal if the school
+  has ERP) at 4 PM on its own day — done by /api/homework.js, not this page.
+  Chapters: the last lesson activated in TeachBot (active_lessons, with its text)
+  and the chapters of the school's uploaded books (school_books +
+  school_book_chapters; the pages are read from the book PDF with PDF.js).
+  AI: /api/ai with a flat { system, messages, max_tokens } body.
+-->
+<style>
+:root{
+  --maroon:#6B1A1A; --gold:#C9A84C; --sandal:#E8C99A;
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA;
+  --chip:#F1E2C6; --chip-ink:#5A2A16; --focus:#FCEFC9;
+  --ok:#2F6B3A; --ok-bg:#E3F0E2; --warn:#8A5A00; --warn-bg:#F8EBCB; --bad:#A12A1E; --bad-bg:#F8DEDA; --wait:#5B4A9A; --wait-bg:#ECE7F8;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1280px;margin:0 auto;padding-inline:16px;padding-block:0 40px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1280px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band img{width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #C9A84C;object-fit:contain}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0;letter-spacing:.02em}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a.back{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+.weeknav{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.weeknav button{background:transparent;border:1px solid #C9A84C;color:#FFF3DF;border-radius:8px;padding:6px 10px}
+.weeknav button:hover,.band a.back:hover{background:#7E2626}
+.weeknav .wk{font-weight:600;min-width:170px;text-align:center;font-variant-numeric:tabular-nums}
+
+.rolebar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:16px 0 0}
+.rolebadge{font-weight:700;color:var(--on-accent);background:var(--accent);border-radius:999px;padding:5px 14px;font-size:.85rem}
+.rolebar label{display:flex;align-items:center;gap:8px;font-size:.85rem;font-weight:600;color:var(--muted)}
+.rolebar select{width:auto}
+.rolehint{font-size:.85rem;color:var(--muted)}
+.banner{margin:12px 0 0;padding:10px 14px;border-radius:var(--r);font-size:.9rem}
+.banner.err{background:var(--bad-bg);color:var(--bad)}
+.banner.info{background:var(--surface);border:1px dashed var(--gold);color:var(--muted)}
+
+.layout{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(0,1fr);gap:20px;align-items:start;margin-top:16px}
+@media (max-width:980px){.layout{grid-template-columns:1fr}}
+h2{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;color:var(--accent)}
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.legend{display:flex;gap:12px;font-size:.8rem;color:var(--muted);flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px;background:var(--c);border:1px var(--s,solid) var(--b,transparent)}
+
+.waitbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-radius:var(--r);background:var(--wait-bg);color:var(--wait);margin-bottom:12px;font-weight:600;font-size:.92rem}
+.waitbar .grow{flex:1;min-width:0}
+.waitbar.none{background:var(--ok-bg);color:var(--ok)}
+
+.gridbox{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+table.grid{border-collapse:separate;border-spacing:0;width:100%;min-width:640px}
+.grid th,.grid td{border-bottom:1px solid var(--line);padding:0}
+.grid thead th{font-weight:600;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 6px;background:var(--surface-2);text-align:center}
+.grid thead th small{display:block;font-weight:500;letter-spacing:0;text-transform:none;font-variant-numeric:tabular-nums}
+.grid thead th.today{color:var(--accent)}
+.grid th.cls{position:sticky;left:0;z-index:1;background:var(--surface-2);text-align:left;padding:8px 10px;font-family:var(--display);font-weight:400;font-size:.95rem;color:var(--ink);white-space:nowrap;letter-spacing:0;text-transform:none}
+.grid tbody tr:last-child td,.grid tbody tr:last-child th{border-bottom:none}
+.cell{display:flex;flex-direction:column;gap:4px;width:100%;min-height:58px;padding:6px;text-align:left;border-left:3px solid transparent;cursor:pointer}
+.cell:hover{background:var(--surface-2)}
+.cell.sel{background:var(--chip);border-left-color:var(--accent)}
+.cell .cnt{font-size:.72rem;font-variant-numeric:tabular-nums;color:var(--muted);font-weight:600}
+.cell .cnt em{font-style:normal;color:var(--wait)}
+.cell.full .cnt b{color:var(--warn)}
+.cell.over .cnt b{color:var(--bad)}
+.cell.over{border-left-color:var(--bad)}
+.cell .chips{display:flex;flex-wrap:wrap;gap:3px}
+.chip{font-size:.68rem;font-weight:700;letter-spacing:.04em;padding:1px 6px;border-radius:4px;background:var(--chip);color:var(--chip-ink);border:1px solid transparent}
+button.chip:hover{border-color:var(--accent)}
+.chip.waiting{background:var(--wait-bg);color:var(--wait);border:1px dashed var(--wait)}
+.chip.sent::after{content:" ✓"}
+.cell.sel .chip:not(.waiting){background:var(--surface)}
+.cell .empty{font-size:.75rem;color:var(--muted);opacity:.6}
+
+.days{display:grid;gap:10px}
+.day{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:10px 14px;cursor:pointer;border-left:4px solid transparent}
+.day:hover{border-color:var(--muted)}
+.day.sel{border-left-color:var(--accent);background:var(--focus)}
+.day .dh{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.day .dn{font-family:var(--display);font-size:1.05rem}
+.day .dn small{font-family:var(--body);color:var(--muted);font-size:.85rem;margin-left:6px;font-variant-numeric:tabular-nums}
+.day ul{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:4px}
+.day li{display:grid;grid-template-columns:44px minmax(0,1fr) auto;gap:8px;font-size:.88rem;align-items:baseline}
+.day li .s{font-weight:700;color:var(--accent);font-size:.75rem}
+.day li .x{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.day .none{font-size:.85rem;color:var(--muted)}
+
+.pill{font-size:.68rem;font-weight:700;padding:1px 7px;border-radius:999px;white-space:nowrap;letter-spacing:.02em}
+.pill.added{background:var(--ok-bg);color:var(--ok)}
+.pill.sent{background:var(--ok);color:#fff}
+.pill.waiting{background:var(--wait-bg);color:var(--wait)}
+.pill.returned{background:var(--bad-bg);color:var(--bad)}
+
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.phead{padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center}
+.phead .t{font-family:var(--display);font-size:1.2rem}
+.phead .d{color:var(--muted);font-size:.9rem;font-variant-numeric:tabular-nums}
+.load{font-size:.8rem;font-weight:600;padding:3px 9px;border-radius:999px}
+.load.ok{background:var(--ok-bg);color:var(--ok)} .load.full{background:var(--warn-bg);color:var(--warn)} .load.over{background:var(--bad-bg);color:var(--bad)}
+.items{list-style:none;margin:0;padding:6px 16px 12px;display:grid;gap:0}
+.items li{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;padding:10px 8px;margin:0 -8px;border-bottom:1px dashed var(--line);align-items:start;border-radius:8px}
+.items li:last-child{border-bottom:none}
+.items li.focus{background:var(--focus)}
+.items .subj{font-weight:700;color:var(--accent);font-size:.85rem;min-width:62px}
+.items .txt{white-space:pre-wrap;overflow-wrap:anywhere}
+.items .meta{font-size:.75rem;color:var(--muted);margin-top:3px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.items .acts,.items .back{grid-column:2;display:flex;gap:6px;flex-wrap:wrap;margin-top:4px}
+.items .back input{flex:1;min-width:160px}
+.items .rnote{grid-column:2;font-size:.82rem;color:var(--bad);background:var(--bad-bg);padding:6px 8px;border-radius:6px}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:3px 10px;font-size:.8rem;color:var(--muted)}
+.iconbtn:hover{color:var(--ink);border-color:var(--muted)}
+.iconbtn.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+.iconbtn.danger{color:var(--bad);border-color:var(--bad)}
+.iconbtn:disabled{opacity:.5;cursor:default}
+.noitems{padding:14px 16px;color:var(--muted);font-size:.92rem}
+
+.tabs{display:flex;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--surface-2);overflow-x:auto}
+.tab{flex:1;min-width:120px;border:none;background:transparent;padding:10px 8px;font-weight:600;font-size:.88rem;color:var(--muted);border-bottom:3px solid transparent}
+.tab small{display:block;font-weight:500;font-size:.7rem;letter-spacing:.08em;text-transform:uppercase}
+.tab[aria-selected="true"]{color:var(--accent);border-bottom-color:var(--accent);background:var(--surface)}
+.tabbody{padding:14px 16px;display:grid;gap:10px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:480px){.row{grid-template-columns:1fr}}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input,select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-weight:400;font-size:.95rem;width:100%;min-width:0}
+textarea{resize:vertical;min-height:70px}
+.btn{border:none;border-radius:8px;padding:9px 14px;font-weight:600;background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(1.1)}
+.btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn.wait{background:var(--wait);color:#fff}
+.hint{font-size:.8rem;color:var(--muted)}
+.err{font-size:.85rem;color:var(--bad);background:var(--bad-bg);padding:8px 10px;border-radius:8px}
+.sugg{display:grid;gap:8px}
+.sugg label.opt{display:grid;grid-template-columns:auto 1fr;gap:8px;align-items:start;padding:8px 10px;border:1px solid var(--line);border-radius:8px;font-weight:400;color:var(--ink);font-size:.92rem;cursor:pointer}
+.sugg label.opt input{width:auto;margin-top:4px}
+.sugg .k{font-size:.72rem;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+.chapters{display:grid;gap:8px}
+.chrow{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 10px;align-items:center}
+.chrow b{font-size:.8rem;color:var(--muted)}
+.chrow .chaptag,.chrow input{grid-column:2}
+.chaptag{font-size:.75rem;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.chaptag .tagl{font-weight:700;padding:1px 7px;border-radius:999px;background:var(--ok-bg);color:var(--ok)}
+.chaptag .tagl.own{background:var(--chip);color:var(--chip-ink)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
+.sendout{margin-top:20px;display:grid;gap:12px}
+.slip{background:#FFFDF6;color:#2B1A17;border:1.5px solid #6B1A1A;border-radius:6px;padding:14px 16px;position:relative;font-size:.92rem}
+.slip::after{content:"✂ cut here";position:absolute;left:12px;right:12px;bottom:-14px;border-top:1.5px dashed #C9A84C;font-size:.65rem;color:#9B7B3A;text-align:right;padding-top:1px}
+.slip .sh{display:flex;gap:10px;align-items:center;border-bottom:2px solid #C9A84C;padding-bottom:8px;margin-bottom:8px}
+.slip .sh img{width:40px;height:40px;border-radius:50%;object-fit:contain}
+.slip .sn{font-family:var(--display);font-size:1.05rem;color:#6B1A1A;line-height:1.2}
+.slip .sm{font-size:.78rem;color:#6E5446;font-variant-numeric:tabular-nums}
+.slip table{width:100%;border-collapse:collapse}
+.slip td{border-bottom:1px solid #E8C99A;padding:5px 4px;vertical-align:top}
+.slip td:first-child{font-weight:700;color:#6B1A1A;width:28%}
+.slip .sig{display:flex;justify-content:space-between;gap:12px;margin-top:14px;font-size:.75rem;color:#6E5446}
+.slip .sig span{border-top:1px solid #6E5446;padding-top:2px;flex:1;text-align:center}
+.slipwrap{padding-bottom:12px}
+
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#2B1A17;color:#FFF3DF;padding:10px 14px;border-radius:10px;font-size:.9rem;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:calc(100% - 32px);z-index:5}
+.toast.bad{background:#A12A1E}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+</style>
+</head>
+<body>
+
+<header class="band">
+  <div class="in">
+    <img id="schoolLogo" alt="" hidden>
+    <div class="grow">
+      <div class="sub" id="schoolName">DigiSmartSchool · TeachBot</div>
+      <h1>Homework Planner</h1>
+    </div>
+    <div class="weeknav" aria-label="Choose week">
+      <button id="prevWk" aria-label="Previous week">‹</button>
+      <div class="wk" id="wkLabel"></div>
+      <button id="nextWk" aria-label="Next week">›</button>
+      <button id="thisWk">This week</button>
+    </div>
+    <a class="back" id="backLink" href="index.html">← Back</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="rolebar">
+    <span class="rolebadge" id="roleBadge"></span>
+    <label id="tClsWrap">My class <select id="tCls"></select></label>
+    <label id="maxClsWrap">Show classes up to <select id="maxCls"><option value="8">Class 8</option><option value="10">Class 10</option><option value="12">Class 12</option></select></label>
+    <span class="rolehint" id="roleHint"></span>
+  </div>
+  <div class="banner err" id="topErr" hidden></div>
+  <div class="banner info" id="topInfo" hidden></div>
+
+  <div class="layout" id="layout" hidden>
+    <section id="adminSide" hidden>
+      <div class="waitbar" id="waitBar"></div>
+      <div class="sechead">
+        <h2>Week at a glance</h2>
+        <div class="legend">
+          <span style="--c:var(--chip)">In this week (✓ sent)</span>
+          <span style="--c:var(--wait-bg);--b:var(--wait);--s:dashed">Waiting from teacher</span>
+          <span style="--c:var(--bad)">Too much for the day</span>
+        </div>
+      </div>
+      <div class="gridbox"><table class="grid" id="grid"></table></div>
+      <p class="hint">Tap a subject to read that homework. Tap anywhere else in a box to open that class's whole day. Daily limits: Pre KG to UKG 1 · Class 1–2: 2 · Class 3–5: 3 · Class 6 and up: 4.</p>
+      <div class="sendout">
+        <div class="sechead"><h2>Diary slips</h2></div>
+        <div class="btnrow">
+          <button class="btn" id="slipOne">Print slip: this class</button>
+          <button class="btn ghost" id="slipAll">Print slips: all classes this day</button>
+        </div>
+        <div id="slipPrev" class="slipwrap"></div>
+        <p class="hint" id="sendNote"></p>
+      </div>
+    </section>
+
+    <section id="teacherSide" hidden>
+      <div class="sechead"><h2 id="tWeekTitle">My class this week</h2>
+        <div class="legend">
+          <span style="--c:var(--wait-bg)">Waiting for principal</span>
+          <span style="--c:var(--ok-bg)">In this week</span>
+          <span style="--c:var(--bad-bg)">Sent back</span>
+        </div>
+      </div>
+      <div class="days" id="tDays"></div>
+      <div class="sendout">
+        <div class="btnrow"><button class="btn ghost" id="slipMine">Print diary slip for the chosen day</button></div>
+        <p class="hint">The slip shows only homework the principal has added to the week.</p>
+      </div>
+    </section>
+
+    <section class="panel" aria-live="polite">
+      <div class="phead">
+        <div><div class="t" id="pTitle"></div><div class="d" id="pDate"></div></div>
+        <span class="load" id="pLoad"></span>
+      </div>
+      <ul class="items" id="pItems"></ul>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" id="tab-type" aria-selected="true"><small>Way 1</small>Teacher types</button>
+        <button class="tab" role="tab" id="tab-ai" aria-selected="false"><small>Way 2</small>AI writes one</button>
+        <button class="tab" role="tab" id="tab-week" aria-selected="false"><small>Way 3</small>AI plans the week</button>
+      </div>
+
+      <div class="tabbody" id="body-type">
+        <div class="row">
+          <label>Subject<select id="tSubj"></select></label>
+          <label>Kind<select id="tKind"></select></label>
+        </div>
+        <label>Homework<textarea id="tText" maxlength="1000" placeholder="e.g. Write the new words from page 34 two times each."></textarea></label>
+        <div class="btnrow">
+          <button class="btn" id="tSave"></button>
+          <button class="btn ghost" id="tCancel" hidden>Cancel edit</button>
+        </div>
+      </div>
+
+      <div class="tabbody" id="body-ai" hidden>
+        <div class="row">
+          <label>Subject<select id="aSubj"></select></label>
+          <label>Kind<select id="aKind"></select></label>
+        </div>
+        <label>Chapter<select id="aChap"></select></label>
+        <input id="aTopic" placeholder="Type the chapter or lesson" hidden>
+        <div class="chaptag" id="aChapTag"></div>
+        <div class="row">
+          <label>How much<select id="aSize"><option value="light">Light (10 min)</option><option value="normal" selected>Normal (20 min)</option><option value="more">More (30 min)</option></select></label>
+          <label>Note for AI (optional)<input id="aNote" placeholder="e.g. weak in spelling"></label>
+        </div>
+        <div class="btnrow"><button class="btn" id="aGo">Write 3 choices</button><span class="hint">You pick one, edit if needed, then add.</span></div>
+        <div id="aOut" class="sugg"></div>
+      </div>
+
+      <div class="tabbody" id="body-week" hidden>
+        <p class="hint" style="margin:0">Each subject is set to the chapter taught last. Change it if needed, or choose "Skip". AI reads the chapter's pages and spreads homework over Monday to Saturday within the daily limit.</p>
+        <div class="chapters" id="wChapters"></div>
+        <div class="btnrow"><button class="btn" id="wGo">Plan this week</button></div>
+        <div id="wOut" class="sugg"></div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+/* ---------- who is this ---------- */
+const ROLE=lsGet("dss_role")||"";
+let USER={};try{USER=JSON.parse(lsGet("dss_user")||"{}")}catch(e){}
+const PRINCIPAL=ROLE==="school_admin";
+if(!lsGet("dss_token")||!lsGet("dss_session")){location.href="/login.html";return}
+if(ROLE==="super_admin"){showTopErr("The Homework Planner opens from a school login (principal or teacher). Please log in as the school.");return}
+function getSchoolId(){ // same as index.html getSchoolId()
+  if(ROLE==="teacher")return USER.school_id||(USER.schools&&USER.schools.id)||"";
+  return USER.school_id||USER.id||"";
+}
+const SCHOOL_ID=getSchoolId();
+const TEACHER_NAME=ROLE==="teacher"?(USER.name||""):"";
+let SCHOOL={name:(USER.schools&&USER.schools.name)||USER.school_name||USER.name||"",has_erp:false};
+const LOGO=USER.logo_url||(USER.schools&&USER.schools.logo_url)||"";
+$("backLink").href=PRINCIPAL?"dashboard.html":"index.html";
+if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
+
+/* ---------- classes, subjects, limits ---------- */
+const ALL_CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
+function classesShown(){const max=+($("maxCls").value||8);return ALL_CLASSES.filter(c=>num(c)<=max)}
+function subjectsFor(c){const n=num(c);
+  if(!n)return["English","Maths","Tamil","Rhymes/GK"];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer"];
+  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer"]}
+const limitFor=c=>{const n=num(c);return !n?1:n<=2?2:n<=5?3:4};
+const SHORT={English:"ENG",Maths:"MAT",Tamil:"TAM",Hindi:"HIN",EVS:"EVS",Science:"SCI","Social Science":"SST","Rhymes/GK":"RHY",Computer:"CMP"};
+const KINDS=["Written","Learn by heart","Read aloud","Activity","Drawing/Colouring"];
+
+/* ---------- dates ---------- */
+const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"],DAYFULL=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const pad=n=>String(n).padStart(2,"0");
+const iso=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const addDays=(s,n)=>{const d=parse(s);d.setDate(d.getDate()+n);return iso(d)};
+const mondayOf=d=>{const x=new Date(d);x.setDate(x.getDate()-((x.getDay()+6)%7));return iso(x)};
+const nice=s=>{const d=parse(s);return d.getDate()+" "+MON[d.getMonth()]};
+const niceLong=s=>{const d=parse(s);return["Sunday",...DAYFULL][d.getDay()]+", "+d.getDate()+" "+MON[d.getMonth()]+" "+d.getFullYear()};
+const nextSchoolDay=s=>{let n=addDays(s,1);if(parse(n).getDay()===0)n=addDays(n,1);return n};
+const TODAY=iso(new Date());
+let SEND_HOUR=16;
+
+/* ---------- state ---------- */
+const S={week:new Date().getDay()===0?addDays(mondayOf(new Date()),7):mondayOf(new Date()),items:[],sel:{cls:"",date:"",focus:null},tab:"type",tcls:lsGet("hwp_class")||"Class 1"};
+$("maxCls").value=lsGet("hwp_maxcls")||"8";
+let editing=null,returning=null,armed=null,busy=false;
+function defaultDate(){const td=(new Date().getDay()+6)%7;return S.week===mondayOf(new Date())&&td<6?addDays(S.week,td):S.week}
+S.sel.date=defaultDate();
+S.sel.cls=PRINCIPAL?classesShown()[0]:S.tcls;
+
+/* ---------- server ---------- */
+async function hw(action,data){
+  const r=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action},data||{}))});
+  let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly (status "+r.status+").")}
+  if(r.status===401){throw new Error((d.error||"Please log in again.")+" Your login may have ended — log out and log in again.")}
+  if(d.error)throw new Error(d.error);
+  return d;
+}
+async function authCall(action,data){
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action,school_id:SCHOOL_ID},data||{}))});
+  const d=await r.json();if(d&&d.error)throw new Error(d.error);return d;
+}
+async function load(){
+  try{
+    const d=await hw("list",{from:S.week,to:addDays(S.week,5)});
+    S.items=d.items||[];SEND_HOUR=d.send_hour||16;
+    if(d.school){SCHOOL=Object.assign(SCHOOL,d.school)}
+    $("topErr").hidden=true;$("layout").hidden=false;
+  }catch(e){showTopErr("Could not load homework: "+e.message);return false}
+  renderAll();return true;
+}
+async function act(action,data,okMsg){
+  if(busy)return null;busy=true;document.body.style.cursor="progress";
+  try{const d=await hw(action,data);
+    let msg=typeof okMsg==="function"?okMsg(d):okMsg;
+    if(d.sent&&d.sent.sent)msg+=" · "+d.sent.sent+" sent to the diary now (its day's "+(SEND_HOUR%12||12)+" PM has passed)";
+    if(d.sent&&d.sent.errors&&d.sent.errors.length)toast("Saved, but sending had a problem: "+d.sent.errors[0],true);else if(msg)toast(msg);
+    await load();return d;
+  }catch(e){toast(e.message,true);return null}
+  finally{busy=false;document.body.style.cursor=""}
+}
+function showTopErr(m){$("topErr").textContent=m;$("topErr").hidden=false}
+let toastT;function toast(m,bad){const t=$("toast");t.textContent=m;t.className="toast"+(bad?" bad":"");t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,bad?8000:4500)}
+
+/* ---------- helpers ---------- */
+const STATUS={added:"In this week",waiting:"Waiting for principal",returned:"Sent back"};
+const itemsFor=(c,date,f)=>S.items.filter(i=>i.class_name===c&&i.hw_date===date&&(!f||f(i)));
+const added=i=>i.status==="added",waiting=i=>i.status==="waiting";
+function loadState(c,date){const n=itemsFor(c,date,added).length,l=limitFor(c);return n>l?"over":n===l?"full":"ok"}
+const sentLabel=i=>{const d=new Date(i.sent_at);return "Sent to diary "+d.getDate()+" "+MON[d.getMonth()]+", "+d.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})};
+const byLabel=i=>i.made_by==="principal"?"by principal":i.made_by==="ai"?"AI-written":i.made_by==="ai-week"?"from AI week plan":"typed by teacher";
+
+/* ---------- render ---------- */
+function renderTop(){
+  $("wkLabel").textContent=nice(S.week)+" – "+nice(addDays(S.week,5))+" "+parse(addDays(S.week,5)).getFullYear();
+  $("schoolName").textContent=(SCHOOL.name?SCHOOL.name+" · ":"")+"TeachBot";
+  $("roleBadge").textContent=PRINCIPAL?"Principal":"Teacher"+(TEACHER_NAME?" · "+TEACHER_NAME:"");
+  $("tClsWrap").hidden=PRINCIPAL;$("maxClsWrap").hidden=!PRINCIPAL;
+  if(!$("tCls").options.length)$("tCls").innerHTML=ALL_CLASSES.map(c=>`<option>${c}</option>`).join("");
+  $("tCls").value=S.tcls;
+  $("roleHint").textContent=PRINCIPAL?"Homework from teachers waits here until you add it to the week.":"Homework you write goes to the principal first.";
+  $("adminSide").hidden=!PRINCIPAL;$("teacherSide").hidden=PRINCIPAL;
+  $("tSave").textContent=editing?"Save changes":PRINCIPAL?"Add to week":"Send to principal";
+  $("sendNote").textContent="Homework added to the week goes to the Student Diary"+(SCHOOL.has_erp?" and to parents in ERP":"")+" at "+(SEND_HOUR%12||12)+" PM on its own day (✓ = sent). Slips show only homework added to the week.";
+}
+function renderWaitBar(){const w=S.items.filter(waiting);const b=$("waitBar");
+  if(!w.length){b.className="waitbar none";b.innerHTML=`<span class="grow">No homework waiting from teachers this week.</span>`;return}
+  b.className="waitbar";b.innerHTML=`<span class="grow">${w.length} homework waiting from teachers this week</span><button class="btn ghost" id="nextWait">Show next</button><button class="btn wait" id="addAllWait">Add all ${w.length} to the week</button>`;
+  $("nextWait").onclick=()=>{const i=w.slice().sort((a,b)=>a.hw_date.localeCompare(b.hw_date))[0];pick(i.class_name,i.hw_date,i.id)};
+  $("addAllWait").onclick=()=>act("add",{ids:w.map(i=>i.id)},d=>d.added+" homework added to the week");
+}
+function renderGrid(){
+  let h="<thead><tr><th class='cls'>Class</th>";
+  DAYS.forEach((d,i)=>{const ds=addDays(S.week,i);h+=`<th class="${ds===TODAY?"today":""}">${d}<small>${nice(ds)}</small></th>`});
+  h+="</tr></thead><tbody>";
+  classesShown().forEach(c=>{h+=`<tr><th class="cls" scope="row">${c}</th>`;
+    DAYS.forEach((d,i)=>{const ds=addDays(S.week,i),its=itemsFor(c,ds,x=>x.status!=="returned"),na=its.filter(added).length,nw=its.length-na,st=loadState(c,ds),lim=limitFor(c);
+      const sel=S.sel.cls===c&&S.sel.date===ds;
+      h+=`<td><div class="cell ${na?st:""} ${sel?"sel":""}" role="button" tabindex="0" data-c="${esc(c)}" data-d="${ds}" aria-label="${c}, ${DAYFULL[i]}: ${na} added, ${nw} waiting">`+
+        (its.length?`<span class="cnt"><b>${na}/${lim}${st==="over"?" · too much":""}</b>${nw?` <em>+${nw} waiting</em>`:""}</span><span class="chips">${its.map(x=>`<button class="chip ${x.status}${x.sent_at?" sent":""}" data-item="${x.id}" title="${esc(x.subject)}: ${esc(x.homework)}">${esc(SHORT[x.subject]||x.subject.slice(0,3).toUpperCase())}</button>`).join("")}</span>`:`<span class="empty">+ add</span>`)+
+        `</div></td>`});
+    h+="</tr>"});
+  $("grid").innerHTML=h+"</tbody>";
+}
+function renderTeacherWeek(){const c=S.tcls;$("tWeekTitle").textContent=c+" this week";
+  $("tDays").innerHTML=DAYS.map((d,i)=>{const ds=addDays(S.week,i),its=itemsFor(c,ds);
+    return `<div class="day ${S.sel.date===ds?"sel":""}" role="button" tabindex="0" data-d="${ds}"><div class="dh"><span class="dn">${DAYFULL[i]}<small>${nice(ds)}</small></span><span class="hint">${its.filter(added).length}/${limitFor(c)}</span></div>`+
+    (its.length?`<ul>${its.map(x=>`<li><span class="s">${esc(SHORT[x.subject]||x.subject)}</span><span class="x">${esc(x.homework)}</span><span class="pill ${x.sent_at?"sent":x.status}">${x.sent_at?"Sent ✓":STATUS[x.status]}</span></li>`).join("")}</ul>`:`<div class="none">No homework yet</div>`)+`</div>`}).join("");
+}
+function fillSelect(el,arr,val){el.innerHTML=arr.map(a=>`<option${a===val?" selected":""}>${esc(a)}</option>`).join("")}
+function renderPanel(scroll){
+  const c=S.sel.cls,ds=S.sel.date,its=itemsFor(c,ds),st=loadState(c,ds),na=its.filter(added).length;
+  $("pTitle").textContent=c+" · Diary";
+  $("pDate").textContent=niceLong(ds)+" · bring on "+nice(nextSchoolDay(ds));
+  const L=$("pLoad");L.className="load "+st;L.textContent=na+" of "+limitFor(c)+" in this week"+(st==="over"?" · too much":st==="full"?" · day is full":"");
+  $("pItems").innerHTML=its.length?its.map(i=>{
+    let acts="";
+    if(i.sent_at){acts=""}
+    else if(PRINCIPAL){
+      if(i.status==="waiting")acts=`<button class="iconbtn go" data-add="${i.id}">Add to week</button><button class="iconbtn" data-edit="${i.id}">Edit</button><button class="iconbtn" data-ret="${i.id}">Send back</button>`;
+      else if(i.status==="added")acts=`<button class="iconbtn" data-edit="${i.id}">Edit</button><button class="iconbtn" data-unadd="${i.id}">Take out of week</button><button class="iconbtn${armed===i.id?" danger":""}" data-del="${i.id}">${armed===i.id?"Tap again to remove":"Remove"}</button>`;
+      else acts=`<button class="iconbtn${armed===i.id?" danger":""}" data-del="${i.id}">${armed===i.id?"Tap again to remove":"Remove"}</button>`;
+    }else if(i.status!=="added"){
+      acts=`<button class="iconbtn" data-edit="${i.id}">${i.status==="returned"?"Fix and resend":"Edit"}</button><button class="iconbtn${armed===i.id?" danger":""}" data-del="${i.id}">${armed===i.id?"Tap again to remove":"Remove"}</button>`;
+    }
+    const back=returning===i.id?`<div class="back"><input id="retNote" maxlength="300" placeholder="Note for the teacher, e.g. too long, make it 5 sums"><button class="iconbtn go" data-retsend="${i.id}">Send back</button><button class="iconbtn" data-retcancel="1">Cancel</button></div>`:"";
+    const pill=i.sent_at?`<span class="pill sent">${esc(sentLabel(i))}</span>`:`<span class="pill ${i.status}">${STATUS[i.status]}</span>`;
+    return `<li class="${S.sel.focus===i.id?"focus":""}" id="it-${i.id}"><span class="subj">${esc(i.subject)}</span><div><div class="txt">${esc(i.homework)}</div><div class="meta">${pill}${esc(i.kind)} · ${byLabel(i)}${i.teacher_name?" · "+esc(i.teacher_name):""}</div></div>`+
+      (i.status==="returned"&&i.return_note?`<div class="rnote">Principal: ${esc(i.return_note)}</div>`:"")+(acts?`<div class="acts">${acts}</div>`:"")+back+`</li>`}).join(""):`<li class="noitems" style="display:block;border:none">No homework yet for ${esc(c)} on this day. Add some below.</li>`;
+  const subs=subjectsFor(c);
+  const ps=$("tSubj").value;fillSelect($("tSubj"),subs,subs.includes(ps)?ps:subs[0]);
+  const pa=$("aSubj").value;fillSelect($("aSubj"),subs,subs.includes(pa)?pa:subs[0]);
+  if(!$("tKind").options.length){fillSelect($("tKind"),KINDS,KINDS[0]);fillSelect($("aKind"),KINDS,KINDS[0])}
+  if(PRINCIPAL)$("slipPrev").innerHTML=slipHTML(c,ds);
+  renderChapters();
+  if(returning){const n=$("retNote");n&&n.focus()}
+  if(scroll&&S.sel.focus){const el=$("it-"+S.sel.focus);el&&el.scrollIntoView({block:"nearest",behavior:"smooth"})}
+}
+function renderAll(scroll){if(!PRINCIPAL)S.sel.cls=S.tcls;renderTop();if(PRINCIPAL){renderWaitBar();renderGrid()}else renderTeacherWeek();renderPanel(scroll)}
+
+/* ---------- events ---------- */
+function pick(c,d,focus){S.sel={cls:c,date:d,focus:focus||null};cancelEdit(true);returning=null;armed=null;$("aOut").innerHTML="";$("wOut").innerHTML="";renderAll(!!focus)}
+$("grid").addEventListener("click",e=>{const ch=e.target.closest("[data-item]");const cell=e.target.closest(".cell");if(cell)pick(cell.dataset.c,cell.dataset.d,ch?ch.dataset.item:null)});
+$("grid").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.classList.contains("cell")){e.preventDefault();pick(e.target.dataset.c,e.target.dataset.d)}});
+$("tDays").addEventListener("click",e=>{const d=e.target.closest(".day");if(d)pick(S.tcls,d.dataset.d)});
+$("tDays").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.classList.contains("day")){e.preventDefault();pick(S.tcls,e.target.dataset.d)}});
+$("tCls").onchange=()=>{S.tcls=$("tCls").value;lsSet("hwp_class",S.tcls);S.sel.cls=S.tcls;S.sel.focus=null;cancelEdit(true);renderAll()};
+$("maxCls").onchange=()=>{lsSet("hwp_maxcls",$("maxCls").value);if(!classesShown().includes(S.sel.cls))S.sel.cls=classesShown()[0];renderAll()};
+$("prevWk").onclick=()=>moveWeek(-7);$("nextWk").onclick=()=>moveWeek(7);
+$("thisWk").onclick=()=>{S.week=mondayOf(new Date());S.sel.date=defaultDate();S.sel.focus=null;load()};
+function moveWeek(n){S.week=addDays(S.week,n);S.sel.date=S.week;S.sel.focus=null;load()}
+["type","ai","week"].forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;showTab()});
+function showTab(){["type","ai","week"].forEach(t=>{$("tab-"+t).setAttribute("aria-selected",S.tab===t);$("body-"+t).hidden=S.tab!==t})}
+$("pItems").addEventListener("click",e=>{
+  const t=e.target.dataset;const it=id=>S.items.find(x=>x.id===id);
+  if(t.add){S.sel.focus=t.add;act("add",{ids:[t.add]},"Added to the week")}
+  if(t.unadd)act("take_out",{id:t.unadd},"Taken out of the week. It is waiting again.");
+  if(t.ret){returning=t.ret;renderPanel()}
+  if(t.retcancel){returning=null;renderPanel()}
+  if(t.retsend){const note=($("retNote").value||"").trim();returning=null;act("send_back",{id:t.retsend,note},"Sent back to the "+S.sel.cls+" teacher")}
+  if(t.del){if(armed!==t.del){armed=t.del;renderPanel();setTimeout(()=>{if(armed===t.del){armed=null;renderPanel()}},4000);return}armed=null;act("remove",{id:t.del},"Removed")}
+  if(t.edit){const i=it(t.edit);editing=i.id;S.tab="type";showTab();$("tSubj").value=i.subject;$("tKind").value=i.kind;$("tText").value=i.homework;renderTop();$("tCancel").hidden=false;$("tText").focus()}
+});
+function cancelEdit(quiet){editing=null;if(!quiet)$("tText").value="";$("tCancel").hidden=true;renderTop()}
+$("tCancel").onclick=()=>{$("tText").value="";cancelEdit()};
+$("tSave").onclick=async()=>{const text=$("tText").value.trim();if(!text){$("tText").focus();return}
+  const base={class_name:S.sel.cls,subject:$("tSubj").value,kind:$("tKind").value,homework:text,hw_date:S.sel.date,teacher_name:TEACHER_NAME};
+  if(editing){const i=S.items.find(x=>x.id===editing);const wasReturned=i&&i.status==="returned";
+    const d=await act("save",Object.assign(base,{id:editing,hw_date:i?i.hw_date:S.sel.date}),PRINCIPAL?"Changes saved":wasReturned?"Fixed and sent to the principal again":"Changes saved — waiting for principal");
+    if(d){$("tText").value="";cancelEdit()}return}
+  const d=await act("save",Object.assign(base,{made_by:"teacher"}),PRINCIPAL?"Added to "+S.sel.cls+" week":"Sent to the principal");
+  if(d){$("tText").value="";S.sel.focus=d.item&&d.item.id;renderPanel(true)}
+};
+
+/* ---------- chapters: last lesson taught + the school's uploaded books ---------- */
+const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|\./g,"");
+let LESSONS=null,BOOKS=null;const BOOK_CH={},PDFS={},PAGE_TEXT={};
+async function loadLessons(){if(LESSONS)return LESSONS;try{const d=await authCall("get_active_lessons");LESSONS=d.lessons||[]}catch(e){LESSONS=[];console.warn("lessons:",e.message)}return LESSONS}
+async function loadBooks(){if(BOOKS)return BOOKS;try{const d=await authCall("get_school_books");BOOKS=d.books||[]}catch(e){BOOKS=[];console.warn("books:",e.message)}return BOOKS}
+function lastLesson(c,s){return (LESSONS||[]).filter(l=>normCls(l.class_name)===normCls(c)&&String(l.subject||"").toLowerCase()===s.toLowerCase()).sort((a,b)=>String(b.updated_at).localeCompare(String(a.updated_at)))[0]||null}
+async function bookChapters(b){
+  if(BOOK_CH[b.id])return BOOK_CH[b.id];
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
+    const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to)}catch(e){BOOK_CH[b.id]=[]}
+  return BOOK_CH[b.id];
+}
+let CLASS_OPTS={};
+async function chaptersForClass(c){
+  if(CLASS_OPTS[c])return CLASS_OPTS[c];
+  await Promise.all([loadLessons(),loadBooks()]);
+  const books=(BOOKS||[]).filter(b=>normCls(b.class_name)===normCls(c));
+  const out=[];
+  for(const b of books){const chs=await bookChapters(b);chs.forEach((ch,i)=>out.push({key:"B:"+b.id+":"+i,book:b,ch,label:"Ch."+(ch.chapter_number||i+1)+" "+((ch.chapter_title||"").trim()||"Untitled")+" (p."+ch.page_from+"–"+ch.page_to+")"}))}
+  CLASS_OPTS[c]={books,list:out};return CLASS_OPTS[c];
+}
+async function pdfFor(b){
+  if(PDFS[b.id])return PDFS[b.id];
+  if(!b.pdf_url)throw new Error("This book has no stored PDF.");
+  if(typeof pdfjsLib==="undefined")throw new Error("PDF reader did not load. Reload the page.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  PDFS[b.id]=(async()=>{const r=await fetch(b.pdf_url);if(!r.ok)throw new Error("Could not download the book ("+r.status+")");return pdfjsLib.getDocument({data:await r.arrayBuffer()}).promise})();
+  try{return await PDFS[b.id]}catch(e){delete PDFS[b.id];throw e}
+}
+// Text of one chapter: from the lesson TeachBot saved, or read from the book pages.
+// Returns { text, note }. Scanned (picture) pages give no text — then AI uses the name only, and the note says so.
+async function chapterText(c,s,m){
+  if(m.ch==="L"){const l=lastLesson(c,s);const t=(l&&l.lesson_text||"").trim();return t.length>150?{text:t.slice(0,8000)}:{text:"",note:"The saved lesson has no text, so AI uses the chapter name only."}}
+  if(m.ch&&m.ch.startsWith("B:")){
+    if(PAGE_TEXT[m.ch]!=null)return PAGE_TEXT[m.ch];
+    const o=(CLASS_OPTS[c]&&CLASS_OPTS[c].list||[]).find(x=>x.key===m.ch);if(!o)return{text:""};
+    try{const doc=await pdfFor(o.book);const from=Math.max(1,+o.ch.page_from),to=Math.min(doc.numPages,+o.ch.page_to,from+14);let t="";
+      for(let p=from;p<=to&&t.length<8000;p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();t+="\n[Page "+p+"]\n"+tc.items.map(x=>x.str).join(" ")}
+      t=t.replace(/[ \t]+/g," ").trim();
+      PAGE_TEXT[m.ch]=t.replace(/\[Page \d+\]/g,"").trim().length>150?{text:t.slice(0,8000)}:{text:"",note:"These pages are pictures (scanned), so AI uses the chapter name only."};
+    }catch(e){PAGE_TEXT[m.ch]={text:"",note:"Could not read the book: "+e.message+" AI uses the chapter name only."}}
+    return PAGE_TEXT[m.ch];
+  }
+  return {text:""};
+}
+const chapMem={}; // class → subject → {ch, own, other}
+function chapChoice(c,s,forWeek){const m=(chapMem[c]||{})[s];if(m)return m;return lastLesson(c,s)?{ch:"L",own:false}:{ch:forWeek?"S":"O",own:true}}
+function setChoice(c,s,v){(chapMem[c]=chapMem[c]||{})[s]=v}
+function chapOptions(c,s,sel,withSkip){const l=lastLesson(c,s),o=CLASS_OPTS[c];let h="";
+  if(withSkip)h+=`<option value="S"${sel==="S"?" selected":""}>Skip this subject</option>`;
+  if(l)h+=`<option value="L"${sel==="L"?" selected":""}>${esc(l.chapter||"Last lesson")} · last taught</option>`;
+  if(o){o.books.forEach(b=>{const list=o.list.filter(x=>x.book.id===b.id);if(list.length)h+=`<optgroup label="${esc(b.book_name)}${b.term?" · Term "+esc(b.term):""}">`+list.map(x=>`<option value="${x.key}"${sel===x.key?" selected":""}>${esc(x.label)}</option>`).join("")+`</optgroup>`})}
+  h+=`<option value="O"${sel==="O"?" selected":""}>Other (type it)…</option>`;return h}
+function tagHTML(c,s,m){if(m.ch==="S")return"";if(m.ch==="O")return`<span class="tagl own">Typed by teacher</span><span>· AI uses the name only</span>`;
+  if(m.ch==="L"){const l=lastLesson(c,s);return`<span class="tagl">From last lesson · taught ${l&&l.updated_at?nice(iso(new Date(l.updated_at))):""}</span><span>· AI reads the lesson text</span>`}
+  return`<span class="tagl own">Picked from the book</span><span>· AI reads this chapter's pages</span>`}
+function chapName(c,s,m){if(m.ch==="O")return(m.other||"").trim();if(m.ch==="S")return"";if(m.ch==="L"){const l=lastLesson(c,s);return(l&&l.chapter)||""}
+  const o=(CLASS_OPTS[c]&&CLASS_OPTS[c].list||[]).find(x=>x.key===m.ch);return o?o.book.book_name+" — "+o.label:""}
+function renderAiChapter(){const c=S.sel.cls,s=$("aSubj").value,m=chapChoice(c,s,false);
+  $("aChap").innerHTML=chapOptions(c,s,m.ch,false);$("aTopic").hidden=m.ch!=="O";$("aTopic").value=m.other||"";$("aChapTag").innerHTML=tagHTML(c,s,m)}
+$("aSubj").onchange=renderAiChapter;
+$("aChap").onchange=()=>{const c=S.sel.cls,s=$("aSubj").value;setChoice(c,s,{ch:$("aChap").value,own:true,other:$("aTopic").value});renderAiChapter();if($("aChap").value==="O")$("aTopic").focus()};
+$("aTopic").oninput=()=>setChoice(S.sel.cls,$("aSubj").value,{ch:"O",own:true,other:$("aTopic").value});
+let chapLoadFor="";
+function renderChapters(){const c=S.sel.cls;
+  if(!CLASS_OPTS[c]){if(chapLoadFor!==c){chapLoadFor=c;$("wChapters").innerHTML=`<div class="hint"><span class="spin"></span>Loading this class's books and lessons…</div>`;chaptersForClass(c).then(()=>{chapLoadFor="";if(S.sel.cls===c)renderChapters()})}return}
+  const box=$("wChapters");
+  box.innerHTML=subjectsFor(c).map(s=>{const m=chapChoice(c,s,true);
+    return `<div class="chrow"><b>${esc(s)}</b><select data-ch="${esc(s)}" aria-label="${esc(s)} chapter">${chapOptions(c,s,m.ch,true)}</select>`+
+      (m.ch==="O"?`<input data-oth="${esc(s)}" value="${esc(m.other||"")}" placeholder="Type the chapter">`:"")+`<div class="chaptag">${tagHTML(c,s,m)}</div></div>`}).join("")+
+    (CLASS_OPTS[c].books.length?"":`<div class="hint">No books uploaded for ${esc(c)} yet. Chapters taught in TeachBot still show here; otherwise choose "Other" and type it.</div>`);
+  box.querySelectorAll("select").forEach(sel=>sel.onchange=()=>{const s=sel.dataset.ch;setChoice(c,s,{ch:sel.value,own:true,other:""});renderChapters();const o=box.querySelector(`[data-oth="${CSS.escape(s)}"]`);o&&o.focus()});
+  box.querySelectorAll("input[data-oth]").forEach(inp=>inp.oninput=()=>setChoice(c,inp.dataset.oth,{ch:"O",own:true,other:inp.value}));
+  renderAiChapter();
+}
+
+/* ---------- AI (/api/ai — flat body, never wrapped in {payload}) ---------- */
+function rules(){return `You are an experienced primary and middle-school teacher in Tamil Nadu, India, setting homework for ${SCHOOL.name||"the school"}. Follow the school's own textbook when its pages are given: use that book's exercise numbers, question numbers and page numbers exactly, and never invent exercises that are not in the pages. Homework must suit the child's age, be doable at home without tuition, take the stated time, and be written in simple English a parent can read (Tamil or Hindi homework may include Tamil or Hindi words). Be concrete: name the exercise and the number of words, sums or lines. No answers. One or two sentences per homework.`}
+async function askAI(prompt,maxTokens){
+  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
+  let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
+  if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:JSON.stringify(d.error))||("status "+r.status));
+  const txt=(d.content||[]).map(x=>x.text||"").join("");const a=txt.indexOf("{"),b=txt.lastIndexOf("}");
+  if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
+  try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}
+}
+const errBox=(el,m)=>el.innerHTML=`<div class="err">${esc(m)}</div>`;
+
+$("aGo").onclick=async()=>{const out=$("aOut"),btn=$("aGo");const c=S.sel.cls,subj=$("aSubj").value,m=chapChoice(c,subj,false);const name=chapName(c,subj,m);
+  if(!name){$("aTopic").hidden=false;$("aTopic").focus();errBox(out,"Choose or type the chapter first.");return}
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapter…';out.innerHTML="";
+  try{const ct=await chapterText(c,subj,m);btn.innerHTML='<span class="spin"></span>Writing…';
+    const size={light:"about 10 minutes",normal:"about 20 minutes",more:"about 30 minutes"}[$("aSize").value];
+    const r=await askAI(`Class: ${c}\nSubject: ${subj}\nChapter: ${name}\n${ct.text?"The chapter's pages from the school's own book:\n<<<\n"+ct.text+"\n>>>\n":""}Kind of homework: ${$("aKind").value}\nTime at home: ${size}\nTeacher's note: ${$("aNote").value||"none"}\n\nWrite 3 different homework choices. Reply with JSON only: {"choices":[{"text":"..."},{"text":"..."},{"text":"..."}]}`,1200);
+    const ch=(r.choices||[]).filter(x=>x&&x.text).slice(0,3);if(!ch.length)throw new Error("No choices came back. Please try again.");
+    out.innerHTML=(ct.note?`<div class="hint">${esc(ct.note)}</div>`:"")+ch.map((x,i)=>`<label class="opt"><input type="radio" name="aPick" value="${i}" ${i===0?"checked":""}><span><textarea data-i="${i}" rows="2" maxlength="1000" style="min-height:52px">${esc(x.text)}</textarea></span></label>`).join("")+`<div class="btnrow"><button class="btn" id="aAdd">${PRINCIPAL?"Add chosen homework to week":"Send chosen homework to principal"}</button><span class="hint">You can edit the text first.</span></div>`;
+    $("aAdd").onclick=async()=>{const i=out.querySelector("input[name=aPick]:checked").value;const t=out.querySelector(`textarea[data-i="${i}"]`).value.trim();if(!t)return;
+      const d=await act("save",{class_name:c,subject:subj,kind:$("aKind").value,homework:t,hw_date:S.sel.date,made_by:"ai",teacher_name:TEACHER_NAME},PRINCIPAL?"Added to the week":"Sent to the principal");if(d)out.innerHTML=""};
+  }catch(e){errBox(out,"AI could not write homework: "+e.message)}finally{btn.disabled=false;btn.textContent="Write 3 choices"}};
+
+$("wGo").onclick=async()=>{const out=$("wOut"),btn=$("wGo"),c=S.sel.cls;if(!CLASS_OPTS[c])return;
+  const chosen=subjectsFor(c).map(s=>({s,m:chapChoice(c,s,true)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
+  if(!chosen.length){errBox(out,"Choose a chapter for at least one subject.");return}
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapters…';out.innerHTML="";
+  try{const notes=[];let pages="";const per=Math.floor(12000/chosen.length);
+    for(const x of chosen){const ct=await chapterText(c,x.s,x.m);if(ct.text)pages+=`\n${x.s} — ${x.name}:\n<<<\n${ct.text.slice(0,per)}\n>>>\n`;if(ct.note)notes.push(x.s+": "+ct.note)}
+    btn.innerHTML='<span class="spin"></span>Planning…';
+    const lim=limitFor(c);const already=DAYS.map((d,i)=>({day:d,count:itemsFor(c,addDays(S.week,i),x=>x.status!=="returned").length}));
+    const r=await askAI(`Plan one school week (Mon to Sat) of homework for ${c}.\nSubjects and chapters this week:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\nMaximum homework per day in total: ${lim}. Homework already on each day (count toward the limit): ${already.map(a=>a.day+"="+a.count).join(", ")}.\nRules: spread subjects fairly across the week; avoid the same subject two days in a row; Saturday can be lighter; build day by day on the chapter (read → practise → revise). Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"plan":[{"day":"Mon","subject":"English","kind":"Written","text":"..."}]}`,3000);
+    const subs=chosen.map(x=>x.s);let plan=(r.plan||[]).filter(p=>DAYS.includes(p.day)&&p.text&&subs.includes(p.subject));
+    const cnt={};already.forEach(a=>cnt[a.day]=a.count);plan=plan.filter(p=>(cnt[p.day]=(cnt[p.day]||0)+1)<=lim);
+    if(!plan.length)throw new Error("The plan came back empty — the week may already be full.");
+    out.innerHTML=(notes.length?`<div class="hint">${notes.map(esc).join("<br>")}</div>`:"")+`<div class="hint">Untick anything you don't want. You can edit the text.</div>`+plan.map((p,i)=>`<label class="opt"><input type="checkbox" data-w="${i}" checked><span><span class="k">${p.day} ${nice(addDays(S.week,DAYS.indexOf(p.day)))} · ${esc(p.subject)} · ${esc(KINDS.includes(p.kind)?p.kind:"Written")}</span><textarea data-wt="${i}" rows="2" maxlength="1000" style="min-height:52px">${esc(p.text)}</textarea></span></label>`).join("")+`<div class="btnrow"><button class="btn" id="wAdd">${PRINCIPAL?"Add ticked homework to the week":"Send ticked homework to principal"}</button></div>`;
+    $("wAdd").onclick=async()=>{const items=[];plan.forEach((p,i)=>{if(!out.querySelector(`[data-w="${i}"]`).checked)return;const t=out.querySelector(`[data-wt="${i}"]`).value.trim();if(!t)return;
+        items.push({class_name:c,subject:p.subject,kind:KINDS.includes(p.kind)?p.kind:"Written",homework:t,hw_date:addDays(S.week,DAYS.indexOf(p.day)),made_by:"ai-week"})});
+      if(!items.length)return;
+      const d=await act("save_many",{items,teacher_name:TEACHER_NAME},PRINCIPAL?items.length+" homework added across the week":items.length+" homework sent to the principal");if(d)out.innerHTML=""};
+  }catch(e){errBox(out,"AI could not plan the week: "+e.message)}finally{btn.disabled=false;btn.textContent="Plan this week"}};
+
+/* ---------- diary slips (only homework added to the week) ---------- */
+function slipHTML(c,ds){const its=itemsFor(c,ds,added);
+  return `<div class="slip"><div class="sh">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div><div class="sn">${esc(SCHOOL.name||"")}</div><div class="sm">Homework · ${esc(c)} · ${niceLong(ds)} · Bring on ${nice(nextSchoolDay(ds))}</div></div></div>
+  <table>${its.length?its.map(i=>`<tr><td>${esc(i.subject)}</td><td>${esc(i.homework)}<div style="font-size:.72rem;color:#8a6f5f">${esc(i.kind)}</div></td></tr>`).join(""):`<tr><td>—</td><td>No homework today. Read any story book for 10 minutes.</td></tr>`}</table>
+  <div class="sig"><span>Class teacher</span><span>Parent's signature</span></div></div>`}
+function printSlips(list,ds){
+  const css=[...document.querySelectorAll("style")].map(s=>s.textContent).join("").match(/\.slip[^{]*\{[^}]*\}/g).join("\n");
+  const w=window.open("","_blank");if(!w){toast("Allow pop-ups for this site to print slips.",true);return}
+  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Homework slips ${ds}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;600;700&display=swap"><style>:root{--display:"Marcellus",Georgia,serif}body{font-family:"Hind Madurai","Noto Sans Tamil",system-ui,sans-serif;margin:0;padding:10mm;background:#fff}${css}.slipwrap{break-inside:avoid;padding-bottom:12mm}</style></head><body>${list.map(c=>`<div class="slipwrap">${slipHTML(c,ds)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
+  w.document.close();
+}
+function slipOne(){const c=S.sel.cls,ds=S.sel.date;if(!itemsFor(c,ds,added).length){toast("Nothing added to the week for "+c+" on "+nice(ds)+" yet.",true);return}printSlips([c],ds)}
+$("slipOne").onclick=slipOne;$("slipMine").onclick=slipOne;
+$("slipAll").onclick=()=>{const ds=S.sel.date;const list=classesShown().filter(c=>itemsFor(c,ds,added).length);if(!list.length){toast("Nothing added to the week on "+nice(ds)+" yet.",true);return}printSlips(list,ds)};
+
+/* ---------- start ---------- */
+showTab();renderTop();
+if(!SCHOOL_ID){showTopErr("Your school was not found in this login. Please log out and log in again.")}
+load();
+})();
+</script>
+</body>
+</html>
