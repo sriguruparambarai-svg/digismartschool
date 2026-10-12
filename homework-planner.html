@@ -208,6 +208,17 @@ textarea{resize:vertical;min-height:70px}
 .cell .cwb{align-self:flex-start}
 .pill.cw{background:#E6F0E4;color:var(--ok);border:1px solid #B9D7B5}
 .day .cwline{font-size:.8rem;color:var(--ok);margin-top:4px}
+/* book / workbook picker (Oct 2026) */
+.srcbtn{justify-self:start;font-size:.8rem;padding:4px 10px;border:1px solid var(--gold);background:var(--surface);color:var(--chip-ink);border-radius:999px;font-weight:600}
+.srcbtn:hover{background:var(--chip)}
+.srcbox{grid-column:1/-1;border:1px solid var(--gold);background:#FFFBF2;border-radius:10px;padding:10px 12px;display:grid;gap:8px}
+.srcbox .row3{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+.srcbox .ex{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:4px 10px}
+.srcbox .ex label{display:flex;gap:6px;align-items:flex-start;font-weight:400;color:var(--ink);font-size:.82rem}
+.srcbox .ex input{width:16px;height:16px;flex:none;margin-top:2px;padding:0;accent-color:var(--accent)}
+.srcbox .pg{display:flex;gap:8px;align-items:center}
+.srcbox .pg input{width:80px}
+.cwrow .srcbtn{grid-column:2}
 /* homework timetable + repeat check (Oct 2026) */
 .chip.todo{background:transparent;color:var(--muted);border:1px dotted var(--muted);font-weight:600}
 .chip.extra{box-shadow:inset 0 -2px 0 var(--gold)}
@@ -358,6 +369,7 @@ textarea{resize:vertical;min-height:70px}
         </div>
         <div class="extrahint" id="tExtra" hidden></div>
         <label>Homework<textarea id="tText" maxlength="1000" placeholder="e.g. Write the new words from page 34 two times each."></textarea></label>
+        <button type="button" class="srcbtn" id="tSrc">📚 From book / workbook</button>
         <div id="tWarn"></div>
         <div class="btnrow">
           <button class="btn" id="tSave"></button>
@@ -699,7 +711,7 @@ function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor
   $("cwRows").innerHTML=subs.map(sb=>{const ex=list.filter(x=>x.subject===sb&&x.status!=="returned");const ed=ex.find(cwEditable),locked=ex.find(x=>!cwEditable(x));
     const ret=list.find(x=>x.subject===sb&&x.status==="returned");
     const val=ed?ed.homework:ret?ret.homework:"";
-    return `<div class="cwrow"><b>${esc(sb)}</b><textarea data-cw="${esc(sb)}" data-id="${ed?ed.id:ret?ret.id:""}" maxlength="1000" rows="2" placeholder="${locked?"Already "+(locked.sent_at?"sent":"in the day")+" — add more here if needed":"What was done in "+esc(sb)+" today"}">${esc(val)}</textarea>`+
+    return `<div class="cwrow"><b>${esc(sb)}</b><textarea data-cw="${esc(sb)}" data-id="${ed?ed.id:ret?ret.id:""}" maxlength="1000" rows="2" placeholder="${locked?"Already "+(locked.sent_at?"sent":"in the day")+" — add more here if needed":"What was done in "+esc(sb)+" today"}">${esc(val)}</textarea><button type="button" class="srcbtn" data-src="${esc(sb)}">📚 From book / workbook</button>`+
       (ret?`<span class="hint" style="color:var(--bad)">Sent back${ret.return_note?": "+esc(ret.return_note):""} — fix and send again</span>`:"")+`</div>`}).join("");
   $("cwSend").textContent=PRINCIPAL?"Add class work to the day":"Send class work to principal";
   showMode();
@@ -735,6 +747,62 @@ $("pCw").addEventListener("click",e=>{const t=e.target.dataset;
   if(t.cretsend){const note=($("cwRetNote").value||"").trim();cwReturning=null;act("send_back",{id:t.cretsend,note},"Sent back to the teacher")}
   if(t.cdel){if(cwArmed!==t.cdel){cwArmed=t.cdel;renderCw();setTimeout(()=>{if(cwArmed===t.cdel){cwArmed=null;renderCw()}},4000);return}cwArmed=null;act("remove",{id:t.cdel},"Removed")}
 });
+
+/* ---------- 📚 From book / workbook (Oct 2026) ----------
+   Fills a homework or class-work box from the school's uploaded books (chapter + pages)
+   or from the Workbook Generator (chapter + page of the workbook + exercises).
+   The workbook's chapters are read straight from workbook-generator.html, so new
+   chapters added there show up here by themselves. */
+let WB=null,WBP=null;
+async function loadWorkbook(){if(WB)return WB;if(WBP)return WBP;
+  WBP=(async()=>{const r=await fetch("workbook-generator.html",{cache:"no-cache"});if(!r.ok)throw new Error("Workbook Generator not found ("+r.status+")");
+    const html=await r.text();const a=html.indexOf("<script>\n/*"),b=html.indexOf("\nvar cls = ");
+    const a2=a>=0?a:html.lastIndexOf("<script>",b);if(a2<0||b<0)throw new Error("Workbook chapters could not be read.");
+    const CL=(new Function(html.slice(a2+8,b)+"\n;return CLASSES;"))();const out={};
+    Object.keys(CL).forEach(c=>{out[c]={};Object.keys(CL[c]).forEach(sb=>{out[c][sb]=(CL[c][sb]||[]).map(ch=>({no:ch.no,title:ch.title,write:!!ch.write,
+      sections:(ch.sections||[]).map(x=>({id:x.id,head:String(x.head||"").replace(/\s+/g," ").trim()}))}))})});
+    WB=out;return WB})();
+  try{return await WBP}catch(e){WBP=null;throw e}}
+const WB_SUBJ={Maths:"Mathematics",Mathematics:"Mathematics"};
+function wbChapters(c,sb){const k=String(num(c)||"");const cls=WB&&WB[k];if(!cls)return[];return cls[WB_SUBJ[sb]||sb]||[]}
+const WB_PAGES=ch=>["Class Work","Home Work 1","Home Work 2","Home Work 3"].concat(ch&&ch.write?["Book Back Exercises"]:[]).concat(["Class Test"]);
+function shortHead(h){h=String(h||"");return h.length>48?h.slice(0,46)+"…":h}
+async function openSrc(btn,ta,sb,isCw){
+  const holder=btn.parentElement;const old=holder.querySelector(".srcbox");if(old){old.remove();return}
+  const box=document.createElement("div");box.className="srcbox";box.innerHTML=`<div class="hint"><span class="spin"></span>Loading books and workbook…</div>`;
+  btn.insertAdjacentElement("afterend",box);
+  const c=S.sel.cls;let books=[],wbErr="";
+  try{await chaptersForClass(c);books=(CLASS_OPTS[c]&&CLASS_OPTS[c].books)||[]}catch(e){}
+  try{await loadWorkbook()}catch(e){wbErr=e.message}
+  const chs=wbChapters(c,sb);
+  const subjBooks=books.filter(b=>!b.subject||String(b.subject).toLowerCase()===sb.toLowerCase()||String(b.subject).toLowerCase()===(WB_SUBJ[sb]||"").toLowerCase());
+  const srcs=(chs.length?[{v:"wb",t:"📒 Workbook — "+c+" "+sb}]:[]).concat(subjBooks.map(b=>({v:"b:"+b.id,t:"📘 "+b.book_name+(b.term?" · Term "+b.term:"")})));
+  if(!srcs.length){box.innerHTML=`<div class="hint">No workbook chapters or uploaded books for ${esc(c)} ${esc(sb)} yet.${wbErr?" ("+esc(wbErr)+")":""}</div>`;return}
+  box.innerHTML=`<div class="row3"><label>From<select data-s="src">${srcs.map(x=>`<option value="${x.v}">${esc(x.t)}</option>`).join("")}</select></label><label>Chapter<select data-s="ch"></select></label><label data-s="pgw">Workbook page<select data-s="pg"></select></label></div><div data-s="body"></div><div class="btnrow"><button type="button" class="btn" data-s="ins">Put it in the box</button><button type="button" class="btn ghost" data-s="x">Close</button></div>`;
+  const q=k=>box.querySelector(`[data-s="${k}"]`);
+  function fill(){const src=q("src").value;
+    if(src==="wb"){q("ch").innerHTML=chs.map((h,i)=>`<option value="${i}">Ch ${h.no}. ${esc(h.title)}</option>`).join("");q("pgw").hidden=false;fillWb()}
+    else{const bid=src.slice(2),list=((CLASS_OPTS[c]&&CLASS_OPTS[c].list)||[]).filter(x=>String(x.book.id)===bid);
+      q("ch").innerHTML=list.length?list.map(x=>`<option value="${x.key}">${esc(x.label)}</option>`).join(""):`<option value="">No chapters marked in this book</option>`;q("pgw").hidden=true;fillBook()}}
+  function fillWb(){const ch=chs[+q("ch").value];const pages=WB_PAGES(ch);
+    q("pg").innerHTML=pages.map(p=>`<option${p===(isCw?"Class Work":"Home Work 1")?" selected":""}>${p}</option>`).join("");
+    q("body").innerHTML=`<div class="hint">Tick the exercises (leave all unticked for the whole page):</div><div class="ex">${(ch.sections||[]).map(x=>`<label><input type="checkbox" value="${esc(x.id)}">Ex. ${esc(x.id)} — ${esc(shortHead(x.head))}</label>`).join("")}</div>`}
+  function fillBook(){const o=((CLASS_OPTS[c]&&CLASS_OPTS[c].list)||[]).find(x=>x.key===q("ch").value);
+    q("body").innerHTML=o?`<div class="pg">Pages <input type="number" data-s="pf" value="${o.ch.page_from}" min="1"> to <input type="number" data-s="pt" value="${o.ch.page_to}" min="1"></div>`:""}
+  q("src").onchange=fill;q("ch").onchange=()=>q("src").value==="wb"?fillWb():fillBook();
+  q("x").onclick=()=>box.remove();
+  q("ins").onclick=()=>{let t="";
+    if(q("src").value==="wb"){const ch=chs[+q("ch").value];const ex=[...box.querySelectorAll(".ex input:checked")].map(i=>{const x=ch.sections.find(y=>y.id===i.value);return "Ex. "+x.id+" ("+shortHead(x.head).replace(/[.:]$/,"")+")"});
+      t=`Workbook Ch ${ch.no} “${ch.title}” — ${q("pg").value}${ex.length?": "+ex.join(", "):""}.`}
+    else{const o=((CLASS_OPTS[c]&&CLASS_OPTS[c].list)||[]).find(x=>x.key===q("ch").value);if(!o){toast("Choose a chapter.",true);return}
+      const pf=(box.querySelector('[data-s="pf"]')||{}).value,pt=(box.querySelector('[data-s="pt"]')||{}).value;
+      t=`${o.book.book_name} — Ch ${o.ch.chapter_number||""} ${String(o.ch.chapter_title||"").trim()}, page${pf===pt?"":"s"} ${pf}${pf===pt?"":"–"+pt}.`.replace(/\s+/g," ")}
+    ta.value=(ta.value.trim()?ta.value.trim()+" ":"")+t;ta.dispatchEvent(new Event("input"));box.remove();ta.focus()};
+  fill();
+}
+$("tSrc").onclick=e=>openSrc(e.currentTarget,$("tText"),$("tSubj").value,false);
+$("cwRows").addEventListener("click",e=>{const b=e.target.closest("[data-src]");if(!b)return;
+  openSrc(b,b.parentElement.querySelector("textarea"),b.dataset.src,true)});
 
 /* ---------- events ---------- */
 function pick(c,d,focus){S.sel={cls:c,date:d,focus:focus||null};cancelEdit(true);returning=null;armed=null;$("aOut").innerHTML="";$("wOut").innerHTML="";renderAll(!!focus)}
