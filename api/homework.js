@@ -35,6 +35,13 @@
 // (homework rows are 'homework'). Same approval by the principal, same 4 PM send,
 // but a SEPARATE parent message: into the diary's class_notes, and to ERP as type 'classwork'.
 // erp_error: set when ERP refuses a send; such rows are tried again at the next send.
+//
+// WORKBOOK PICKS (Oct 2026): the Workbook Generator's picks (what goes on Class Work,
+// Home Work 1-3 and the Class Test of each chapter) are kept per school, so every
+// computer sees the same plan and the planner knows what is on each workbook page.
+//   workbook_get   {}                    → { plan, settings, updated_at, updated_by, can_save }
+//   workbook_save  { plan, settings }    principal, or a teacher with the Workbook tick
+// Table: workbook_plans (school_id, plan jsonb, settings jsonb, updated_at, updated_by). RLS on, no policies.
 // GET  (Vercel's daily timer, needs CRON_SECRET)    sends everything due today, all schools
 
 const https = require('https');
@@ -355,6 +362,40 @@ module.exports = async function handler(req2, res) {
     if (!school) return res.status(403).json({ error: 'Your school was not found. Please log in again.' });
     const principal = who.role !== 'teacher';
     const action = String(body.action || '');
+
+    // ── WORKBOOK PICKS (one saved plan per school) ──
+    if (action === 'workbook_get' || action === 'workbook_save') {
+      // who may change the picks: the principal, or a teacher whose tools include the Workbook Generator
+      let canSave = principal;
+      if (!canSave && who.tid) {
+        const t = await db('GET', '/rest/v1/teachers?id=eq.' + enc(who.tid) + '&select=allowed_tools&limit=1');
+        const tools = ok(t) && t.data.length ? t.data[0].allowed_tools : undefined;
+        canSave = tools === null || (Array.isArray(tools) && tools.indexOf('workbook') !== -1);
+      }
+      if (action === 'workbook_get') {
+        const r = await db('GET', '/rest/v1/workbook_plans?school_id=eq.' + enc(school.id) + '&select=plan,settings,updated_at,updated_by&limit=1');
+        if (!ok(r)) return res.json({ error: 'Could not read the workbook picks: ' + why(r) });
+        const row = r.data[0] || {};
+        return res.json({ success: true, plan: row.plan || null, settings: row.settings || null,
+          updated_at: row.updated_at || null, updated_by: row.updated_by || '', can_save: canSave,
+          school_name: school.name || '' });
+      }
+      if (!canSave) return res.status(403).json({ error: who.tid || principal ? 'Only the principal, or a teacher with the Workbook Generator ticked, can change the workbook picks.' : 'Please log out and log in again.' });
+      const plan = body.plan;
+      if (!plan || typeof plan !== 'object' || Array.isArray(plan)) return res.json({ error: 'Nothing to save.' });
+      const size = JSON.stringify(plan).length;
+      if (size > 800000) return res.json({ error: 'The workbook picks are too large to save (' + Math.round(size / 1000) + ' KB).' });
+      const st = body.settings && typeof body.settings === 'object' ? body.settings : {};
+      const settings = { school: clip(st.school, 80), term: clip(st.term, 10), year: clip(st.year, 20) };
+      const row = { plan: plan, settings: settings, updated_at: new Date().toISOString(), updated_by: clip(body.by, 60) };
+      let r = await db('PATCH', '/rest/v1/workbook_plans?school_id=eq.' + enc(school.id), row);
+      if (!ok(r)) return res.json({ error: 'Could not save the workbook picks: ' + why(r) });
+      if (!r.data.length) {
+        r = await db('POST', '/rest/v1/workbook_plans', Object.assign({ school_id: String(school.id) }, row));
+        if (!ok(r)) return res.json({ error: 'Could not save the workbook picks: ' + why(r) });
+      }
+      return res.json({ success: true, updated_at: row.updated_at });
+    }
 
     // ── LIST one week (or any range up to 6 weeks) ──
     if (action === 'list') {
