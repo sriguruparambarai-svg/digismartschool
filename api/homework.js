@@ -24,6 +24,12 @@
 //   take_out    { id }                              principal: added → waiting (only before it is sent)
 //   send_back   { id, note }                        principal: waiting → returned
 //   remove      { id }                              teacher: only if not added; principal: if not sent
+//   past        { class_name }                      last year's homework of one class (for the repeat check)
+//   save_timetable { plan }                         principal: the fixed homework timetable
+//                 plan = { "Class 1": { "Mon": ["Hindi","Maths"], "Tue": ["English","EVS"], ... }, ... }
+//   (list also returns the school's timetable, so teachers see it on their page)
+//
+// Table: homework_timetable (one row per school: school_id, plan, updated_at). RLS on, no policies.
 // GET  (Vercel's daily timer, needs CRON_SECRET)    sends everything due today, all schools
 
 const https = require('https');
@@ -40,6 +46,31 @@ const SEND_HOUR_IST = 16;          // 4 PM India time — the daily timer runs t
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const MADE_BY = ['teacher', 'ai', 'ai-week', 'principal'];
+const TT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+// The school's fixed homework timetable ({} if none saved yet).
+async function readTimetable(school) {
+  const r = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan,updated_at&limit=1');
+  if (!ok(r)) return { error: 'Could not read the homework timetable: ' + why(r) };
+  return { plan: (r.data.length && r.data[0].plan) || {}, updated_at: r.data.length ? r.data[0].updated_at : null };
+}
+// Keep only real classes, Mon–Sat, and short subject names (at most 10 a day).
+function cleanTimetable(plan) {
+  const out = {};
+  if (!plan || typeof plan !== 'object') return out;
+  Object.keys(plan).forEach(function (cls) {
+    if (CLASSES.indexOf(cls) === -1 || !plan[cls] || typeof plan[cls] !== 'object') return;
+    const days = {};
+    TT_DAYS.forEach(function (d) {
+      const list = Array.isArray(plan[cls][d]) ? plan[cls][d] : [];
+      const seen = [];
+      list.forEach(function (x) { const v = clip(x, 40); if (v && seen.indexOf(v) === -1 && seen.length < 10) seen.push(v); });
+      if (seen.length) days[d] = seen;
+    });
+    if (Object.keys(days).length) out[cls] = days;
+  });
+  return out;
+}
 
 // ── Supabase (TeachBot) ──
 function req(host, key, method, path, body, minimal) {
@@ -265,8 +296,35 @@ module.exports = async function handler(req2, res) {
       const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) +
         '&hw_date=gte.' + from + '&hw_date=lte.' + to + '&select=*&order=hw_date.asc,created_at.asc');
       if (!ok(r)) return res.json({ error: 'Could not load homework: ' + why(r) });
+      const tt = await readTimetable(school);
       return res.json({ success: true, items: r.data, today: istToday(), send_hour: SEND_HOUR_IST,
+                        timetable: tt.plan || {}, timetable_error: tt.error || '',
                         school: { name: school.name, code: school.school_code, has_erp: school.has_erp === true } });
+    }
+
+    // ── PAST homework of one class (last 365 days, not sent-back) — for the repeat check ──
+    if (action === 'past') {
+      const cls = clip(body.class_name, 20);
+      if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
+      const since = new Date(istNow().getTime() - 365 * 864e5).toISOString().slice(0, 10);
+      const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
+        '&status=neq.returned&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
+      if (!ok(r)) return res.json({ error: 'Could not read past homework: ' + why(r) });
+      return res.json({ success: true, items: r.data });
+    }
+
+    // ── SAVE the fixed homework timetable (principal only) ──
+    if (action === 'save_timetable') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can change the homework timetable.' });
+      const plan = cleanTimetable(body.plan);
+      const now = new Date().toISOString();
+      let r = await db('PATCH', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id), { plan: plan, updated_at: now });
+      if (!ok(r)) return res.json({ error: 'Could not save the timetable: ' + why(r) });
+      if (!r.data.length) {
+        r = await db('POST', '/rest/v1/homework_timetable', { school_id: String(school.id), plan: plan, updated_at: now });
+        if (!ok(r)) return res.json({ error: 'Could not save the timetable: ' + why(r) });
+      }
+      return res.json({ success: true, timetable: plan });
     }
 
     // ── SAVE (new or changed) ──
