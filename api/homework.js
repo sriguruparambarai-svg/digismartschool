@@ -223,7 +223,7 @@ async function sendDue(school, upTo) {
         target_section: null,
         due_date: date,
         priority: 'normal',
-        sender_name: 'Teacher',
+        sender_name: clip(school.name, 120) || 'School',   // parents see the school's name as the sender
         created_at: new Date().toISOString()
       }], true);   // like the browser insert: don't ask for the row back (ERP lets the public key add, not read)
       if (!ok(e)) out.errors.push(cls + ' ' + date + ' ERP: ' + why(e));
