@@ -41,6 +41,32 @@ const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 // ERP's Parent Portal — same address and public key index.html already uses for homework.
 const ERP_HOST = 'nkfxrbumhjztmdyepygt.supabase.co';
 const ERP_KEY = process.env.ERP_PUBLIC_KEY || 'sb_publishable_7RgXFcDeOipMGoFuPI7XBQ_r_aJpZdL';
+// ERP's parent-messages table is locked to browsers, so homework goes through ERP's own
+// server door (api/teachbot-homework.js), proved with TEACHBOT_LINK_KEY — the same value
+// must be set in BOTH Vercel projects.
+const ERP_DOOR_HOST = 'erp.digismartschool.com';
+const ERP_DOOR_PATH = '/api/teachbot-homework';
+function postErpHomework(row) {
+  return new Promise(function (resolve) {
+    const key = process.env.TEACHBOT_LINK_KEY || '';
+    if (!key) return resolve({ status: 0, data: { error: 'TEACHBOT_LINK_KEY is not set in TeachBot\'s Vercel settings.' } });
+    const data = JSON.stringify(row);
+    const r = https.request({
+      hostname: ERP_DOOR_HOST, path: ERP_DOOR_PATH, method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-teachbot-key': key }
+    }, function (res) {
+      let d = '';
+      res.on('data', function (c) { d += c; });
+      res.on('end', function () {
+        let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; }
+        resolve({ status: res.statusCode, data: j || {} });
+      });
+    });
+    r.on('error', function (e) { resolve({ status: 0, data: { error: e.message } }); });
+    r.setTimeout(20000, function () { r.destroy(new Error('ERP did not answer in 20 seconds')); });
+    r.write(data); r.end();
+  });
+}
 
 const SEND_HOUR_IST = 16;          // 4 PM India time — the daily timer runs then
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
@@ -213,20 +239,18 @@ async function sendDue(school, upTo) {
     // ERP Parent Portal — only for schools that own ERP. A failure here does not
     // undo the diary; it is reported so it can be seen in the Vercel log.
     if (school.has_erp === true && school.erp_school_id) {
-      const e = await req(ERP_HOST, ERP_KEY, 'POST', '/rest/v1/communications', [{
+      const e = await postErpHomework({
         school_id: school.erp_school_id,
-        type: 'homework',
+        class_name: cls,
         title: cls + ' Homework — ' + dayLabel(date),
         message: erpLines.join('\n'),
         subject: Object.keys(bySubject).join(', '),
-        target_class: cls,
-        target_section: null,
         due_date: date,
-        priority: 'normal',
-        sender_name: clip(school.name, 120) || 'School',   // parents see the school's name as the sender
-        created_at: new Date().toISOString()
-      }], true);   // like the browser insert: don't ask for the row back (ERP lets the public key add, not read)
-      if (!ok(e)) out.errors.push(cls + ' ' + date + ' ERP: ' + why(e));
+        sender_name: clip(school.name, 120) || 'School'   // parents see the school's name as the sender
+      });
+      if (!(e.status === 200 && e.data && e.data.ok)) {
+        out.errors.push(cls + ' ' + date + ' ERP: ' + ((e.data && e.data.error) || ('status ' + e.status)));
+      }
     }
   }
   return out;
