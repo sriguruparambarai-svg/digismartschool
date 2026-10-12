@@ -4,12 +4,14 @@ const crypto = require('crypto');
 // ── Signed session token (same shape as DigiSmart ERP staff-login.js) ──
 // The school code is sealed inside by the server, so an API can trust it
 // instead of believing whatever the browser claims to be.
-function makeSessionToken(schoolId, role) {
-  const payload = JSON.stringify({
+function makeSessionToken(schoolId, role, teacherId) {
+  const data = {
     sid: String(schoolId || ''),
     role: role || '',
     exp: Date.now() + 12 * 60 * 60 * 1000     // 12 hours
-  });
+  };
+  if (teacherId) data.tid = String(teacherId);  // which teacher (for Teacher Tools access, Oct 2026)
+  const payload = JSON.stringify(data);
   const secret = process.env.SUPABASE_SECRET_KEY || '';
   const sig = crypto.createHmac('sha256', secret).update(payload).digest('hex');
   return Buffer.from(payload).toString('base64') + '.' + sig;
@@ -146,6 +148,17 @@ async function findAuthUserByEmail(email) {
   return null;
 }
 const SUPER_ADMIN_EMAIL = 'sriguruparambarai@gmail.com';
+// Teacher Tools the principal can switch on/off per teacher (same keys as js/tool-access.js).
+const TOOL_KEYS = ['teachbot', 'lesson', 'worksheet', 'nursery', 'qpaper', 'objective', 'bookback',
+                   'revision', 'insights', 'reports', 'diary', 'planner', 'attendance'];
+// Returns { list } — null means "every tool" — or { error }.
+function cleanTools(v) {
+  if (v == null) return { list: null };
+  if (!Array.isArray(v)) return { error: 'Tool list is not valid.' };
+  const list = TOOL_KEYS.filter(function (k) { return v.indexOf(k) !== -1; });
+  if (!list.length) return { error: 'Tick at least one tool for this teacher.' };
+  return { list: list.length === TOOL_KEYS.length ? null : list };   // all ticked = no limits
+}
 // same email whatever the capital letters ("_" and "%" are matched literally)
 function emailMatch(email) {
   return 'ilike.' + encodeURIComponent(String(email || '').trim().replace(/[\\%_]/g, '\\$&'));
@@ -327,7 +340,7 @@ module.exports = async function(req2, res) {
           }
         }
 
-        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token, session_token: makeSessionToken((teacherSchool && (teacherSchool.school_code || teacherSchool.id)) || teacher.school_id, 'teacher') });
+        return res.json({ success: true, role: 'teacher', user: teacher, token: access_token, session_token: makeSessionToken((teacherSchool && (teacherSchool.school_code || teacherSchool.id)) || teacher.school_id, 'teacher', teacher.id) });
       }
 
       return res.json({ error: 'Account not found. Contact your administrator.' });
@@ -394,6 +407,8 @@ module.exports = async function(req2, res) {
         return res.json({ error: 'Please fill name, email and password.' });
       }
       if (String(teacher_password).length < 6) return res.json({ error: 'Password must be at least 6 characters.' });
+      const tools = cleanTools(body.allowed_tools);
+      if (tools.error) return res.json({ error: tools.error });
       // A school's own login or the super admin login can never be turned into a teacher.
       if (teacher_email.toLowerCase() === SUPER_ADMIN_EMAIL || await isSchoolEmail(teacher_email)) {
         return res.json({ error: 'This email is a school or admin login. Please use the teacher\'s own email.' });
@@ -442,13 +457,13 @@ module.exports = async function(req2, res) {
       }
 
       let tr = await req('POST', '/rest/v1/teachers', {
-        school_id, name: teacher_name, email: teacher_email, role: 'teacher'
+        school_id, name: teacher_name, email: teacher_email, role: 'teacher', allowed_tools: tools.list
       });
 
       if (tr.status !== 201) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         tr = await req('POST', '/rest/v1/teachers', {
-          school_id, name: teacher_name, email: teacher_email, role: 'teacher'
+          school_id, name: teacher_name, email: teacher_email, role: 'teacher', allowed_tools: tools.list
         });
       }
 
@@ -515,8 +530,19 @@ module.exports = async function(req2, res) {
       const list = Array.isArray(r.data) ? r.data : [];
       // only what the page shows — no other saved details leave the server
       return res.json({ success: true, teachers: list.map(function (t) {
-        return { id: t.id, name: t.name, email: t.email, school_id: t.school_id, role: t.role };
+        return { id: t.id, name: t.name, email: t.email, school_id: t.school_id, role: t.role, allowed_tools: t.allowed_tools || null };
       }) });
+    }
+
+    // ── MY TOOLS: which Teacher Tools this login may open (only teachers are limited) ──
+    if (action === 'get_my_access') {
+      if (!who) return res.json({ error: 'Please log in again.' });
+      if (who.role !== 'teacher') return res.json({ success: true, allowed_tools: null });
+      if (!who.tid) return res.json({ error: 'Please log out and log in again to load your tools.' });
+      const mr = await req('GET', '/rest/v1/teachers?id=eq.' + encodeURIComponent(who.tid) + '&select=allowed_tools&limit=1');
+      if (mr.status >= 300) return res.json({ error: 'Could not read your tools.' });
+      if (!mr.data || !mr.data.length) return res.json({ error: 'Your teacher login was removed. Please ask your principal.' });
+      return res.json({ success: true, allowed_tools: mr.data[0].allowed_tools || null });
     }
 
     // ── EDIT TEACHER: new name and/or new password ──
@@ -526,7 +552,14 @@ module.exports = async function(req2, res) {
       const t = chk.teacher;
       const newName = String(body.name || '').trim();
       const newPass = String(body.new_password || '');
-      if (!newName && !newPass) return res.json({ error: 'Nothing to change.' });
+      const toolsSent = Object.prototype.hasOwnProperty.call(body, 'allowed_tools');
+      const tools = toolsSent ? cleanTools(body.allowed_tools) : null;
+      if (tools && tools.error) return res.json({ error: tools.error });
+      if (!newName && !newPass && !toolsSent) return res.json({ error: 'Nothing to change.' });
+      if (toolsSent) {
+        const ar2 = await req('PATCH', '/rest/v1/teachers?id=eq.' + encodeURIComponent(t.id), { allowed_tools: tools.list });
+        if (ar2.status >= 300) return res.json({ error: 'Could not save the tools for this teacher. (Has the allowed_tools column been added in Supabase?)' });
+      }
       if (newPass && newPass.length < 6) return res.json({ error: 'Password must be at least 6 characters.' });
       if (newName && newName !== t.name) {
         const ur = await req('PATCH', '/rest/v1/teachers?id=eq.' + encodeURIComponent(t.id), { name: newName.substring(0, 80) });
