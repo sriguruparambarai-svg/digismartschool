@@ -24,6 +24,7 @@
     { key: 'reports',   icon: '📊', label: 'Report Cards' },
     { key: 'diary',     icon: '📱', label: 'Homework Diary' },
     { key: 'planner',   icon: '🗓️', label: 'Homework Planner' },
+    { key: 'workbook',  icon: '📒', label: 'Workbook Generator' },
     { key: 'attendance',icon: '📸', label: 'Face Attendance' }
   ];
   var KEYS = TOOLS.map(function (t) { return t.key; });
