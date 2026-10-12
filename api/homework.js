@@ -30,6 +30,11 @@
 //   (list also returns the school's timetable, so teachers see it on their page)
 //
 // Table: homework_timetable (one row per school: school_id, plan, updated_at). RLS on, no policies.
+//
+// CLASS WORK (Oct 2026): the same table also holds class work — entry_type 'classwork'
+// (homework rows are 'homework'). Same approval by the principal, same 4 PM send,
+// but a SEPARATE parent message: into the diary's class_notes, and to ERP as type 'classwork'.
+// erp_error: set when ERP refuses a send; such rows are tried again at the next send.
 // GET  (Vercel's daily timer, needs CRON_SECRET)    sends everything due today, all schools
 
 const https = require('https');
@@ -73,6 +78,8 @@ const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const MADE_BY = ['teacher', 'ai', 'ai-week', 'principal'];
 const TT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const ENTRY_TYPES = ['homework', 'classwork'];
+const entryType = function (x) { return ENTRY_TYPES.indexOf(x && x.entry_type) !== -1 ? x.entry_type : 'homework'; };
 
 // The school's fixed homework timetable ({} if none saved yet).
 async function readTimetable(school) {
@@ -189,45 +196,50 @@ async function sendDue(school, upTo) {
   const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) +
     '&status=eq.added&sent_at=is.null&hw_date=lte.' + upTo + '&select=*&order=hw_date.asc,class_name.asc,created_at.asc');
   if (!ok(r)) { out.errors.push('Could not read homework: ' + why(r)); return out; }
-  if (!r.data.length) return out;
 
-  // group: date → class → subject → [items]
+  // group: date | class | type → subject → [items]
   const groups = {};
-  r.data.forEach(function (it) {
-    const g = (groups[it.hw_date + '|' + it.class_name] = groups[it.hw_date + '|' + it.class_name] || {});
+  (r.data || []).forEach(function (it) {
+    const k = it.hw_date + '|' + it.class_name + '|' + entryType(it);
+    const g = (groups[k] = groups[k] || {});
     (g[it.subject] = g[it.subject] || []).push(it);
   });
 
+  const forErp = [];   // groups that reached the diary and now go to ERP
   for (const key of Object.keys(groups)) {
-    const [date, cls] = key.split('|');
+    const [date, cls, type] = key.split('|');
+    const field = type === 'classwork' ? 'class_notes' : 'homework';   // diary column
     const bySubject = groups[key];
-    const sentIds = [], erpLines = [];
+    const sentIds = [], sentSubjects = {};
 
     for (const subject of Object.keys(bySubject)) {
       const items = bySubject[subject];
       const ours = items.map(function (i) { return i.homework; }).join('\n');
 
       // One diary row per school + class + subject + day (same as save_diary_entry).
-      // If a teacher already wrote homework there, ours is added below it, never over it.
+      // Anything a teacher already wrote there is kept; ours is added below it.
       const ex = await db('GET', '/rest/v1/diary_entries?school_id=eq.' + enc(school.id) +
-        '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subject) + '&lesson_date=eq.' + date + '&select=id,homework&limit=1');
+        '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subject) + '&lesson_date=eq.' + date + '&select=id,homework,class_notes&limit=1');
       if (!ok(ex)) { out.errors.push(cls + ' ' + subject + ' ' + date + ': ' + why(ex)); continue; }
       let w;
       if (ex.data.length) {
-        const old = String(ex.data[0].homework || '').trim();
+        const old = String(ex.data[0][field] || '').trim();
         const merged = !old ? ours : (old.indexOf(ours) !== -1 ? old : old + '\n' + ours);
-        w = await db('PATCH', '/rest/v1/diary_entries?id=eq.' + enc(ex.data[0].id),
-          { homework: merged, updated_at: new Date().toISOString() });
+        const patch = { updated_at: new Date().toISOString() };
+        patch[field] = merged;
+        w = await db('PATCH', '/rest/v1/diary_entries?id=eq.' + enc(ex.data[0].id), patch);
       } else {
-        w = await db('POST', '/rest/v1/diary_entries', {
+        const row = {
           school_id: school.id, class_name: cls, subject: subject,
           lesson_title: subject + ' — ' + date, lesson_date: date,
-          class_notes: '', homework: ours, updated_at: new Date().toISOString()
-        });
+          class_notes: '', homework: '', updated_at: new Date().toISOString()
+        };
+        row[field] = ours;
+        w = await db('POST', '/rest/v1/diary_entries', row);
       }
       if (!ok(w)) { out.errors.push(cls + ' ' + subject + ' ' + date + ' diary: ' + why(w)); continue; }
       items.forEach(function (i) { sentIds.push(i.id); });
-      erpLines.push(subject + ': ' + ours.replace(/\n/g, ' / '));
+      sentSubjects[subject] = items;
     }
 
     if (!sentIds.length) continue;
@@ -235,22 +247,52 @@ async function sendDue(school, upTo) {
       { sent_at: new Date().toISOString() });
     if (!ok(m)) { out.errors.push('Could not mark as sent: ' + why(m)); continue; }
     out.sent += sentIds.length;
+    forErp.push({ date: date, cls: cls, type: type, bySubject: sentSubjects });
+  }
 
-    // ERP Parent Portal — only for schools that own ERP. A failure here does not
-    // undo the diary; it is reported so it can be seen in the Vercel log.
-    if (school.has_erp === true && school.erp_school_id) {
+  // ERP Parent Portal — only for schools that own ERP.
+  if (school.has_erp === true && school.erp_school_id) {
+    // Earlier sends that ERP refused (last 7 days) are tried again, grouped the same way.
+    const since = new Date(istNow().getTime() - 7 * 864e5).toISOString().slice(0, 10);
+    const rr = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) +
+      '&status=eq.added&sent_at=not.is.null&erp_error=not.is.null&hw_date=gte.' + since + '&select=*&order=created_at.asc');
+    if (ok(rr)) {
+      const again = {};
+      (rr.data || []).forEach(function (it) {
+        const k = it.hw_date + '|' + it.class_name + '|' + entryType(it);
+        const g = (again[k] = again[k] || {});
+        (g[it.subject] = g[it.subject] || []).push(it);
+      });
+      Object.keys(again).forEach(function (k) {
+        const [date, cls, type] = k.split('|');
+        const same = forErp.find(function (f) { return f.date === date && f.cls === cls && f.type === type; });
+        if (same) Object.keys(again[k]).forEach(function (sub) { same.bySubject[sub] = (same.bySubject[sub] || []).concat(again[k][sub]); });
+        else forErp.push({ date: date, cls: cls, type: type, bySubject: again[k] });
+      });
+    }
+
+    for (const g of forErp) {
+      const subjects = Object.keys(g.bySubject);
+      const ids = [], lines = [];
+      subjects.forEach(function (sub) {
+        g.bySubject[sub].forEach(function (i) { ids.push(i.id); });
+        lines.push(sub + ': ' + g.bySubject[sub].map(function (i) { return i.homework; }).join(' / ').replace(/\n/g, ' / '));
+      });
+      const cw = g.type === 'classwork';
       const e = await postErpHomework({
         school_id: school.erp_school_id,
-        class_name: cls,
-        title: cls + ' Homework — ' + dayLabel(date),
-        message: erpLines.join('\n'),
-        subject: Object.keys(bySubject).join(', '),
-        due_date: date,
+        type: cw ? 'classwork' : 'homework',
+        class_name: g.cls,
+        title: cw ? (g.cls + ' · In class today — ' + dayLabel(g.date)) : (g.cls + ' Homework — ' + dayLabel(g.date)),
+        message: lines.join('\n'),
+        subject: subjects.join(', '),
+        due_date: g.date,
         sender_name: clip(school.name, 120) || 'School'   // parents see the school's name as the sender
       });
-      if (!(e.status === 200 && e.data && e.data.ok)) {
-        out.errors.push(cls + ' ' + date + ' ERP: ' + ((e.data && e.data.error) || ('status ' + e.status)));
-      }
+      const good = e.status === 200 && e.data && e.data.ok;
+      const msg = good ? null : clip((e.data && e.data.error) || ('status ' + e.status), 300);
+      await db('PATCH', '/rest/v1/homework_plan?id=in.(' + ids.map(enc).join(',') + ')', { erp_error: msg });
+      if (!good) out.errors.push(g.cls + ' ' + g.date + ' ERP (' + (cw ? 'class work' : 'homework') + '): ' + msg + ' — will try again at the next send');
     }
   }
   return out;
@@ -287,7 +329,9 @@ module.exports = async function handler(req2, res) {
       const upTo = dueUpTo();
       const p = await db('GET', '/rest/v1/homework_plan?status=eq.added&sent_at=is.null&hw_date=lte.' + upTo + '&select=school_id');
       if (!ok(p)) return res.status(500).json({ error: 'Could not read homework: ' + why(p) });
-      const ids = Array.from(new Set(p.data.map(function (x) { return x.school_id; })));
+      // schools whose ERP copy failed earlier are visited too, so it is tried again
+      const p2 = await db('GET', '/rest/v1/homework_plan?status=eq.added&sent_at=not.is.null&erp_error=not.is.null&select=school_id');
+      const ids = Array.from(new Set(p.data.concat(ok(p2) ? p2.data : []).map(function (x) { return x.school_id; })));
       const report = [];
       for (const sid of ids) {
         const s = await findSchool(sid);
@@ -332,7 +376,7 @@ module.exports = async function handler(req2, res) {
       if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
       const since = new Date(istNow().getTime() - 365 * 864e5).toISOString().slice(0, 10);
       const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
-        '&status=neq.returned&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
+        '&status=neq.returned&entry_type=neq.classwork&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
       if (!ok(r)) return res.json({ error: 'Could not read past homework: ' + why(r) });
       return res.json({ success: true, items: r.data });
     }
@@ -376,6 +420,7 @@ module.exports = async function handler(req2, res) {
       }
 
       fields.school_id = school.id;
+      fields.entry_type = entryType(body);
       fields.status = principal ? 'added' : 'waiting';
       fields.made_by = principal ? 'principal' : (MADE_BY.indexOf(body.made_by) !== -1 ? body.made_by : 'teacher');
       fields.teacher_name = clip(body.teacher_name, 60);
@@ -387,7 +432,7 @@ module.exports = async function handler(req2, res) {
 
     // ── SAVE MANY (AI week plan) ──
     if (action === 'save_many') {
-      const list = Array.isArray(body.items) ? body.items.slice(0, 40) : [];
+      const list = Array.isArray(body.items) ? body.items.slice(0, 60) : [];
       if (!list.length) return res.json({ error: 'Nothing to save.' });
       const rows = [];
       for (const x of list) {
@@ -397,6 +442,7 @@ module.exports = async function handler(req2, res) {
         }
         rows.push({
           school_id: school.id, class_name: cls, subject: subject, kind: clip(x.kind, 30) || 'Written',
+          entry_type: entryType(x),
           homework: text, hw_date: x.hw_date,
           status: principal ? 'added' : 'waiting',
           made_by: principal ? 'principal' : (MADE_BY.indexOf(x.made_by) !== -1 ? x.made_by : 'ai-week'),
