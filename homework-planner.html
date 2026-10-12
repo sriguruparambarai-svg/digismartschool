@@ -190,6 +190,24 @@ textarea{resize:vertical;min-height:70px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
 @keyframes sp{to{transform:rotate(360deg)}}
 
+/* class work (Oct 2026) */
+.modes{display:flex;gap:0;border-top:1px solid var(--line);background:var(--surface)}
+.mode{flex:1;border:none;background:var(--surface-2);padding:11px 8px;font-weight:700;font-size:.95rem;color:var(--muted);border-bottom:3px solid transparent}
+.mode[aria-pressed="true"]{background:var(--surface);color:var(--accent);border-bottom-color:var(--gold)}
+.mode small{display:block;font-weight:500;font-size:.72rem}
+.cwlist{list-style:none;margin:0;padding:6px 16px 4px;display:grid}
+.cwlist:empty{display:none}
+.cwhead{font-size:.75rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:10px 16px 0}
+.cwhead:empty{display:none}
+.cwrow{display:grid;grid-template-columns:110px minmax(0,1fr);gap:6px 10px;align-items:start}
+.cwrow b{font-size:.85rem;color:var(--accent);padding-top:8px}
+.cwrow textarea{min-height:48px}
+.cwrow .hint{grid-column:2;margin-top:-2px}
+.cwb{font-size:.68rem;font-weight:700;padding:1px 6px;border-radius:4px;background:#E6F0E4;color:var(--ok);border:1px solid transparent}
+.cwb.w{background:var(--wait-bg);color:var(--wait);border:1px dashed var(--wait)}
+.cell .cwb{align-self:flex-start}
+.pill.cw{background:#E6F0E4;color:var(--ok);border:1px solid #B9D7B5}
+.day .cwline{font-size:.8rem;color:var(--ok);margin-top:4px}
 /* homework timetable + repeat check (Oct 2026) */
 .chip.todo{background:transparent;color:var(--muted);border:1px dotted var(--muted);font-weight:600}
 .chip.extra{box-shadow:inset 0 -2px 0 var(--gold)}
@@ -309,7 +327,24 @@ textarea{resize:vertical;min-height:70px}
         <span class="load" id="pLoad"></span>
       </div>
       <div class="pfixed" id="pFixed" hidden></div>
+      <div class="cwhead" id="pCwHead"></div>
+      <ul class="items cwlist" id="pCw"></ul>
+      <div class="cwhead" id="pHwHead"></div>
       <ul class="items" id="pItems"></ul>
+      <div class="modes" role="group" aria-label="What are you writing?">
+        <button class="mode" id="mode-cw" aria-pressed="false">📖 Class work<small>What was done in class today</small></button>
+        <button class="mode" id="mode-hw" aria-pressed="true">📝 Homework<small>What to do at home</small></button>
+      </div>
+      <div class="tabbody" id="body-cw" hidden>
+        <p class="hint" style="margin:0" id="cwIntro"></p>
+        <div id="cwRows" style="display:grid;gap:10px"></div>
+        <div class="btnrow">
+          <button class="btn" id="cwSend"></button>
+          <button class="btn ghost" id="cwPolish">✨ Make it parent-friendly</button>
+          <span class="hint">Fill only the subjects taught today.</span>
+        </div>
+        <div id="cwOut"></div>
+      </div>
       <div class="tabs" role="tablist">
         <button class="tab" role="tab" id="tab-type" aria-selected="true"><small>Way 1</small>Teacher types</button>
         <button class="tab" role="tab" id="tab-ai" aria-selected="false"><small>Way 2</small>AI writes one</button>
@@ -442,7 +477,9 @@ async function authCall(action,data){
 async function load(){
   try{
     const d=await hw("list",{from:S.week,to:addDays(S.week,5)});
-    S.items=d.items||[];SEND_HOUR=d.send_hour||16;
+    const all=d.items||[];SEND_HOUR=d.send_hour||16;
+    S.items=all.filter(i=>i.entry_type!=="classwork");   // homework (all older rows)
+    S.cw=all.filter(i=>i.entry_type==="classwork");      // class work
     TT=d.timetable||{};TT_ERR=d.timetable_error||"";
     if(TT_ERR){$("topInfo").textContent="The homework timetable could not load: "+TT_ERR;$("topInfo").hidden=false}else $("topInfo").hidden=true;
     if(PRINCIPAL)ttSummary();
@@ -486,11 +523,12 @@ function renderTop(){
   $("tSave").textContent=editing?"Save changes":PRINCIPAL?"Add to week":"Send to principal";
   $("sendNote").textContent="Homework added to the week goes to the Student Diary"+(SCHOOL.has_erp?" and to parents in ERP":"")+" at "+(SEND_HOUR%12||12)+" PM on its own day (✓ = sent). Slips show only homework added to the week.";
 }
-function renderWaitBar(){const w=S.items.filter(waiting);const b=$("waitBar");
-  if(!w.length){b.className="waitbar none";b.innerHTML=`<span class="grow">No homework waiting from teachers this week.</span>`;return}
-  b.className="waitbar";b.innerHTML=`<span class="grow">${w.length} homework waiting from teachers this week</span><button class="btn ghost" id="nextWait">Show next</button><button class="btn wait" id="addAllWait">Add all ${w.length} to the week</button>`;
-  $("nextWait").onclick=()=>{const i=w.slice().sort((a,b)=>a.hw_date.localeCompare(b.hw_date))[0];pick(i.class_name,i.hw_date,i.id)};
-  $("addAllWait").onclick=()=>act("add",{ids:w.map(i=>i.id)},d=>d.added+" homework added to the week");
+function renderWaitBar(){const wh=S.items.filter(waiting),wc=(S.cw||[]).filter(waiting),w=wh.concat(wc);const b=$("waitBar");
+  if(!w.length){b.className="waitbar none";b.innerHTML=`<span class="grow">Nothing waiting from teachers this week.</span>`;return}
+  const parts=[wh.length?wh.length+" homework":"",wc.length?wc.length+" class work":""].filter(Boolean).join(" + ");
+  b.className="waitbar";b.innerHTML=`<span class="grow">${parts} waiting from teachers this week</span><button class="btn ghost" id="nextWait">Show next</button><button class="btn wait" id="addAllWait">Add all ${w.length}</button>`;
+  $("nextWait").onclick=()=>{const i=w.slice().sort((a,b)=>a.hw_date.localeCompare(b.hw_date))[0];if(i.entry_type==="classwork"){S.mode="cw"}else S.mode="hw";pick(i.class_name,i.hw_date,i.id)};
+  $("addAllWait").onclick=()=>act("add",{ids:w.map(i=>i.id)},d=>d.added+" added to the week");
 }
 function renderGrid(){
   let h="<thead><tr><th class='cls'>Class</th>";
@@ -501,7 +539,9 @@ function renderGrid(){
       const sel=S.sel.cls===c&&S.sel.date===ds;
       const todo=(fixedFor(c,ds)||[]).filter(s=>!its.some(x=>x.subject===s));
       const todoH=todo.map(s=>`<span class="chip todo" title="${esc(s)} — fixed for this day, not written yet">${esc(SHORT[s]||s.slice(0,3).toUpperCase())}</span>`).join("");
-      h+=`<td><div class="cell ${na?st:""} ${sel?"sel":""}" role="button" tabindex="0" data-c="${esc(c)}" data-d="${ds}" aria-label="${c}, ${DAYFULL[i]}: ${na} added, ${nw} waiting">`+
+      const cws=cwFor(c,ds,x=>x.status!=="returned"),cwW=cws.some(waiting);
+      const cwH=cws.length?`<span class="cwb${cwW?" w":""}" title="Class work: ${esc(cws.map(x=>x.subject).join(", "))}${cwW?" (waiting)":""}">📖 ${cws.length}</span>`:"";
+      h+=`<td><div class="cell ${na?st:""} ${sel?"sel":""}" role="button" tabindex="0" data-c="${esc(c)}" data-d="${ds}" aria-label="${c}, ${DAYFULL[i]}: ${na} added, ${nw} waiting, ${cws.length} class work">`+cwH+
         (its.length?`<span class="cnt"><b>${na}/${lim}${st==="over"?" · too much":""}</b>${nw?` <em>+${nw} waiting</em>`:""}</span><span class="chips">${its.map(x=>`<button class="chip ${x.status}${x.sent_at?" sent":""}${isExtra(x)?" extra":""}" data-item="${x.id}" title="${esc(x.subject)}${isExtra(x)?" (Extra)":""}: ${esc(x.homework)}">${esc(SHORT[x.subject]||x.subject.slice(0,3).toUpperCase())}</button>`).join("")}${todoH}</span>`:todoH?`<span class="chips">${todoH}</span>`:`<span class="empty">+ add</span>`)+
         `</div></td>`});
     h+="</tr>"});
@@ -511,7 +551,9 @@ function renderTeacherWeek(){const c=S.tcls;$("tWeekTitle").textContent=c+" this
   $("tDays").innerHTML=DAYS.map((d,i)=>{const ds=addDays(S.week,i),its=itemsFor(c,ds);
     const fx=fixedFor(c,ds),live=its.filter(x=>x.status!=="returned");
     const fxH=fx?`<div class="fixed">${fx.length?"Fixed: "+fx.map(s=>`<span class="fx${live.some(x=>x.subject===s)?" done":""}">${esc(s)}${live.some(x=>x.subject===s)?" ✓":""}</span>`).join(""):"No homework fixed for this day"}</div>`:"";
-    return `<div class="day ${S.sel.date===ds?"sel":""}" role="button" tabindex="0" data-d="${ds}"><div class="dh"><span class="dn">${DAYFULL[i]}<small>${nice(ds)}</small></span><span class="hint">${its.filter(added).length}/${limitFor(c,ds)}</span></div>`+fxH+
+    const cws=cwFor(c,ds,x=>x.status!=="returned");
+    const cwL=cws.length?`<div class="cwline">📖 Class work: ${cws.map(x=>esc(x.subject)+(x.sent_at?" ✓":x.status==="waiting"?" (waiting)":"")).join(", ")}</div>`:"";
+    return `<div class="day ${S.sel.date===ds?"sel":""}" role="button" tabindex="0" data-d="${ds}"><div class="dh"><span class="dn">${DAYFULL[i]}<small>${nice(ds)}</small></span><span class="hint">${its.filter(added).length}/${limitFor(c,ds)}</span></div>`+fxH+cwL+
     (its.length?`<ul>${its.map(x=>`<li><span class="s">${esc(SHORT[x.subject]||x.subject)}</span><span class="x">${esc(x.homework)}</span><span class="pill ${x.sent_at?"sent":x.status}">${x.sent_at?"Sent ✓":STATUS[x.status]}</span></li>`).join("")}</ul>`:`<div class="none">No homework yet</div>`)+`</div>`}).join("");
 }
 function fillSelect(el,arr,val){el.innerHTML=arr.map(a=>`<option${a===val?" selected":""}>${esc(a)}</option>`).join("")}
@@ -546,6 +588,7 @@ function renderPanel(scroll){
   if(!$("tKind").options.length){fillSelect($("tKind"),KINDS,KINDS[0]);fillSelect($("aKind"),KINDS,KINDS[0])}
   if(PRINCIPAL)$("slipPrev").innerHTML=slipHTML(c,ds);
   renderChapters();
+  renderCw();
   if(returning){const n=$("retNote");n&&n.focus()}
   if(scroll&&S.sel.focus){const el=$("it-"+S.sel.focus);el&&el.scrollIntoView({block:"nearest",behavior:"smooth"})}
 }
@@ -623,6 +666,75 @@ $("ttSave").onclick=async()=>{const btn=$("ttSave");btn.disabled=true;
   try{const d=await hw("save_timetable",{plan:TTD});TT=d.timetable||{};TTD=JSON.parse(JSON.stringify(TT));ttDirty=false;renderTT();
     $("ttState").innerHTML=`<span class="ttsaved">Saved ✓ Teachers will see it.</span>`;ttSummary();renderAll()}
   catch(e){toast("Could not save the timetable: "+e.message,true)}finally{btn.disabled=false}};
+
+/* ---------- class work (Oct 2026): what was done in class, one box per subject ---------- */
+S.cw=[];S.mode=lsGet("hwp_mode")==="cw"?"cw":"hw";
+const cwFor=(c,date,f)=>(S.cw||[]).filter(i=>i.class_name===c&&i.hw_date===date&&(!f||f(i)));
+const cwEditable=i=>!i.sent_at&&(PRINCIPAL||i.status!=="added");
+function showMode(){const cw=S.mode==="cw";
+  $("mode-cw").setAttribute("aria-pressed",cw);$("mode-hw").setAttribute("aria-pressed",!cw);
+  $("body-cw").hidden=!cw;document.querySelector(".tabs").hidden=cw;
+  ["type","ai","week"].forEach(t=>$("body-"+t).hidden=cw||S.tab!==t)}
+$("mode-cw").onclick=()=>{S.mode="cw";lsSet("hwp_mode","cw");showMode()};
+$("mode-hw").onclick=()=>{S.mode="hw";lsSet("hwp_mode","hw");showMode()};
+let cwArmed=null,cwReturning=null;
+function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor(c,ds);
+  $("pCwHead").textContent=list.length?"📖 Class work":"";
+  $("pHwHead").textContent=list.length&&hw.length?"📝 Homework":"";
+  $("pCw").innerHTML=list.map(i=>{let acts="";
+    if(!i.sent_at){
+      if(PRINCIPAL){
+        if(i.status==="waiting")acts=`<button class="iconbtn go" data-cadd="${i.id}">Add to day</button><button class="iconbtn" data-cret="${i.id}">Send back</button>`;
+        else if(i.status==="added")acts=`<button class="iconbtn" data-cunadd="${i.id}">Take out</button>`;
+      }
+      if(cwEditable(i))acts+=`<button class="iconbtn${cwArmed===i.id?" danger":""}" data-cdel="${i.id}">${cwArmed===i.id?"Tap again to remove":"Remove"}</button>`;
+    }
+    const back=cwReturning===i.id?`<div class="back"><input id="cwRetNote" maxlength="300" placeholder="Note for the teacher"><button class="iconbtn go" data-cretsend="${i.id}">Send back</button><button class="iconbtn" data-cretcancel="1">Cancel</button></div>`:"";
+    const pill=i.sent_at?`<span class="pill sent">${esc(sentLabel(i))}</span>`:`<span class="pill ${i.status}">${i.status==="added"?"In this day":STATUS[i.status]}</span>`;
+    return `<li><span class="subj">${esc(i.subject)}</span><div><div class="txt">${esc(i.homework)}</div><div class="meta">${pill}<span class="pill cw">Class work</span>${i.teacher_name?esc(i.teacher_name):""}</div></div>`+
+      (i.status==="returned"&&i.return_note?`<div class="rnote">Principal: ${esc(i.return_note)}</div>`:"")+(acts?`<div class="acts">${acts}</div>`:"")+back+`</li>`}).join("");
+  // the form: one box per subject, pre-filled with class work that can still be changed
+  const subs=subjectsFor(c);
+  $("cwIntro").textContent="Write what each subject did in class on "+niceLong(ds)+" — e.g. pages read, new words, sums done, workbook exercise. "+(PRINCIPAL?"It goes into the day straight away.":"It goes to the principal first.")+" Parents get it as a separate “In class today” message at "+(SEND_HOUR%12||12)+" PM.";
+  $("cwRows").innerHTML=subs.map(sb=>{const ex=list.filter(x=>x.subject===sb&&x.status!=="returned");const ed=ex.find(cwEditable),locked=ex.find(x=>!cwEditable(x));
+    const ret=list.find(x=>x.subject===sb&&x.status==="returned");
+    const val=ed?ed.homework:ret?ret.homework:"";
+    return `<div class="cwrow"><b>${esc(sb)}</b><textarea data-cw="${esc(sb)}" data-id="${ed?ed.id:ret?ret.id:""}" maxlength="1000" rows="2" placeholder="${locked?"Already "+(locked.sent_at?"sent":"in the day")+" — add more here if needed":"What was done in "+esc(sb)+" today"}">${esc(val)}</textarea>`+
+      (ret?`<span class="hint" style="color:var(--bad)">Sent back${ret.return_note?": "+esc(ret.return_note):""} — fix and send again</span>`:"")+`</div>`}).join("");
+  $("cwSend").textContent=PRINCIPAL?"Add class work to the day":"Send class work to principal";
+  showMode();
+}
+$("cwSend").onclick=async()=>{const c=S.sel.cls,ds=S.sel.date;const updates=[],news=[];
+  document.querySelectorAll("#cwRows textarea").forEach(t=>{const txt=t.value.trim(),sb=t.dataset.cw,id=t.dataset.id;
+    if(id){const old=(S.cw.find(x=>x.id===id)||{});if(txt&&(txt!==old.homework||old.status==="returned"))updates.push({id,class_name:c,subject:sb,kind:"Class work",homework:txt,hw_date:ds,teacher_name:TEACHER_NAME,entry_type:"classwork"})}
+    else if(txt)news.push({class_name:c,subject:sb,kind:"Class work",homework:txt,hw_date:ds,made_by:"teacher",entry_type:"classwork"})});
+  if(!updates.length&&!news.length){toast("Type the class work for at least one subject.",true);return}
+  const btn=$("cwSend");btn.disabled=true;
+  try{let n=0;
+    for(const u of updates){const d=await hw("save",u);if(d)n++}
+    if(news.length){const d=await hw("save_many",{items:news,teacher_name:TEACHER_NAME});n+=(d.items||[]).length}
+    toast(n+" class work "+(PRINCIPAL?"added to the day":"sent to the principal"));$("cwOut").innerHTML="";await load()}
+  catch(e){toast("Could not save class work: "+e.message,true);await load()}
+  finally{btn.disabled=false}};
+$("cwPolish").onclick=async()=>{const rows=[...document.querySelectorAll("#cwRows textarea")].filter(t=>t.value.trim());
+  if(!rows.length){toast("Type some class work first.",true);return}
+  const btn=$("cwPolish");btn.disabled=true;btn.innerHTML='<span class="spin"></span>Writing…';
+  try{const input={};rows.forEach(t=>input[t.dataset.cw]=t.value.trim());
+    const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:"You rewrite a teacher's rough class-work notes for parents of "+S.sel.cls+" at "+(SCHOOL.name||"the school")+" in Tamil Nadu. For each subject write ONE or TWO short, warm, simple English sentences saying what the children did in class today. Keep every page, exercise and chapter detail exactly; never invent anything that is not in the notes. No greetings.",messages:[{role:"user",content:"Notes by subject (JSON): "+JSON.stringify(input)+"\nReply with JSON only, same subject keys: {\"Subject\":\"text\"}"}],max_tokens:900})});
+    const d=await r.json();if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:"status "+r.status));
+    const txt=(d.content||[]).map(x=>x.text||"").join("");const a=txt.indexOf("{"),b=txt.lastIndexOf("}");const out=JSON.parse(txt.slice(a,b+1));
+    rows.forEach(t=>{if(out[t.dataset.cw])t.value=String(out[t.dataset.cw]).slice(0,1000)});
+    toast("Rewritten — check it, then send.")}
+  catch(e){toast("AI could not rewrite: "+e.message,true)}
+  finally{btn.disabled=false;btn.textContent="✨ Make it parent-friendly"}};
+$("pCw").addEventListener("click",e=>{const t=e.target.dataset;
+  if(t.cadd)act("add",{ids:[t.cadd]},"Class work added to the day");
+  if(t.cunadd)act("take_out",{id:t.cunadd},"Taken out. It is waiting again.");
+  if(t.cret){cwReturning=t.cret;renderCw()}
+  if(t.cretcancel){cwReturning=null;renderCw()}
+  if(t.cretsend){const note=($("cwRetNote").value||"").trim();cwReturning=null;act("send_back",{id:t.cretsend,note},"Sent back to the teacher")}
+  if(t.cdel){if(cwArmed!==t.cdel){cwArmed=t.cdel;renderCw();setTimeout(()=>{if(cwArmed===t.cdel){cwArmed=null;renderCw()}},4000);return}cwArmed=null;act("remove",{id:t.cdel},"Removed")}
+});
 
 /* ---------- events ---------- */
 function pick(c,d,focus){S.sel={cls:c,date:d,focus:focus||null};cancelEdit(true);returning=null;armed=null;$("aOut").innerHTML="";$("wOut").innerHTML="";renderAll(!!focus)}
@@ -789,6 +901,7 @@ $("wGo").onclick=async()=>{const out=$("wOut"),btn=$("wGo"),c=S.sel.cls;if(!CLAS
 /* ---------- diary slips (only homework added to the week) ---------- */
 function slipHTML(c,ds){const its=itemsFor(c,ds,added);
   return `<div class="slip"><div class="sh">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div><div class="sn">${esc(SCHOOL.name||"")}</div><div class="sm">Homework · ${esc(c)} · ${niceLong(ds)} · Bring on ${nice(nextSchoolDay(ds))}</div></div></div>
+  ${(cw=>cw.length?`<div style="font-weight:700;color:#2F6B3A;margin:2px 0 4px">In class today</div><table style="margin-bottom:8px">${cw.map(i=>`<tr><td>${esc(i.subject)}</td><td>${esc(i.homework)}</td></tr>`).join("")}</table><div style="font-weight:700;color:#6B1A1A;margin:2px 0 4px">Homework</div>`:"")(cwFor(c,ds,added))}
   <table>${its.length?its.map(i=>`<tr><td>${esc(i.subject)}</td><td>${esc(i.homework)}<div style="font-size:.72rem;color:#8a6f5f">${esc(i.kind)}</div></td></tr>`).join(""):`<tr><td>—</td><td>No homework today. Read any story book for 10 minutes.</td></tr>`}</table>
   <div class="sig"><span>Class teacher</span><span>Parent's signature</span></div></div>`}
 function printSlips(list,ds){
@@ -797,7 +910,7 @@ function printSlips(list,ds){
   w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Homework slips ${ds}</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;600;700&display=swap"><style>:root{--display:"Marcellus",Georgia,serif}body{font-family:"Hind Madurai","Noto Sans Tamil",system-ui,sans-serif;margin:0;padding:10mm;background:#fff}${css}.slipwrap{break-inside:avoid;padding-bottom:12mm}</style></head><body>${list.map(c=>`<div class="slipwrap">${slipHTML(c,ds)}</div>`).join("")}<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>`);
   w.document.close();
 }
-function slipOne(){const c=S.sel.cls,ds=S.sel.date;if(!itemsFor(c,ds,added).length){toast("Nothing added to the week for "+c+" on "+nice(ds)+" yet.",true);return}printSlips([c],ds)}
+function slipOne(){const c=S.sel.cls,ds=S.sel.date;if(!itemsFor(c,ds,added).length&&!cwFor(c,ds,added).length){toast("Nothing added to the week for "+c+" on "+nice(ds)+" yet.",true);return}printSlips([c],ds)}
 $("slipOne").onclick=slipOne;$("slipMine").onclick=slipOne;
 $("slipAll").onclick=()=>{const ds=S.sel.date;const list=classesShown().filter(c=>itemsFor(c,ds,added).length);if(!list.length){toast("Nothing added to the week on "+nice(ds)+" yet.",true);return}printSlips(list,ds)};
 
