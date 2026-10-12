@@ -9485,7 +9485,7 @@ Object.keys(CLASSES).forEach(function(c){
 });
 plan = PLANS[cls][subj];
 
-function save(){ try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){} }
+function save(){ try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){} if(window.srvLater) srvLater(); }
 function load(){
   try{
     var r = localStorage.getItem("wbplan3"); if(!r) return;
@@ -9499,7 +9499,70 @@ function load(){
     plan = PLANS[cls][subj];
   }catch(e){}
 }
+var LOCAL_HAD = (function(){ try{ return !!localStorage.getItem("wbplan3"); }catch(e){ return false; } })();
 load();
+
+/* ================== SCHOOL COPY OF THE PICKS (Oct 2026) ==================
+   The picks are also saved on the server for the whole school (api/homework.js,
+   workbook_get / workbook_save), so every computer sees the same plan and the
+   Homework Planner knows what is on each workbook page. This browser's copy is
+   kept too, as a backup. */
+var SRV = { ready:false, canSave:false, timer:null, busy:false, again:false };
+function srvCall(action, data){
+  var tok = ""; try{ tok = localStorage.getItem("dss_session") || ""; }catch(e){}
+  return fetch("/api/homework", { method:"POST", headers:{ "Content-Type":"application/json", "x-dss-session":tok },
+    body: JSON.stringify(Object.assign({ action:action }, data||{})) })
+    .then(function(r){ return r.json().catch(function(){ return { error:"The server did not answer properly ("+r.status+")." }; }); });
+}
+function srvStatus(t, bad){ var el=$("status"); if(!el) return; el.textContent=t; el.style.color = bad ? "#b3261e" : ""; }
+function applyPlans(o){
+  Object.keys(CLASSES).forEach(function(c){
+    if(!o || !o[c]) return;
+    Object.keys(CLASSES[c]).forEach(function(n){
+      if(o[c][n] && o[c][n].length === CLASSES[c][n].length) PLANS[c][n] = o[c][n];
+    });
+  });
+  plan = PLANS[cls][subj];
+}
+function srvSettings(){ return { school:$("fSchool").value, term:$("fTerm").value, year:$("fYear").value }; }
+function srvSaveNow(){
+  if(!SRV.ready || !SRV.canSave) return;
+  if(SRV.busy){ SRV.again = true; return; }
+  SRV.busy = true; srvStatus("Saving for the school…");
+  var who = ""; try{ var u = JSON.parse(localStorage.getItem("dss_user")||"{}"); who = u.name || ""; }catch(e){}
+  srvCall("workbook_save", { plan:PLANS, settings:srvSettings(), by:who }).then(function(d){
+    if(d && d.success){ var t=new Date(d.updated_at); srvStatus("Saved for the school \u2713 "+t.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})); }
+    else srvStatus("Not saved for the school: "+((d&&d.error)||"unknown error")+" (kept on this computer)", true);
+  }).catch(function(e){ srvStatus("Not saved for the school: "+e.message+" (kept on this computer)", true); })
+  .then(function(){ SRV.busy=false; if(SRV.again){ SRV.again=false; srvSaveNow(); } });
+}
+window.srvLater = function(){ if(!SRV.ready || !SRV.canSave) return; clearTimeout(SRV.timer); SRV.timer = setTimeout(srvSaveNow, 1200); };
+["fSchool","fTerm","fYear"].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener("change", function(){ srvLater(); }); });
+function srvLoad(){
+  srvStatus("Loading the school's picks…");
+  srvCall("workbook_get").then(function(d){
+    if(!d || !d.success){ srvStatus("Could not load the school's picks: "+((d&&d.error)||"unknown error")+". Using this computer's picks.", true); return; }
+    SRV.canSave = !!d.can_save;
+    if(d.settings){ if(d.settings.school) $("fSchool").value=d.settings.school; if(d.settings.term) $("fTerm").value=d.settings.term; if(d.settings.year) $("fYear").value=d.settings.year; }
+    else if(d.school_name) $("fSchool").value = String(d.school_name).toUpperCase();
+    if(d.plan){
+      applyPlans(d.plan);
+      try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){}
+      drawSlots(); drawPicker();
+      srvStatus((SRV.canSave ? "School picks loaded" : "School picks loaded \u2014 view only (ask the principal to tick Workbook Generator for you to change them)")
+        + (d.updated_at ? " \u00b7 last saved "+new Date(d.updated_at).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"})+(d.updated_by?" by "+d.updated_by:"") : ""), !SRV.canSave);
+      SRV.ready = true;
+    } else {
+      SRV.ready = true;
+      if(!SRV.canSave){ srvStatus("No school picks saved yet \u2014 view only.", true); return; }
+      if(LOCAL_HAD){
+        var el=$("status"); el.style.color="";
+        el.innerHTML = 'The picks on this computer are not saved for the school yet. <button class="btn gold" id="srvUp" style="padding:4px 10px">Save them for the school</button>';
+        $("srvUp").onclick = function(){ srvSaveNow(); };
+      } else srvStatus("Your picks will be saved for the school as you work.");
+    }
+  }).catch(function(e){ srvStatus("Could not load the school's picks: "+e.message+". Using this computer's picks.", true); });
+}
 
 /* ================== EDITOR UI ================== */
 var $ = function(id){ return document.getElementById(id); };
@@ -9972,6 +10035,7 @@ $("back").onclick  = function(){ $("book").style.display="none"; $("backbar").st
 $("print").onclick = function(){ window.print(); };
 
 clsSel(); subjSel(); chapSel(); drawSlots(); drawPicker();
+srvLoad();
 </script>
 </body>
 </html>

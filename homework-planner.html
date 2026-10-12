@@ -793,6 +793,9 @@ async function loadWorkbook(){if(WB)return WB;if(WBP)return WBP;
     WB=out;return WB})();
   try{return await WBP}catch(e){WBP=null;throw e}}
 const WB_SUBJ={Maths:"Mathematics",Mathematics:"Mathematics"};
+// the school's saved workbook picks (what is on Class Work, Home Work 1-3, Test of each chapter)
+let WBPLAN;async function loadWbPlan(){if(WBPLAN!==undefined)return WBPLAN;try{const d=await hw("workbook_get");WBPLAN=d.plan||null}catch(e){WBPLAN=null}return WBPLAN}
+function wbSlots(c,sb,i){const p=WBPLAN&&WBPLAN[String(num(c)||"")];const a=p&&p[WB_SUBJ[sb]||sb];return a&&a[i]&&Array.isArray(a[i].slots)?a[i].slots:null}
 function wbChapters(c,sb){const k=String(num(c)||"");const cls=WB&&WB[k];if(!cls)return[];return cls[WB_SUBJ[sb]||sb]||[]}
 const WB_PAGES=ch=>["Class Work","Home Work 1","Home Work 2","Home Work 3"].concat(ch&&ch.write?["Book Back Exercises"]:[]).concat(["Class Test"]);
 function shortHead(h){h=String(h||"");return h.length>48?h.slice(0,46)+"…":h}
@@ -803,6 +806,7 @@ async function openSrc(btn,ta,sb,isCw){
   const c=S.sel.cls;let books=[],wbErr="";
   try{await chaptersForClass(c);books=(CLASS_OPTS[c]&&CLASS_OPTS[c].books)||[]}catch(e){}
   try{await loadWorkbook()}catch(e){wbErr=e.message}
+  await loadWbPlan();
   const chs=wbChapters(c,sb);
   const subjBooks=books.filter(b=>!b.subject||String(b.subject).toLowerCase()===sb.toLowerCase()||String(b.subject).toLowerCase()===(WB_SUBJ[sb]||"").toLowerCase());
   const srcs=(chs.length?[{v:"wb",t:"📒 Workbook — "+c+" "+sb}]:[]).concat(subjBooks.map(b=>({v:"b:"+b.id,t:"📘 "+b.book_name+(b.term?" · Term "+b.term:"")})));
@@ -813,12 +817,19 @@ async function openSrc(btn,ta,sb,isCw){
     if(src==="wb"){q("ch").innerHTML=chs.map((h,i)=>`<option value="${i}">Ch ${h.no}. ${esc(h.title)}</option>`).join("");q("pgw").hidden=false;fillWb()}
     else{const bid=src.slice(2),list=((CLASS_OPTS[c]&&CLASS_OPTS[c].list)||[]).filter(x=>String(x.book.id)===bid);
       q("ch").innerHTML=list.length?list.map(x=>`<option value="${x.key}">${esc(x.label)}</option>`).join(""):`<option value="">No chapters marked in this book</option>`;q("pgw").hidden=true;fillBook()}}
-  function fillWb(){const ch=chs[+q("ch").value];const pages=WB_PAGES(ch);
-    q("pg").innerHTML=pages.map(p=>`<option${p===(isCw?"Class Work":"Home Work 1")?" selected":""}>${p}</option>`).join("");
-    q("body").innerHTML=`<div class="hint">Tick the exercises (leave all unticked for the whole page):</div><div class="ex">${(ch.sections||[]).map(x=>`<label><input type="checkbox" value="${esc(x.id)}">Ex. ${esc(x.id)} — ${esc(shortHead(x.head))}</label>`).join("")}</div>`}
+  function fillWb(){const ci=+q("ch").value,ch=chs[ci],slots=wbSlots(c,sb,ci);
+    const pages=slots?slots.map(x=>x.name):WB_PAGES(ch);const want=isCw?"Class Work":"Home Work 1";
+    q("pg").innerHTML=pages.map(p=>`<option${p===want?" selected":""}>${esc(p)}</option>`).join("");
+    q("body").innerHTML=`<div class="hint" data-s="exh"></div><div class="ex">${(ch.sections||[]).map(x=>`<label><input type="checkbox" value="${esc(x.id)}">Ex. ${esc(x.id)} — ${esc(shortHead(x.head))}</label>`).join("")}</div>`;
+    tickFromPlan()}
+  // tick the exercises the school's workbook puts on this page
+  function tickFromPlan(){if(q("src").value!=="wb")return;const ci=+q("ch").value,slots=wbSlots(c,sb,ci);const sl=slots&&slots.find(x=>x.name===q("pg").value);
+    const on=sl?Object.keys(sl.picks||{}).filter(k=>(sl.picks[k]||[]).length):[];
+    box.querySelectorAll(".ex input").forEach(i=>i.checked=on.indexOf(i.value)!==-1);
+    q("exh").textContent=sl?(on.length?"Ticked as in the school's workbook for “"+sl.name+"”. Change if needed.":"Nothing is picked for “"+sl.name+"” in the workbook yet — tick the exercises."):"Tick the exercises (leave all unticked for the whole page):"}
   function fillBook(){const o=((CLASS_OPTS[c]&&CLASS_OPTS[c].list)||[]).find(x=>x.key===q("ch").value);
     q("body").innerHTML=o?`<div class="pg">Pages <input type="number" data-s="pf" value="${o.ch.page_from}" min="1"> to <input type="number" data-s="pt" value="${o.ch.page_to}" min="1"></div>`:""}
-  q("src").onchange=fill;q("ch").onchange=()=>q("src").value==="wb"?fillWb():fillBook();
+  q("src").onchange=fill;q("ch").onchange=()=>q("src").value==="wb"?fillWb():fillBook();q("pg").onchange=tickFromPlan;
   q("x").onclick=()=>box.remove();
   q("ins").onclick=()=>{let t="";
     if(q("src").value==="wb"){const ch=chs[+q("ch").value];const ex=[...box.querySelectorAll(".ex input:checked")].map(i=>{const x=ch.sections.find(y=>y.id===i.value);return "Ex. "+x.id+" ("+shortHead(x.head).replace(/[.:]$/,"")+")"});
