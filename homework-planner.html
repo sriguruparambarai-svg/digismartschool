@@ -219,6 +219,8 @@ textarea{resize:vertical;min-height:70px}
 .srcbox .pg{display:flex;gap:8px;align-items:center}
 .srcbox .pg input{width:80px}
 .cwrow .srcbtn{grid-column:2}
+.tbnote{font-size:.82rem;background:#EAF1FA;color:#185FA5;border-left:3px solid #185FA5;padding:7px 10px;border-radius:6px}
+.cwrow textarea.fromtb{border-color:#9CC0E6;background:#F5F9FD}
 /* homework timetable + repeat check (Oct 2026) */
 .chip.todo{background:transparent;color:var(--muted);border:1px dotted var(--muted);font-weight:600}
 .chip.extra{box-shadow:inset 0 -2px 0 var(--gold)}
@@ -348,6 +350,7 @@ textarea{resize:vertical;min-height:70px}
       </div>
       <div class="tabbody" id="body-cw" hidden>
         <p class="hint" style="margin:0" id="cwIntro"></p>
+        <div class="tbnote" id="cwTb" hidden></div>
         <div id="cwRows" style="display:grid;gap:10px"></div>
         <div class="btnrow">
           <button class="btn" id="cwSend"></button>
@@ -715,6 +718,32 @@ function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor
       (ret?`<span class="hint" style="color:var(--bad)">Sent back${ret.return_note?": "+esc(ret.return_note):""} — fix and send again</span>`:"")+`</div>`}).join("");
   $("cwSend").textContent=PRINCIPAL?"Add class work to the day":"Send class work to principal";
   showMode();
+  fillFromTeachBot(c,ds);
+}
+/* 🤖 TeachBot lessons → class work (Oct 2026)
+   A lesson the teacher started in TeachBot on this day (active_lessons, saved when the
+   lesson is activated) fills that subject's EMPTY class-work box, for the teacher to check
+   and add to before sending. Nothing is sent by itself. */
+let LESSONS_AT=0;
+const SUBJ_ALIAS={mathematics:"maths",math:"maths",social:"social science","social studies":"social science",sst:"social science","s.science":"social science"};
+const subjKey=s=>{s=String(s||"").toLowerCase().trim();return SUBJ_ALIAS[s]||s};
+async function fillFromTeachBot(c,ds){
+  const box=$("cwTb");
+  try{if(!LESSONS||Date.now()-LESSONS_AT>60000){LESSONS=null;await loadLessons();LESSONS_AT=Date.now()}}catch(e){box.hidden=true;return}
+  if(S.sel.cls!==c||S.sel.date!==ds)return;
+  const taught=(LESSONS||[]).filter(l=>normCls(l.class_name)===normCls(c)&&l.updated_at&&iso(new Date(l.updated_at))===ds&&String(l.chapter||"").trim());
+  if(!taught.length){box.hidden=true;return}
+  const subs=subjectsFor(c),used=[],other=[];
+  taught.forEach(l=>{const sb=subs.find(x=>subjKey(x)===subjKey(l.subject));
+    const ta=sb&&document.querySelector(`#cwRows textarea[data-cw="${CSS.escape(sb)}"]`);
+    const has=sb&&cwFor(c,ds,x=>x.subject===sb&&x.status!=="returned").length;
+    const line="TeachBot lesson: "+String(l.chapter).trim()+".";
+    if(ta&&!has&&!ta.value.trim()){ta.value=line;ta.classList.add("fromtb");used.push(sb)}
+    else if(!sb)other.push((l.subject||"?")+" — "+l.chapter)});
+  used.length=0;document.querySelectorAll("#cwRows textarea.fromtb").forEach(t=>used.push(t.dataset.cw));   // also those filled by an earlier pass
+  const all=taught.map(l=>esc(l.subject||"")+" — "+esc(String(l.chapter).trim())).join(" · ");
+  box.innerHTML="🤖 TeachBot lessons on this day: <b>"+all+"</b>"+(used.length?"<br>Filled in "+esc(used.join(", "))+". Check it and add what the children did (pages, exercises) before sending.":"")+(other.length?"<br>No class-work box for: "+esc(other.join(", ")):"");
+  box.hidden=false;
 }
 $("cwSend").onclick=async()=>{const c=S.sel.cls,ds=S.sel.date;const updates=[],news=[];
   document.querySelectorAll("#cwRows textarea").forEach(t=>{const txt=t.value.trim(),sb=t.dataset.cw,id=t.dataset.id;
