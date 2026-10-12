@@ -241,6 +241,7 @@ textarea{resize:vertical;min-height:70px}
     <label id="tClsWrap">My class <select id="tCls"></select></label>
     <label id="maxClsWrap">Show classes up to <select id="maxCls"><option value="8">Class 8</option><option value="10">Class 10</option><option value="12">Class 12</option></select></label>
     <span class="rolehint" id="roleHint"></span>
+    <button class="btn ghost" id="viewSwitch" hidden style="margin-left:auto"></button>
   </div>
   <div class="banner err" id="topErr" hidden></div>
   <div class="banner info" id="topInfo" hidden></div>
@@ -366,6 +367,10 @@ function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
 const ROLE=lsGet("dss_role")||"";
 let USER={};try{USER=JSON.parse(lsGet("dss_user")||"{}")}catch(e){}
 const PRINCIPAL=ROLE==="school_admin";
+// The principal can also switch to the teacher's class view (for subjects she teaches herself).
+// Her homework still goes straight into the week, as it is the principal's own.
+let MYCLASS=PRINCIPAL&&lsGet("hwp_view")==="teacher";
+const ADMINVIEW=()=>PRINCIPAL&&!MYCLASS;
 if(!lsGet("dss_token")||!lsGet("dss_session")){location.href="/login.html";return}
 if(ROLE==="super_admin"){showTopErr("The Homework Planner opens from a school login (principal or teacher). Please log in as the school.");return}
 function getSchoolId(){ // same as index.html getSchoolId()
@@ -418,7 +423,7 @@ $("maxCls").value=lsGet("hwp_maxcls")||"8";
 let editing=null,returning=null,armed=null,busy=false;
 function defaultDate(){const td=(new Date().getDay()+6)%7;return S.week===mondayOf(new Date())&&td<6?addDays(S.week,td):S.week}
 S.sel.date=defaultDate();
-S.sel.cls=PRINCIPAL?classesShown()[0]:S.tcls;
+S.sel.cls=ADMINVIEW()?classesShown()[0]:S.tcls;
 
 /* ---------- server ---------- */
 async function hw(action,data){
@@ -469,12 +474,13 @@ const byLabel=i=>i.made_by==="principal"?"by principal":i.made_by==="ai"?"AI-wri
 function renderTop(){
   $("wkLabel").textContent=nice(S.week)+" – "+nice(addDays(S.week,5))+" "+parse(addDays(S.week,5)).getFullYear();
   $("schoolName").textContent=(SCHOOL.name?SCHOOL.name+" · ":"")+"TeachBot";
-  $("roleBadge").textContent=PRINCIPAL?"Principal":"Teacher"+(TEACHER_NAME?" · "+TEACHER_NAME:"");
-  $("tClsWrap").hidden=PRINCIPAL;$("maxClsWrap").hidden=!PRINCIPAL;
+  $("roleBadge").textContent=PRINCIPAL?(MYCLASS?"Principal · My class":"Principal"):"Teacher"+(TEACHER_NAME?" · "+TEACHER_NAME:"");
+  $("viewSwitch").hidden=!PRINCIPAL;$("viewSwitch").textContent=MYCLASS?"← Back to whole school":"My class (teacher view)";
+  $("tClsWrap").hidden=ADMINVIEW();$("maxClsWrap").hidden=!ADMINVIEW();
   if(!$("tCls").options.length)$("tCls").innerHTML=ALL_CLASSES.map(c=>`<option>${c}</option>`).join("");
   $("tCls").value=S.tcls;
-  $("roleHint").textContent=PRINCIPAL?"Homework from teachers waits here until you add it to the week.":"Homework you write goes to the principal first.";
-  $("adminSide").hidden=!PRINCIPAL;$("teacherSide").hidden=PRINCIPAL;
+  $("roleHint").textContent=MYCLASS?"Homework you write here goes straight into the week.":PRINCIPAL?"Homework from teachers waits here until you add it to the week.":"Homework you write goes to the principal first.";
+  $("adminSide").hidden=!ADMINVIEW();$("teacherSide").hidden=ADMINVIEW();
   $("tSave").textContent=editing?"Save changes":PRINCIPAL?"Add to week":"Send to principal";
   $("sendNote").textContent="Homework added to the week goes to the Student Diary"+(SCHOOL.has_erp?" and to parents in ERP":"")+" at "+(SEND_HOUR%12||12)+" PM on its own day (✓ = sent). Slips show only homework added to the week.";
 }
@@ -541,7 +547,10 @@ function renderPanel(scroll){
   if(returning){const n=$("retNote");n&&n.focus()}
   if(scroll&&S.sel.focus){const el=$("it-"+S.sel.focus);el&&el.scrollIntoView({block:"nearest",behavior:"smooth"})}
 }
-function renderAll(scroll){if(!PRINCIPAL)S.sel.cls=S.tcls;renderTop();if(PRINCIPAL){renderWaitBar();renderGrid()}else renderTeacherWeek();renderPanel(scroll)}
+function renderAll(scroll){if(!ADMINVIEW())S.sel.cls=S.tcls;renderTop();if(ADMINVIEW()){renderWaitBar();renderGrid()}else renderTeacherWeek();renderPanel(scroll)}
+$("viewSwitch").onclick=()=>{MYCLASS=!MYCLASS;lsSet("hwp_view",MYCLASS?"teacher":"admin");
+  if(!MYCLASS&&!classesShown().includes(S.sel.cls))S.sel.cls=classesShown()[0];
+  S.sel.focus=null;cancelEdit(true);$("aOut").innerHTML="";$("wOut").innerHTML="";renderAll();window.scrollTo(0,0)};
 
 /* ---------- subject lists follow the timetable ---------- */
 let lastPanelKey="";
