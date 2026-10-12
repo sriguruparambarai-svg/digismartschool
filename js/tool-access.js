@@ -5,7 +5,8 @@
      • the principal (school login) and super admin always see everything
    Used by index.html (hides tiles and menu items), dashboard.html (tick boxes)
    and tool pages (DSS_ACCESS.guard('planner') sends a teacher back if not allowed).
-   Load it AFTER js/session-header.js, so the server request carries the login. */
+   It attaches the login (dss_session) to its own server request, so it works on
+   pages with or without js/session-header.js. */
 (function () {
   if (window.DSS_ACCESS) return;
 
@@ -62,7 +63,8 @@
   var ready = (function () {
     if (!isTeacher()) return Promise.resolve(null);
     return fetch('/api/auth', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      // the login is attached here too, so pages without js/session-header.js work
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-dss-session': lsGet('dss_session') || '' },
       body: JSON.stringify({ action: 'get_my_access' })
     }).then(function (r) { return r.json(); }).then(function (d) {
       if (d && d.success) {
