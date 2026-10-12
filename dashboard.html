@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="js/session-header.js"></script>
+<script src="js/tool-access.js"></script>
 <script>
   // This is the School Admin (principal) page. Teachers use Teacher Tools instead.
   try { if (localStorage.getItem('dss_role') === 'teacher') location.replace('/index.html'); } catch (e) {}
@@ -149,6 +150,10 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
     <div style="margin-bottom:10px;">
       <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Password</label>
       <input type="password" id="t-pass" name="new-teacher-password" autocomplete="new-password" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Tools this teacher can open</label>
+      <div id="t-tools"></div>
     </div>
     <div id="teacher-limit-msg" style="display:none;background:#f8d7da;color:#721c24;border:1px solid #dc3545;border-radius:8px;padding:9px 12px;font-size:0.85rem;font-weight:700;margin-bottom:8px;"></div>
     <button id="add-teacher-btn" onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
@@ -366,8 +371,9 @@ async function loadTeachers(){
 
     if(!teachers.length){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;font-style:italic;">No teachers added yet.</div>'; return; }
     listEl.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:.88rem;">'
-      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:center;">Actions</th></tr></thead><tbody>'
+      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:left;">Tools</th><th style="padding:9px 12px;text-align:center;">Actions</th></tr></thead><tbody>'
       +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td>'
+        +'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;max-width:340px;">'+toolsSummary(t.allowed_tools)+'</td>'
         +'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;white-space:nowrap;">'
         +'<button class="t-act" data-act="edit" data-id="'+esc(t.id)+'" style="background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;margin-right:6px;">&#9999;&#65039; Edit</button>'
         +'<button class="t-act" data-act="del" data-id="'+esc(t.id)+'" style="background:#fdecea;border:1.5px solid #c0392b;color:#c0392b;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;">&#128465; Delete</button>'
@@ -386,12 +392,36 @@ async function loadTeachers(){
     });
   }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
 }
+/* ── Teacher Tools access (Oct 2026): tick which tools each teacher may open ── */
+function toolBoxesHTML(prefix, list){
+  var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
+  if(!T.length) return '<div style="font-size:.8rem;color:#c0392b;">Tool list did not load (js/tool-access.js missing). Refresh the page.</div>';
+  var on = function(k){ return !list || list.indexOf(k) !== -1; };
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:10px;padding:10px;">'
+    + T.map(function(t){ return '<label style="display:flex;gap:7px;align-items:center;font-size:.84rem;cursor:pointer;color:#333;font-weight:600;">'
+      + '<input type="checkbox" class="'+prefix+'-tool" value="'+t.key+'"'+(on(t.key)?' checked':'')+' style="width:16px;height:16px;accent-color:#6B0F1A;"> '+t.icon+' '+esc(t.label)+'</label>'; }).join('')
+    + '</div><div style="display:flex;gap:8px;margin-top:6px;">'
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',true)" style="font-size:.75rem;padding:4px 10px;border:1px solid #C9A84C;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#6B0F1A;">Tick all</button>'
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',false)" style="font-size:.75rem;padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#666;">Untick all</button></div>';
+}
+function tickTools(prefix, on){ document.querySelectorAll('.'+prefix+'-tool').forEach(function(c){ c.checked = on; }); }
+function pickedTools(prefix){ return [].slice.call(document.querySelectorAll('.'+prefix+'-tool:checked')).map(function(c){ return c.value; }); }
+function toolsSummary(list){
+  var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
+  if(!list || !list.length) return '<span style="color:#1a5c2a;font-weight:700;">All tools</span>';
+  return T.filter(function(t){ return list.indexOf(t.key) !== -1; }).map(function(t){ return '<span title="'+esc(t.label)+'" style="display:inline-block;background:#f6efe0;border-radius:6px;padding:1px 6px;margin:1px 2px;font-size:.75rem;">'+t.icon+' '+esc(t.label)+'</span>'; }).join('');
+}
+(function(){ function fill(){ var b=document.getElementById('t-tools'); if(b && !b.innerHTML) b.innerHTML = toolBoxesHTML('ta', null); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fill); else fill(); })();
+
 async function addTeacher(){
   var name=document.getElementById('t-name').value.trim();
   var email=document.getElementById('t-email').value.trim();
   var pass=document.getElementById('t-pass').value;
   var msg=document.getElementById('t-msg');
   if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent='Please fill all fields.'; return; }
+  var tools=pickedTools('ta');
+  if(!tools.length){ msg.style.color='#c0392b'; msg.textContent='Tick at least one tool for this teacher.'; return; }
   if(!window._schoolId){ msg.style.color='#c0392b'; msg.textContent='School ID not ready. Please wait.'; return; }
   // Frontend limit check before even calling server
   var addBtn=document.getElementById('add-teacher-btn');
@@ -399,11 +429,11 @@ async function addTeacher(){
   msg.style.color='#6B0F1A'; msg.textContent='Adding...';
   try{
     var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({action:'add_teacher',school_id:window._schoolId,teacher_name:name,teacher_email:email,teacher_password:pass})});
+      body:JSON.stringify({action:'add_teacher',school_id:window._schoolId,teacher_name:name,teacher_email:email,teacher_password:pass,allowed_tools:tools})});
     var d=await r.json();
     if(d.error) throw new Error(d.error);
     msg.style.color='#1a5c2a'; msg.textContent='✅ '+name+' added!';
-    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value='';
+    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value=''; tickTools('ta', true);
     setTimeout(function(){msg.textContent='';},3000);
     loadTeachers();
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
@@ -418,6 +448,8 @@ function openEditTeacher(id){
     + '<input id="te-name" autocomplete="off" style="' + inp + '">'
     + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">New password <span style="font-weight:600;color:#888;">(leave empty to keep the old one)</span></label>'
     + '<input id="te-pass" type="password" autocomplete="new-password" placeholder="At least 6 characters" style="' + inp + '">'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">Tools this teacher can open</label>'
+    + '<div style="margin:4px 0 10px;">' + toolBoxesHTML('te', t.allowed_tools) + '</div>'
     + '<div style="display:flex;gap:8px;">'
     + '<button id="te-save" style="flex:1;padding:9px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Save</button>'
     + '<button id="te-cancel" style="padding:9px 16px;background:#eee;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Cancel</button></div>'
@@ -432,13 +464,15 @@ function openEditTeacher(id){
     var msg = document.getElementById('te-msg');
     if(!name){ msg.style.color='#c0392b'; msg.textContent='Name cannot be empty.'; return; }
     if(pass && pass.length < 6){ msg.style.color='#c0392b'; msg.textContent='Password must be at least 6 characters.'; return; }
+    var tools = pickedTools('te');
+    if(!tools.length){ msg.style.color='#c0392b'; msg.textContent='Tick at least one tool for this teacher.'; return; }
     msg.style.color='#6B0F1A'; msg.textContent='Saving...';
     try{
       var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({action:'update_teacher',school_id:window._schoolId,teacher_id:t.id,name:name,new_password:pass})});
+        body:JSON.stringify({action:'update_teacher',school_id:window._schoolId,teacher_id:t.id,name:name,new_password:pass,allowed_tools:tools})});
       var d = await r.json();
       if(d.error) throw new Error(d.error);
-      msg.style.color='#1a5c2a'; msg.textContent='✅ Saved' + (pass ? ' — tell the teacher their new password.' : '.');
+      msg.style.color='#1a5c2a'; msg.textContent='✅ Saved' + (pass ? ' — tell the teacher their new password.' : '. The teacher sees the change next time she opens Teacher Tools.');
       setTimeout(loadTeachers, 1200);
     }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
   };
