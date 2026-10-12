@@ -150,7 +150,7 @@ async function findAuthUserByEmail(email) {
 const SUPER_ADMIN_EMAIL = 'sriguruparambarai@gmail.com';
 // Teacher Tools the principal can switch on/off per teacher (same keys as js/tool-access.js).
 const TOOL_KEYS = ['teachbot', 'lesson', 'worksheet', 'nursery', 'qpaper', 'objective', 'bookback',
-                   'revision', 'insights', 'reports', 'diary', 'planner', 'attendance'];
+                   'revision', 'insights', 'reports', 'diary', 'planner', 'attendance', 'workbook'];
 // Returns { list } — null means "every tool" — or { error }.
 function cleanTools(v) {
   if (v == null) return { list: null };
