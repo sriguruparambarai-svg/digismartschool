@@ -2190,7 +2190,7 @@ Maths — Ch 1: Number Systems, Ch 2: Polynomials...
   </div>
   <div id="bb-save-wrap" style="display:none;margin-top:10px;">
     <button id="bb-save-btn" class="btn btn-full" style="background:linear-gradient(135deg,#1a5c2a,#2e7d32);color:#fff;font-size:0.95rem;" onclick="saveBookBackToDiary()">💾 Save to Student Diary</button>
-    <div style="font-size:0.75rem;color:#888;margin-top:4px;text-align:center;">Students in this class can view these answers in their diary app</div>
+    <div id="bb-save-hint" style="font-size:0.75rem;color:#888;margin-top:4px;text-align:center;">Goes to the principal in the Homework Planner first. After approval it reaches the Student Diary at 4 PM.</div>
     <button id="bb-rev-btn" class="btn btn-full" style="margin-top:9px;
       background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;font-size:0.95rem;"
       onclick="revOpenSave()">🗣️ Save for Revision</button>
@@ -6075,42 +6075,42 @@ async function pushHomeworkToERP(d){
 
 // ── Save Book Back Answers ──
 async function saveBookBackToDiary(){
+  // Oct 2026: Book Back answers now go through the Homework Planner — they wait for the
+  // principal, then reach the Student Diary at 4 PM. Each save is kept as its own set.
   var cls = document.getElementById('bb-class').value;
   var sub = document.getElementById('bb-subject').value;
   var answers = bbCurrentAnswers();
-  var lesson = document.getElementById('bb-content').value.substring(0,80) || 'Book Back';
+  var lesson = (document.getElementById('bb-content').value || '').trim().split(/\n/)[0].substring(0,80);
 
   if(!cls || !sub){ alert('Please select Class and Subject first.'); return; }
   if(!answers.trim()){ alert('Please generate answers first.'); return; }
 
   var btn = document.getElementById('bb-save-btn');
-  if(btn){ btn.disabled=true; btn.textContent='⏳ Saving…'; }
-
-  var schoolId = getSchoolId();
-  var today = new Date().toISOString().split('T')[0];
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Sending…'; }
+  var role = localStorage.getItem('dss_role') || '';
+  var user = {}; try{ user = JSON.parse(localStorage.getItem('dss_user')||'{}'); }catch(e){}
+  var d0 = new Date(), today = d0.getFullYear()+'-'+String(d0.getMonth()+1).padStart(2,'0')+'-'+String(d0.getDate()).padStart(2,'0');
+  var title = lesson ? ('📗 ' + lesson + '\n') : '';
 
   try{
-    var res = await fetch('/api/auth', {
+    var res = await fetch('/api/homework', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        action: 'save_diary_entry',
-        school_id: schoolId,
-        class_name: cls,
-        subject: sub,
-        lesson_title: lesson.trim() || sub + ' — ' + today,
-        lesson_date: today,
-        book_back_answers: answers
+        action: 'save', entry_type: 'bookback', made_by: 'teacher', kind: 'Book back',
+        class_name: cls, subject: sub, hw_date: today,
+        homework: (title + answers).substring(0, 20000),
+        teacher_name: role === 'teacher' ? (user.name || '') : ''
       })
     });
     var d = await res.json();
     if(d.error) throw new Error(d.error);
-
-    if(btn){ btn.textContent='✅ Saved! Students can now view these answers.'; }
-    setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3000);
+    var principal = role !== 'teacher';
+    if(btn){ btn.textContent = principal ? '✅ Added — reaches the Student Diary at 4 PM' : '✅ Sent to the principal for approval'; }
+    setTimeout(function(){ if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }}, 3500);
   }catch(e){
     if(btn){ btn.disabled=false; btn.textContent='💾 Save to Student Diary'; }
-    alert('Save failed: ' + e.message);
+    alert('Could not send: ' + e.message);
   }
 }
 

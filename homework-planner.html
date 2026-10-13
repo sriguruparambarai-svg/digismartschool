@@ -206,6 +206,10 @@ textarea{resize:vertical;min-height:70px}
 .cwb{font-size:.68rem;font-weight:700;padding:1px 6px;border-radius:4px;background:#E6F0E4;color:var(--ok);border:1px solid transparent}
 .cwb.w{background:var(--wait-bg);color:var(--wait);border:1px dashed var(--wait)}
 .cell .cwb{align-self:flex-start}
+.cell .cwb+.cwb{margin-top:-2px}
+.bbtxt{max-height:7.5em;overflow:hidden;white-space:pre-wrap;overflow-wrap:anywhere;position:relative}
+.bbtxt.open{max-height:none}
+.pill.bbp{background:#E7EEF8;color:#185FA5;border:1px solid #B9CCE6}
 .pill.cw{background:#E6F0E4;color:var(--ok);border:1px solid #B9D7B5}
 .day .cwline{font-size:.8rem;color:var(--ok);margin-top:4px}
 /* book / workbook picker (Oct 2026) */
@@ -345,6 +349,8 @@ textarea{resize:vertical;min-height:70px}
       <div class="pfixed" id="pFixed" hidden></div>
       <div class="cwhead" id="pCwHead"></div>
       <ul class="items cwlist" id="pCw"></ul>
+      <div class="cwhead" id="pBbHead"></div>
+      <ul class="items cwlist" id="pBb"></ul>
       <div class="cwhead" id="pHwHead"></div>
       <ul class="items" id="pItems"></ul>
       <div class="modes" role="group" aria-label="What are you writing?">
@@ -498,7 +504,8 @@ async function load(){
   try{
     const d=await hw("list",{from:S.week,to:addDays(S.week,5)});
     const all=d.items||[];SEND_HOUR=d.send_hour||16;
-    S.items=all.filter(i=>i.entry_type!=="classwork");   // homework (all older rows)
+    S.items=all.filter(i=>i.entry_type!=="classwork"&&i.entry_type!=="bookback");   // homework (all older rows)
+    S.bb=all.filter(i=>i.entry_type==="bookback");       // book back answers (from Teacher Tools → Book Back Answers)
     S.cw=all.filter(i=>i.entry_type==="classwork");      // class work
     TT=d.timetable||{};TT_ERR=d.timetable_error||"";
     if(TT_ERR){$("topInfo").textContent="The homework timetable could not load: "+TT_ERR;$("topInfo").hidden=false}else $("topInfo").hidden=true;
@@ -543,11 +550,11 @@ function renderTop(){
   $("tSave").textContent=editing?"Save changes":PRINCIPAL?"Add to week":"Send to principal";
   $("sendNote").textContent="Homework added to the week goes to the Student Diary"+(SCHOOL.has_erp?" and to parents in ERP":"")+" at "+(SEND_HOUR%12||12)+" PM on its own day (✓ = sent). Slips show only homework added to the week.";
 }
-function renderWaitBar(){const wh=S.items.filter(waiting),wc=(S.cw||[]).filter(waiting),w=wh.concat(wc);const b=$("waitBar");
+function renderWaitBar(){const wh=S.items.filter(waiting),wc=(S.cw||[]).filter(waiting),wb=(S.bb||[]).filter(waiting),w=wh.concat(wc,wb);const b=$("waitBar");
   if(!w.length){b.className="waitbar none";b.innerHTML=`<span class="grow">Nothing waiting from teachers this week.</span>`;return}
-  const parts=[wh.length?wh.length+" homework":"",wc.length?wc.length+" class work":""].filter(Boolean).join(" + ");
+  const parts=[wh.length?wh.length+" homework":"",wc.length?wc.length+" class work":"",wb.length?wb.length+" book back answers":""].filter(Boolean).join(" + ");
   b.className="waitbar";b.innerHTML=`<span class="grow">${parts} waiting from teachers this week</span><button class="btn ghost" id="nextWait">Show next</button><button class="btn wait" id="addAllWait">Add all ${w.length}</button>`;
-  $("nextWait").onclick=()=>{const i=w.slice().sort((a,b)=>a.hw_date.localeCompare(b.hw_date))[0];if(i.entry_type==="classwork"){S.mode="cw"}else S.mode="hw";pick(i.class_name,i.hw_date,i.id)};
+  $("nextWait").onclick=()=>{const i=w.slice().sort((a,b)=>a.hw_date.localeCompare(b.hw_date))[0];if(i.entry_type==="classwork"){S.mode="cw"}else if(i.entry_type!=="bookback")S.mode="hw";pick(i.class_name,i.hw_date,i.id)};
   $("addAllWait").onclick=()=>act("add",{ids:w.map(i=>i.id)},d=>d.added+" added to the week");
 }
 function renderGrid(){
@@ -560,7 +567,9 @@ function renderGrid(){
       const todo=(fixedFor(c,ds)||[]).filter(s=>!its.some(x=>x.subject===s));
       const todoH=todo.map(s=>`<span class="chip todo" title="${esc(s)} — fixed for this day, not written yet">${esc(SHORT[s]||s.slice(0,3).toUpperCase())}</span>`).join("");
       const cws=cwFor(c,ds,x=>x.status!=="returned"),cwW=cws.some(waiting);
-      const cwH=cws.length?`<span class="cwb${cwW?" w":""}" title="Class work: ${esc(cws.map(x=>x.subject).join(", "))}${cwW?" (waiting)":""}">📖 ${cws.length}</span>`:"";
+      const bbs=(S.bb||[]).filter(x=>x.class_name===c&&x.hw_date===ds&&x.status!=="returned"),bbW=bbs.some(waiting);
+      const cwH=(cws.length?`<span class="cwb${cwW?" w":""}" title="Class work: ${esc(cws.map(x=>x.subject).join(", "))}${cwW?" (waiting)":""}">📖 ${cws.length}</span>`:"")+
+        (bbs.length?`<span class="cwb bbb${bbW?" w":""}" title="Book back answers: ${esc(bbs.map(x=>x.subject).join(", "))}${bbW?" (waiting)":""}">📗 ${bbs.length}</span>`:"");
       h+=`<td><div class="cell ${na?st:""} ${sel?"sel":""}" role="button" tabindex="0" data-c="${esc(c)}" data-d="${ds}" aria-label="${c}, ${DAYFULL[i]}: ${na} added, ${nw} waiting, ${cws.length} class work">`+cwH+
         (its.length?`<span class="cnt"><b>${na}/${lim}${st==="over"?" · too much":""}</b>${nw?` <em>+${nw} waiting</em>`:""}</span><span class="chips">${its.map(x=>`<button class="chip ${x.status}${x.sent_at?" sent":""}${isExtra(x)?" extra":""}" data-item="${x.id}" title="${esc(x.subject)}${isExtra(x)?" (Extra)":""}: ${esc(x.homework)}">${esc(SHORT[x.subject]||x.subject.slice(0,3).toUpperCase())}</button>`).join("")}${todoH}</span>`:todoH?`<span class="chips">${todoH}</span>`:`<span class="empty">+ add</span>`)+
         `</div></td>`});
@@ -572,7 +581,9 @@ function renderTeacherWeek(){const c=S.tcls;$("tWeekTitle").textContent=c+" this
     const fx=fixedFor(c,ds),live=its.filter(x=>x.status!=="returned");
     const fxH=fx?`<div class="fixed">${fx.length?"Fixed: "+fx.map(s=>`<span class="fx${live.some(x=>x.subject===s)?" done":""}">${esc(s)}${live.some(x=>x.subject===s)?" ✓":""}</span>`).join(""):"No homework fixed for this day"}</div>`:"";
     const cws=cwFor(c,ds,x=>x.status!=="returned");
-    const cwL=cws.length?`<div class="cwline">📖 Class work: ${cws.map(x=>esc(x.subject)+(x.sent_at?" ✓":x.status==="waiting"?" (waiting)":"")).join(", ")}</div>`:"";
+    const bbs=(S.bb||[]).filter(x=>x.class_name===c&&x.hw_date===ds&&x.status!=="returned");
+    const cwL=(cws.length?`<div class="cwline">📖 Class work: ${cws.map(x=>esc(x.subject)+(x.sent_at?" ✓":x.status==="waiting"?" (waiting)":"")).join(", ")}</div>`:"")+
+      (bbs.length?`<div class="cwline" style="color:#185FA5">📗 Book back answers: ${bbs.map(x=>esc(x.subject)+(x.sent_at?" ✓":x.status==="waiting"?" (waiting)":"")).join(", ")}</div>`:"");
     return `<div class="day ${S.sel.date===ds?"sel":""}" role="button" tabindex="0" data-d="${ds}"><div class="dh"><span class="dn">${DAYFULL[i]}<small>${nice(ds)}</small></span><span class="hint">${its.filter(added).length}/${limitFor(c,ds)}</span></div>`+fxH+cwL+
     (its.length?`<ul>${its.map(x=>`<li><span class="s">${esc(SHORT[x.subject]||x.subject)}</span><span class="x">${esc(x.homework)}</span><span class="pill ${x.sent_at?"sent":x.status}">${x.sent_at?"Sent ✓":STATUS[x.status]}</span></li>`).join("")}</ul>`:`<div class="none">No homework yet</div>`)+`</div>`}).join("");
 }
@@ -700,9 +711,28 @@ function showMode(){const cw=S.mode==="cw";
 $("mode-cw").onclick=()=>{S.mode="cw";lsSet("hwp_mode","cw");showMode()};
 $("mode-hw").onclick=()=>{S.mode="hw";lsSet("hwp_mode","hw");showMode()};
 let cwArmed=null,cwReturning=null;
-function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor(c,ds);
+/* 📗 Book back answers waiting for approval (sent from Teacher Tools → Book Back Answers) */
+let bbArmed=null,bbOpen={};
+function renderBb(){const c=S.sel.cls,ds=S.sel.date,list=(S.bb||[]).filter(i=>i.class_name===c&&i.hw_date===ds);
+  $("pBbHead").textContent=list.length?"📗 Book back answers":"";
+  $("pBb").innerHTML=list.map(i=>{let acts="";
+    if(!i.sent_at){
+      if(PRINCIPAL){if(i.status==="waiting")acts=`<button class="iconbtn go" data-badd="${i.id}">Add to day</button><button class="iconbtn" data-bret="${i.id}">Send back</button>`;
+        else if(i.status==="added")acts=`<button class="iconbtn" data-bunadd="${i.id}">Take out</button>`}
+      if(PRINCIPAL||i.status!=="added")acts+=`<button class="iconbtn${bbArmed===i.id?" danger":""}" data-bdel="${i.id}">${bbArmed===i.id?"Tap again to remove":"Remove"}</button>`}
+    acts+=`<button class="iconbtn" data-bopen="${i.id}">${bbOpen[i.id]?"Show less":"Read all"}</button>`;
+    const pill=i.sent_at?`<span class="pill sent">${esc(sentLabel(i))}</span>`:`<span class="pill ${i.status}">${i.status==="added"?"In this day":STATUS[i.status]}</span>`;
+    return `<li><span class="subj">${esc(i.subject)}</span><div><div class="txt bbtxt${bbOpen[i.id]?" open":""}">${esc(i.homework)}</div><div class="meta">${pill}<span class="pill bbp">Book back</span>${i.teacher_name?esc(i.teacher_name):""}</div></div>`+
+      (i.status==="returned"&&i.return_note?`<div class="rnote">Principal: ${esc(i.return_note)}</div>`:"")+`<div class="acts">${acts}</div></li>`}).join("")}
+$("pBb").addEventListener("click",e=>{const t=e.target.dataset;
+  if(t.bopen){bbOpen[t.bopen]=!bbOpen[t.bopen];renderBb()}
+  if(t.badd)act("add",{ids:[t.badd]},"Book back answers added to the day");
+  if(t.bunadd)act("take_out",{id:t.bunadd},"Taken out. It is waiting again.");
+  if(t.bret){const n=prompt("Note for the teacher:","");if(n!==null)act("send_back",{id:t.bret,note:n},"Sent back to the teacher")}
+  if(t.bdel){if(bbArmed!==t.bdel){bbArmed=t.bdel;renderBb();setTimeout(()=>{if(bbArmed===t.bdel){bbArmed=null;renderBb()}},4000);return}bbArmed=null;act("remove",{id:t.bdel},"Removed")}});
+function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor(c,ds);renderBb();
   $("pCwHead").textContent=list.length?"📖 Class work":"";
-  $("pHwHead").textContent=list.length&&hw.length?"📝 Homework":"";
+  $("pHwHead").textContent=(list.length||(S.bb||[]).some(i=>i.class_name===c&&i.hw_date===ds))&&hw.length?"📝 Homework":"";
   $("pCw").innerHTML=list.map(i=>{let acts="";
     if(!i.sent_at){
       if(PRINCIPAL){
