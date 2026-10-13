@@ -10043,5 +10043,429 @@ $("print").onclick = function(){ window.print(); };
 clsSel(); subjSel(); chapSel(); drawSlots(); drawPicker();
 srvLoad();
 </script>
+<script>
+/* =======================================================================
+   CHAPTERS FROM THE SCHOOL'S OWN BOOKS (Oct 2026)
+   Any school can add a chapter from a book it uploaded (or the Samacheer
+   library, or pasted exercises). AI reads the chapter's exercises, the
+   principal checks them, and the chapter is saved for that school only.
+   - The chapter's questions:  /api/lesson-plan  (key = hash of school + chapter id)
+   - The school's list of its chapters and their ticks:  PLANS._own, saved with
+     the rest of the picks (api/homework.js workbook_save).
+   The built-in chapters above, their saved ticks and the Homework Planner's
+   reading of them are untouched: own chapters sit after them in the list.
+   Exercise reading uses the same AI question and cache key as Today's
+   Worksheet, so one chapter is only ever read once for both tools.
+   ======================================================================= */
+(function(){
+  var STD_SUBJ = ["English","Tamil","Hindi","Mathematics","Science","Social Science","EVS","Computer"];
+  var U = {}; try{ U = JSON.parse(localStorage.getItem("dss_user")||"{}"); }catch(e){}
+  var ROLE = ""; try{ ROLE = localStorage.getItem("dss_role")||""; }catch(e){}
+  var SCHOOL_ID = ROLE==="teacher" ? (U.school_id||(U.schools&&U.schools.id)||"") : (U.school_id||U.id||"");
+
+  /* every class 1-12 and the usual subjects can hold the school's own chapters */
+  for(var c=1;c<=12;c++){ if(!CLASSES[String(c)]) CLASSES[String(c)] = {}; if(!PLANS[String(c)]) PLANS[String(c)] = {}; }
+  Object.keys(CLASSES).forEach(function(c){
+    STD_SUBJ.forEach(function(s){ if(!CLASSES[c][s]) CLASSES[c][s] = []; if(!PLANS[c][s]) PLANS[c][s] = []; });
+  });
+
+  /* the school's own chapters */
+  var OWNC = {};                  // uid -> chapter (questions), once loaded
+  function own(){ if(!PLANS._own || typeof PLANS._own!=="object") PLANS._own = {list:[], plans:{}}; if(!Array.isArray(PLANS._own.list)) PLANS._own.list=[]; if(!PLANS._own.plans) PLANS._own.plans={}; return PLANS._own; }
+  try{ var lo = JSON.parse(localStorage.getItem("wbplan3")||"{}"); if(lo && lo._own) PLANS._own = lo._own; }catch(e){}
+  function ownFor(c, s){
+    return own().list.filter(function(r){ return r.cls===c && r.subj===s && OWNC[r.uid]; })
+      .sort(function(a,b){ return (parseFloat(a.no)||0)-(parseFloat(b.no)||0) || String(a.title).localeCompare(String(b.title)); });
+  }
+  function planFor(r){
+    var p = own().plans[r.uid];
+    if(!p || !Array.isArray(p.slots)){
+      p = {slots:freshSlots()};
+      (OWNC[r.uid].sections||[]).forEach(function(s){ p.slots[0].picks[s.id] = s.items.map(function(_,k){ return k; }); });
+      own().plans[r.uid] = p;
+    }
+    return p;
+  }
+  /* what the editor shows: the built-in chapters, then this school's own */
+  window.wbViews = function(){
+    var base = (CLASSES[cls] && CLASSES[cls][subj]) || [], bp = (PLANS[cls] && PLANS[cls][subj]) || [];
+    var mine = ownFor(cls, subj);
+    CHAPTERS = base.concat(mine.map(function(r){ return OWNC[r.uid]; }));
+    plan = bp.concat(mine.map(planFor));
+    if(chI >= CHAPTERS.length) chI = Math.max(0, CHAPTERS.length-1);
+  };
+
+  /* wrap the editor's own functions so they always see both lists */
+  var _chapSel = chapSel, _drawSlots = drawSlots, _drawPicker = drawPicker, _applyPlans = applyPlans;
+  chapSel = function(){
+    wbViews();
+    if(!CHAPTERS.length){ $("fChapter").innerHTML = '<option value="0">No chapters yet</option>'; return; }
+    $("fChapter").innerHTML = CHAPTERS.map(function(c,i){
+      return '<option value="'+i+'">'+(c.own?'📘 ':'')+esc(c.no)+'. '+esc(c.title)+(c.own?' (school book)':'')+'</option>';
+    }).join("");
+    $("fChapter").value = chI;
+  };
+  drawSlots = function(){
+    wbViews();
+    if(!plan || !plan[chI]){ $("slotList").innerHTML = '<p class="hint">No chapter chosen.</p>'; return; }
+    _drawSlots();
+  };
+  drawPicker = function(){
+    wbViews();
+    if(!plan || !plan[chI]){
+      $("pickHead").innerHTML = '<h2>No chapters for Class '+esc(cls)+' '+esc(subj)+' yet</h2>';
+      $("pickBody").innerHTML = '<p class="hint">Press <b>➕ Add a chapter from your school’s book</b> above. AI reads the chapter’s exercises from the book and lists them here, ready to tick.</p>';
+      return;
+    }
+    _drawPicker();
+    var ch = CHAPTERS[chI];
+    if(ch && ch.own){
+      var bar = document.createElement("div");
+      bar.className = "ownbar";
+      bar.innerHTML = '📘 From your school’s book'+(ch.src&&ch.src.book?': '+esc(ch.src.book):'')+(ch.src&&ch.src.from?' · pages '+esc(ch.src.from)+'–'+esc(ch.src.to):'')
+        + (SRV.canSave ? ' <button class="btn alt" id="ownEdit">Check / correct questions</button> <button class="btn alt" id="ownDel">Remove this chapter</button>' : '');
+      $("pickHead").insertBefore(bar, $("pickHead").firstChild);
+      if($("ownEdit")) $("ownEdit").onclick = function(){ openReview(JSON.parse(JSON.stringify(ch)), true); };
+      if($("ownDel")) $("ownDel").onclick = function(){
+        if(!confirm("Remove “"+ch.title+"” from the workbook? The ticks for it are removed too.")) return;
+        own().list = own().list.filter(function(r){ return r.uid!==ch.uid; });
+        delete own().plans[ch.uid];
+        chI = 0; slotI = 0; save(); chapSel(); drawSlots(); drawPicker();
+      };
+    }
+  };
+  applyPlans = function(o){
+    _applyPlans(o);
+    PLANS._own = (o && o._own) ? o._own : {list:[], plans:{}};
+    wbViews();
+    loadOwn().then(refresh);
+  };
+  function refresh(){ wbViews(); chapSel(); drawSlots(); drawPicker(); }
+
+  /* fetch the questions of every own chapter (once) */
+  async function sha(parts){
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("|")));
+    return Array.from(new Uint8Array(buf)).slice(0,20).map(function(b){ return b.toString(16).padStart(2,"0"); }).join("");
+  }
+  async function cacheGet(key){ try{ var r = await fetch("/api/lesson-plan?key="+key); if(!r.ok) return null; var d = await r.json(); return d && Array.isArray(d.steps) && d.steps.length ? d.steps : null; }catch(e){ return null; } }
+  async function cachePut(key, steps, meta){
+    var r = await fetch("/api/lesson-plan", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({key:key, steps:steps, meta:meta})});
+    var d = {}; try{ d = await r.json(); }catch(e){}
+    if(!r.ok || (d && d.error)) throw new Error((d && d.error) || ("could not save ("+r.status+")"));
+  }
+  function ownKey(uid){ return sha(["wbown1", SCHOOL_ID, uid]); }
+  async function loadOwn(){
+    var need = own().list.filter(function(r){ return !OWNC[r.uid]; });
+    await Promise.all(need.map(async function(r){
+      var st = await cacheGet(await ownKey(r.uid));
+      if(st && st[0] && st[0].sections) OWNC[r.uid] = Object.assign(st[0], {own:true, uid:r.uid});
+    }));
+  }
+
+  /* ---------- the "add a chapter" window ---------- */
+  var css = document.createElement("style");
+  css.textContent = ''
+    + '.ownbar{background:#fff8e6;border:1px solid #e8d49a;border-radius:6px;padding:7px 10px;font-size:13px;margin-bottom:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}'
+    + '.ownbar .btn{padding:3px 9px;font-size:12px}'
+    + '#ownWin{position:fixed;inset:0;background:rgba(30,20,10,.45);z-index:50;display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:24px 12px}'
+    + '#ownWin.on{display:flex}'
+    + '#ownWin .box{background:#fff;border-radius:10px;max-width:880px;width:100%;padding:18px 20px;box-shadow:0 10px 40px rgba(0,0,0,.3)}'
+    + '#ownWin h2{margin:0 0 4px;color:var(--maroon);font-size:18px}'
+    + '#ownWin .g{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}'
+    + '#ownWin label{display:grid;gap:3px;font-size:12px;color:#5a4a2a;font-weight:600}'
+    + '#ownWin input,#ownWin select,#ownWin textarea{padding:6px 8px;border:1px solid #c9b58a;border-radius:5px;font-size:14px;font-family:inherit;width:100%;box-sizing:border-box}'
+    + '#ownWin textarea{min-height:90px}'
+    + '#ownWin .hint{font-size:12px;color:#7a6a4a}'
+    + '#ownWin .err{background:#fbe3df;color:#a12a1e;padding:8px 10px;border-radius:6px;font-size:13px;margin-top:10px}'
+    + '#ownWin .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}'
+    + '#ownWin .rsec{border:1px solid #e4dccb;border-radius:8px;margin-top:10px}'
+    + '#ownWin .rsec>.rh{background:#f3e9d8;padding:6px 10px;display:flex;gap:8px;align-items:center}'
+    + '#ownWin .rsec>.rh b{flex:none}'
+    + '#ownWin .rq{display:grid;grid-template-columns:24px minmax(0,1fr) auto;gap:6px;padding:6px 10px;border-top:1px solid #f0e8d8;align-items:start;font-size:14px}'
+    + '#ownWin .rq .ed,#ownWin .rh .ed{outline:none;border-radius:4px;padding:1px 4px;min-height:1.3em}'
+    + '#ownWin .rq .ed:focus,#ownWin .rh .ed:focus{background:#fffdf5;box-shadow:inset 0 0 0 1px var(--gold)}'
+    + '#ownWin .rq .sub{font-size:12.5px;color:#6b5a3a}'
+    + '#ownWin .rq .x{border:none;background:none;color:#a33;font-size:16px;cursor:pointer}'
+    + '#ownWin .kind{font-size:10.5px;font-weight:700;text-transform:uppercase;background:#f1e2c6;color:#5a2a16;border-radius:9px;padding:0 7px;margin-right:4px}'
+    + '.spin{display:inline-block;width:12px;height:12px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:wbsp .8s linear infinite;vertical-align:-1px;margin-right:6px}'
+    + '@keyframes wbsp{to{transform:rotate(360deg)}}'
+    + '@media print{#ownWin,.ownbar{display:none!important}}';
+  document.head.appendChild(css);
+
+  var addBtn = document.createElement("button");
+  addBtn.className = "btn gold"; addBtn.id = "ownAdd"; addBtn.type = "button";
+  addBtn.style.cssText = "padding:5px 10px;font-size:13px";
+  addBtn.textContent = "➕ Add a chapter from your school’s book";
+  document.querySelector(".bar").appendChild(addBtn);
+
+  var win = document.createElement("div"); win.id = "ownWin"; win.setAttribute("role","dialog"); win.setAttribute("aria-modal","true");
+  win.innerHTML = '<div class="box" id="ownBox"></div>';
+  document.body.appendChild(win);
+  win.addEventListener("click", function(e){ if(e.target===win) closeWin(); });
+  win.addEventListener("input", function(e){ if(REV) onEdit(e); });
+  function closeWin(){ win.classList.remove("on"); }
+
+  addBtn.onclick = function(){
+    if(!SRV.ready){ alert("Still loading the school’s picks. Try again in a moment."); return; }
+    if(!SRV.canSave){ alert("Only the principal, or a teacher with Workbook Generator ticked, can add chapters."); return; }
+    openPick();
+  };
+
+  /* step 1: choose the book and chapter */
+  var BOOKS = [], CHS = [], PRIV = null, LIB = null;
+  function normCls(s){ s=String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); var m=s.match(/(\d+)/); return m ? "c"+(+m[1]) : s; }
+  function normSub(v){ v=String(v||"").toLowerCase().replace(/[^a-z]/g,"");
+    if(["math","maths","mathematics","ganitham","kanakku"].indexOf(v)>=0) return "maths";
+    if(["social","socialscience","socialstudies","sst","history","geography","civics"].indexOf(v)>=0) return "social";
+    if(["computer","computers","computerscience"].indexOf(v)>=0) return "computer";
+    if(v==="generalscience") return "science"; return v; }
+  function cleanTitle(t,n){ t=String(t||"").trim(); if(/\.indd|\d{2}-\d{2}-\d{4}|\d{1,2}:\d{2}:\d{2}/i.test(t)||t.replace(/[^A-Za-z஀-௿ऀ-ॿ]/g,"").length<3) return "Chapter "+n; return t; }
+  async function auth(body){ var r = await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}); return r.json(); }
+  async function findBooks(){
+    if(!PRIV){ try{ var d = await auth({action:"get_school_books", school_id:SCHOOL_ID}); PRIV = (d && d.books) || []; }catch(e){ PRIV = []; } }
+    if(!LIB){ try{ var l = await auth({action:"tbl_get", table:"textbook_library", params:"select=id,title,class_name,subject,medium,pdf_url&order=class_name"}); LIB = Array.isArray(l) ? l : ((l && l.books) || []); }catch(e){ LIB = []; } }
+    BOOKS = [];
+    PRIV.filter(function(b){ return normCls(b.class_name)===normCls(cls) && (!b.subject || normSub(b.subject)===normSub(subj)); })
+      .forEach(function(b){ BOOKS.push({id:b.id, name:(b.book_name||"Book")+(b.term?" — Term "+b.term:""), pdf:b.pdf_url||"", src:"private"}); });
+    LIB.filter(function(b){ return normCls(b.class_name)===normCls(cls) && normSub(b.subject)===normSub(subj); })
+      .forEach(function(b){ BOOKS.push({id:b.id, name:(b.title||b.subject||"Book")+(b.medium?" — "+b.medium:"")+" (Samacheer)", pdf:b.pdf_url||"", src:"library"}); });
+  }
+  async function openPick(){
+    var box = $("ownBox");
+    box.innerHTML = '<h2>Add a chapter from your school’s book — Class '+esc(cls)+' '+esc(subj)+'</h2>'
+      + '<p class="hint">AI reads the exercises printed in the chapter and lists them, ready to tick for class work, homework and the test. You check them before saving. This chapter is saved for your school only.</p>'
+      + '<div class="g"><label>Book<select id="oBook"><option>Looking for books…</option></select></label>'
+      + '<label>Chapter<select id="oCh"><option value="">Pick a book first</option></select></label>'
+      + '<label>From page<input type="number" id="oFrom" min="1"></label><label>To page<input type="number" id="oTo" min="1"></label></div>'
+      + '<div class="g"><label>Chapter number<input id="oNo" placeholder="e.g. 3"></label><label style="grid-column:span 2">Chapter name<input id="oTitle" placeholder="e.g. Plants Around Us"></label></div>'
+      + '<details style="margin-top:10px"><summary class="hint" style="cursor:pointer;font-weight:600;color:var(--maroon)">Book not uploaded, or its pages are scanned pictures? Paste the exercises instead</summary>'
+      + '<textarea id="oPaste" style="margin-top:6px" placeholder="Paste the chapter’s exercises here, exactly as in the book."></textarea></details>'
+      + '<div id="oMsg"></div>'
+      + '<div class="row"><button class="btn gold" id="oRead">Read the exercises</button><button class="btn alt" id="oClose">Close</button></div>';
+    win.classList.add("on");
+    $("oClose").onclick = closeWin;
+    $("oRead").onclick = readChapter;
+    await findBooks();
+    $("oBook").innerHTML = BOOKS.length ? '<option value="">Choose the book</option>'+BOOKS.map(function(b,i){ return '<option value="'+i+'">'+esc(b.name)+'</option>'; }).join("")
+      : '<option value="">No book uploaded for Class '+esc(cls)+' '+esc(subj)+'</option>';
+    if(!BOOKS.length) box.querySelector("details").open = true;
+    $("oBook").onchange = pickBook; $("oCh").onchange = pickCh;
+    if(BOOKS.length===1){ $("oBook").value = "0"; pickBook(); }
+  }
+  async function pickBook(){
+    var b = BOOKS[+$("oBook").value]; CHS = [];
+    if(!b || $("oBook").value===""){ $("oCh").innerHTML = '<option value="">Pick a book first</option>'; return; }
+    $("oCh").innerHTML = '<option>Loading chapters…</option>';
+    try{
+      var d = await auth({action:"tbl_get", table:(b.src==="private"?"school_book_chapters":"textbook_chapters"),
+        params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"});
+      CHS = (Array.isArray(d) ? d : ((d && d.chapters) || [])).filter(function(x){ return x && x.page_from && x.page_to; });
+    }catch(e){ CHS = []; }
+    $("oCh").innerHTML = CHS.length ? '<option value="">Choose the chapter</option>'+CHS.map(function(c,i){ return '<option value="'+i+'">Ch '+esc(c.chapter_number||i+1)+'. '+esc(cleanTitle(c.chapter_title, c.chapter_number||i+1))+' (p.'+c.page_from+'–'+c.page_to+')</option>'; }).join("")
+      : '<option value="">No chapters marked — type the pages</option>';
+  }
+  function pickCh(){
+    var c = CHS[+$("oCh").value]; if(!c || $("oCh").value==="") return;
+    $("oFrom").value = c.page_from; $("oTo").value = c.page_to;
+    $("oNo").value = c.chapter_number || (+$("oCh").value+1);
+    $("oTitle").value = cleanTitle(c.chapter_title, c.chapter_number);
+  }
+
+  /* reading — the same text, question and cache key as Today's Worksheet */
+  var PDFS = {};
+  function pdfLib(){
+    if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+    return new Promise(function(ok, bad){
+      var s = document.createElement("script"); s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = function(){ window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"; ok(window.pdfjsLib); };
+      s.onerror = function(){ bad(new Error("The PDF reader did not load. Check the internet and try again.")); };
+      document.head.appendChild(s);
+    });
+  }
+  async function bookText(b, from, to){
+    var lib = await pdfLib();
+    if(!PDFS[b.pdf]){ PDFS[b.pdf] = (async function(){ var r = await fetch(b.pdf); if(!r.ok) throw new Error("Could not download the book ("+r.status+")"); return lib.getDocument({data:await r.arrayBuffer()}).promise; })(); }
+    var doc; try{ doc = await PDFS[b.pdf]; }catch(e){ delete PDFS[b.pdf]; throw e; }
+    from = Math.max(1, from||1); to = Math.min(doc.numPages, Math.max(from, to||doc.numPages), from+40);
+    var t = "";
+    for(var p=from; p<=to && t.length<60000; p++){
+      var pg = await doc.getPage(p), tc = await pg.getTextContent();
+      var s = tc.items.map(function(x){ return x.str; }).join(" ").replace(/\s+/g," ").trim();
+      if(s) t += "\n\n----- Book page "+p+" -----\n"+s;
+    }
+    t = t.trim();
+    return t.replace(/----- Book page \d+ -----/g,"").trim().length > 200 ? t : "";
+  }
+  function twsClass(){ return "Class "+cls; }
+  function twsSubj(){ return subj==="Mathematics" ? "Maths" : subj; }
+  function readPrompt(){ var c = twsClass(), s = twsSubj();
+    return 'You are reading a '+c+' '+s+' textbook chapter.\n'
++'Find EVERY exercise block in the chapter (Exercise, Exercises, Let us do, Try these, Answer the following, Knowledge Check, Practice, Abhyas and similar) — some books have one after each part of the lesson. Collect every question in book order.\n'
++'Do NOT collect worked examples, solved problems or anything already answered in the book.\n'
++'Copy each question exactly as printed. Do not invent, reword, translate or skip. Keep the book\'s language and script.\n'
++'The text is marked "----- Book page N -----"; say which page each question is on.\n'
++'Reply with ONLY this JSON:\n'
++'{"questions":[{"section":"Exercise","page":39,"type":"short","text":"question as printed","options":[],"parts":["(a) ...","(b) ..."],"lines":2,"needsFigure":false,"figureRef":"","answer":"short correct answer"}]}\n'
++'type is one of: mcq, fill, truefalse, match, word-meaning, short, long, draw, other. For mcq put the choices in options, without (a)(b) letters. For match put each pair as "left — right" in parts, in the order printed.\n'
++'lines = ruled lines a child needs per answer: 0 for mcq/truefalse/match, 1 for a word, 2 for a sentence, 4 short answer, 6 long answer.\n'
++'needsFigure is true only when the question cannot be answered without a picture, figure, table or map in the book; figureRef is what the book calls it.\n'
++'answer is a short correct answer for the teacher\'s key, taken from the chapter (keep it brief; for long answers give the main points).\n'
++'If there are no exercises, reply {"questions":[]}.'; }
+  async function askAI(system, user){
+    var r = await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:system,messages:[{role:"user",content:user}],max_tokens:8000})});
+    var d = {}; try{ d = await r.json(); }catch(e){ throw new Error("AI did not answer properly (status "+r.status+")."); }
+    if(r.status===429) throw new Error("Too many requests just now. Wait a minute and try again.");
+    if(!r.ok || d.type==="error") throw new Error(d.message || (typeof d.error==="string" ? d.error : "AI error ("+r.status+")"));
+    var txt = (d.content||[]).map(function(x){ return x.text||""; }).join("").replace(/```json|```/gi,"");
+    var a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+    if(a<0 || b<a) throw new Error("AI’s answer was not in the expected form. Please try again.");
+    try{ return JSON.parse(txt.slice(a, b+1)); }catch(e){ throw new Error("AI’s answer could not be read. Please try again."); }
+  }
+  function msg(html, bad){ $("oMsg").innerHTML = html ? '<div class="'+(bad?'err':'hint')+'" style="margin-top:10px">'+html+'</div>' : ''; }
+  async function readChapter(){
+    var btn = $("oRead"), b = BOOKS[+$("oBook").value], pasted = ($("oPaste").value||"").trim();
+    var from = +$("oFrom").value || 0, to = +$("oTo").value || 0;
+    if(!$("oTitle").value.trim()){ msg("Type the chapter name first.", true); return; }
+    if(!pasted && (!b || $("oBook").value==="" || !from || !to)){ msg("Choose the book and chapter (or type the pages) — or paste the exercises.", true); return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Reading…';
+    try{
+      var text = pasted ? pasted.slice(0, 60000) : await bookText(b, from, to);
+      if(!text){ msg("This book’s pages are pictures (scanned), so the exercises cannot be read from it. Open “Paste the exercises instead” and paste them.", true); $("ownBox").querySelector("details").open = true; return; }
+      var key = await sha(["tws-bb1", twsClass(), twsSubj(), text.slice(0, 9000)]);
+      var qs = await cacheGet(key);
+      if(!qs){
+        msg('<span class="spin"></span>Reading the exercises… this takes a few seconds.');
+        var d = await askAI(readPrompt(), "CHAPTER TEXT:\n\n"+text);
+        qs = (d && d.questions) || [];
+        if(qs.length) cachePut(key, qs, {kind:"todays-worksheet book back", lesson:twsClass()+" "+twsSubj()+" — "+$("oTitle").value.trim()}).catch(function(){});
+      }
+      if(!qs.length){ msg("No exercise questions were found in these pages. If the exercises are on later pages, raise “To page” and read again.", true); return; }
+      var ch = toChapter(qs, {no:$("oNo").value.trim()||"?", title:$("oTitle").value.trim(),
+        src:{book: pasted ? "pasted exercises" : b.name, from: pasted ? "" : from, to: pasted ? "" : to}});
+      openReview(ch, false);
+    }catch(e){ msg(esc(e.message), true); }
+    finally{ if($("oRead")){ btn.disabled = false; btn.textContent = "Read the exercises"; } }
+  }
+
+  /* questions read from the book -> the workbook's own section shapes */
+  var LET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  function headFor(t){ return {mcq:"Choose the correct answer.", fill:"Fill in the blanks.", truefalse:"Write True or False.", match:"Match the following.",
+    "word-meaning":"Write the meanings.", short:"Answer the following.", long:"Answer in detail.", draw:"Draw and label.", other:"Answer the following."}[t] || "Answer the following."; }
+  function toItem(q){
+    var t = String(q.type||"other"), txt = String(q.text||"").trim(), it;
+    var fig = q.needsFigure ? " (See "+(q.figureRef||"the figure")+(q.page?" on book page "+q.page:" in your textbook")+".)" : "";
+    var parts = Array.isArray(q.parts) ? q.parts.filter(Boolean) : [];
+    if(t==="mcq" && Array.isArray(q.options) && q.options.length>=2) it = {type:"mcq", q:txt+fig, o:q.options.slice(0,4).map(String)};
+    else if(t==="match" && parts.length){
+      it = {type:"fill", q:(txt||"Match the following.")+fig, table:{head:["A","","B"], rows:parts.map(function(p){ var a = String(p).split(/\s+[—–-]\s+/); return [a[0]||"", "", a.slice(1).join(" — ")]; })}};
+    }
+    else if(parts.length) it = {type:"extract", q:txt+fig, text:txt+fig, subs:parts.map(function(p){ return {q:String(p).replace(/^\s*\(?(?:[a-h]|[ivx]{1,4}|\d{1,2})[\).]\s+/i,""), lines: Math.max(1, +q.lines||2)}; })};
+    else if(t==="fill") it = {type:"fill", q:txt+fig};
+    else if(t==="truefalse") it = {type:"fill", q:txt+fig+"  (True / False)"};
+    else if(t==="draw") it = {type:"work", q:txt+fig, h:50};
+    else if(t==="long") it = {type:"essay", q:txt+fig, lines: Math.max(4, +q.lines||6)};
+    else if(t==="word-meaning") it = {type:"short", q:txt+fig, lines: Math.max(1, +q.lines||1)};
+    else it = {type:"short", q:txt+fig, lines: Math.max(1, +q.lines||(t==="short"?4:2))};
+    if(q.answer) it.ans = String(q.answer);
+    return it;
+  }
+  function toChapter(qs, info){
+    var secs = [], cur = null;
+    qs.forEach(function(q){
+      var it = toItem(q), name = String(q.section||"").trim();
+      if(!cur || cur.book !== name){
+        cur = {id:LET.charAt(secs.length % 26), book:name,
+          head: !name ? headFor(q.type)
+            : name.replace(/^[A-Z][\.\)]\s+/,""),
+          type: it.type, items:[]};
+        secs.push(cur);
+      }
+      cur.items.push(it);
+    });
+    return {no:info.no, title:info.title, own:true, src:info.src, sections:secs};
+  }
+
+  /* step 2: check the questions, correct them, save */
+  var REV = null, REV_EDIT = false;
+  function openReview(ch, isEdit){
+    REV = ch; REV_EDIT = isEdit;
+    win.classList.add("on"); drawReview();
+  }
+  function drawReview(){
+    var ch = REV, n = 0;
+    ch.sections.forEach(function(s){ n += s.items.length; });
+    var h = '<h2>'+(REV_EDIT?'Check / correct':'Check before saving')+' — '+esc(ch.title)+'</h2>'
+      + '<p class="hint">'+n+' questions read from '+esc(ch.src&&ch.src.book||"the book")+'. <b>Please check each one against the book</b> — click any question or heading to correct it, ✕ to remove it. Children will get exactly what you save.</p>'
+      + '<div class="g"><label>Chapter number<input id="rNo" value="'+esc(ch.no)+'"></label><label style="grid-column:span 2">Chapter name<input id="rTitle" value="'+esc(ch.title)+'"></label></div>';
+    ch.sections.forEach(function(s, si){
+      h += '<div class="rsec"><div class="rh"><b>'+esc(s.id)+'.</b><div class="ed" contenteditable="true" data-h="'+si+'" style="flex:1">'+esc(s.head)+'</div>'
+        + '<button class="x" data-ds="'+si+'" title="Remove this whole exercise" style="border:none;background:none;color:#a33;font-size:13px;cursor:pointer">Remove exercise</button></div>';
+      s.items.forEach(function(it, k){
+        var kind = {mcq:"Choose", fill:it.table?"Match":"Fill", short:"Answer", essay:"Long", work:"Draw", extract:"Parts"}[it.type] || it.type;
+        h += '<div class="rq"><span>'+(k+1)+'.</span><div><span class="kind">'+esc(kind)+'</span>'
+          + '<span class="ed" contenteditable="true" data-q="'+si+':'+k+'">'+esc(it.q!=null?it.q:(it.text||""))+'</span>'
+          + (it.o ? '<div class="sub">'+it.o.map(function(o,i){ return '('+"abcd".charAt(i)+') '+esc(o); }).join(" &nbsp; ")+'</div>' : '')
+          + (it.table ? '<div class="sub">'+it.table.rows.map(function(r){ return esc(r[0])+' — '+esc(r[2]); }).join("<br>")+'</div>' : '')
+          + (it.subs ? '<div class="sub">'+it.subs.map(function(x){ return esc(x.q); }).join("<br>")+'</div>' : '')
+          + '</div><button class="x" data-dq="'+si+':'+k+'" title="Remove this question" aria-label="Remove this question">✕</button></div>';
+      });
+      h += '</div>';
+    });
+    h += '<div id="rMsg"></div><div class="row"><button class="btn gold" id="rSave">'+(REV_EDIT?'Save the corrections':'Save this chapter for the school')+'</button>'
+      + (REV_EDIT ? '' : '<button class="btn alt" id="rBack">← Back</button>') + '<button class="btn alt" id="rClose">Cancel</button></div>';
+    $("ownBox").innerHTML = h; win.scrollTop = 0;
+    $("rClose").onclick = closeWin;
+    if($("rBack")) $("rBack").onclick = openPick;
+    $("rNo").oninput = function(){ REV.no = this.value.trim(); };
+    $("rTitle").oninput = function(){ REV.title = this.value.trim(); };
+    Array.prototype.forEach.call($("ownBox").querySelectorAll("[data-dq]"), function(b){ b.onclick = function(){
+      var p = this.dataset.dq.split(":"); REV.sections[+p[0]].items.splice(+p[1], 1);
+      if(!REV.sections[+p[0]].items.length) REV.sections.splice(+p[0], 1);
+      relabel(); drawReview(); }; });
+    Array.prototype.forEach.call($("ownBox").querySelectorAll("[data-ds]"), function(b){ b.onclick = function(){
+      REV.sections.splice(+this.dataset.ds, 1); relabel(); drawReview(); }; });
+    $("rSave").onclick = saveChapter;
+  }
+  function onEdit(e){
+    var d = e.target.dataset; if(!d) return;
+    if(d.h != null) REV.sections[+d.h].head = e.target.innerText.trim();
+    if(d.q != null){ var p = d.q.split(":"), it = REV.sections[+p[0]].items[+p[1]]; it.q = e.target.innerText.trim(); if(it.type==="extract") it.text = it.q; }
+  }
+  function relabel(){ REV.sections.forEach(function(s, i){ s.id = LET.charAt(i % 26); }); }
+  async function saveChapter(){
+    var ch = REV, btn = $("rSave");
+    if(!ch.title){ $("rMsg").innerHTML = '<div class="err">Type the chapter name.</div>'; return; }
+    if(!ch.sections.length){ $("rMsg").innerHTML = '<div class="err">No questions left to save.</div>'; return; }
+    btn.disabled = true; btn.innerHTML = '<span class="spin"></span>Saving…';
+    try{
+      var uid = ch.uid || (Date.now().toString(16) + Math.random().toString(16).slice(2, 8));
+      var body = {no:ch.no, title:ch.title, src:ch.src, sections:ch.sections};
+      await cachePut(await ownKey(uid), [body], {kind:"workbook school chapter", cls:cls, subj:subj, title:ch.title});
+      OWNC[uid] = Object.assign(body, {own:true, uid:uid});
+      var list = own().list, ref = list.filter(function(r){ return r.uid===uid; })[0];
+      if(ref){ ref.no = ch.no; ref.title = ch.title; }
+      else list.push({uid:uid, cls:cls, subj:subj, no:ch.no, title:ch.title, book:ch.src&&ch.src.book||"", from:ch.src&&ch.src.from||"", to:ch.src&&ch.src.to||"", added:new Date().toISOString()});
+      if(REV_EDIT){
+        // keep only ticks that still point at a question
+        var p = own().plans[uid];
+        if(p) p.slots.forEach(function(sl){ Object.keys(sl.picks).forEach(function(sid){
+          var s = body.sections.filter(function(x){ return x.id===sid; })[0];
+          sl.picks[sid] = s ? sl.picks[sid].filter(function(k){ return k < s.items.length; }) : [];
+        }); });
+      }
+      wbViews();
+      for(var i=0;i<CHAPTERS.length;i++){ if(CHAPTERS[i].uid===uid){ chI = i; break; } }
+      slotI = 0; save(); chapSel(); drawSlots(); drawPicker(); closeWin();
+      srvStatus(REV_EDIT ? "Corrections saved." : "“"+ch.title+"” added. All its exercises are ticked on Class Work — move them to homework days and the test as you like.");
+    }catch(e){
+      $("rMsg").innerHTML = '<div class="err">Could not save: '+esc(e.message)+'</div>';
+    }finally{ if($("rSave")){ btn.disabled = false; btn.textContent = REV_EDIT ? "Save the corrections" : "Save this chapter for the school"; } }
+  }
+
+  /* start: show what is already on this computer, then the school's copy */
+  loadOwn().then(refresh);
+  clsSel(); subjSel(); refresh();
+})();
+</script>
 </body>
 </html>
