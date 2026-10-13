@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<script src="js/tool-access.js"></script>
+<script>if(window.DSS_ACCESS)DSS_ACCESS.guard("worksheet");</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Today's Worksheet — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!--
+  Today's Worksheet (Oct 2026) — one half of the Workbook & Worksheet Generator.
+  The other half, Term Workbook, is workbook-generator.html.
+  A teacher picks a book and chapter (school's books or Samacheer library, or pastes the lesson),
+  then ticks what goes on today's sheet:
+    A. Book back questions — read from the chapter's exercises (cached once per chapter)
+    B. Questions from inside the lesson — AI writes MCQ / fill / true-false / match / one word / short
+    C. Activity sheets — AI suggests creative sheets; the teacher picks one or more.
+       Diagrams come from assets/diagrams (labels turned into numbered blanks),
+       maps from assets/maps (positions worked out the same way as maps.html).
+  Prints on A4 with an answer key at the end for the teacher.
+  URL can pre-fill the lesson (used by the Term Planner):
+    ?class=Class 4&subject=Science&chapter=Ch 2. Plants&from=21&to=35&act=class activity text
+  Server: /api/auth (books), /api/ai (flat body), /api/lesson-plan (cache of book-back reading).
+-->
+<style>
+:root{
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA; --gold:#C9A84C;
+  --chip:#F1E2C6; --chip-ink:#5A2A16; --ok:#2F6B3A; --ok-bg:#E3F0E2; --bad:#A12A1E; --bad-bg:#F8DEDA;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Noto Sans Devanagari","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1100px;margin:0 auto;padding:0 16px 60px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1100px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band img{width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #C9A84C;object-fit:contain}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a.back{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+.modes{display:flex;gap:8px;max-width:1100px;margin:0 auto;padding:12px 16px 0;flex-wrap:wrap}
+.modes a{flex:1;min-width:220px;text-decoration:none;border:2px solid var(--line);border-radius:12px;padding:10px 14px;background:var(--surface);color:var(--ink)}
+.modes a b{display:block;font-family:var(--display);font-weight:400;font-size:1.1rem;color:var(--accent)}
+.modes a span{font-size:.82rem;color:var(--muted)}
+.modes a.on{border-color:var(--gold);background:#FFF8E6;box-shadow:0 2px 0 var(--gold)}
+h2{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;color:var(--accent)}
+h3{margin:0;font-size:1rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:16px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input,select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:#fff;font-weight:400;font-size:.95rem;width:100%;min-width:0}
+textarea{min-height:110px;resize:vertical}
+input[type=checkbox]{width:17px;height:17px;padding:0;accent-color:var(--accent);flex:none}
+.btn{border:none;border-radius:8px;padding:9px 14px;font-weight:600;background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn.gold{background:var(--gold);color:#2B1A17}
+.btn.small{padding:5px 10px;font-size:.82rem}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.hint{font-size:.8rem;color:var(--muted)}
+.banner{margin-top:12px;padding:10px 14px;border-radius:var(--r);font-size:.9rem}
+.banner.err{background:var(--bad-bg);color:var(--bad)}
+.banner.info{background:#FFF8E6;border:1px dashed var(--gold);color:var(--chip-ink)}
+details.paste{margin-top:12px}
+details.paste summary{cursor:pointer;font-size:.88rem;color:var(--accent);font-weight:600}
+/* the three parts of the sheet */
+.part{border:1px solid var(--line);border-radius:var(--r);background:#fff;margin-top:14px;overflow:hidden}
+.part>.ph{display:flex;gap:10px;align-items:center;padding:12px 14px;background:var(--surface-2);flex-wrap:wrap}
+.part>.ph h3{flex:1;min-width:200px;font-family:var(--display);font-weight:400;font-size:1.12rem;color:var(--accent)}
+.part>.ph .hint{width:100%;margin-top:-4px}
+.part>.pb{padding:12px 14px}
+.types{display:flex;gap:8px;flex-wrap:wrap}
+.types label{display:flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;padding:5px 8px;color:var(--ink);font-weight:400;font-size:.88rem;background:#fff}
+.types input[type=number]{width:52px;padding:3px 5px}
+.qlist{display:grid;gap:6px;margin-top:10px}
+.q{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+.q.off{opacity:.5}
+.q .tag{display:inline-block;font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--chip);color:var(--chip-ink);border-radius:999px;padding:1px 8px;margin-right:6px}
+.q .ed{outline:none;border-radius:6px;padding:2px 4px;white-space:pre-wrap;overflow-wrap:anywhere}
+.q .ed:hover{background:var(--surface-2)} .q .ed:focus{background:#fff;box-shadow:inset 0 0 0 1px var(--gold)}
+.q .sub{font-size:.85rem;color:var(--muted);margin-top:2px}
+.q .ans{font-size:.82rem;color:var(--ok);margin-top:2px}
+.q .ans .ed{display:inline}
+.acts{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;margin-top:10px}
+.act{border:2px solid var(--line);border-radius:10px;padding:10px 12px;background:#fff;display:grid;gap:4px;cursor:pointer;align-content:start}
+.act.on{border-color:var(--accent);background:#FFF8F3}
+.act .top{display:flex;gap:8px;align-items:center}
+.act .top b{flex:1;font-size:.95rem}
+.act .kind{font-size:.7rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.act .why{font-size:.82rem;color:var(--muted)}
+.act .what{font-size:.82rem;color:var(--ink);background:var(--surface);border-radius:6px;padding:4px 6px}
+.act .ed{outline:none;border-radius:6px;padding:2px 4px;font-size:.88rem}
+.act .ed:focus{background:#fff;box-shadow:inset 0 0 0 1px var(--gold)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#2B1A17;color:#FFF3DF;padding:10px 14px;border-radius:10px;font-size:.9rem;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:calc(100% - 32px);z-index:5}
+.toast.bad{background:#A12A1E}
+.sticky{position:sticky;bottom:0;background:var(--bg);padding:10px 0;border-top:1px solid var(--line);margin-top:16px;z-index:3}
+
+/* ============ the printed sheet ============ */
+#sheetArea{display:none}
+body.preview #editor{display:none}
+body.preview #sheetArea{display:block}
+.pbar{position:sticky;top:0;background:#6B1A1A;color:#FFF3DF;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:4}
+.pbar .btn.ghost{color:#FFF3DF;border-color:#C9A84C}
+#sheets{padding:16px 0 40px;background:#d9d2c7}
+.pg{width:210mm;min-height:297mm;margin:0 auto 14px;background:#fff;padding:12mm 13mm;box-shadow:0 2px 10px rgba(0,0,0,.18);color:#111;
+  font-family:"Hind Madurai","Noto Sans Tamil","Noto Sans Devanagari",Arial,sans-serif;font-size:var(--wfs,12.5pt);line-height:1.45}
+.ws-head{display:flex;gap:10px;align-items:center;border-bottom:2.5px solid #6B1A1A;padding-bottom:6px}
+.ws-head img{width:15mm;height:15mm;object-fit:contain}
+.ws-head .t{flex:1;min-width:0}
+.ws-head .sn{font-family:"Marcellus",Georgia,serif;font-size:1.25em;color:#6B1A1A;letter-spacing:.03em;text-transform:uppercase}
+.ws-head .st{font-size:.9em}
+.ws-meta{display:flex;gap:16px;flex-wrap:wrap;font-size:.92em;margin:7px 0 10px}
+.ws-meta span{flex:1;min-width:30mm;white-space:nowrap;display:flex;gap:1.5mm;align-items:flex-end}
+.ws-meta span:first-child{flex:2.2}
+.ws-meta span:last-child{flex:1.5}
+.ws-meta i{flex:1;border-bottom:1px solid #444;min-width:8mm;height:1em}
+.sec{margin-top:10px;break-inside:auto}
+.sec>h4{margin:0 0 5px;font-size:1em;background:#f1e6d2;padding:3px 8px;border-left:4px solid #6B1A1A}
+.wq{margin:0 0 7px;break-inside:avoid;display:grid;grid-template-columns:7mm minmax(0,1fr);gap:2px}
+.wq .n{font-weight:600}
+.opts{display:flex;flex-wrap:wrap;gap:2px 16px;margin-top:2px}
+.opts span::before{content:"";display:inline-block;width:3.3mm;height:3.3mm;border:1px solid #333;margin-right:5px;vertical-align:-1px}
+.tf{float:right;font-size:.9em;letter-spacing:.04em}
+.lines{margin-top:1mm}
+.lines div{height:8mm;border-bottom:1px solid #9a9a9a}
+.lines.short div{height:7mm}
+table.mt{border-collapse:collapse;width:100%;margin-top:3px}
+table.mt td{padding:3px 6px;vertical-align:top}
+table.mt td.blank{width:14mm;border-bottom:1px solid #444}
+.figref{font-size:.85em;color:#555;font-style:italic}
+.act-pg{break-before:page}
+.act-pg .inst{font-weight:600;margin:4px 0 8px}
+.wbank{border:1.5px dashed #555;border-radius:3mm;padding:3mm 4mm;margin:6px 0 10px;display:flex;flex-wrap:wrap;gap:3mm 7mm;font-weight:600}
+.box{border:1.5px solid #444;border-radius:2mm}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(55mm,1fr));gap:5mm}
+.grid2 .box{min-height:55mm;padding:3mm}
+.grid2 .box b{display:block;text-align:center;border-bottom:1px solid #999;padding-bottom:2mm;margin-bottom:2mm}
+.seq{display:grid;grid-template-columns:12mm minmax(0,1fr);gap:4mm 3mm;align-items:center}
+.seq .sq{width:10mm;height:10mm;border:1.5px solid #333;border-radius:2mm}
+table.tbl{border-collapse:collapse;width:100%}
+table.tbl th,table.tbl td{border:1px solid #333;padding:2.5mm 3mm;text-align:left;vertical-align:top}
+table.tbl th{background:#f1e6d2}
+table.tbl td.blank{height:11mm}
+.wsgrid{border-collapse:collapse;margin:4mm auto}
+.wsgrid td{width:9mm;height:9mm;border:1px solid #888;text-align:center;font-weight:600;font-size:1.05em}
+.wslist{display:flex;flex-wrap:wrap;gap:2mm 8mm;margin-top:3mm}
+.wslist span::before{content:"";display:inline-block;width:3.3mm;height:3.3mm;border:1px solid #333;margin-right:5px;vertical-align:-1px}
+.pic{display:block;margin:2mm auto;max-width:100%}
+.labels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1mm 8mm;margin-top:3mm}
+.labels div{display:flex;gap:2mm;align-items:flex-end;height:8mm}
+.labels div i{flex:1;border-bottom:1px solid #666}
+.places{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1mm 6mm;margin-top:3mm}
+.key-pg{break-before:page}
+.key-pg h3{font-family:"Marcellus",Georgia,serif;font-weight:400;color:#6B1A1A;font-size:1.2em;margin:0 0 2px}
+.key-pg .kn{font-size:.85em;color:#666;margin-bottom:8px}
+.key-pg ol{margin:0 0 8px;padding-left:7mm}
+.key-pg li{margin-bottom:2px}
+.key-pg h4{margin:8px 0 3px;font-size:1em;color:#6B1A1A}
+@media print{
+  @page{size:A4;margin:0}
+  body{background:#fff}
+  .pbar,#editor,.toast,.band{display:none!important}
+  #sheetArea{display:block!important}
+  #sheets{padding:0;background:#fff}
+  .pg{margin:0;box-shadow:none;min-height:auto;break-after:page}
+  .pg:last-child{break-after:auto}
+  body.nokey .key-pg{display:none}
+}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="in">
+    <img id="schoolLogo" alt="" hidden>
+    <div class="grow">
+      <div class="sub" id="schoolName">DigiSmartSchool · TeachBot</div>
+      <h1>Workbook &amp; Worksheet Generator</h1>
+    </div>
+    <a class="back" href="index.html">← Teacher Tools</a>
+  </div>
+</header>
+
+<div id="editor">
+<nav class="modes" aria-label="Choose what to make">
+  <a href="workbook-generator.html"><b>📒 Term Workbook</b><span>A bound book for the whole term — class work, homework days and class test</span></a>
+  <a href="todays-worksheet.html" class="on" aria-current="page"><b>📝 Today's Worksheet</b><span>One sheet for the class you are taking today</span></a>
+</nav>
+
+<div class="wrap">
+  <div class="banner err" id="topErr" hidden></div>
+  <div class="banner info" id="fromPlan" hidden></div>
+
+  <!-- 1. the lesson -->
+  <section class="card">
+    <h2>1. Choose the lesson</h2>
+    <div class="row" style="margin-top:10px">
+      <label>Class<select id="fClass"></select></label>
+      <label>Subject<select id="fSubject"></select></label>
+      <label>Book<select id="fBook"><option value="">Loading books…</option></select></label>
+      <label>Chapter<select id="fChapter"><option value="">Pick a book first</option></select></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>From page<input type="number" id="fFrom" min="1"></label>
+      <label>To page<input type="number" id="fTo" min="1"></label>
+      <label>Topic on the sheet<input id="fTopic" placeholder="e.g. Parts of a Plant"></label>
+    </div>
+    <p class="hint" id="bookHint"></p>
+    <details class="paste" id="pasteBox">
+      <summary>No book uploaded? Paste the lesson or upload a PDF instead</summary>
+      <div style="margin-top:8px">
+        <textarea id="fPaste" placeholder="Paste the lesson text here — include the exercises at the end if you want book back questions."></textarea>
+        <label style="margin-top:8px">Or upload a PDF of the lesson<input type="file" id="fFile" accept=".pdf"></label>
+        <p class="hint">An uploaded PDF uses the From / To page boxes above. Leave them empty to read the whole file.</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- 2. what goes on the sheet -->
+  <section class="card">
+    <h2>2. What goes on today's sheet</h2>
+    <p class="hint" style="margin-top:4px">Tick one, two or all three. Click any question to correct it before printing.</p>
+
+    <div class="part">
+      <div class="ph">
+        <input type="checkbox" id="useBB" aria-label="Put book back questions on the sheet">
+        <h3>📖 Book back questions</h3>
+        <button class="btn small" id="bbBtn">Read the exercises</button>
+        <div class="hint">The exercises printed in the chapter, copied as they are. Read once per chapter — after that they load instantly.</div>
+      </div>
+      <div class="pb" id="bbBody"><p class="hint" style="margin:0">Press “Read the exercises”.</p></div>
+    </div>
+
+    <div class="part">
+      <div class="ph">
+        <input type="checkbox" id="useLQ" aria-label="Put questions from the lesson on the sheet">
+        <h3>🔎 Questions from inside the lesson</h3>
+        <button class="btn small" id="lqBtn">Make questions</button>
+        <div class="hint">New questions made from the lesson itself — so the child has to read the whole chapter, not only the exercises.</div>
+      </div>
+      <div class="pb">
+        <div class="types" id="lqTypes"></div>
+        <div id="lqBody"></div>
+      </div>
+    </div>
+
+    <div class="part">
+      <div class="ph">
+        <input type="checkbox" id="useAC" aria-label="Put activity sheets in">
+        <h3>🎨 Activity sheets</h3>
+        <button class="btn small" id="acBtn">Suggest activities</button>
+        <div class="hint">AI reads the lesson and suggests creative sheets — label a picture, mark a map, sort, match, word search and more. Pick as many as you like; each one prints on its own page.</div>
+      </div>
+      <div class="pb" id="acBody"><p class="hint" style="margin:0">Press “Suggest activities”.</p></div>
+    </div>
+  </section>
+
+  <!-- 3. print -->
+  <section class="card">
+    <h2>3. Sheet settings</h2>
+    <div class="row" style="margin-top:10px">
+      <label>Sheet title<input id="fTitle" placeholder="Worksheet"></label>
+      <label>Date on the sheet<input type="date" id="fDate"></label>
+      <label>Letter size<select id="fFs"><option value="11.5pt">Small</option><option value="12.5pt" selected>Normal</option><option value="14pt">Large (little classes)</option></select></label>
+      <label>Answer key for the teacher<select id="fKey"><option value="1" selected>Print it at the end</option><option value="0">Leave it out</option></select></label>
+    </div>
+  </section>
+
+  <div class="sticky">
+    <div class="btnrow" style="margin-top:0">
+      <button class="btn gold" id="makeBtn">📝 Make the worksheet</button>
+      <span class="hint" id="countHint"></span>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="sheetArea">
+  <div class="pbar">
+    <button class="btn ghost small" id="backBtn">← Back to editing</button>
+    <button class="btn gold small" id="printBtn">🖨 Print / Save as PDF</button>
+    <span style="font-size:.85rem" id="sheetInfo"></span>
+  </div>
+  <div id="sheets"></div>
+</div>
+<div id="measure" style="position:absolute;left:-9999px;top:0;width:600px" aria-hidden="true"></div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+function showErr(m){$("topErr").textContent=m;$("topErr").hidden=false}
+let toastT;function toast(m,bad){const t=$("toast");t.textContent=m;t.className="toast"+(bad?" bad":"");t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,bad?8000:4000)}
+const busy=(el,txt)=>{el.dataset.lbl=el.dataset.lbl||el.innerHTML;el.disabled=true;el.innerHTML='<span class="spin"></span>'+esc(txt)};
+const idle=el=>{el.disabled=false;if(el.dataset.lbl)el.innerHTML=el.dataset.lbl};
+
+/* ---------- who is this ---------- */
+const ROLE=lsGet("dss_role")||"";
+let USER={};try{USER=JSON.parse(lsGet("dss_user")||"{}")}catch(e){}
+if(!lsGet("dss_token")){location.href="/login.html";return}
+const SCHOOL_ID=ROLE==="teacher"?(USER.school_id||(USER.schools&&USER.schools.id)||""):(USER.school_id||USER.id||"");
+const SCHOOL_NAME=(USER.schools&&USER.schools.name)||USER.school_name||(ROLE==="school_admin"?USER.name:"")||"";
+const LOGO=USER.logo_url||(USER.schools&&USER.schools.logo_url)||"";
+$("schoolName").textContent=(SCHOOL_NAME?SCHOOL_NAME+" · ":"")+"TeachBot";
+if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
+
+/* ---------- lists ---------- */
+const CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
+function subjectsFor(c){const n=num(c);
+  if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS"];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer"];
+  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer"]}
+$("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");
+function fillSubjects(keep){const subs=subjectsFor($("fClass").value);$("fSubject").innerHTML=subs.map(s=>`<option>${esc(s)}</option>`).join("");if(keep&&subs.includes(keep))$("fSubject").value=keep}
+$("fDate").value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+
+/* ---------- server ---------- */
+async function authCall(action,data){
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action,school_id:SCHOOL_ID},data||{}))});
+  const d=await r.json();if(d&&d.error)throw new Error(d.error);return d}
+async function tblGet(table,params){
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table,params})});
+  const d=await r.json();return Array.isArray(d)?d:(d.books||d.chapters||[])}
+async function askAI(system,user,maxTokens){
+  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system,messages:[{role:"user",content:user}],max_tokens:maxTokens||4000})});
+  let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
+  if(r.status===429)throw new Error("Too many requests just now. Wait a minute and try again.");
+  if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:"AI error ("+r.status+")"));
+  const txt=(d.content||[]).map(x=>x.text||"").join("").replace(/```json|```/gi,"");
+  const a=txt.indexOf("{"),b=txt.lastIndexOf("}");
+  if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
+  try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
+async function cacheKey(parts){
+  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(parts.join("|")));
+  return Array.from(new Uint8Array(buf)).slice(0,20).map(b=>b.toString(16).padStart(2,"0")).join("")}
+async function cacheGet(key){try{const r=await fetch("/api/lesson-plan?key="+key);if(!r.ok)return null;const d=await r.json();return d&&Array.isArray(d.steps)&&d.steps.length?d.steps:null}catch(e){return null}}
+async function cachePut(key,steps,meta){try{await fetch("/api/lesson-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({key,steps,meta})})}catch(e){}}
+
+/* ---------- books + chapters ---------- */
+// The school's own uploaded books first, then the shared Samacheer library.
+// Class and subject are compared loosely, the same way the other tools do.
+const normCls=s=>{s=String(s||"").toLowerCase().replace(/[^a-z0-9]/g,"");const m=s.match(/(\d+)/);return m?"c"+(+m[1]):s};
+function normSub(v){v=String(v||"").toLowerCase().replace(/[^a-z]/g,"");
+  if(["math","maths","mathematics","ganitham","kanakku"].includes(v))return"maths";
+  if(["social","socialscience","socialstudies","sst","history","geography","civics"].includes(v))return"social";
+  if(["computer","computers","computerscience"].includes(v))return"computer";
+  if(v==="generalscience")return"science";return v}
+let PRIV=null,LIB=null;const CH={},PDFS={};let BOOKS=[],CHAPS=[];
+async function loadPriv(){if(PRIV)return PRIV;try{const d=await authCall("get_school_books");PRIV=d.books||[]}catch(e){PRIV=[]}return PRIV}
+async function loadLib(){if(LIB)return LIB;try{LIB=await tblGet("textbook_library","select=id,title,class_name,subject,medium,pdf_url&order=class_name")}catch(e){LIB=[]}return LIB}
+async function renderBooks(){
+  const c=$("fClass").value,s=$("fSubject").value;
+  $("fBook").innerHTML='<option value="">Loading books…</option>';$("fChapter").innerHTML='<option value="">Pick a book first</option>';
+  const [priv,lib]=await Promise.all([loadPriv(),loadLib()]);
+  if($("fClass").value!==c||$("fSubject").value!==s)return;
+  BOOKS=[];
+  priv.filter(b=>normCls(b.class_name)===normCls(c)&&(!b.subject||normSub(b.subject)===normSub(s)))
+    .forEach(b=>BOOKS.push({id:b.id,name:(b.book_name||"Book")+(b.term?" — Term "+b.term:""),pdf:b.pdf_url||"",src:"private"}));
+  lib.filter(b=>normCls(b.class_name)===normCls(c)&&normSub(b.subject)===normSub(s))
+    .forEach(b=>BOOKS.push({id:b.id,name:(b.title||b.subject||"Book")+(b.medium?" — "+b.medium:"")+" (Samacheer)",pdf:b.pdf_url||"",src:"library"}));
+  $("fBook").innerHTML=BOOKS.length?'<option value="">Choose the book</option>'+BOOKS.map((b,i)=>`<option value="${i}">${esc(b.name)}</option>`).join(""):'<option value="">No book uploaded for this class and subject</option>';
+  $("bookHint").textContent=BOOKS.length?"":"No book is uploaded for "+c+" "+s+". The principal can upload it in the Teacher Panel — or paste the lesson below.";
+  if(!BOOKS.length)$("pasteBox").open=true;
+  if(BOOKS.length===1){$("fBook").value="0";await renderChapters()}
+}
+async function renderChapters(){
+  const b=BOOKS[+$("fBook").value];CHAPS=[];
+  if(!b){$("fChapter").innerHTML='<option value="">Pick a book first</option>';return}
+  if(!CH[b.src+b.id]){try{CH[b.src+b.id]=(await tblGet(b.src==="private"?"school_book_chapters":"textbook_chapters","book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to")).filter(x=>x&&x.page_from&&x.page_to)}catch(e){CH[b.src+b.id]=[]}}
+  CHAPS=CH[b.src+b.id];
+  $("fChapter").innerHTML=CHAPS.length?'<option value="">Choose the chapter</option>'+CHAPS.map((ch,i)=>`<option value="${i}">Ch ${esc(ch.chapter_number||i+1)}. ${esc(cleanTitle(ch.chapter_title,ch.chapter_number||i+1))} (p.${ch.page_from}–${ch.page_to})</option>`).join(""):'<option value="">No chapters marked in this book — type the pages below</option>';
+}
+function cleanTitle(t,n){t=String(t||"").trim();if(/\.indd|\d{2}-\d{2}-\d{4}|\d{1,2}:\d{2}:\d{2}/i.test(t)||t.replace(/[^A-Za-z஀-௿ऀ-ॿ]/g,"").length<3)return"Chapter "+n;return t}
+function chapterPicked(){const ch=CHAPS[+$("fChapter").value];if(!ch||$("fChapter").value==="")return;
+  $("fFrom").value=ch.page_from;$("fTo").value=ch.page_to;$("fTopic").value=cleanTitle(ch.chapter_title,ch.chapter_number);resetLesson()}
+
+/* ---------- reading the lesson ---------- */
+let LESSON=null;   // {key, text, scanned}
+function resetLesson(){LESSON=null}
+function lessonId(){const b=BOOKS[+$("fBook").value];return [$("fClass").value,$("fSubject").value,b&&$("fBook").value!==""?b.src+":"+b.id:"",$("fFrom").value,$("fTo").value,$("fTopic").value.trim()].join("|")}
+async function pdfDoc(src){
+  if(typeof pdfjsLib==="undefined")throw new Error("The PDF reader did not load. Reload the page.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  if(src instanceof File)return pdfjsLib.getDocument({data:await src.arrayBuffer()}).promise;
+  if(PDFS[src])return PDFS[src];
+  PDFS[src]=(async()=>{const r=await fetch(src);if(!r.ok)throw new Error("Could not download the book ("+r.status+")");return pdfjsLib.getDocument({data:await r.arrayBuffer()}).promise})();
+  try{return await PDFS[src]}catch(e){delete PDFS[src];throw e}}
+async function getLesson(){
+  const id=lessonId()+"|"+$("fPaste").value.length+"|"+(($("fFile").files[0]||{}).name||"");
+  if(LESSON&&LESSON.id===id)return LESSON;
+  const pasted=$("fPaste").value.trim();
+  if(pasted){LESSON={id,text:pasted.slice(0,60000),scanned:false};return LESSON}
+  const file=$("fFile").files[0],b=BOOKS[+$("fBook").value];
+  let src=null;if(file)src=file;else if(b&&$("fBook").value!==""&&b.pdf)src=b.pdf;
+  if(!src){LESSON={id,text:"",scanned:false,none:true};return LESSON}
+  const doc=await pdfDoc(src);
+  let from=+$("fFrom").value||1,to=+$("fTo").value||doc.numPages;from=Math.max(1,from);to=Math.min(doc.numPages,Math.max(from,to),from+40);
+  let t="";for(let p=from;p<=to&&t.length<60000;p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();const s=tc.items.map(x=>x.str).join(" ").replace(/\s+/g," ").trim();if(s)t+="\n\n----- Book page "+p+" -----\n"+s}
+  t=t.trim();const real=t.replace(/----- Book page \d+ -----/g,"").trim();
+  LESSON={id,text:real.length>200?t:"",scanned:real.length<=200};return LESSON}
+function lessonLabel(){return $("fClass").value+" "+$("fSubject").value+(($("fTopic").value.trim())?" — “"+$("fTopic").value.trim()+"”":"")}
+function langRule(){const s=$("fSubject").value;
+  if(/tamil/i.test(s))return"Write everything for the child in Tamil script, as in the book.";
+  if(/hindi/i.test(s))return"Write everything for the child in Hindi (Devanagari script), as in the book. Keep instructions very simple.";
+  return"Write in simple English suited to the class."}
+function needLesson(L){
+  if(L.none){toast("Choose the book and chapter first — or paste the lesson.",true);return false}
+  return true}
+
+/* ---------- A. book back ---------- */
+let BB=[];   // {type,text,parts,lines,page,needsFigure,figureRef,answer,options,on}
+function bbPrompt(){const c=$("fClass").value,s=$("fSubject").value;
+  return `You are reading a ${c} ${s} textbook chapter.
+Find EVERY exercise block in the chapter (Exercise, Exercises, Let us do, Try these, Answer the following, Knowledge Check, Practice, Abhyas and similar) — some books have one after each part of the lesson. Collect every question in book order.
+Do NOT collect worked examples, solved problems or anything already answered in the book.
+Copy each question exactly as printed. Do not invent, reword, translate or skip. Keep the book's language and script.
+The text is marked "----- Book page N -----"; say which page each question is on.
+Reply with ONLY this JSON:
+{"questions":[{"section":"Exercise","page":39,"type":"short","text":"question as printed","options":[],"parts":["(a) ...","(b) ..."],"lines":2,"needsFigure":false,"figureRef":"","answer":"short correct answer"}]}
+type is one of: mcq, fill, truefalse, match, word-meaning, short, long, draw, other. For mcq put the choices in options, without (a)(b) letters. For match put each pair as "left — right" in parts, in the order printed.
+lines = ruled lines a child needs per answer: 0 for mcq/truefalse/match, 1 for a word, 2 for a sentence, 4 short answer, 6 long answer.
+needsFigure is true only when the question cannot be answered without a picture, figure, table or map in the book; figureRef is what the book calls it.
+answer is a short correct answer for the teacher's key, taken from the chapter (keep it brief; for long answers give the main points).
+If there are no exercises, reply {"questions":[]}.`}
+async function readBB(){
+  const btn=$("bbBtn");busy(btn,"Reading…");
+  try{
+    const L=await getLesson();if(!needLesson(L))return;
+    if(L.scanned){$("bbBody").innerHTML=`<div class="banner err" style="margin:0">This book's pages are pictures (scanned), so the exercises cannot be read from it. Paste the exercises in “No book uploaded?” above, then press Read again.</div>`;return}
+    const key=await cacheKey(["tws-bb1",$("fClass").value,$("fSubject").value,L.text.slice(0,9000)]);
+    let qs=await cacheGet(key);
+    if(!qs){
+      $("bbBody").innerHTML='<p class="hint"><span class="spin"></span>Reading the exercises… this takes a few seconds.</p>';
+      const d=await askAI(bbPrompt(),"CHAPTER TEXT:\n\n"+L.text,8000);qs=(d&&d.questions)||[];
+      if(qs.length)cachePut(key,qs,{kind:"todays-worksheet book back",lesson:lessonLabel()});
+    }
+    BB=qs.map(q=>Object.assign({on:false},q));
+    if(!BB.length){$("bbBody").innerHTML='<p class="hint" style="margin:0">No exercise questions were found in these pages. If the exercises are on later pages, widen “To page” and read again.</p>';return}
+    $("useBB").checked=true;renderBB();
+  }catch(e){$("bbBody").innerHTML=`<div class="banner err" style="margin:0">${esc(e.message)}</div>`}
+  finally{idle(btn);count()}}
+const TAG={mcq:"Choose",fill:"Fill",truefalse:"True/False",tf:"True/False",match:"Match","word-meaning":"Meaning",short:"Short",long:"Long",draw:"Draw",other:"Other",oneword:"One word"};
+function renderBB(){
+  const sec=[];BB.forEach(q=>{if(!sec.includes(q.section||""))sec.push(q.section||"")});
+  $("bbBody").innerHTML=`<div class="btnrow" style="margin-top:0"><button class="btn ghost small" data-all="bb">Tick all</button><button class="btn ghost small" data-none="bb">Untick all</button><span class="hint">${BB.length} questions found. Tick the ones for today.</span></div>`+
+    `<div class="qlist">`+BB.map((q,i)=>`<div class="q${q.on?"":" off"}"><input type="checkbox" data-bb="${i}"${q.on?" checked":""} aria-label="Use this question">`+
+    `<div><span class="tag">${esc(TAG[q.type]||q.type||"")}</span><span class="hint">${esc(q.section||"")}${q.page?" · p."+esc(q.page):""}</span>`+
+    `<div class="ed" contenteditable="true" data-bbt="${i}">${esc(q.text)}</div>`+
+    (q.options&&q.options.length?`<div class="sub">${q.options.map((o,k)=>"("+"abcd"[k]+") "+esc(o)).join("   ")}</div>`:"")+
+    (q.parts&&q.parts.length?`<div class="sub">${q.parts.map(esc).join("<br>")}</div>`:"")+
+    (q.needsFigure?`<div class="sub">⚠ Needs the picture in the book${q.figureRef?" ("+esc(q.figureRef)+")":""} — the sheet will say “see book page ${esc(q.page||"")}”.</div>`:"")+
+    `<div class="ans">Key: <span class="ed" contenteditable="true" data-bba="${i}">${esc(q.answer||"")}</span></div></div></div>`).join("")+`</div>`}
+$("bbBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.bb!=null){BB[+d.bb].on=e.target.checked;e.target.closest(".q").classList.toggle("off",!e.target.checked);if(e.target.checked)$("useBB").checked=true;count()}});
+$("bbBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.bbt!=null)BB[+d.bbt].text=e.target.innerText.trim();if(d.bba!=null)BB[+d.bba].answer=e.target.innerText.trim()});
+$("bbBody").addEventListener("click",e=>{const d=e.target.dataset;if(d.all||d.none){BB.forEach(q=>q.on=!!d.all);if(d.all)$("useBB").checked=true;renderBB();count()}});
+$("bbBtn").onclick=readBB;
+
+/* ---------- B. questions from the lesson ---------- */
+const LQT=[["mcq","Choose the answer",4],["fill","Fill in the blanks",4],["tf","True or False",4],["match","Match the following",1],["oneword","One word answer",3],["short","Short answer",2],["long","Long answer",0]];
+$("lqTypes").innerHTML=LQT.map(t=>`<label><input type="checkbox" data-lt="${t[0]}"${t[2]?" checked":""}>${t[1]}<input type="number" min="1" max="10" data-ln="${t[0]}" value="${t[2]||2}" aria-label="How many"></label>`).join("");
+function lqWanted(){const out=[];LQT.forEach(t=>{const cb=document.querySelector(`[data-lt="${t[0]}"]`);if(cb.checked)out.push([t[0],t[1],Math.max(1,Math.min(10,+document.querySelector(`[data-ln="${t[0]}"]`).value||1))])});return out}
+let LQ=[];
+async function makeLQ(){
+  const want=lqWanted();if(!want.length){toast("Tick at least one kind of question.",true);return}
+  const btn=$("lqBtn");busy(btn,"Making…");
+  try{
+    const L=await getLesson();
+    const src=L.text?"CHAPTER TEXT:\n\n"+L.text.slice(0,30000):"There is no chapter text (the book is scanned or not uploaded). Use the chapter name only and keep to what this class's textbook normally teaches on it.\nCHAPTER: "+($("fTopic").value.trim()||"(not given)");
+    if(!L.text&&!$("fTopic").value.trim()){toast("Choose the chapter, or type the topic, first.",true);return}
+    $("lqBody").innerHTML='<p class="hint"><span class="spin"></span>Making questions from the lesson…</p>';
+    const sys=`You write worksheet questions for ${$("fClass").value} ${$("fSubject").value} in a Tamil Nadu school, from the textbook chapter given.
+Use ONLY facts that are in the chapter. Cover the whole chapter, not only the first page, and do not copy the book's own exercise questions — make fresh ones. Each question must have one clear correct answer. Suit the child's age. ${langRule()}
+Make exactly: ${want.map(w=>w[2]+" × "+w[1]).join(", ")}.
+Reply with ONLY this JSON:
+{"questions":[
+ {"type":"mcq","q":"question","options":["","","",""],"answer":"the correct option text"},
+ {"type":"fill","q":"sentence with ________ for the blank","answer":"word"},
+ {"type":"tf","q":"statement","answer":"True"},
+ {"type":"match","q":"Match the following","pairs":[["left","right"],["left","right"],["left","right"],["left","right"],["left","right"]],"answer":""},
+ {"type":"oneword","q":"question","answer":"word"},
+ {"type":"short","q":"question","answer":"model answer in one or two sentences"},
+ {"type":"long","q":"question","answer":"the main points"}]}
+For match, one "match" item has 4 to 6 pairs in the correct order (the sheet mixes up the right side itself). Keep true and false statements roughly balanced.`;
+    const d=await askAI(sys,src,6000);
+    LQ=((d&&d.questions)||[]).filter(q=>q&&q.type).map(q=>Object.assign({on:true},q));
+    if(!LQ.length)throw new Error("No questions came back. Please try again.");
+    $("useLQ").checked=true;renderLQ();
+  }catch(e){$("lqBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
+  finally{idle(btn);count()}}
+function renderLQ(){
+  $("lqBody").innerHTML=`<div class="btnrow"><span class="hint">${LQ.length} questions. Untick any you don't want, or click to correct. “Make questions” again gives a fresh set.</span></div><div class="qlist">`+
+  LQ.map((q,i)=>`<div class="q${q.on?"":" off"}"><input type="checkbox" data-lq="${i}"${q.on?" checked":""} aria-label="Use this question"><div><span class="tag">${esc(TAG[q.type]||q.type)}</span>`+
+    `<div class="ed" contenteditable="true" data-lqt="${i}">${esc(q.q)}</div>`+
+    (q.type==="mcq"&&q.options?`<div class="sub">${q.options.map((o,k)=>"("+"abcd"[k]+") "+esc(o)).join("   ")}</div>`:"")+
+    (q.type==="match"&&q.pairs?`<div class="sub">${q.pairs.map(p=>esc(p[0])+" — "+esc(p[1])).join("<br>")}</div>`:"")+
+    (q.type!=="match"?`<div class="ans">Key: <span class="ed" contenteditable="true" data-lqa="${i}">${esc(q.answer||"")}</span></div>`:"")+
+    `</div></div>`).join("")+`</div>`}
+$("lqBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.lq!=null){LQ[+d.lq].on=e.target.checked;e.target.closest(".q").classList.toggle("off",!e.target.checked);count()}});
+$("lqBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.lqt!=null)LQ[+d.lqt].q=e.target.innerText.trim();if(d.lqa!=null)LQ[+d.lqa].answer=e.target.innerText.trim()});
+$("lqBtn").onclick=makeLQ;
+
+/* ---------- ready-made pictures ---------- */
+// Diagrams were drawn for the dark chalkboard. For paper they are turned black-on-white,
+// and only the part names listed here become numbered blanks; every other word is removed
+// so nothing on the picture gives the answers away.
+const DIAGRAMS={
+  plant_anatomy:{name:"Parts of a plant (flower, leaf, stem, root)",labels:{"Flower":"Flower","Leaf":"Leaf","Node":"Node","Stem":{a:"Stem",pos:[322,388],at:[208,392]},"Internode":{a:"Internode",pos:[322,306],at:[208,306]},"Root System":{a:"Root",at:[204,452]}}},
+  plant:{file:"plant",name:"Plant cell",labels:{"Cell Wall":"Cell wall","Cell Membrane":"Cell membrane","Nucleus":"Nucleus","Chloroplast":"Chloroplast","Central Vacuole":"Vacuole","Mitochondria":"Mitochondria","Golgi":"Golgi body","Ribosomes":"Ribosomes"}},
+  heart:{name:"Human heart",labels:{"Left Ventricle":"Left ventricle","Right Ventricle":"Right ventricle","Left Atrium":"Left atrium","Right Atrium":"Right atrium","Sup. Vena Cava":"Superior vena cava","Aorta":"Aorta","Pulmonary Artery":"Pulmonary artery","Pulmonary Veins":"Pulmonary veins"}},
+  human_digestive:{name:"Human digestive system",labels:{"Mouth":"Mouth","Oesophagus":"Oesophagus (food pipe)","Liver":{a:"Liver",pos:[322,150]},"Stomach":{a:"Stomach",pos:[322,180]},"Pancreas":"Pancreas","Small":{a:"Small intestine",pos:[325,262],at:[232,262]},"Large":{a:"Large intestine",pos:[325,360],at:[232,368]},"Rectum":{a:"Rectum",pos:[325,420],at:[212,420]}}},
+  human_eye:{name:"Human eye",labels:{"Cornea":"Cornea","Sclera":"Sclera","Iris":"Iris","Pupil":"Pupil","Lens":"Lens","Ciliary body":"Ciliary body","Blind spot":"Blind spot","Optic":"Optic nerve","Retina":"Retina"}},
+  human_nervous:{name:"Human nervous system and brain",labels:{"Cerebrum":{a:"Cerebrum",pos:[322,100],at:[290,100]},"Cerebellum":{a:"Cerebellum",pos:[322,262],at:[262,262]},"Brain Stem":{a:"Brain stem (medulla)",pos:[322,302],at:[205,305]},"Spinal Cord":{a:"Spinal cord",pos:[250,455],at:[199,455]},"Spinal Nerves":{a:"Spinal nerves",pos:[322,390],at:[272,385]},"Cell body":"Cell body","Axon":"Axon"}},
+  human_respiratory:{name:"Human respiratory system",labels:{"Nasal Cavity":{a:"Nasal cavity",pos:[330,50],at:[238,48]},"Pharynx":{a:"Pharynx",pos:[330,88],at:[214,84]},"Larynx":{a:"Larynx",pos:[330,116],at:[216,113]},"Trachea":{a:"Trachea (wind pipe)",pos:[330,160],at:[204,160]},"Bronchi":{a:"Bronchi",pos:[22,232],at:[122,250]},"Right Lung":{a:"Lung",pos:[360,282],at:[312,290]},"Alveoli":{a:"Alveoli",pos:[22,318],at:[110,315]},"Diaphragm":"Diaphragm"}},
+  human_skeletal:{name:"Human skeleton",labels:{"Skull":{a:"Skull",pos:[270,48],at:[208,48]},"Clavicle":{a:"Collar bone",pos:[270,92],at:[205,93]},"Rib cage":{a:"Rib cage",pos:[270,140],at:[208,152]},"Sternum":{a:"Breast bone",pos:[270,166],at:[161,165]},"Spine":{a:"Backbone (spine)",pos:[270,192],at:[161,215]},"Humerus":{a:"Humerus",pos:[270,216],at:[233,198]},"Radius/Ulna":{a:"Radius and ulna",pos:[272,262],at:[244,268]},"Pelvis":{a:"Hip bone (pelvis)",pos:[272,300],at:[220,285]},"Femur":{a:"Thigh bone (femur)",pos:[272,350],at:[205,352]},"Tibia/Fibula":{a:"Tibia and fibula",pos:[272,435],at:[206,435]}}},
+  layers_earth:{name:"Layers of the earth",labels:{"Inner":"Inner core","Outer Core":"Outer core","Mantle":"Mantle","Crust":"Crust"}},
+  solar_system:{name:"Solar system (sun and eight planets)",labels:{"Sun":"Sun","Mercury":"Mercury","Venus":"Venus","Earth":"Earth","Mars":"Mars","Jupiter":"Jupiter","Saturn":"Saturn","Uranus":"Uranus","Neptune":"Neptune"}},
+  water_cycle:{name:"Water cycle",labels:{"Sun":"Sun","Cloud":"Cloud","Evaporation":"Evaporation","Precipitation":"Precipitation (rain)","Runoff":"Run-off","Ocean / Water Body":"Sea / water body","Transpiration":"Transpiration"}},
+  food_chain:{name:"Food chain / food pyramid",labels:{"Producers":"Producers (plants)","Herbivores":"Herbivores","Carnivores":"Carnivores","Top Carnivores":"Top carnivores","Decomposers":"Decomposers"}},
+  electric_circuit:{name:"Simple electric circuit",labels:{"Battery":"Cell / battery","Bulb":"Bulb","Resistor":"Resistor","Switch":"Switch","Wire (conductor)":"Wire"}},
+  atom_structure:{name:"Structure of an atom",labels:{"Nucleus":"Nucleus","Proton (+)":"Proton","Neutron (0)":"Neutron","e⁻":"Electron","K shell (n=1)":"Shell (orbit)"}},
+  photosynthesis:{name:"Photosynthesis in a leaf",labels:{"☀ Sunlight":"Sunlight","CO₂ in":"Carbon dioxide","H₂O (roots)":"Water","O₂ out":"Oxygen","Glucose":"Glucose (food)","Chloroplast":"Chloroplast"}},
+  states_of_matter:{name:"States of matter and changes of state",labels:{"SOLID":"Solid","LIQUID":"Liquid","GAS":"Gas","Melting ↗":{a:"Melting",pos:[164,264]},"Freezing ↙":{a:"Freezing",pos:[198,280]},"Evaporation ↗":{a:"Evaporation",pos:[342,264]},"Condensation ↙":{a:"Condensation",pos:[376,280]}}},
+  magnet_field:{name:"Bar magnet and its field lines",labels:{"N":"North pole","S":"South pole","Field lines":"Magnetic field lines"}},
+  cell_division:{name:"Stages of cell division (mitosis)",labels:{"Interphase":"Interphase","Prophase":"Prophase","Metaphase":"Metaphase","Anaphase":"Anaphase","Telophase":"Telophase"}}
+};
+const SVGCACHE={};
+async function diagramSvg(key){
+  const d=DIAGRAMS[key];if(!d)throw new Error("No such picture");
+  if(!SVGCACHE[key]){const r=await fetch("assets/diagrams/"+(d.file||key)+".svg");if(!r.ok)throw new Error("Picture not found");SVGCACHE[key]=await r.text()}
+  const doc=new DOMParser().parseFromString(SVGCACHE[key],"image/svg+xml");const svg=doc.documentElement;
+  // black lines on white paper
+  svg.querySelectorAll("*").forEach(el=>{
+    const st=el.getAttribute("stroke");if(st&&st!=="none")el.setAttribute("stroke","#222");
+    const f=el.getAttribute("fill");
+    if(el.tagName!=="text"&&f&&f!=="none"){const m=/rgba?\(([^)]+)\)/.exec(f);const a=m?+(m[1].split(",")[3]||1):1;el.setAttribute("fill",a<0.15?"none":"#e9e9e9")}
+    if(el.getAttribute("opacity")&&el.tagName!=="text")el.removeAttribute("opacity")});
+  // put it in the page to measure the words, then swap each part name for a numbered circle
+  const box=$("measure");box.innerHTML="";const live=document.importNode(svg,true);live.setAttribute("width","600");box.appendChild(live);
+  const used=new Set(),answers=[];
+  [...live.querySelectorAll("text")].forEach(t=>{
+    const s=t.textContent.trim();const raw=d.labels[s];const lab=raw&&typeof raw==="object"?raw:{a:raw};const ans=lab.a;
+    if(ans&&!used.has(s)){used.add(s);answers.push(ans);const n=answers.length;let bb;try{bb=t.getBBox()}catch(e){bb={x:+t.getAttribute("x")||0,y:+t.getAttribute("y")||0,width:0,height:0}}
+      // a fixed spot for the number, and a pointer line to the part, where the picture needs one
+      const cx=lab.pos?lab.pos[0]:bb.x+bb.width/2,cy=lab.pos?lab.pos[1]:bb.y+bb.height/2,ns="http://www.w3.org/2000/svg";
+      const g=document.createElementNS(ns,"g");
+      if(lab.at){const dx=lab.at[0]-cx,dy=lab.at[1]-cy,len=Math.hypot(dx,dy)||1;
+        const ln=document.createElementNS(ns,"line");ln.setAttribute("x1",cx+dx/len*9);ln.setAttribute("y1",cy+dy/len*9);ln.setAttribute("x2",lab.at[0]);ln.setAttribute("y2",lab.at[1]);ln.setAttribute("stroke","#111");ln.setAttribute("stroke-width","1");ln.setAttribute("stroke-dasharray","3 2");
+        const dot=document.createElementNS(ns,"circle");dot.setAttribute("cx",lab.at[0]);dot.setAttribute("cy",lab.at[1]);dot.setAttribute("r","1.8");dot.setAttribute("fill","#111");g.appendChild(ln);g.appendChild(dot)}const c=document.createElementNS(ns,"circle");c.setAttribute("cx",cx);c.setAttribute("cy",cy);c.setAttribute("r","9");c.setAttribute("fill","#fff");c.setAttribute("stroke","#111");c.setAttribute("stroke-width","1.4");
+      const tx=document.createElementNS(ns,"text");tx.setAttribute("x",cx);tx.setAttribute("y",cy+4);tx.setAttribute("text-anchor","middle");tx.setAttribute("font-size","11");tx.setAttribute("font-weight","700");tx.setAttribute("font-family","Arial,sans-serif");tx.setAttribute("fill","#111");tx.textContent=n;
+      g.appendChild(c);g.appendChild(tx);t.replaceWith(g)}
+    else t.remove()});
+  live.removeAttribute("width");live.setAttribute("class","pic");live.setAttribute("style","width:100%;max-height:165mm");
+  const html=live.outerHTML;box.innerHTML="";return{html,answers}}
+
+// Maps — the same position maths as the Map Revision tool (maps.html).
+const MAPS={
+  world:{file:"assets/maps/world-blank.svg",W:1100,H:549.8,x0:1.90,x1:1102.00,y0:1.70,y1:551.30,centreLng:10,
+    project(lat,lng){const w=this.x1-this.x0,h=this.y1-this.y0;return{x:this.x0+(((lng-this.centreLng+180)%360+360)%360)/360*w,y:this.y0+(90-lat)/180*h}},
+    full:{latMin:-58,latMax:83,lngMin:-170,lngMax:190}},
+  india:{file:"assets/maps/india-political.svg",W:595.50236,H:842.25827,x0:252.3021,yc:-2183.5643,n:0.396607,lam0:80.0010,rhoCoef:[-0.004902,-19.220950,3020.622058],
+    rho(lat){const a=this.rhoCoef;return(a[0]*lat+a[1])*lat+a[2]},
+    project(lat,lng){const t=this.n*(lng-this.lam0)*Math.PI/180,r=this.rho(lat);return{x:this.x0+r*Math.sin(t),y:this.yc+r*Math.cos(t)}},
+    full:{latMin:5.5,latMax:38.5,lngMin:66.5,lngMax:99.5}}};
+function mapView(m,v){
+  if(m===MAPS.world&&(!v||v.lngMax-v.lngMin>300)){const top=m.project(83,10).y,bot=m.project(-58,10).y;return{x:m.x0,y:top,w:m.x1-m.x0,h:bot-top}}
+  v=v||m.full;const pts=[m.project(v.latMax,v.lngMin),m.project(v.latMin,v.lngMax),m.project(v.latMax,v.lngMax),m.project(v.latMin,v.lngMin)];
+  if(m===MAPS.india){[(v.latMin+v.latMax)/2].forEach(la=>{pts.push(m.project(la,v.lngMin),m.project(la,v.lngMax))})}
+  const xs=pts.map(p=>p.x),ys=pts.map(p=>p.y),x=Math.min(...xs),y=Math.min(...ys);return{x,y,w:Math.max(...xs)-x,h:Math.max(...ys)-y}}
+function mapSvg(a,withKey){
+  const m=MAPS[a.map==="india"?"india":"world"];let v=a.view;
+  if(v&&!(v.latMax>v.latMin&&v.lngMax>v.lngMin))v=null;
+  const vb=m===MAPS.india&&!v?{x:0,y:0,w:m.W,h:m.H}:mapView(m,v);const pad=Math.max(vb.w,vb.h)*0.02;
+  const r=Math.max(vb.w,vb.h)/110;
+  const dots=withKey?(a.places||[]).map((p,i)=>{const q=m.project(+p.lat,+p.lng);return`<circle cx="${q.x}" cy="${q.y}" r="${r*0.9}" fill="#A12A1E"/><text x="${q.x+r*1.3}" y="${q.y+r*0.8}" font-size="${r*2.6}" font-family="Arial" font-weight="700" fill="#A12A1E" stroke="#fff" stroke-width="${r*0.35}" paint-order="stroke">${i+1}</text>`}).join(""):"";
+  const tall=vb.h>vb.w*0.9;
+  return`<svg class="pic" viewBox="${vb.x-pad} ${vb.y-pad} ${vb.w+pad*2} ${vb.h+pad*2}" style="width:100%;max-height:${withKey?"110mm":tall?"185mm":"150mm"};border:1px solid #999" xmlns="http://www.w3.org/2000/svg"><image href="${m.file}" x="0" y="0" width="${m.W}" height="${m.H}" style="filter:grayscale(1) contrast(1.1)"/>${dots}</svg>`}
+
+/* ---------- C. activity sheets ---------- */
+let ACTS=[];
+const KIND={label_diagram:"Label the picture",map_mark:"Map work",match:"Match",sort:"Sort into groups",sequence:"Put in order",draw_label:"Draw and label",word_search:"Word search",table_fill:"Complete the table",mind_map:"Mind map",riddles:"Who am I?",observe:"Observe and record",creative:"Creative writing"};
+function acPrompt(){
+  const lit=/tamil|hindi/i.test($("fSubject").value);
+  const planAct=PARAMS.act?`\nThe teacher's term plan has this class activity for the lesson: "${PARAMS.act}". If it can be done on paper, make one of your sheets from it.`:"";
+  return `You suggest creative ACTIVITY WORKSHEETS for ${$("fClass").value} ${$("fSubject").value} in a Tamil Nadu school, based on the chapter given. ${langRule()}
+Suggest 5 different sheets that really fit THIS lesson and THIS age — the kind a good teacher would print. Use only facts from the chapter. Prefer variety. Each sheet is one printed A4 page.${planAct}
+Choose types ONLY from this list, with exactly these fields:
+1. {"type":"label_diagram","diagram":"<one key below>"} — ONLY if one of these ready pictures matches the lesson closely: ${Object.keys(DIAGRAMS).map(k=>k+" = "+DIAGRAMS[k].name).join("; ")}.
+2. {"type":"map_mark","map":"world" or "india","view":{"latMin":0,"latMax":0,"lngMin":0,"lngMax":0} or null for the whole map,"places":[{"name":"","lat":0,"lng":0}]} — for geography/history lessons. 4 to 10 places from the chapter, with accurate latitude and longitude (for a state, sea or region give its middle point). "india" shows India with state borders. Use a view box to zoom in on a region (e.g. Europe), or null.
+3. {"type":"match","pairs":[["left","right"]]} — 5 to 8 pairs, correct order.
+4. {"type":"sort","groups":[{"name":"","items":["",""]}]} — 2 or 3 groups, 3 to 6 items each.
+5. {"type":"sequence","steps":["first","second"]} — 4 to 8 steps in the correct order.
+6. {"type":"draw_label","words":["",""]} — the child draws something from the lesson and labels it using these words.
+${lit?"":`7. {"type":"word_search","words":["",""]} — 6 to 10 single English words from the lesson, letters only, 3 to 10 letters.
+`}8. {"type":"table_fill","columns":["",""],"rows":[["",""]],"blanks":[[0,1]]} — a table from the lesson; "blanks" lists [row,column] cells the child must fill (leave at least one filled cell in each row as a clue).
+9. {"type":"mind_map","centre":"","branches":["",""]} — 4 to 6 branch answers the child should write around the centre word.
+10. {"type":"riddles","items":[{"clue":"I am ... Who am I?","answer":""}]} — 4 to 6 riddles.
+11. {"type":"observe","columns":["",""],"rows":5} — something the child observes or collects at home or school and records in a table.
+12. {"type":"creative","draw":true,"lines":6} — imaginative writing or drawing linked to the lesson (a letter, diary, story, poster, comic).
+Every sheet also has: "title" (short, fun), "why" (one line: what it practises), "instruction" (what the child must do, written for the child).
+Reply with ONLY: {"activities":[ ... 5 sheets ... ]}`}
+async function suggestAC(){
+  const btn=$("acBtn");busy(btn,"Thinking…");
+  try{
+    const L=await getLesson();
+    if(!L.text&&!$("fTopic").value.trim()){toast("Choose the chapter, or type the topic, first.",true);return}
+    const src=L.text?"CHAPTER TEXT:\n\n"+L.text.slice(0,30000):"No chapter text. CHAPTER: "+$("fTopic").value.trim();
+    $("acBody").innerHTML='<p class="hint"><span class="spin"></span>Reading the lesson and thinking of activities…</p>';
+    const d=await askAI(acPrompt(),src,6000);
+    const list=((d&&d.activities)||[]).filter(a=>a&&KIND[a.type]&&(a.type!=="label_diagram"||DIAGRAMS[a.diagram]));
+    if(!list.length)throw new Error("No activities came back. Please try again.");
+    ACTS=ACTS.filter(a=>a.on).concat(list.map(a=>Object.assign({on:false},a)));
+    $("useAC").checked=true;renderAC();
+  }catch(e){$("acBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
+  finally{idle(btn);btn.innerHTML="Suggest more activities";btn.dataset.lbl=btn.innerHTML;count()}}
+function acSummary(a){
+  switch(a.type){
+    case"label_diagram":return"Picture: "+DIAGRAMS[a.diagram].name+" · "+Object.keys(DIAGRAMS[a.diagram].labels).length+" parts";
+    case"map_mark":return(a.map==="india"?"Map of India":"World map")+" · "+(a.places||[]).map(p=>p.name).join(", ");
+    case"match":return(a.pairs||[]).map(p=>p[0]+" → "+p[1]).join(" · ");
+    case"sort":return(a.groups||[]).map(g=>g.name+": "+(g.items||[]).join(", ")).join(" | ");
+    case"sequence":return(a.steps||[]).join(" → ");
+    case"draw_label":return"Label words: "+(a.words||[]).join(", ");
+    case"word_search":return"Words: "+(a.words||[]).join(", ");
+    case"table_fill":return"Columns: "+(a.columns||[]).join(" | ")+" · "+(a.rows||[]).length+" rows";
+    case"mind_map":return a.centre+" → "+(a.branches||[]).join(", ");
+    case"riddles":return(a.items||[]).map(x=>x.answer).join(", ");
+    case"observe":return"Table: "+(a.columns||[]).join(" | ");
+    case"creative":return a.draw?"Drawing box and writing lines":"Writing lines";
+  }return""}
+function renderAC(){
+  $("acBody").innerHTML=`<p class="hint" style="margin:0">Click a card to choose it. Click the instruction to change the words. Picked: <b id="acCount">${ACTS.filter(a=>a.on).length}</b></p><div class="acts">`+
+  ACTS.map((a,i)=>`<div class="act${a.on?" on":""}" data-ac="${i}"><div class="top"><input type="checkbox" data-acc="${i}"${a.on?" checked":""} aria-label="Use this activity"><b>${esc(a.title||KIND[a.type])}</b></div>`+
+    `<div class="kind">${esc(KIND[a.type])}</div><div class="why">${esc(a.why||"")}</div>`+
+    `<div class="ed" contenteditable="true" data-aci="${i}" title="Click to change the instruction">${esc(a.instruction||"")}</div>`+
+    `<div class="what">${esc(acSummary(a))}</div></div>`).join("")+`</div>`}
+$("acBody").addEventListener("click",e=>{if(e.target.isContentEditable||e.target.matches("input"))return;const c=e.target.closest("[data-ac]");if(!c)return;const a=ACTS[+c.dataset.ac];a.on=!a.on;if(a.on)$("useAC").checked=true;renderAC();count()});
+$("acBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.acc!=null){ACTS[+d.acc].on=e.target.checked;if(e.target.checked)$("useAC").checked=true;renderAC();count()}});
+$("acBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.aci!=null)ACTS[+d.aci].instruction=e.target.innerText.trim()});
+$("acBtn").onclick=suggestAC;
+
+/* ---------- count ---------- */
+function count(){const b=$("useBB").checked?BB.filter(q=>q.on).length:0,l=$("useLQ").checked?LQ.filter(q=>q.on).length:0,a=$("useAC").checked?ACTS.filter(x=>x.on).length:0;
+  const p=[];if(b)p.push(b+" book back");if(l)p.push(l+" lesson question"+(l>1?"s":""));if(a)p.push(a+" activity sheet"+(a>1?"s":""));
+  $("countHint").textContent=p.length?"On the sheet: "+p.join(" · "):"Nothing picked yet — tick something in step 2.";
+  const c=$("acCount");if(c)c.textContent=ACTS.filter(x=>x.on).length}
+["useBB","useLQ","useAC"].forEach(id=>$(id).addEventListener("change",count));
+
+/* ---------- building the printed sheet ---------- */
+let seed=1;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646};
+function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(rnd()*(i+1));[a[i],a[j]]=[a[j],a[i]]}
+  if(a.length>2&&a.every((x,i)=>x===arr[i]))a.push(a.shift());return a}
+const lines=(n,cls)=>n>0?`<div class="lines${cls?" "+cls:""}">${"<div></div>".repeat(n)}</div>`:"";
+const L4=["(a)","(b)","(c)","(d)","(e)"];
+function head(title){
+  const d=$("fDate").value;const dd=d?d.split("-").reverse().join("-"):"";
+  return`<div class="ws-head">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div class="t"><div class="sn">${esc(SCHOOL_NAME||"")}</div><div class="st"><b>${esc(title)}</b> · ${esc($("fClass").value)} · ${esc($("fSubject").value)}${$("fTopic").value.trim()?" · "+esc($("fTopic").value.trim()):""}</div></div></div>`+
+  `<div class="ws-meta"><span>Name: <i></i></span><span>Roll No: <i></i></span><span>Date: ${dd?"<b>"+esc(dd)+"</b>":"<i></i>"}</span><span>Teacher's sign: <i></i></span></div>`}
+function qHtml(q,n){
+  const t=q.type;let body=`<div>${esc(q.text||q.q||"")}`;
+  if(q.needsFigure)body+=` <span class="figref">(see the picture on book page ${esc(q.page||"")})</span>`;
+  if((t==="tf"||t==="truefalse"))body=`<div><span class="tf">True / False</span>${esc(q.text||q.q||"")}`;
+  if(t==="mcq"&&q.options&&q.options.length)body+=`<div class="opts">${q.options.map((o,k)=>`<span>${L4[k]||""} ${esc(o)}</span>`).join("")}</div>`;
+  if(t==="match"&&q.pairs&&q.pairs.length){const right=shuffle(q.pairs.map(p=>p[1]));body+=`<table class="mt">${q.pairs.map((p,k)=>`<tr><td>${k+1}. ${esc(p[0])}</td><td class="blank"></td><td>${"abcdefgh"[k]}) ${esc(right[k])}</td></tr>`).join("")}</table>`;q._right=right}
+  else if(t==="match"&&q.parts&&q.parts.length){const pr=q.parts.map(s=>String(s).split(/\s+[—–-]\s+/));const right=shuffle(pr.map(p=>p[1]||""));body+=`<table class="mt">${pr.map((p,k)=>`<tr><td>${esc(p[0])}</td><td class="blank"></td><td>${"abcdefgh"[k]}) ${esc(right[k])}</td></tr>`).join("")}</table>`}
+  else if(q.parts&&q.parts.length)body+=q.parts.map(p=>`<div>${esc(p)}</div>${lines(Math.max(1,+q.lines||1),"short")}`).join("");
+  const nl={mcq:0,fill:0,tf:0,truefalse:0,match:0,oneword:1,"word-meaning":1,short:3,long:6,draw:0,other:2}[t];
+  let want=q.lines!=null&&!(q.parts&&q.parts.length)?+q.lines:nl;if(t==="fill"&&!/_{3,}/.test(q.text||q.q||""))want=1;
+  if(!(q.parts&&q.parts.length)&&t!=="match")body+=lines(want||0);
+  if(t==="draw")body+=`<div class="box" style="height:55mm;margin-top:2mm"></div>`;
+  return`<div class="wq"><span class="n">${n}.</span>${body}</div></div>`}
+function wordSearch(words){
+  words=words.map(w=>String(w).toUpperCase().replace(/[^A-Z]/g,"")).filter(w=>w.length>=3&&w.length<=12).slice(0,12);
+  const N=Math.max(10,Math.min(14,Math.max(...words.map(w=>w.length),0)+2)),old=num($("fClass").value)>=4;
+  const dirs=old?[[0,1],[1,0],[1,1]]:[[0,1],[1,0]];
+  for(let tries=0;tries<60;tries++){
+    const g=Array.from({length:N},()=>Array(N).fill(""));const placed=[];let ok=true;
+    for(const w of words.slice().sort((a,b)=>b.length-a.length)){let done=false;
+      for(let k=0;k<200&&!done;k++){const[dr,dc]=dirs[Math.floor(rnd()*dirs.length)];const r0=Math.floor(rnd()*(N-dr*(w.length-1))),c0=Math.floor(rnd()*(N-dc*(w.length-1)));
+        let fit=true;for(let i=0;i<w.length;i++){const ch=g[r0+dr*i][c0+dc*i];if(ch&&ch!==w[i]){fit=false;break}}
+        if(fit){for(let i=0;i<w.length;i++)g[r0+dr*i][c0+dc*i]=w[i];placed.push({w,r0,c0,dr,dc});done=true}}
+      if(!done){ok=false;break}}
+    if(!ok)continue;
+    const AB="ABCDEFGHIJKLMNOPRSTUVWY";const fill=g.map(r=>r.map(c=>c||AB[Math.floor(rnd()*AB.length)]));
+    return{grid:fill,raw:g,words:placed.map(p=>p.w)}}
+  return null}
+function mindMap(centre,n,answers){
+  const W=700,H=470,cx=W/2,cy=H/2;let s=`<svg class="pic" viewBox="0 0 ${W} ${H}" style="width:100%" xmlns="http://www.w3.org/2000/svg">`;
+  for(let i=0;i<n;i++){const ang=-Math.PI/2+i*2*Math.PI/n,x=cx+Math.cos(ang)*240,y=cy+Math.sin(ang)*170;
+    s+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="#333" stroke-width="2"/><ellipse cx="${x}" cy="${y}" rx="92" ry="38" fill="#fff" stroke="#333" stroke-width="2"/>`;
+    if(answers)s+=`<text x="${x}" y="${y+6}" text-anchor="middle" font-size="17" font-family="Arial" fill="#A12A1E">${esc(answers[i]||"")}</text>`}
+  s+=`<ellipse cx="${cx}" cy="${cy}" rx="120" ry="48" fill="#f1e6d2" stroke="#6B1A1A" stroke-width="3"/><text x="${cx}" y="${cy+8}" text-anchor="middle" font-size="22" font-weight="700" font-family="Arial">${esc(centre)}</text></svg>`;return s}
+async function actPage(a,n){
+  const ins=a.instruction?`<div class="inst">${esc(a.instruction)}</div>`:"";let body="",key="";
+  switch(a.type){
+    case"label_diagram":{const d=await diagramSvg(a.diagram);const words=shuffle(d.answers);
+      body=`<div class="wbank">${words.map(esc).map(w=>`<span>${w}</span>`).join("")}</div>${d.html}<div class="labels">${d.answers.map((_,i)=>`<div><b>${i+1}.</b><i></i></div>`).join("")}</div>`;
+      key=`<ol>${d.answers.map(x=>`<li>${esc(x)}</li>`).join("")}</ol>`;break}
+    case"map_mark":{const pl=a.places||[];
+      body=mapSvg(a,false)+`<div class="places">${pl.map((p,i)=>`<div><b>${i+1}.</b> ${esc(p.name)}</div>`).join("")}</div>`;
+      key=mapSvg(a,true);break}
+    case"match":{const pr=a.pairs||[];const right=shuffle(pr.map(p=>p[1]));
+      body=`<table class="mt" style="font-size:1.05em">${pr.map((p,k)=>`<tr><td style="padding:3mm 2mm">${k+1}. ${esc(p[0])}</td><td class="blank"></td><td style="padding:3mm 2mm">${"abcdefgh"[k]}) ${esc(right[k])}</td></tr>`).join("")}</table>`;
+      key=`<ol>${pr.map(p=>`<li>${esc(p[0])} → ${"abcdefgh"[right.indexOf(p[1])]}) ${esc(p[1])}</li>`).join("")}</ol>`;break}
+    case"sort":{const gs=a.groups||[];const all=shuffle([].concat(...gs.map(g=>g.items||[])));
+      body=`<div class="wbank">${all.map(w=>`<span>${esc(w)}</span>`).join("")}</div><div class="grid2">${gs.map(g=>`<div class="box"><b>${esc(g.name)}</b></div>`).join("")}</div>`;
+      key=gs.map(g=>`<div><b>${esc(g.name)}:</b> ${(g.items||[]).map(esc).join(", ")}</div>`).join("");break}
+    case"sequence":{const st=a.steps||[];const mix=shuffle(st);
+      body=`<div class="seq">${mix.map(s=>`<div class="sq"></div><div>${esc(s)}</div>`).join("")}</div>`;
+      key=`<ol>${st.map(s=>`<li>${esc(s)}</li>`).join("")}</ol>`;break}
+    case"draw_label":{body=(a.words&&a.words.length?`<div class="wbank">${a.words.map(w=>`<span>${esc(w)}</span>`).join("")}</div>`:"")+`<div class="box" style="height:185mm"></div>`;key="<div>Check that each label points to the right part.</div>";break}
+    case"word_search":{const ws=wordSearch(a.words||[]);if(!ws)return null;
+      body=`<table class="wsgrid">${ws.grid.map(r=>`<tr>${r.map(c=>`<td>${c}</td>`).join("")}</tr>`).join("")}</table><div class="wslist">${ws.words.map(w=>`<span>${w}</span>`).join("")}</div>`;
+      key=`<table class="wsgrid" style="font-size:.8em">${ws.raw.map(r=>`<tr>${r.map(c=>`<td style="width:6mm;height:6mm;${c?"background:#f1e6d2":""}">${c}</td>`).join("")}</tr>`).join("")}</table>`;break}
+    case"table_fill":{const cols=a.columns||[],rows=a.rows||[],bl=new Set((a.blanks||[]).map(x=>x[0]+","+x[1]));
+      body=`<table class="tbl"><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>${rows.map((r,i)=>`<tr>${cols.map((_,j)=>bl.has(i+","+j)?`<td class="blank"></td>`:`<td>${esc(r[j]||"")}</td>`).join("")}</tr>`).join("")}</table>`;
+      key=`<table class="tbl" style="font-size:.85em"><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>${rows.map((r,i)=>`<tr>${cols.map((_,j)=>`<td${bl.has(i+","+j)?' style="color:#A12A1E;font-weight:600"':""}>${esc(r[j]||"")}</td>`).join("")}</tr>`).join("")}</table>`;break}
+    case"mind_map":{const br=a.branches||[];body=mindMap(a.centre||"",Math.max(3,Math.min(8,br.length||5)),null);key=mindMap(a.centre||"",Math.max(3,Math.min(8,br.length||5)),br);break}
+    case"riddles":{const it=a.items||[];body=it.map((x,i)=>`<div class="wq"><span class="n">${i+1}.</span><div>${esc(x.clue)}<div style="margin-top:2mm">I am: <span style="display:inline-block;border-bottom:1px solid #444;width:60mm"></span></div></div></div>`).join("");
+      key=`<ol>${it.map(x=>`<li>${esc(x.answer)}</li>`).join("")}</ol>`;break}
+    case"observe":{const cols=a.columns||["What I saw","Where","Notes"],nr=Math.max(3,Math.min(10,+a.rows||5));
+      body=`<table class="tbl"><tr><th style="width:9mm">#</th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>${Array.from({length:nr},(_,i)=>`<tr><td>${i+1}</td>${cols.map(()=>`<td class="blank" style="height:14mm"></td>`).join("")}</tr>`).join("")}</table>`;key="";break}
+    case"creative":{body=(a.draw?`<div class="box" style="height:95mm;margin-bottom:3mm"></div>`:"")+lines(Math.max(4,Math.min(16,+a.lines||8)));key="";break}
+  }
+  return{page:`<div class="pg act-pg">${head(a.title||KIND[a.type])}${ins}${body}</div>`,key:key?`<h4>Activity ${n}: ${esc(a.title||KIND[a.type])}</h4>${key}`:""}}
+async function build(){
+  const useBB=$("useBB").checked&&BB.some(q=>q.on),useLQ=$("useLQ").checked&&LQ.some(q=>q.on),acts=$("useAC").checked?ACTS.filter(a=>a.on):[];
+  if(!useBB&&!useLQ&&!acts.length){toast("Pick something for the sheet in step 2 first.",true);return}
+  const btn=$("makeBtn");busy(btn,"Making the sheet…");
+  try{
+    seed=Math.abs([...lessonId()].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,7))%2147483646+1;
+    const title=$("fTitle").value.trim()||"Worksheet";let pages="",keyHtml="";
+    if(useBB||useLQ){let h=`<div class="pg">${head(title)}`,n=0,kb="";
+      if(useBB){const qs=BB.filter(q=>q.on);h+=`<div class="sec"><h4>Book back questions</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;
+        kb+=`<h4>Book back questions</h4><ol>`+qs.map(q=>`<li>${esc(q.answer||"—")}</li>`).join("")+`</ol>`}
+      if(useLQ){const qs=LQ.filter(q=>q.on);const groups={};qs.forEach(q=>{(groups[q.type]=groups[q.type]||[]).push(q)});
+        const start=n;const order=["mcq","fill","tf","match","oneword","short","long"];const names={mcq:"Choose the correct answer",fill:"Fill in the blanks",tf:"Write True or False",match:"Match the following",oneword:"Answer in one word",short:"Answer in one or two sentences",long:"Answer in detail"};
+        h+=`<div class="sec"><h4>${useBB?"Questions from the lesson":"Answer the questions"}</h4>`;let kq=[];
+        order.concat(Object.keys(groups).filter(k=>!order.includes(k))).forEach(t=>{if(!groups[t])return;h+=`<div style="font-weight:600;margin:6px 0 3px">${esc(names[t]||t)}</div>`;
+          groups[t].forEach(q=>{h+=qHtml(q,++n);kq.push(q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—"))})});
+        h+=`</div>`;kb+=`<h4>${useBB?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
+      pages+=h+`</div>`;keyHtml+=kb}
+    let k=0;for(const a of acts){try{const r=await actPage(a,++k);if(r){pages+=r.page;keyHtml+=r.key}}catch(e){console.warn(e);toast("One activity could not be drawn ("+e.message+") and was left out.",true)}}
+    if($("fKey").value==="1"&&keyHtml)pages+=`<div class="pg key-pg"><h3>Answer key — for the teacher</h3><div class="kn">${esc(lessonLabel())} · Not for children. Please check answers before correcting.</div>${keyHtml}</div>`;
+    $("sheets").innerHTML=pages;$("sheets").style.setProperty("--wfs",$("fFs").value);
+    $("sheetInfo").textContent=$("sheets").querySelectorAll(".pg").length+" sheet page(s) before printing — long sections may flow onto an extra page.";
+    document.body.classList.add("preview");window.scrollTo(0,0);
+  }catch(e){toast(e.message,true)}finally{idle(btn)}}
+$("makeBtn").onclick=build;
+$("backBtn").onclick=()=>{document.body.classList.remove("preview")};
+$("printBtn").onclick=()=>window.print();
+
+/* ---------- form wiring ---------- */
+$("fClass").addEventListener("change",()=>{fillSubjects($("fSubject").value);lsSet("tws_class",$("fClass").value);renderBooks();resetLesson()});
+$("fSubject").addEventListener("change",()=>{lsSet("tws_subject",$("fSubject").value);renderBooks();resetLesson()});
+$("fBook").addEventListener("change",()=>{renderChapters();resetLesson()});
+$("fChapter").addEventListener("change",chapterPicked);
+["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
+
+/* ---------- opened from the Term Planner ---------- */
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,600)})}catch(e){}
+(async function start(){
+  $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
+  fillSubjects(PARAMS.subject||lsGet("tws_subject"));
+  if(PARAMS.subject&&$("fSubject").value!==PARAMS.subject){const o=[...$("fSubject").options].find(o=>normSub(o.value)===normSub(PARAMS.subject));if(o)$("fSubject").value=o.value}
+  await renderBooks();
+  if(PARAMS.chapter||PARAMS.from){
+    const t=String(PARAMS.chapter||"").replace(/^Ch\s*\d+\.\s*/i,"").trim().toLowerCase();
+    // the term plan stores the chapter title and its book pages — find the same chapter
+    outer:for(let bi=0;bi<BOOKS.length;bi++){$("fBook").value=String(bi);await renderChapters();
+      for(let ci=0;ci<CHAPS.length;ci++){const c=CHAPS[ci];if((t&&cleanTitle(c.chapter_title,c.chapter_number).toLowerCase()===t)||(PARAMS.from&&+c.page_from===+PARAMS.from)){$("fChapter").value=String(ci);chapterPicked();break outer}}
+      if(bi===BOOKS.length-1){$("fBook").value=BOOKS.length===1?"0":"";if(BOOKS.length!==1)await renderChapters()}}
+    if(!$("fTopic").value&&t)$("fTopic").value=String(PARAMS.chapter).replace(/^Ch\s*\d+\.\s*/i,"");
+    if(PARAMS.from&&!$("fFrom").value)$("fFrom").value=PARAMS.from;if(PARAMS.to&&!$("fTo").value)$("fTo").value=PARAMS.to;
+    $("fromPlan").innerHTML="Opened from the Term Planner"+(PARAMS.act?" — the lesson's class activity will be used for the activity ideas: <i>"+esc(PARAMS.act)+"</i>":"")+".";$("fromPlan").hidden=false}
+  count()})();
+})();
+</script>
+</body>
+</html>
