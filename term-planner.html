@@ -96,6 +96,8 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .tp .x:hover{color:var(--bad)}
 .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
 .saved{font-size:.82rem;color:var(--muted)}
+.behind{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--warn-bg);color:var(--warn);margin-left:6px}
+.behind.ok{background:var(--ok-bg);color:var(--ok)}
 .retnote{background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:.88rem;margin-top:10px}
 .prog{font-size:.88rem;color:var(--muted);margin-top:10px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
@@ -168,7 +170,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
   <section class="card" id="planCard" hidden>
     <div class="printhead"><b id="phSchool"></b><br><span id="phTitle"></span></div>
     <div class="toolbar noprint">
-      <div><h2 id="planTitle"></h2><div style="margin-top:4px"><span class="status" id="planStatus"></span> <span class="saved" id="savedNote"></span></div></div>
+      <div><h2 id="planTitle"></h2><div style="margin-top:4px"><span class="status" id="planStatus"></span><span class="behind" id="planBehind" hidden></span> <span class="saved" id="savedNote"></span></div></div>
       <div class="btnrow" style="margin-top:0" id="planActs"></div>
     </div>
     <div class="retnote" id="retNote" hidden></div>
@@ -385,6 +387,10 @@ function renderPlan(){
   const st=(S.plan&&S.plan.status)||"draft";$("planStatus").className="status st-"+st;$("planStatus").textContent=STAT[st];
   $("retNote").hidden=!(st==="returned"&&S.plan.return_note);$("retNote").textContent="Principal: "+((S.plan&&S.plan.return_note)||"");
   $("lockNote").hidden=!locked();
+  const today=iso(new Date()),behind=S.rows.filter(r=>!r.done&&r.date&&r.date<today).length,PB=$("planBehind");
+  PB.hidden=!S.rows.length;PB.className="behind"+(behind?"":" ok");
+  PB.textContent=behind?`⚠ ${behind} lesson${behind>1?"s":""} behind`:"✓ On track";
+  PB.title="Lessons dated before today that are not ticked done. Lessons tick themselves when the day's class work is sent from the Homework Planner.";
   const ed=!locked();let h=`<thead><tr><th>#</th><th>Date</th><th>Pages</th>${COLS.map(x=>`<th class="${x[3]}">${x[1]}</th>`).join("")}<th>Done</th><th class="noprint"></th></tr></thead><tbody>`;
   let last=null;
   S.rows.forEach((r,i)=>{
@@ -394,7 +400,7 @@ function renderPlan(){
       `<td class="c-date">${ed?`<input type="date" data-f="date" value="${esc(r.date)}">`:esc(nice(r.date))}<div class="dow">${dow(r.date)}</div></td>`+
       `<td class="c-pg"><div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
       COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}">${esc(r[x[0]])}</div></td>`).join("")+
-      `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done"></td>`+
+      `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done" title="Ticks by itself when this day's class work is sent from the Homework Planner"></td>`+
       `<td class="c-x noprint">${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
   $("tp").innerHTML=h+"</tbody>";
   renderActs()}
@@ -454,7 +460,7 @@ async function loadList(){
   try{const d=await tp("list",{term:$("fTermList").value});const ps=d.plans||[];
     const order={waiting:0,returned:1,draft:2,approved:3};ps.sort((a,b)=>(order[a.status]-order[b.status])||a.class_name.localeCompare(b.class_name,undefined,{numeric:true}));
     $("listHint").textContent=ps.length?(PRINCIPAL?ps.filter(p=>p.status==="waiting").length+" waiting for you. ":"")+"Tap a plan to open it.":"No term plans yet for Term "+$("fTermList").value+". Make one below.";
-    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th></tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span></div></td></tr>`).join("")}</tbody></table>`:""}
+    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th></tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span>${p.behind_count?`<span class="behind">${p.behind_count} behind</span>`:""}</div></td></tr>`).join("")}</tbody></table>`:""}
   catch(e){$("plist").innerHTML=`<div class="banner err">Could not load plans: ${esc(e.message)}</div>`}}
 $("fTermList").onchange=loadList;
 $("plist").addEventListener("click",e=>{const tr=e.target.closest("tr.go");if(!tr)return;

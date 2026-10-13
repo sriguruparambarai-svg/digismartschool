@@ -219,6 +219,9 @@ textarea{resize:vertical;min-height:70px}
 .srcbox .pg{display:flex;gap:8px;align-items:center}
 .srcbox .pg input{width:80px}
 .cwrow .srcbtn{grid-column:2}
+.tpnote{font-size:.82rem;background:#FBF4E2;color:var(--chip-ink);border-left:3px solid var(--gold);padding:7px 10px;border-radius:6px}
+.tpidea{font-size:.82rem;background:#FBF4E2;border:1px dashed var(--gold);border-radius:8px;padding:7px 10px;display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap}
+.tpidea b{color:var(--chip-ink)} .tpidea span{flex:1;min-width:180px}
 .tbnote{font-size:.82rem;background:#EAF1FA;color:#185FA5;border-left:3px solid #185FA5;padding:7px 10px;border-radius:6px}
 .cwrow textarea.fromtb{border-color:#9CC0E6;background:#F5F9FD}
 /* homework timetable + repeat check (Oct 2026) */
@@ -350,6 +353,7 @@ textarea{resize:vertical;min-height:70px}
       </div>
       <div class="tabbody" id="body-cw" hidden>
         <p class="hint" style="margin:0" id="cwIntro"></p>
+        <div class="tpnote" id="cwTp" hidden></div>
         <div class="tbnote" id="cwTb" hidden></div>
         <div id="cwRows" style="display:grid;gap:10px"></div>
         <div class="btnrow">
@@ -373,6 +377,7 @@ textarea{resize:vertical;min-height:70px}
         <div class="extrahint" id="tExtra" hidden></div>
         <label>Homework<textarea id="tText" maxlength="1000" placeholder="e.g. Write the new words from page 34 two times each."></textarea></label>
         <button type="button" class="srcbtn" id="tSrc">📚 From book / workbook</button>
+        <div class="tpidea" id="tTp" hidden></div>
         <div id="tWarn"></div>
         <div class="btnrow">
           <button class="btn" id="tSave"></button>
@@ -600,6 +605,7 @@ function renderPanel(scroll){
   fillSubj($("tSubj"),c,ds,same?$("tSubj").value:"");
   fillSubj($("aSubj"),c,ds,same?$("aSubj").value:"");
   showExtraHints();
+  showTpHome();
   if(!$("tKind").options.length){fillSelect($("tKind"),KINDS,KINDS[0]);fillSelect($("aKind"),KINDS,KINDS[0])}
   if(PRINCIPAL)$("slipPrev").innerHTML=slipHTML(c,ds);
   renderChapters();
@@ -628,6 +634,7 @@ function extraMsg(c,ds,s){const fx=fixedFor(c,ds);if(!fx||fx.includes(s))return"
 function showExtraHints(){const c=S.sel.cls,ds=S.sel.date;
   [["tSubj","tExtra"],["aSubj","aExtra"]].forEach(([sel,box])=>{const m=extraMsg(c,ds,$(sel).value);$(box).textContent=m;$(box).hidden=!m})}
 $("tSubj").addEventListener("change",showExtraHints);
+$("tSubj").addEventListener("change",()=>showTpHome());
 $("aSubj").addEventListener("change",showExtraHints);
 
 /* ---------- repeat check: has this homework been given before? ---------- */
@@ -718,8 +725,36 @@ function renderCw(){const c=S.sel.cls,ds=S.sel.date,list=cwFor(c,ds),hw=itemsFor
       (ret?`<span class="hint" style="color:var(--bad)">Sent back${ret.return_note?": "+esc(ret.return_note):""} — fix and send again</span>`:"")+`</div>`}).join("");
   $("cwSend").textContent=PRINCIPAL?"Add class work to the day":"Send class work to principal";
   showMode();
-  fillFromTeachBot(c,ds);
+  fillFromTermPlan(c,ds).finally(()=>fillFromTeachBot(c,ds));
 }
+/* 📘 Term plan → class work, homework idea, and done ticks (Oct 2026)
+   The Term Planner's rows for this class and day (any subject) fill EMPTY class-work boxes
+   (what to teach + class activity), offer that row's home activity as a homework idea, and
+   when class work is sent, that day's term-plan lessons of those subjects tick themselves done. */
+const TPDAY={};
+async function tpFor(c,ds){const k=c+"|"+ds;if(TPDAY[k])return TPDAY[k];
+  TPDAY[k]=(async()=>{try{const r=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"for_day",class_name:c,date:ds})});
+    const d=await r.json();return d&&d.success?(d.rows||[]):[]}catch(e){return[]}})();
+  return TPDAY[k]}
+const tpLine=r=>[r.chapter,r.pages?"pp "+r.pages:""].filter(Boolean).join(", ")+(r.teach?" — "+r.teach:"")+(r.class_act?" Class activity: "+r.class_act:"");
+async function fillFromTermPlan(c,ds){const box=$("cwTp");
+  const rows=await tpFor(c,ds);if(S.sel.cls!==c||S.sel.date!==ds)return;
+  if(!rows.length){box.hidden=true;return}
+  const used=[];
+  rows.forEach(r=>{const ta=document.querySelector(`#cwRows textarea[data-cw="${CSS.escape(r.subject)}"]`);
+    const has=cwFor(c,ds,x=>x.subject===r.subject&&x.status!=="returned").length;
+    if(ta&&!has&&!ta.value.trim()){ta.value=tpLine(r).slice(0,1000);ta.classList.add("fromtb");ta.dataset.tp="1"}});
+  document.querySelectorAll('#cwRows textarea[data-tp="1"]').forEach(t=>used.push(t.dataset.cw));
+  box.innerHTML="📘 Term plan for this day: <b>"+rows.map(r=>esc(r.subject)+" — "+esc(r.chapter||"")+(r.done?" ✓":"")).join(" · ")+"</b>"+
+    (used.length?"<br>Filled in "+esc(used.join(", "))+" from the term plan. Change it to what was really done before sending.":"");
+  box.hidden=false}
+async function showTpHome(){const el=$("tTp"),c=S.sel.cls,ds=S.sel.date,sb=$("tSubj").value;
+  const rows=await tpFor(c,ds);if(S.sel.cls!==c||S.sel.date!==ds||$("tSubj").value!==sb)return;
+  const r=rows.find(x=>x.subject===sb&&x.home_act);
+  if(!r){el.hidden=true;return}
+  el.innerHTML=`<span><b>📘 Term plan home activity:</b> ${esc(r.home_act)}</span><button type="button" class="iconbtn go" id="tTpUse">Use this</button>`;
+  el.hidden=false;
+  $("tTpUse").onclick=()=>{const t=$("tText");t.value=(t.value.trim()?t.value.trim()+" ":"")+r.home_act;$("tKind").value=KINDS.includes("Activity")?"Activity":$("tKind").value;t.focus()}}
 /* 🤖 TeachBot lessons → class work (Oct 2026)
    A lesson the teacher started in TeachBot on this day (active_lessons, saved when the
    lesson is activated) fills that subject's EMPTY class-work box, for the teacher to check
@@ -740,7 +775,7 @@ async function fillFromTeachBot(c,ds){
     const line="TeachBot lesson: "+String(l.chapter).trim()+".";
     if(ta&&!has&&!ta.value.trim()){ta.value=line;ta.classList.add("fromtb");used.push(sb)}
     else if(!sb)other.push((l.subject||"?")+" — "+l.chapter)});
-  used.length=0;document.querySelectorAll("#cwRows textarea.fromtb").forEach(t=>used.push(t.dataset.cw));   // also those filled by an earlier pass
+  used.length=0;document.querySelectorAll("#cwRows textarea.fromtb:not([data-tp])").forEach(t=>used.push(t.dataset.cw));   // also those filled by an earlier pass
   const all=taught.map(l=>esc(l.subject||"")+" — "+esc(String(l.chapter).trim())).join(" · ");
   box.innerHTML="🤖 TeachBot lessons on this day: <b>"+all+"</b>"+(used.length?"<br>Filled in "+esc(used.join(", "))+". Check it and add what the children did (pages, exercises) before sending.":"")+(other.length?"<br>No class-work box for: "+esc(other.join(", ")):"");
   box.hidden=false;
@@ -754,7 +789,13 @@ $("cwSend").onclick=async()=>{const c=S.sel.cls,ds=S.sel.date;const updates=[],n
   try{let n=0;
     for(const u of updates){const d=await hw("save",u);if(d)n++}
     if(news.length){const d=await hw("save_many",{items:news,teacher_name:TEACHER_NAME});n+=(d.items||[]).length}
-    toast(n+" class work "+(PRINCIPAL?"added to the day":"sent to the principal"));$("cwOut").innerHTML="";await load()}
+    toast(n+" class work "+(PRINCIPAL?"added to the day":"sent to the principal"));$("cwOut").innerHTML="";
+    // tick today's term-plan lessons of these subjects as taught
+    const subs=[...new Set(updates.concat(news).map(x=>x.subject))];
+    try{const r=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"done_day",class_name:c,date:ds,subjects:subs})});
+      const d=await r.json();if(d&&d.success&&d.marked)toast(n+" class work "+(PRINCIPAL?"added to the day":"sent to the principal")+" · "+d.marked+" term-plan lesson"+(d.marked>1?"s":"")+" ticked done");
+      delete TPDAY[c+"|"+ds]}catch(e){}
+    await load()}
   catch(e){toast("Could not save class work: "+e.message,true);await load()}
   finally{btn.disabled=false}};
 $("cwPolish").onclick=async()=>{const rows=[...document.querySelectorAll("#cwRows textarea")].filter(t=>t.value.trim());
