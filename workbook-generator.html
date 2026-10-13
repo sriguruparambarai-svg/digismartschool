@@ -10074,9 +10074,26 @@ srvLoad();
 
   /* every class 1-12 and the usual subjects can hold the school's own chapters */
   for(var c=1;c<=12;c++){ if(!CLASSES[String(c)]) CLASSES[String(c)] = {}; if(!PLANS[String(c)]) PLANS[String(c)] = {}; }
+  /* LKG and UKG too (Oct 2026), with the subjects little classes have */
+  ["LKG","UKG"].forEach(function(c){ if(!CLASSES[c]) CLASSES[c] = {}; if(!PLANS[c]) PLANS[c] = {};
+    ["English","Tamil","Hindi","Mathematics","EVS","GK"].forEach(function(s){ if(!CLASSES[c][s]) CLASSES[c][s] = []; if(!PLANS[c][s]) PLANS[c][s] = []; }); });
   Object.keys(CLASSES).forEach(function(c){
+    if(c==="LKG" || c==="UKG") return;
     STD_SUBJ.forEach(function(s){ if(!CLASSES[c][s]) CLASSES[c][s] = []; if(!PLANS[c][s]) PLANS[c][s] = []; });
   });
+  /* class list in school order: LKG, UKG, then 1-12 */
+  var CLS_ORDER = function(){ return ["LKG","UKG"].concat(Object.keys(CLASSES).filter(function(c){ return c!=="LKG" && c!=="UKG"; })); };
+  clsSel = function(){
+    $("fClass").innerHTML = CLS_ORDER().map(function(c){ return '<option value="'+esc(c)+'"'+(c===cls?' selected':'')+'>'+esc(c)+'</option>'; }).join("");
+  };
+  /* the printed book says "LKG", not "Class LKG" */
+  var _generate = generate;
+  generate = function(onlyThis){
+    _generate(onlyThis);
+    if(cls==="LKG" || cls==="UKG") $("book").innerHTML = $("book").innerHTML.split("Class "+cls).join(cls);
+  };
+  $("gen").onclick   = function(){ generate(false); };
+  $("genCh").onclick = function(){ generate(true); };
 
   /* the school's own chapters */
   var OWNC = {};                  // uid -> chapter (questions), once loaded
