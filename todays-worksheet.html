@@ -420,6 +420,8 @@ function langRule(){const s=$("fSubject").value;
   if(/tamil/i.test(s))return"Write everything for the child in Tamil script, as in the book.";
   if(/hindi/i.test(s))return"Write everything for the child in Hindi (Devanagari script), as in the book. Keep instructions very simple.";
   return"Write in simple English suited to the class."}
+// from the Term Planner: today's part of the chapter (its pages and what is taught)
+function focusRule(){return PARAMS.focus?`\nToday's lesson, from the teacher's term plan, covers only this part of the chapter: "${PARAMS.focus}". Keep the questions and activities on this part.`:""}
 function needLesson(L){
   if(L.none){toast("Choose the book and chapter first — or paste the lesson.",true);return false}
   return true}
@@ -487,7 +489,7 @@ async function makeLQ(){
     $("lqBody").innerHTML='<p class="hint"><span class="spin"></span>Making questions from the lesson…</p>';
     const sys=`You write worksheet questions for ${$("fClass").value} ${$("fSubject").value} in a Tamil Nadu school, from the textbook chapter given.
 Use ONLY facts that are in the chapter. Cover the whole chapter, not only the first page, and do not copy the book's own exercise questions — make fresh ones. Each question must have one clear correct answer. Suit the child's age. ${langRule()}
-Make exactly: ${want.map(w=>w[2]+" × "+w[1]).join(", ")}.
+Make exactly: ${want.map(w=>w[2]+" × "+w[1]).join(", ")}.${focusRule()}
 Reply with ONLY this JSON:
 {"questions":[
  {"type":"mcq","q":"question","options":["","","",""],"answer":"the correct option text"},
@@ -597,7 +599,7 @@ let ACTS=[];
 const KIND={label_diagram:"Label the picture",map_mark:"Map work",match:"Match",sort:"Sort into groups",sequence:"Put in order",draw_label:"Draw and label",word_search:"Word search",table_fill:"Complete the table",mind_map:"Mind map",riddles:"Who am I?",observe:"Observe and record",creative:"Creative writing"};
 function acPrompt(){
   const lit=/tamil|hindi/i.test($("fSubject").value);
-  const planAct=PARAMS.act?`\nThe teacher's term plan has this class activity for the lesson: "${PARAMS.act}". If it can be done on paper, make one of your sheets from it.`:"";
+  const planAct=focusRule()+(PARAMS.act?`\nThe teacher's term plan has this class activity for the lesson: "${PARAMS.act}". If it can be done on paper, make one of your sheets from it.`:"");
   return `You suggest creative ACTIVITY WORKSHEETS for ${$("fClass").value} ${$("fSubject").value} in a Tamil Nadu school, based on the chapter given. ${langRule()}
 Suggest 5 different sheets that really fit THIS lesson and THIS age — the kind a good teacher would print. Use only facts from the chapter. Prefer variety. Each sheet is one printed A4 page.${planAct}
 Choose types ONLY from this list, with exactly these fields:
@@ -774,7 +776,7 @@ $("fChapter").addEventListener("change",chapterPicked);
 ["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
 
 /* ---------- opened from the Term Planner ---------- */
-const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,600)})}catch(e){}
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,600)})}catch(e){}
 (async function start(){
   $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
   fillSubjects(PARAMS.subject||lsGet("tws_subject"));
@@ -788,7 +790,8 @@ const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subje
       if(bi===BOOKS.length-1){$("fBook").value=BOOKS.length===1?"0":"";if(BOOKS.length!==1)await renderChapters()}}
     if(!$("fTopic").value&&t)$("fTopic").value=String(PARAMS.chapter).replace(/^Ch\s*\d+\.\s*/i,"");
     if(PARAMS.from&&!$("fFrom").value)$("fFrom").value=PARAMS.from;if(PARAMS.to&&!$("fTo").value)$("fTo").value=PARAMS.to;
-    $("fromPlan").innerHTML="Opened from the Term Planner"+(PARAMS.act?" — the lesson's class activity will be used for the activity ideas: <i>"+esc(PARAMS.act)+"</i>":"")+".";$("fromPlan").hidden=false}
+    const trim=t=>String(t||"").trim().replace(/[.\s]+$/,"");
+    $("fromPlan").innerHTML="Opened from the Term Planner."+(PARAMS.focus?" Today's part: <i>"+esc(trim(PARAMS.focus))+"</i>. New questions and activities will stay on it.":"")+(PARAMS.act?" Activity ideas will build on the lesson's class activity: <i>"+esc(trim(PARAMS.act))+"</i>.":"");$("fromPlan").hidden=false}
   count()})();
 })();
 </script>
