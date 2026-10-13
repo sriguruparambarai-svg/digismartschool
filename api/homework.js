@@ -35,6 +35,9 @@
 // (homework rows are 'homework'). Same approval by the principal, same 4 PM send,
 // but a SEPARATE parent message: into the diary's class_notes, and to ERP as type 'classwork'.
 // erp_error: set when ERP refuses a send; such rows are tried again at the next send.
+// BOOK BACK ANSWERS (Oct 2026): entry_type 'bookback' — sent from Teacher Tools → Book Back Answers.
+// Same approval and 4 PM send, into the diary's book_back_answers (each set added below the
+// earlier ones, never replacing them). Not sent to ERP.
 //
 // WORKBOOK PICKS (Oct 2026): the Workbook Generator's picks (what goes on Class Work,
 // Home Work 1-3 and the Class Test of each chapter) are kept per school, so every
@@ -85,7 +88,8 @@ const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const MADE_BY = ['teacher', 'ai', 'ai-week', 'principal'];
 const TT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const ENTRY_TYPES = ['homework', 'classwork'];
+const ENTRY_TYPES = ['homework', 'classwork', 'bookback'];
+const textLimit = function (x) { return entryType(x) === 'bookback' ? 20000 : 1000; };   // answers are long
 const entryType = function (x) { return ENTRY_TYPES.indexOf(x && x.entry_type) !== -1 ? x.entry_type : 'homework'; };
 
 // The school's fixed homework timetable ({} if none saved yet).
@@ -215,23 +219,24 @@ async function sendDue(school, upTo) {
   const forErp = [];   // groups that reached the diary and now go to ERP
   for (const key of Object.keys(groups)) {
     const [date, cls, type] = key.split('|');
-    const field = type === 'classwork' ? 'class_notes' : 'homework';   // diary column
+    const field = type === 'classwork' ? 'class_notes' : type === 'bookback' ? 'book_back_answers' : 'homework';   // diary column
+    const joiner = type === 'bookback' ? '\n\n' : '\n';
     const bySubject = groups[key];
     const sentIds = [], sentSubjects = {};
 
     for (const subject of Object.keys(bySubject)) {
       const items = bySubject[subject];
-      const ours = items.map(function (i) { return i.homework; }).join('\n');
+      const ours = items.map(function (i) { return i.homework; }).join(joiner);
 
       // One diary row per school + class + subject + day (same as save_diary_entry).
       // Anything a teacher already wrote there is kept; ours is added below it.
       const ex = await db('GET', '/rest/v1/diary_entries?school_id=eq.' + enc(school.id) +
-        '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subject) + '&lesson_date=eq.' + date + '&select=id,homework,class_notes&limit=1');
+        '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subject) + '&lesson_date=eq.' + date + '&select=id,homework,class_notes,book_back_answers&limit=1');
       if (!ok(ex)) { out.errors.push(cls + ' ' + subject + ' ' + date + ': ' + why(ex)); continue; }
       let w;
       if (ex.data.length) {
         const old = String(ex.data[0][field] || '').trim();
-        const merged = !old ? ours : (old.indexOf(ours) !== -1 ? old : old + '\n' + ours);
+        const merged = !old ? ours : (old.indexOf(ours) !== -1 ? old : old + joiner + ours);
         const patch = { updated_at: new Date().toISOString() };
         patch[field] = merged;
         w = await db('PATCH', '/rest/v1/diary_entries?id=eq.' + enc(ex.data[0].id), patch);
@@ -254,7 +259,7 @@ async function sendDue(school, upTo) {
       { sent_at: new Date().toISOString() });
     if (!ok(m)) { out.errors.push('Could not mark as sent: ' + why(m)); continue; }
     out.sent += sentIds.length;
-    forErp.push({ date: date, cls: cls, type: type, bySubject: sentSubjects });
+    if (type !== 'bookback') forErp.push({ date: date, cls: cls, type: type, bySubject: sentSubjects });   // book back answers stay in the diary
   }
 
   // ERP Parent Portal — only for schools that own ERP.
@@ -417,7 +422,7 @@ module.exports = async function handler(req2, res) {
       if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
       const since = new Date(istNow().getTime() - 365 * 864e5).toISOString().slice(0, 10);
       const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
-        '&status=neq.returned&entry_type=neq.classwork&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
+        '&status=neq.returned&entry_type=eq.homework&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
       if (!ok(r)) return res.json({ error: 'Could not read past homework: ' + why(r) });
       return res.json({ success: true, items: r.data });
     }
@@ -438,7 +443,7 @@ module.exports = async function handler(req2, res) {
 
     // ── SAVE (new or changed) ──
     if (action === 'save') {
-      const cls = clip(body.class_name, 20), subject = clip(body.subject, 40), text = clip(body.homework, 1000);
+      const cls = clip(body.class_name, 20), subject = clip(body.subject, 40), text = clip(body.homework, textLimit(body));
       if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
       if (!subject) return res.json({ error: 'Choose a subject.' });
       if (!text) return res.json({ error: 'Type the homework.' });
@@ -477,7 +482,7 @@ module.exports = async function handler(req2, res) {
       if (!list.length) return res.json({ error: 'Nothing to save.' });
       const rows = [];
       for (const x of list) {
-        const cls = clip(x.class_name, 20), subject = clip(x.subject, 40), text = clip(x.homework, 1000);
+        const cls = clip(x.class_name, 20), subject = clip(x.subject, 40), text = clip(x.homework, textLimit(x));
         if (CLASSES.indexOf(cls) === -1 || !subject || !text || !isDate(x.hw_date)) {
           return res.json({ error: 'One homework is missing its class, subject, day or text.' });
         }
