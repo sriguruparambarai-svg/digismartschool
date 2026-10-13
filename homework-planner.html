@@ -166,6 +166,20 @@ textarea{resize:vertical;min-height:70px}
 .chrow{display:grid;grid-template-columns:90px minmax(0,1fr);gap:4px 10px;align-items:center}
 .chrow b{font-size:.8rem;color:var(--muted)}
 .chrow .chaptag,.chrow input{grid-column:2}
+/* several subjects at once (Oct 2026) */
+.mrows{display:grid;gap:10px}
+.mrow{display:grid;gap:6px;padding:10px 12px;border:1px solid var(--line);border-left:4px solid var(--gold);border-radius:8px;background:var(--surface)}
+.mhead{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center}
+.mhead .mdel{padding:6px 10px}
+.mrow textarea{min-height:56px}
+.tdone{font-size:.82rem;color:var(--muted)}
+.tdone b{color:#2F6B3A}
+.addsubj{justify-self:start;font-size:.85rem;padding:6px 14px;border:1px dashed var(--accent);background:transparent;color:var(--accent);border-radius:999px;font-weight:700;cursor:pointer}
+.addsubj:hover{background:var(--chip)}
+.allbox{display:grid;gap:8px;padding:10px 12px;border:1px solid var(--gold);border-radius:8px;background:#FBF4E2}
+.allbox .ah{font-size:.88rem;color:var(--ink)}
+.orline{font-size:.8rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-top:4px}
+@media (max-width:480px){.mhead{grid-template-columns:1fr 1fr auto}}
 .chaptag{font-size:.75rem;color:var(--muted);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .chaptag .tagl{font-weight:700;padding:1px 7px;border-radius:999px;background:var(--ok-bg);color:var(--ok)}
 .chaptag .tagl.own{background:var(--chip);color:var(--chip-ink)}
@@ -376,6 +390,13 @@ textarea{resize:vertical;min-height:70px}
       </div>
 
       <div class="tabbody" id="body-type">
+        <div id="tMulti" style="display:grid;gap:10px">
+          <div class="tdone" id="tDone" hidden></div>
+          <div class="mrows" id="tRows"></div>
+          <button type="button" class="addsubj" id="tAddRow">+ Add another subject</button>
+          <span class="hint">Fill the subjects you want. Empty boxes are left out.</span>
+        </div>
+        <div id="tSingle" style="display:grid;gap:10px">
         <div class="row">
           <label>Subject<select id="tSubj"></select></label>
           <label>Kind<select id="tKind"></select></label>
@@ -385,6 +406,7 @@ textarea{resize:vertical;min-height:70px}
         <button type="button" class="srcbtn" id="tSrc">📚 From book / workbook</button>
         <div class="tpidea" id="tTp" hidden></div>
         <div id="tWarn"></div>
+        </div>
         <div class="btnrow">
           <button class="btn" id="tSave"></button>
           <button class="btn ghost" id="tCancel" hidden>Cancel edit</button>
@@ -392,6 +414,17 @@ textarea{resize:vertical;min-height:70px}
       </div>
 
       <div class="tabbody" id="body-ai" hidden>
+        <div class="allbox" id="aAll">
+          <div class="ah" id="aAllHead"></div>
+          <div class="chapters" id="aAllCh"></div>
+          <div class="row" id="aAllOpts">
+            <label>How much (each)<select id="aAllSize"><option value="light">Light (10 min)</option><option value="normal" selected>Normal (20 min)</option><option value="more">More (30 min)</option></select></label>
+            <label>Note for AI (optional)<input id="aAllNote" placeholder="e.g. test on Friday"></label>
+          </div>
+          <div class="btnrow" id="aAllBtns"><button class="btn" id="aAllGo">Write for all these subjects</button><span class="hint">One homework per subject. Edit before adding.</span></div>
+          <div id="aAllOut" class="sugg"></div>
+        </div>
+        <div class="orline">Or 3 choices for one subject</div>
         <div class="row">
           <label>Subject<select id="aSubj"></select></label>
           <label>Kind<select id="aKind"></select></label>
@@ -548,6 +581,7 @@ function renderTop(){
   $("roleHint").textContent=MYCLASS?"Homework you write here goes straight into the week.":PRINCIPAL?"Homework from teachers waits here until you add it to the week.":"Homework you write goes to the principal first.";
   $("adminSide").hidden=!ADMINVIEW();$("teacherSide").hidden=ADMINVIEW();
   $("tSave").textContent=editing?"Save changes":PRINCIPAL?"Add to week":"Send to principal";
+  $("tSingle").hidden=!editing;$("tMulti").hidden=!!editing;
   $("sendNote").textContent="Homework added to the week goes to the Student Diary"+(SCHOOL.has_erp?" and to parents in ERP":"")+" at "+(SEND_HOUR%12||12)+" PM on its own day (✓ = sent). Slips show only homework added to the week.";
 }
 function renderWaitBar(){const wh=S.items.filter(waiting),wc=(S.cw||[]).filter(waiting),wb=(S.bb||[]).filter(waiting),w=wh.concat(wc,wb);const b=$("waitBar");
@@ -617,6 +651,7 @@ function renderPanel(scroll){
   fillSubj($("aSubj"),c,ds,same?$("aSubj").value:"");
   showExtraHints();
   showTpHome();
+  renderTRows(same);
   if(!$("tKind").options.length){fillSelect($("tKind"),KINDS,KINDS[0]);fillSelect($("aKind"),KINDS,KINDS[0])}
   if(PRINCIPAL)$("slipPrev").innerHTML=slipHTML(c,ds);
   renderChapters();
@@ -957,7 +992,7 @@ $("pItems").addEventListener("click",e=>{
 });
 function cancelEdit(quiet){editing=null;if(!quiet)$("tText").value="";$("tCancel").hidden=true;renderTop()}
 $("tCancel").onclick=()=>{$("tText").value="";cancelEdit()};
-$("tSave").onclick=async()=>{const text=$("tText").value.trim();if(!text){$("tText").focus();return}
+$("tSave").onclick=async()=>{if(!editing){saveTRows();return}const text=$("tText").value.trim();if(!text){$("tText").focus();return}
   if(!await repeatGate($("tWarn"),S.sel.cls,$("tSubj").value,text,editing,()=>$("tSave").click()))return;
   const base={class_name:S.sel.cls,subject:$("tSubj").value,kind:$("tKind").value,homework:text,hw_date:S.sel.date,teacher_name:TEACHER_NAME};
   if(editing){const i=S.items.find(x=>x.id===editing);const wasReturned=i&&i.status==="returned";
@@ -1038,6 +1073,7 @@ function renderChapters(){const c=S.sel.cls;
     return `<div class="chrow"><b>${esc(s)}</b><select data-ch="${esc(s)}" aria-label="${esc(s)} chapter">${chapOptions(c,s,m.ch,true)}</select>`+
       (m.ch==="O"?`<input data-oth="${esc(s)}" value="${esc(m.other||"")}" placeholder="Type the chapter">`:"")+`<div class="chaptag">${tagHTML(c,s,m)}</div></div>`}).join("")+
     (CLASS_OPTS[c].books.length?"":`<div class="hint">No books uploaded for ${esc(c)} yet. Chapters taught in TeachBot still show here; otherwise choose "Other" and type it.</div>`);
+  renderAiAll();
   box.querySelectorAll("select").forEach(sel=>sel.onchange=()=>{const s=sel.dataset.ch;setChoice(c,s,{ch:sel.value,own:true,other:""});renderChapters();const o=box.querySelector(`[data-oth="${CSS.escape(s)}"]`);o&&o.focus()});
   box.querySelectorAll("input[data-oth]").forEach(inp=>inp.oninput=()=>setChoice(c,inp.dataset.oth,{ch:"O",own:true,other:inp.value}));
   renderAiChapter();
@@ -1093,6 +1129,97 @@ $("wGo").onclick=async()=>{const out=$("wOut"),btn=$("wGo"),c=S.sel.cls;if(!CLAS
       if(!items.length)return;
       const d=await act("save_many",{items,teacher_name:TEACHER_NAME},PRINCIPAL?items.length+" homework added across the week":items.length+" homework sent to the principal");if(d)out.innerHTML=""};
   }catch(e){errBox(out,"AI could not plan the week: "+e.message)}finally{btn.disabled=false;btn.textContent="Plan this week"}};
+
+/* ---------- Way 1, several subjects at once (Oct 2026) ----------
+   One row per fixed subject for the day that has no homework yet; "+ Add another subject"
+   adds more (non-fixed ones go as Extra). One button saves every filled row together.
+   The old single form is still used for Edit. */
+let tRowsKey="",tReset=false;
+function liveSubs(c,ds){return itemsFor(c,ds,x=>x.status!=="returned").map(x=>x.subject)}
+function readTRows(){return[...$("tRows").querySelectorAll(".mrow")].map(r=>({el:r,subj:r.querySelector('[data-f="subj"]').value,kind:r.querySelector('[data-f="kind"]').value,text:r.querySelector('[data-f="text"]').value}))}
+function tRowHTML(){return `<div class="mrow"><div class="mhead"><select data-f="subj" aria-label="Subject"></select><select data-f="kind" aria-label="Kind"></select><button type="button" class="iconbtn mdel" data-f="del" title="Remove this subject" aria-label="Remove this subject">✕</button></div>
+  <div class="extrahint" data-f="extra" hidden></div>
+  <textarea data-f="text" maxlength="1000" rows="2" placeholder="Homework"></textarea>
+  <button type="button" class="srcbtn" data-f="src">📚 From book / workbook</button>
+  <div class="tpidea" data-f="tp" hidden></div><div data-f="warn"></div></div>`}
+function fillTRow(r,c,ds,v){const sel=r.querySelector('[data-f="subj"]');fillSubj(sel,c,ds,v.subj);if(v.subj&&sel.value!==v.subj){const o=document.createElement("option");o.value=o.textContent=v.subj;sel.appendChild(o);sel.value=v.subj}
+  fillSelect(r.querySelector('[data-f="kind"]'),KINDS,KINDS.includes(v.kind)?v.kind:KINDS[0]);
+  const ta=r.querySelector('[data-f="text"]');ta.value=v.text||"";ta.placeholder="Homework for "+sel.value+", e.g. Write the new words from page 34 two times each.";
+  tRowExtras(r,c,ds)}
+function tRowExtras(r,c,ds){const sb=r.querySelector('[data-f="subj"]').value,m=extraMsg(c,ds,sb),ex=r.querySelector('[data-f="extra"]');ex.textContent=m;ex.hidden=!m;
+  const live=liveSubs(c,ds).includes(sb);if(live&&!m){ex.textContent=sb+" already has homework on this day. This will be a second one.";ex.hidden=false}
+  const tp=r.querySelector('[data-f="tp"]');tp.hidden=true;
+  tpFor(c,ds).then(rows=>{if(S.sel.cls!==c||S.sel.date!==ds||r.querySelector('[data-f="subj"]').value!==sb)return;
+    const x=rows.find(y=>y.subject===sb&&y.home_act);if(!x){tp.hidden=true;return}
+    tp.innerHTML=`<span><b>📘 Term plan home activity:</b> ${esc(x.home_act)}</span><button type="button" class="iconbtn go" data-f="tpuse">Use this</button>`;tp.hidden=false;
+    tp.querySelector('[data-f="tpuse"]').onclick=()=>{const ta=r.querySelector('[data-f="text"]');ta.value=(ta.value.trim()?ta.value.trim()+" ":"")+x.home_act;r.querySelector('[data-f="kind"]').value=KINDS.includes("Activity")?"Activity":KINDS[0];ta.focus()}})}
+function defaultTRows(c,ds){const fx=fixedFor(c,ds),live=liveSubs(c,ds);
+  if(fx){const todo=fx.filter(s=>!live.includes(s));if(todo.length)return todo.map(s=>({subj:s,kind:KINDS[0],text:""}))}
+  const subs=subjectsFor(c),first=(fx||[]).concat(subs).find(s=>!live.includes(s))||subs[0];return[{subj:first,kind:KINDS[0],text:""}]}
+function renderTRows(same){const c=S.sel.cls,ds=S.sel.date;if(!c||!ds)return;const key=c+"|"+ds;
+  const fx=fixedFor(c,ds),live=liveSubs(c,ds),done=(fx||[]).filter(s=>live.includes(s));
+  $("tDone").innerHTML=done.length?`Already in this day: <b>${done.map(s=>esc(s)+" ✓").join(", ")}</b>`:"";$("tDone").hidden=!done.length;
+  const keep=same&&key===tRowsKey&&!tReset&&$("tRows").children.length;tRowsKey=key;
+  const vals=keep?readTRows():defaultTRows(c,ds);tReset=false;
+  if(keep){$("tRows").querySelectorAll(".mrow").forEach(r=>{const sb=r.querySelector('[data-f="subj"]').value;fillSubj(r.querySelector('[data-f="subj"]'),c,ds,sb);tRowExtras(r,c,ds)});return}
+  $("tRows").innerHTML=vals.map(tRowHTML).join("");
+  [...$("tRows").children].forEach((r,i)=>fillTRow(r,c,ds,vals[i]))}
+$("tAddRow").onclick=()=>{const c=S.sel.cls,ds=S.sel.date,used=readTRows().map(x=>x.subj).concat(liveSubs(c,ds));
+  const subs=(fixedFor(c,ds)||[]).concat(subjectsFor(c)),next=subs.find(s=>!used.includes(s))||subjectsFor(c)[0];
+  $("tRows").insertAdjacentHTML("beforeend",tRowHTML());const r=$("tRows").lastElementChild;fillTRow(r,c,ds,{subj:next,kind:KINDS[0],text:""});r.querySelector('[data-f="text"]').focus()};
+$("tRows").addEventListener("change",e=>{const r=e.target.closest(".mrow");if(r&&e.target.dataset.f==="subj"){const ta=r.querySelector('[data-f="text"]');ta.placeholder="Homework for "+e.target.value;tRowExtras(r,S.sel.cls,S.sel.date);const b=r.querySelector(".srcbox");b&&b.remove()}});
+$("tRows").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;const r=b.closest(".mrow");
+  if(b.dataset.f==="del"){r.remove();if(!$("tRows").children.length)$("tAddRow").click();return}
+  if(b.dataset.f==="src")openSrc(b,r.querySelector('[data-f="text"]'),r.querySelector('[data-f="subj"]').value,false)});
+async function saveTRows(){const c=S.sel.cls,ds=S.sel.date,rows=readTRows(),filled=rows.filter(x=>x.text.trim());
+  if(!filled.length){const t=$("tRows").querySelector("textarea");t&&t.focus();toast("Type the homework for at least one subject.",true);return}
+  const seen={};for(const x of filled){if(seen[x.subj]){toast(x.subj+" is chosen twice. Put both in one box, or change one subject.",true);x.el.querySelector('[data-f="text"]').focus();return}seen[x.subj]=1}
+  let allOk=true;
+  for(const x of filled){const box=x.el.querySelector('[data-f="warn"]'),ta=x.el.querySelector('[data-f="text"]');
+    const okR=await repeatGate(box,c,x.subj,x.text.trim(),null,()=>$("tSave").click());
+    if(!okR){allOk=false;const ch=box.querySelector('[data-rp="change"]');ch&&ch.addEventListener("click",()=>ta.focus())}}
+  if(!allOk){toast("Some homework looks like earlier homework. Change it or press “Send anyway”.",true);return}
+  const items=filled.map(x=>({class_name:c,subject:x.subj,kind:x.kind,homework:x.text.trim(),hw_date:ds,made_by:"teacher"}));
+  const nx=items.filter(i=>extraMsg(c,ds,i.subject)).length;
+  const d=await act("save_many",{items,teacher_name:TEACHER_NAME},(PRINCIPAL?items.length+" homework added to "+c+" week":items.length+" homework sent to the principal")+(nx?" ("+nx+" as Extra)":""));
+  if(d){tReset=true;renderPanel()}}
+
+/* ---------- Way 2, all of the day's fixed subjects at once (Oct 2026) ---------- */
+function aAllSubs(c,ds){const fx=fixedFor(c,ds);if(!fx)return null;const live=liveSubs(c,ds);return fx.filter(s=>!live.includes(s))}
+let aAllKey="";
+function renderAiAll(){const c=S.sel.cls,ds=S.sel.date,subs=aAllSubs(c,ds),day=DAYFULL[DAYS.indexOf(dayKey(ds))]||"";
+  if(aAllKey!==c+"|"+ds){aAllKey=c+"|"+ds;$("aAllOut").innerHTML=""}
+  const show=!!(subs&&subs.length);["aAllCh","aAllOpts","aAllBtns"].forEach(id=>$(id).hidden=!show);
+  if(!subs){$("aAllHead").innerHTML="To write homework for all of a day's subjects at once, the principal first fixes the homework timetable.";$("aAllOut").innerHTML="";return}
+  if(!subs.length){$("aAllHead").innerHTML=(fixedFor(c,ds).length?"All of "+esc(day)+"'s fixed subjects already have homework.":"No homework is fixed for "+esc(day)+".");$("aAllOut").innerHTML="";return}
+  $("aAllHead").innerHTML=`<b>All of ${esc(day)}'s subjects:</b> ${subs.map(esc).join(", ")}. Check each chapter, then write.`;
+  const box=$("aAllCh");
+  box.innerHTML=subs.map(s=>{const m=chapChoice(c,s,false);
+    return `<div class="chrow"><b>${esc(s)}</b><select data-ach="${esc(s)}" aria-label="${esc(s)} chapter">${chapOptions(c,s,m.ch,true)}</select>`+
+      (m.ch==="O"?`<input data-aoth="${esc(s)}" value="${esc(m.other||"")}" placeholder="Type the chapter">`:"")+`<div class="chaptag">${tagHTML(c,s,m)}</div></div>`}).join("");
+  box.querySelectorAll("select").forEach(sel=>sel.onchange=()=>{const s=sel.dataset.ach;setChoice(c,s,{ch:sel.value,own:true,other:""});renderChapters();const o=$("aAllCh").querySelector(`[data-aoth="${CSS.escape(s)}"]`);o&&o.focus()});
+  box.querySelectorAll("input[data-aoth]").forEach(inp=>inp.oninput=()=>setChoice(c,inp.dataset.aoth,{ch:"O",own:true,other:inp.value}))}
+$("aAllGo").onclick=async()=>{const out=$("aAllOut"),btn=$("aAllGo"),c=S.sel.cls,ds=S.sel.date;if(!CLASS_OPTS[c])return;
+  const chosen=(aAllSubs(c,ds)||[]).map(s=>({s,m:chapChoice(c,s,false)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
+  if(!chosen.length){errBox(out,"Choose or type the chapter for at least one subject.");return}
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapters…';out.innerHTML="";
+  try{const notes=[];let pages="";const per=Math.floor(12000/chosen.length);
+    for(const x of chosen){const ct=await chapterText(c,x.s,x.m);if(ct.text)pages+=`\n${x.s} — ${x.name}:\n<<<\n${ct.text.slice(0,per)}\n>>>\n`;if(ct.note)notes.push(x.s+": "+ct.note)}
+    btn.innerHTML='<span class="spin"></span>Writing…';
+    try{await loadPast(c)}catch(e){toast("Could not read earlier homework, so AI may repeat: "+e.message,true)}
+    const size={light:"about 10 minutes",normal:"about 20 minutes",more:"about 30 minutes"}[$("aAllSize").value];
+    const r=await askAI(`Class: ${c}\nDay: ${niceLong(ds)}\nWrite ONE homework for EACH of these subjects for this day:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\nTime at home for each subject: ${size}\nTeacher's note: ${$("aAllNote").value||"none"}\n${chosen.map(x=>pastPrompt(c,x.s,8)).join("")}Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"items":[{"subject":"English","kind":"Written","text":"..."}]}`,2000);
+    const subs=chosen.map(x=>x.s),seen={};
+    const items=(r.items||[]).filter(p=>p&&p.text&&subs.includes(p.subject)&&!seen[p.subject]&&(seen[p.subject]=1));
+    if(!items.length)throw new Error("No homework came back. Please try again.");
+    out.innerHTML=(notes.length?`<div class="hint">${notes.map(esc).join("<br>")}</div>`:"")+`<div class="hint">Untick anything you don't want. You can edit the text and kind.</div>`+
+      items.map((p,i)=>`<label class="opt"><input type="checkbox" data-aa="${i}" checked><span><span class="k">${esc(p.subject)}</span> <select data-ak="${i}" style="width:auto;display:inline-block;padding:2px 6px;font-size:.8rem;margin:0 0 4px">${KINDS.map(k=>`<option${k===(KINDS.includes(p.kind)?p.kind:"Written")?" selected":""}>${esc(k)}</option>`).join("")}</select><textarea data-at="${i}" rows="2" maxlength="1000" style="min-height:52px">${esc(p.text)}</textarea>${(rp=>rp?`<span class="pill rep">Similar to ${nice(rp.hw_date)} — untick or change it</span>`:"")(findRepeat(c,p.subject,p.text,null))}</span></label>`).join("")+
+      `<div class="btnrow"><button class="btn" id="aAllAdd">${PRINCIPAL?"Add ticked homework to the week":"Send ticked homework to principal"}</button></div>`;
+    $("aAllAdd").onclick=async()=>{const list=[];items.forEach((p,i)=>{if(!out.querySelector(`[data-aa="${i}"]`).checked)return;const t=out.querySelector(`[data-at="${i}"]`).value.trim();if(!t)return;
+        list.push({class_name:c,subject:p.subject,kind:out.querySelector(`[data-ak="${i}"]`).value,homework:t,hw_date:ds,made_by:"ai"})});
+      if(!list.length){toast("Tick at least one homework.",true);return}
+      const d=await act("save_many",{items:list,teacher_name:TEACHER_NAME},PRINCIPAL?list.length+" homework added to "+c+" week":list.length+" homework sent to the principal");if(d)out.innerHTML=""};
+  }catch(e){errBox(out,"AI could not write homework: "+e.message)}finally{btn.disabled=false;btn.textContent="Write for all these subjects"}};
 
 /* ---------- diary slips (only homework added to the week) ---------- */
 function slipHTML(c,ds){const its=itemsFor(c,ds,added);
