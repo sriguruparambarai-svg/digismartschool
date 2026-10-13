@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<script src="js/tool-access.js"></script>
+<script>if(window.DSS_ACCESS)DSS_ACCESS.guard("lesson");</script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Term Planner — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!--
+  Term Planner (Oct 2026)
+  Teacher: picks class, subject and term, ticks chapters from the school's uploaded books,
+  gives the term dates, working days and periods per week. AI reads each chapter's pages
+  and fills one row per lesson period: what to teach, pages, a class activity, a home
+  activity and a ground activity. Every cell can be edited; it saves for the school.
+  The teacher sends it to the principal, who approves (locks), sends back, or opens it again.
+  Server: /api/term-plan (school from the signed login). Books: /api/auth (get_school_books,
+  tbl_get school_book_chapters) and the book PDF read with PDF.js. AI: /api/ai, flat body.
+-->
+<style>
+:root{
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA; --gold:#C9A84C;
+  --chip:#F1E2C6; --chip-ink:#5A2A16;
+  --ok:#2F6B3A; --ok-bg:#E3F0E2; --warn:#8A5A00; --warn-bg:#F8EBCB; --bad:#A12A1E; --bad-bg:#F8DEDA; --wait:#5B4A9A; --wait-bg:#ECE7F8;
+  --cls:#185FA5; --home:#8A5A00; --ground:#2F6B3A;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1360px;margin:0 auto;padding:0 16px 48px}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1360px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band img{width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #C9A84C;object-fit:contain}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a.back{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+h2{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:16px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input,select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-weight:400;font-size:.95rem;width:100%;min-width:0}
+.days{display:flex;gap:6px;flex-wrap:wrap}
+.days label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:.88rem;color:var(--ink);cursor:pointer}
+.days input,.chk input{width:16px;height:16px;padding:0;accent-color:var(--accent)}
+.btn{border:none;border-radius:8px;padding:9px 14px;font-weight:600;background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn.ok{background:var(--ok);color:#fff} .btn.small{padding:5px 10px;font-size:.82rem}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.hint{font-size:.8rem;color:var(--muted)}
+.banner{margin-top:12px;padding:10px 14px;border-radius:var(--r);font-size:.9rem}
+.banner.err{background:var(--bad-bg);color:var(--bad)} .banner.info{background:var(--surface);border:1px dashed var(--gold);color:var(--muted)}
+.chaps{display:grid;gap:6px;margin-top:8px}
+.chk{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff;font-weight:400;color:var(--ink);font-size:.9rem}
+.chk .pg{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.chk.own{grid-template-columns:auto minmax(0,1fr) 70px 70px auto}
+.status{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 9px;border-radius:999px}
+.st-draft{background:var(--chip);color:var(--chip-ink)} .st-waiting{background:var(--wait-bg);color:var(--wait)}
+.st-returned{background:var(--bad-bg);color:var(--bad)} .st-approved{background:var(--ok-bg);color:var(--ok)}
+.plist{width:100%;border-collapse:collapse;font-size:.9rem}
+.plist th,.plist td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left}
+.plist th{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.plist tr.go{cursor:pointer} .plist tr.go:hover td{background:var(--surface-2)}
+.meter{height:6px;background:var(--surface-2);border-radius:4px;overflow:hidden;min-width:80px}
+.meter i{display:block;height:100%;background:var(--ok)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:12px}
+table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
+.tp th{position:sticky;top:0;background:var(--surface-2);font-size:.75rem;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);padding:8px 6px;text-align:left;border-bottom:1px solid var(--line);z-index:1}
+.tp td{border-bottom:1px solid var(--line);vertical-align:top;padding:4px 6px}
+.tp tr.ch td{background:#FBF4E2;padding:8px 10px;font-family:var(--display);font-size:1rem;color:var(--accent)}
+.tp tr.ch .btn{font-family:var(--body);margin-left:8px}
+.tp tr.done td:not(.c-done){opacity:.55}
+.tp .ed{min-height:2.2em;padding:4px 6px;border-radius:6px;outline:none;white-space:pre-wrap;overflow-wrap:anywhere}
+.tp .ed[contenteditable="true"]:hover{background:var(--surface-2)}
+.tp .ed[contenteditable="true"]:focus{background:#fff;box-shadow:inset 0 0 0 1px var(--gold)}
+.tp td.c-no{width:34px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right;padding-top:8px}
+.tp td.c-date{width:128px} .tp td.c-date input{padding:4px 6px;font-size:.85rem}
+.tp td.c-date .dow{font-size:.72rem;color:var(--muted);padding-left:2px}
+.tp td.c-pg{width:80px} .tp td.c-teach{min-width:220px}
+.tp td.c-cls{min-width:180px;border-left:3px solid #DCE8F5} .tp td.c-home{min-width:170px;border-left:3px solid #F3E2BD} .tp td.c-gr{min-width:170px;border-left:3px solid #D6E8D3}
+.tp th.h-cls{color:var(--cls)} .tp th.h-home{color:var(--home)} .tp th.h-gr{color:var(--ground)}
+.tp td.c-done{width:56px;text-align:center;padding-top:8px} .tp td.c-done input{width:18px;height:18px;accent-color:var(--ok)}
+.tp td.c-x{width:30px;padding-top:8px} .tp .x{border:none;background:none;color:var(--muted);font-size:1rem}
+.tp .x:hover{color:var(--bad)}
+.toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
+.saved{font-size:.82rem;color:var(--muted)}
+.retnote{background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:.88rem;margin-top:10px}
+.prog{font-size:.88rem;color:var(--muted);margin-top:10px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:18px;background:#2B1A17;color:#FFF3DF;padding:10px 14px;border-radius:10px;font-size:.9rem;box-shadow:0 6px 24px rgba(0,0,0,.25);max-width:calc(100% - 32px);z-index:5}
+.toast.bad{background:#A12A1E}
+@media print{
+  .band,.noprint,.btnrow,.c-x,.tp tr.ch .btn{display:none!important}
+  body{background:#fff;font-size:11px}.wrap{max-width:none;padding:0}
+  .card{border:none;padding:0;margin:0}.tablewrap{border:none;overflow:visible}
+  table.tp{min-width:0}.tp .ed{padding:0}.tp th{position:static}
+  .printhead{display:block!important}
+}
+.printhead{display:none;margin-bottom:8px}
+</style>
+</head>
+<body>
+<header class="band">
+  <div class="in">
+    <img id="schoolLogo" alt="" hidden>
+    <div class="grow">
+      <div class="sub" id="schoolName">DigiSmartSchool · TeachBot</div>
+      <h1>Term Planner</h1>
+    </div>
+    <a class="back" href="index.html">← Teacher Tools</a>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="banner err" id="topErr" hidden></div>
+
+  <!-- 1. the school's plans -->
+  <section class="card noprint" id="listCard">
+    <div class="toolbar"><h2>Term plans</h2>
+      <label style="display:flex;align-items:center;gap:6px">Term <select id="fTermList" style="width:auto"><option>I</option><option selected>II</option><option>III</option></select></label></div>
+    <p class="hint" id="listHint"></p>
+    <div id="plist"></div>
+  </section>
+
+  <!-- 2. open / make a plan -->
+  <section class="card noprint" id="setupCard">
+    <h2>Make or open a plan</h2>
+    <div class="row" style="margin-top:10px">
+      <label>Class<select id="fClass"></select></label>
+      <label>Subject<select id="fSubject"></select></label>
+      <label>Term<select id="fTerm"><option>I</option><option selected>II</option><option>III</option></select></label>
+      <label>Periods per week for this subject<input type="number" id="fPpw" min="1" max="14" value="5"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label>Term starts<input type="date" id="fStart"></label>
+      <label>Term ends<input type="date" id="fEnd"></label>
+      <div><div class="hint" style="font-weight:600;margin-bottom:4px">School days</div>
+        <div class="days" id="fDays"></div></div>
+    </div>
+    <div style="margin-top:14px">
+      <div class="toolbar"><b style="font-size:.9rem">Chapters for this term</b><span class="hint" id="chapHint"></span></div>
+      <div class="chaps" id="chaps"></div>
+      <div class="btnrow" style="margin-top:8px"><button class="btn ghost small" id="addOwn">+ Add a chapter by name</button></div>
+    </div>
+    <label style="margin-top:12px">Note for AI (optional)<input id="fNote" placeholder="e.g. children are weak in reading; keep ground activities short"></label>
+    <div class="btnrow">
+      <button class="btn" id="makeBtn">✨ Make the term plan with AI</button>
+      <span class="hint" id="slotHint"></span>
+    </div>
+    <div class="prog" id="prog" hidden></div>
+  </section>
+
+  <!-- 3. the plan -->
+  <section class="card" id="planCard" hidden>
+    <div class="printhead"><b id="phSchool"></b><br><span id="phTitle"></span></div>
+    <div class="toolbar noprint">
+      <div><h2 id="planTitle"></h2><div style="margin-top:4px"><span class="status" id="planStatus"></span> <span class="saved" id="savedNote"></span></div></div>
+      <div class="btnrow" style="margin-top:0" id="planActs"></div>
+    </div>
+    <div class="retnote" id="retNote" hidden></div>
+    <p class="hint noprint" id="lockNote" hidden>The principal has approved this plan, so it is locked. You can still tick lessons as done.</p>
+    <div class="tablewrap"><table class="tp" id="tp"></table></div>
+    <div class="btnrow noprint"><button class="btn ghost small" id="addRow">+ Add a lesson row at the end</button><span class="hint">Click any cell to change it. Changes save by themselves.</span></div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+
+/* ---------- who is this ---------- */
+const ROLE=lsGet("dss_role")||"";
+let USER={};try{USER=JSON.parse(lsGet("dss_user")||"{}")}catch(e){}
+const PRINCIPAL=ROLE==="school_admin";
+if(!lsGet("dss_token")||!lsGet("dss_session")){location.href="/login.html";return}
+if(ROLE==="super_admin"){showErr("The Term Planner opens from a school login (principal or teacher).");return}
+const SCHOOL_ID=ROLE==="teacher"?(USER.school_id||(USER.schools&&USER.schools.id)||""):(USER.school_id||USER.id||"");
+const TEACHER_NAME=ROLE==="teacher"?(USER.name||""):"";
+const SCHOOL_NAME=(USER.schools&&USER.schools.name)||USER.school_name||(PRINCIPAL?USER.name:"")||"";
+const LOGO=USER.logo_url||(USER.schools&&USER.schools.logo_url)||"";
+$("schoolName").textContent=(SCHOOL_NAME?SCHOOL_NAME+" · ":"")+"TeachBot";
+if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
+
+/* ---------- lists ---------- */
+const CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
+function subjectsFor(c){const n=num(c);
+  if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS"];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer"];
+  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer"]}
+const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"],DAYFULL=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const pad=n=>String(n).padStart(2,"0");
+const iso=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const nice=s=>{if(!s)return"";const d=parse(s);return d.getDate()+" "+MON[d.getMonth()]};
+const dow=s=>s?["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][parse(s).getDay()]:"";
+
+/* ---------- server ---------- */
+async function tp(action,data){
+  const r=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action},data||{}))});
+  let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly (status "+r.status+").")}
+  if(r.status===401)throw new Error((d.error||"Please log in again.")+" Log out and log in again.");
+  if(d.error)throw new Error(d.error);return d}
+async function authCall(action,data){
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action,school_id:SCHOOL_ID},data||{}))});
+  const d=await r.json();if(d&&d.error)throw new Error(d.error);return d}
+function showErr(m){$("topErr").textContent=m;$("topErr").hidden=false}
+let toastT;function toast(m,bad){const t=$("toast");t.textContent=m;t.className="toast"+(bad?" bad":"");t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>t.hidden=true,bad?8000:4000)}
+
+/* ---------- state ---------- */
+const S={plan:null,rows:[],settings:null,own:[],dirty:false,saving:false};
+const STAT={draft:"Draft",waiting:"Waiting for principal",returned:"Sent back",approved:"Approved"};
+const locked=()=>!PRINCIPAL&&S.plan&&S.plan.status==="approved";
+
+/* ---------- setup form ---------- */
+$("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");
+$("fClass").value=lsGet("tp_class")||"Class 1";
+function fillSubjects(keep){const subs=subjectsFor($("fClass").value);$("fSubject").innerHTML=subs.map(s=>`<option>${esc(s)}</option>`).join("");if(subs.includes(keep))$("fSubject").value=keep}
+fillSubjects(lsGet("tp_subject"));
+$("fDays").innerHTML=DAYS.map(d=>`<label><input type="checkbox" value="${d}" checked>${d}</label>`).join("");
+$("fStart").value=lsGet("tp_start")||"";$("fEnd").value=lsGet("tp_end")||"";
+function getDays(){return[...$("fDays").querySelectorAll("input:checked")].map(i=>i.value)}
+function setDays(list){$("fDays").querySelectorAll("input").forEach(i=>i.checked=list.includes(i.value))}
+
+/* ---------- books + chapters (same sources as the Homework Planner) ---------- */
+const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|\./g,"");
+let BOOKS=null;const BOOK_CH={},PDFS={};
+async function loadBooks(){if(BOOKS)return BOOKS;try{const d=await authCall("get_school_books");BOOKS=d.books||[]}catch(e){BOOKS=[];console.warn("books:",e.message)}return BOOKS}
+async function bookChapters(b){
+  if(BOOK_CH[b.id])return BOOK_CH[b.id];
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
+    const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to)}catch(e){BOOK_CH[b.id]=[]}
+  return BOOK_CH[b.id]}
+const SUBJ_ALIAS={maths:"mathematics",math:"mathematics","social science":"social",sst:"social","social studies":"social"};
+const sk=s=>{s=String(s||"").toLowerCase().trim();return SUBJ_ALIAS[s]||s};
+let CHOPTS=[];   // [{key,title,book,bookObj,from,to}]
+async function renderChapters(){
+  const c=$("fClass").value,sb=$("fSubject").value;
+  const onScreen={};$("chaps").querySelectorAll("input[data-key]").forEach(i=>onScreen[i.dataset.key]=i.checked);
+  if(!CHOPTS.length||CHOPTS._for!==c+"|"+sb)$("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading this class's books…</div>`;
+  const books=(await loadBooks()).filter(b=>normCls(b.class_name)===normCls(c)&&(!b.subject||sk(b.subject)===sk(sb)));
+  const sameList=CHOPTS._for===c+"|"+sb;CHOPTS=[];CHOPTS._for=c+"|"+sb;
+  for(const b of books){const chs=await bookChapters(b);chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),book:b.book_name+(b.term?" · Term "+b.term:""),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+  if($("fClass").value!==c||$("fSubject").value!==sb)return;
+  const picked=new Set(((S.settings&&S.settings.chapters)||[]).map(x=>x.key));
+  if(sameList)Object.keys(onScreen).forEach(k=>{if(onScreen[k])picked.add(k);else picked.delete(k)});   // keep ticks made on screen
+  $("chaps").innerHTML=(CHOPTS.length?CHOPTS.map((o,i)=>`<label class="chk"><input type="checkbox" data-i="${i}" data-key="${esc(o.key)}"${picked.has(o.key)?" checked":""}><span>${esc(o.title)}<br><span class="hint">${esc(o.book)}</span></span><span class="pg">pp ${o.from}–${o.to}</span></label>`).join(""):"")+
+    S.own.map((o,i)=>`<label class="chk own"><input type="checkbox" data-own="${i}" checked><input data-ot="${i}" value="${esc(o.title)}" placeholder="Chapter name"><input type="number" data-of="${i}" value="${o.from||""}" placeholder="from p."><input type="number" data-oto="${i}" value="${o.to||""}" placeholder="to p."><button type="button" class="btn ghost small" data-odel="${i}">✕</button></label>`).join("");
+  $("chapHint").textContent=CHOPTS.length?"From the books uploaded for "+c+". Tick the ones taught this term.":"No chapters marked in uploaded books for "+c+" "+sb+". Add chapters by name below — AI then plans from the names.";
+  slotHint()}
+$("chaps").addEventListener("input",e=>{const t=e.target,d=t.dataset;
+  if(d.ot!=null)S.own[+d.ot].title=t.value;if(d.of!=null)S.own[+d.of].from=+t.value||null;if(d.oto!=null)S.own[+d.oto].to=+t.value||null;slotHint()});
+$("chaps").addEventListener("change",slotHint);
+$("chaps").addEventListener("click",e=>{const d=e.target.dataset;if(d.odel!=null){e.preventDefault();S.own.splice(+d.odel,1);renderChapters()}});
+$("addOwn").onclick=()=>{S.own.push({title:"",from:null,to:null});renderChapters().then(()=>{const l=$("chaps").querySelectorAll("[data-ot]");l.length&&l[l.length-1].focus()})};
+function pickedChapters(){const out=[];
+  $("chaps").querySelectorAll("input[data-i]:checked").forEach(i=>{const o=CHOPTS[+i.dataset.i];out.push({key:o.key,title:o.title,book:o.book,from:o.from,to:o.to,bookObj:o.bookObj})});
+  S.own.forEach((o,i)=>{const cb=$("chaps").querySelector(`[data-own="${i}"]`);if(cb&&cb.checked&&o.title.trim())out.push({key:"O:"+i+":"+o.title.trim(),title:o.title.trim(),book:"",from:o.from,to:o.to})});
+  return out}
+
+/* ---------- lesson periods across the term ---------- */
+// For each week, the subject's periods are spread over that week's school days
+// (a part week at the start or end gets its share). One row = one period.
+function periodDates(start,end,days,ppw){
+  if(!start||!end||!days.length)return[];const out=[];let d=parse(start),e=parse(end);if(e<d)return[];
+  let m=new Date(d);m.setDate(m.getDate()-((m.getDay()+6)%7));
+  while(m<=e){const wk=[];for(let k=0;k<7;k++){const x=new Date(m);x.setDate(m.getDate()+k);if(x>=d&&x<=e&&days.includes(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][x.getDay()]))wk.push(iso(x))}
+    if(wk.length){const n=Math.max(1,Math.round(ppw*wk.length/days.length));for(let k=0;k<n;k++)out.push(wk[Math.floor(k*wk.length/n)])}
+    m.setDate(m.getDate()+7)}
+  return out}
+function share(chs,total){   // periods per chapter, by pages (at least 2 each when possible)
+  const pages=chs.map(c=>c.from&&c.to&&c.to>=c.from?c.to-c.from+1:6);const sum=pages.reduce((a,b)=>a+b,0);
+  const min=total>=chs.length*2?2:1;let base=pages.map(p=>Math.max(min,Math.floor(total*p/sum)));
+  let diff=total-base.reduce((a,b)=>a+b,0);const order=pages.map((p,i)=>[total*p/sum-Math.floor(total*p/sum),i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
+  let k=0;while(diff>0){base[order[k%order.length]]++;diff--;k++}
+  k=0;while(diff<0&&k<1000){const i=order[order.length-1-(k%order.length)];if(base[i]>1){base[i]--;diff++}k++}
+  return base}
+function slotHint(){const n=periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
+  $("slotHint").textContent=n?`${n} lesson periods in this term${c?" for "+c+" chapter"+(c>1?"s":"")+" — about "+Math.round(n/Math.max(1,c))+" each":""}.`:"Choose the term dates."}
+["fStart","fEnd","fPpw"].forEach(id=>$(id).addEventListener("input",slotHint));$("fDays").addEventListener("change",slotHint);
+
+/* ---------- reading a chapter from the book PDF ---------- */
+async function pdfFor(b){
+  if(PDFS[b.id])return PDFS[b.id];
+  if(!b.pdf_url)throw new Error("This book has no stored PDF.");
+  if(typeof pdfjsLib==="undefined")throw new Error("PDF reader did not load. Reload the page.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  PDFS[b.id]=(async()=>{const r=await fetch(b.pdf_url);if(!r.ok)throw new Error("Could not download the book ("+r.status+")");return pdfjsLib.getDocument({data:await r.arrayBuffer()}).promise})();
+  try{return await PDFS[b.id]}catch(e){delete PDFS[b.id];throw e}}
+async function chapterText(ch){
+  if(!ch.bookObj)return{text:"",note:ch.title+": no book pages, so AI plans from the chapter name."};
+  try{const doc=await pdfFor(ch.bookObj);const from=Math.max(1,ch.from),to=Math.min(doc.numPages,ch.to,from+24);let t="";
+    for(let p=from;p<=to&&t.length<14000;p++){const pg=await doc.getPage(p);const tc=await pg.getTextContent();t+="\n[Page "+p+"]\n"+tc.items.map(x=>x.str).join(" ")}
+    t=t.replace(/[ \t]+/g," ").trim();
+    return t.replace(/\[Page \d+\]/g,"").trim().length>150?{text:t.slice(0,14000)}:{text:"",note:ch.title+": the pages are pictures (scanned), so AI plans from the chapter name."}}
+  catch(e){return{text:"",note:ch.title+": could not read the book ("+e.message+"), so AI plans from the chapter name."}}}
+
+/* ---------- AI ---------- */
+function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India, planning a school term for ${SCHOOL_NAME||"the school"}. Plan lesson by lesson (one row = one class period of about 40 minutes). Follow the school's own textbook when its pages are given: use its real page numbers, exercises and content, and never invent pages that are not there. Each row needs:
+- "pages": the page numbers covered (e.g. "24–25"), or "" if not known
+- "teach": what the teacher teaches and practises in that period — concrete, 1–3 short sentences
+- "class_act": one activity done in the classroom with this lesson (pair work, game, model, chart, role-play, reading aloud, quick quiz…) — simple, low-cost, suits the age
+- "home_act": one small activity the child does at home with family or household things (observe, collect, ask parents, draw, say aloud) — not heavy written homework
+- "ground_act": one safe outdoor or playground activity linked to the lesson (movement game, relay, nature walk, measuring, shadow play, chalk drawing…), 10–15 minutes, needs no costly material
+The first period of a chapter introduces it with an interesting start; the last period of a chapter is revision and a short class test. Write in simple English a new teacher can follow. Reply with JSON only.`}
+async function askAI(prompt,maxTokens){
+  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
+  let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
+  if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:JSON.stringify(d.error))||("status "+r.status));
+  const txt=(d.content||[]).map(x=>x.text||"").join("");const a=txt.indexOf("{"),b=txt.lastIndexOf("}");
+  if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
+  try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
+// rows for one chapter, in groups of up to 10 periods
+async function planChapter(ch,n,ct,note,progress){
+  const out=[];
+  for(let a=0;a<n;a+=10){const b=Math.min(n,a+10);progress(a,n);
+    const before=out.map((r,i)=>"Period "+(i+1)+": "+r.teach).join("\n");
+    const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${ch.from&&ch.to?" (book pages "+ch.from+"–"+ch.to+")":""}\nThis chapter gets ${n} periods in the term. Plan periods ${a+1} to ${b} of ${n}.\n${before?"Periods already planned:\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${ct.text?"The chapter's pages from the school's own book:\n<<<\n"+ct.text+"\n>>>\n":""}\nReply with JSON only: {"rows":[{"pages":"","teach":"","class_act":"","home_act":"","ground_act":""}]} with exactly ${b-a} rows.`,Math.min(8000,700*(b-a)+600));
+    const rows=(res.rows||[]).slice(0,b-a);while(rows.length<b-a)rows.push({teach:"(AI gave fewer lessons — write this one)"});
+    rows.forEach(r=>out.push({chapter:ch.title,pages:String(r.pages||""),teach:String(r.teach||""),class_act:String(r.class_act||""),home_act:String(r.home_act||""),ground_act:String(r.ground_act||""),done:false}))}
+  return out}
+
+$("makeBtn").onclick=async()=>{
+  const chs=pickedChapters(),days=getDays(),ppw=+$("fPpw").value||5;
+  const dates=periodDates($("fStart").value,$("fEnd").value,days,ppw);
+  if(!chs.length){toast("Tick at least one chapter.",true);return}
+  if(!dates.length){toast("Choose the term start and end dates and the school days.",true);return}
+  if(locked()){toast("This plan is approved and locked. Ask the principal to open it again.",true);return}
+  if(S.rows.length&&!confirm("Make a new plan? The current plan for "+$("fClass").value+" "+$("fSubject").value+" will be replaced."))return;
+  const btn=$("makeBtn");btn.disabled=true;const P=$("prog");P.hidden=false;
+  const parts=share(chs,dates.length),notes=[],rows=[];
+  try{for(let i=0;i<chs.length;i++){
+      P.innerHTML=`<span class="spin"></span>Reading ${esc(chs[i].title)} (${i+1} of ${chs.length})…`;
+      const ct=await chapterText(chs[i]);if(ct.note)notes.push(ct.note);
+      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+10)} of ${n} (chapter ${i+1} of ${chs.length})…`);
+      rows.push(...got)}
+    rows.forEach((r,k)=>r.date=dates[k]||"");
+    S.rows=rows;S.settings=collectSettings(chs);
+    await saveNow(true);renderPlan();
+    P.innerHTML=`✓ ${rows.length} lessons planned.`+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
+    $("planCard").scrollIntoView({behavior:"smooth"})}
+  catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
+    if(rows.length){rows.forEach((r,k)=>r.date=dates[k]||"");S.rows=rows;S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
+  finally{btn.disabled=false}};
+function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,note:$("fNote").value.trim(),
+  chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
+
+/* redo one chapter with AI, keeping its dates */
+async function redoChapter(title){
+  if(locked())return;const idx=S.rows.map((r,i)=>r.chapter===title?i:-1).filter(i=>i>=0);if(!idx.length)return;
+  if(!confirm("Make the "+idx.length+" lessons of “"+title+"” again with AI? Your changes to them will be replaced."))return;
+  const saved=((S.settings&&S.settings.chapters)||[]).find(c=>c.title===title)||{title};
+  const opt=CHOPTS.find(o=>o.key===saved.key);const ch=Object.assign({},saved,{bookObj:opt&&opt.bookObj});
+  toast("Making “"+title+"” again…");
+  try{const ct=await chapterText(ch);const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{});
+    idx.forEach((ri,k)=>{const d=S.rows[ri].date;S.rows[ri]=Object.assign(got[k],{date:d})});renderPlan();queueSave();toast("“"+title+"” made again.")}
+  catch(e){toast("AI could not redo it: "+e.message,true)}}
+
+/* ---------- the plan table ---------- */
+const COLS=[["teach","What to teach","c-teach",""],["class_act","🏫 Class activity","c-cls","h-cls"],["home_act","🏠 Home activity","c-home","h-home"],["ground_act","⚽ Ground activity","c-gr","h-gr"]];
+function renderPlan(){
+  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;
+  $("planCard").hidden=!S.rows.length&&!S.plan;
+  $("planTitle").textContent=`${c} · ${sb} · Term ${t}`;
+  $("phSchool").textContent=SCHOOL_NAME;$("phTitle").textContent=`Term plan — ${c} · ${sb} · Term ${t}`+(S.plan&&S.plan.teacher_name?" · "+S.plan.teacher_name:"");
+  const st=(S.plan&&S.plan.status)||"draft";$("planStatus").className="status st-"+st;$("planStatus").textContent=STAT[st];
+  $("retNote").hidden=!(st==="returned"&&S.plan.return_note);$("retNote").textContent="Principal: "+((S.plan&&S.plan.return_note)||"");
+  $("lockNote").hidden=!locked();
+  const ed=!locked();let h=`<thead><tr><th>#</th><th>Date</th><th>Pages</th>${COLS.map(x=>`<th class="${x[3]}">${x[1]}</th>`).join("")}<th>Done</th><th class="noprint"></th></tr></thead><tbody>`;
+  let last=null;
+  S.rows.forEach((r,i)=>{
+    if(r.chapter!==last){last=r.chapter;const n=S.rows.filter(x=>x.chapter===r.chapter).length;
+      h+=`<tr class="ch"><td colspan="${COLS.length+5}">${esc(r.chapter||"(no chapter)")} <span class="hint">· ${n} lesson${n>1?"s":""}</span>${ed&&r.chapter?`<button class="btn ghost small noprint" data-redo="${esc(r.chapter)}">↻ Redo this chapter with AI</button>`:""}</td></tr>`}
+    h+=`<tr class="${r.done?"done":""}" data-r="${i}"><td class="c-no">${i+1}</td>`+
+      `<td class="c-date">${ed?`<input type="date" data-f="date" value="${esc(r.date)}">`:esc(nice(r.date))}<div class="dow">${dow(r.date)}</div></td>`+
+      `<td class="c-pg"><div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
+      COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}">${esc(r[x[0]])}</div></td>`).join("")+
+      `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done"></td>`+
+      `<td class="c-x noprint">${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
+  $("tp").innerHTML=h+"</tbody>";
+  renderActs()}
+function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
+  if(!PRINCIPAL&&S.plan&&(st==="draft"||st==="returned"))a.push(`<button class="btn" id="aSubmit">Send to principal</button>`);
+  if(PRINCIPAL&&S.plan&&st!=="approved")a.push(`<button class="btn ok" id="aApprove">Approve</button>`);
+  if(PRINCIPAL&&S.plan&&st==="waiting")a.push(`<button class="btn ghost" id="aBack">Send back</button>`);
+  if(PRINCIPAL&&S.plan&&st==="approved")a.push(`<button class="btn ghost" id="aReopen">Open again for changes</button>`);
+  a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
+  $("planActs").innerHTML=a.join("");
+  const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
+  on("aSubmit",()=>act("submit","Sent to the principal"));
+  on("aApprove",()=>act("approve","Plan approved"));
+  on("aReopen",()=>act("reopen","Open for changes"));
+  on("aBack",()=>{const n=prompt("Note for the teacher (what to change):","");if(n!==null)act("send_back","Sent back to the teacher",{note:n})});
+  on("aPrint",()=>window.print())}
+async function act(action,msg,extra){try{if(S.dirty)await saveNow();const d=await tp(action,Object.assign({id:S.plan.id},extra||{}));S.plan=d.plan;renderPlan();loadList();toast(msg)}catch(e){toast(e.message,true)}}
+
+$("tp").addEventListener("input",e=>{const f=e.target.dataset.f;if(!f)return;const i=+e.target.closest("tr").dataset.r;
+  S.rows[i][f]=f==="date"?e.target.value:e.target.innerText.trim();if(f==="date"){const dw=e.target.parentElement.querySelector(".dow");if(dw)dw.textContent=dow(e.target.value)}queueSave()});
+$("tp").addEventListener("click",async e=>{const d=e.target.dataset;
+  if(d.redo)redoChapter(d.redo);
+  if(d.del!=null){const i=+d.del;if(!confirm("Remove lesson "+(i+1)+"?"))return;S.rows.splice(i,1);renderPlan();queueSave()}
+  if(d.done!=null){const i=+d.done;S.rows[i].done=e.target.checked;e.target.closest("tr").classList.toggle("done",e.target.checked);
+    if(S.plan&&!S.dirty){try{const r=await tp("mark_done",{id:S.plan.id,index:i,done:e.target.checked});S.plan=r.plan;loadList()}catch(err){toast(err.message,true)}}else queueSave()}});
+$("addRow").onclick=()=>{if(locked())return;const lastRow=S.rows[S.rows.length-1]||{};S.rows.push({date:"",chapter:lastRow.chapter||"",pages:"",teach:"",class_act:"",home_act:"",ground_act:"",done:false});renderPlan();queueSave()};
+
+/* ---------- saving ---------- */
+let saveT;function queueSave(){S.dirty=true;$("savedNote").textContent="Saving…";clearTimeout(saveT);saveT=setTimeout(()=>saveNow().catch(()=>{}),1500)}
+async function saveNow(fresh){
+  if(locked())return;clearTimeout(saveT);
+  if(S.saving){S.again=true;return}S.saving=true;
+  try{const d=await tp("save",{class_name:$("fClass").value,subject:$("fSubject").value,term:$("fTerm").value,
+      settings:fresh||!S.settings?collectSettings():S.settings,rows:S.rows,teacher_name:TEACHER_NAME});
+    S.plan=d.plan;S.dirty=false;$("savedNote").textContent="Saved ✓ "+new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});
+    const st=$("planStatus");st.className="status st-"+S.plan.status;st.textContent=STAT[S.plan.status];renderActs();loadList()}
+  catch(e){$("savedNote").textContent="Not saved: "+e.message;toast("Not saved: "+e.message,true);throw e}
+  finally{S.saving=false;if(S.again){S.again=false;saveNow()}}}
+window.addEventListener("beforeunload",e=>{if(S.dirty){e.preventDefault();e.returnValue=""}});
+
+/* ---------- open a plan ---------- */
+async function openPlan(){
+  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;lsSet("tp_class",c);lsSet("tp_subject",sb);
+  S.plan=null;S.rows=[];S.settings=null;S.own=[];
+  try{const d=await tp("get",{class_name:c,subject:sb,term:t});
+    if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
+      const st=S.settings||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";
+      S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
+  catch(e){showErr("Could not open the plan: "+e.message)}
+  $("prog").hidden=true;renderChapters();renderPlan()}
+["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
+  if(S.dirty)saveNow().catch(()=>{});openPlan()}));
+$("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
+
+/* ---------- the school's plans ---------- */
+async function loadList(){
+  try{const d=await tp("list",{term:$("fTermList").value});const ps=d.plans||[];
+    const order={waiting:0,returned:1,draft:2,approved:3};ps.sort((a,b)=>(order[a.status]-order[b.status])||a.class_name.localeCompare(b.class_name,undefined,{numeric:true}));
+    $("listHint").textContent=ps.length?(PRINCIPAL?ps.filter(p=>p.status==="waiting").length+" waiting for you. ":"")+"Tap a plan to open it.":"No term plans yet for Term "+$("fTermList").value+". Make one below.";
+    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th></tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span></div></td></tr>`).join("")}</tbody></table>`:""}
+  catch(e){$("plist").innerHTML=`<div class="banner err">Could not load plans: ${esc(e.message)}</div>`}}
+$("fTermList").onchange=loadList;
+$("plist").addEventListener("click",e=>{const tr=e.target.closest("tr.go");if(!tr)return;
+  if(S.dirty)saveNow().catch(()=>{});$("fClass").value=tr.dataset.c;fillSubjects(tr.dataset.s);$("fSubject").value=tr.dataset.s;$("fTerm").value=tr.dataset.t;
+  openPlan().then(()=>$("planCard").scrollIntoView({behavior:"smooth"}))});
+
+/* ---------- start ---------- */
+if(!SCHOOL_ID)showErr("Your school was not found in this login. Please log out and log in again.");
+loadList();openPlan();
+})();
+</script>
+</body>
+</html>
