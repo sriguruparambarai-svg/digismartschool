@@ -17,6 +17,11 @@
 //   send_back { id, note }                      principal: → returned
 //   reopen    { id }                            principal: approved → draft
 //   mark_done { id, index, done }               anyone of the school: tick a row as taught (even when approved)
+//   for_day   { class_name, date }              the term-plan rows of one class on one day, all subjects
+//                                               (the Homework Planner fills class work and homework ideas from them)
+//   done_day  { class_name, date, subjects:[] } tick that day's rows of these subjects as taught
+//                                               (the Homework Planner calls it when class work is sent)
+//   list also gives behind_count: lessons dated before today (India time) not yet ticked done.
 //
 // Table: term_plans (made in Supabase, Step 1). RLS on, no policies — only this file uses it.
 
@@ -62,6 +67,7 @@ const why = function (r) {
 const enc = encodeURIComponent;
 const clip = function (s, n) { return String(s == null ? '' : s).trim().substring(0, n); };
 const isDate = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); };
+const istToday = function () { return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); };
 
 // ── Signed login (same check as auth.js / homework.js) ──
 function readSession(raw) {
@@ -143,12 +149,47 @@ module.exports = async function handler(req, res) {
       if (TERMS.indexOf(body.term) !== -1) q += '&term=eq.' + enc(body.term);
       const r = await db('GET', q);
       if (!ok(r)) return res.json({ error: 'Could not load plans: ' + why(r) });
+      const today = istToday();
       return res.json({ success: true, plans: r.data.map(function (p) {
         const rows = Array.isArray(p.rows) ? p.rows : [];
         return { id: p.id, class_name: p.class_name, subject: p.subject, term: p.term, status: p.status,
                  teacher_name: p.teacher_name, updated_at: p.updated_at, rows_count: rows.length,
-                 done_count: rows.filter(function (x) { return x && x.done; }).length };
+                 done_count: rows.filter(function (x) { return x && x.done; }).length,
+                 behind_count: rows.filter(function (x) { return x && !x.done && x.date && x.date < today; }).length };
       }) });
+    }
+
+    // ── one class, one day, every subject (for the Homework Planner) ──
+    if (action === 'for_day' || action === 'done_day') {
+      const cls = clip(body.class_name, 20), date = String(body.date || '');
+      if (CLASSES.indexOf(cls) === -1 || !isDate(date)) return res.json({ error: 'Class and date needed.' });
+      const r = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
+        '&status=neq.returned&select=id,subject,term,status,rows&order=updated_at.desc');
+      if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
+      if (action === 'for_day') {
+        const out = [];
+        r.data.forEach(function (p) {
+          (Array.isArray(p.rows) ? p.rows : []).forEach(function (row, i) {
+            if (row && row.date === date) out.push({ plan_id: p.id, subject: p.subject, term: p.term, status: p.status, index: i,
+              chapter: row.chapter || '', pages: row.pages || '', teach: row.teach || '', class_act: row.class_act || '',
+              home_act: row.home_act || '', ground_act: row.ground_act || '', done: !!row.done });
+          });
+        });
+        return res.json({ success: true, rows: out });
+      }
+      const subjects = Array.isArray(body.subjects) ? body.subjects.map(function (x) { return clip(x, 40); }) : [];
+      let marked = 0;
+      for (const p of r.data) {
+        if (subjects.indexOf(p.subject) === -1) continue;
+        const rows = Array.isArray(p.rows) ? p.rows : [];
+        let changed = false;
+        rows.forEach(function (row) { if (row && row.date === date && !row.done) { row.done = true; changed = true; marked++; } });
+        if (changed) {
+          const w = await db('PATCH', '/rest/v1/term_plans?id=eq.' + enc(p.id) + '&school_id=eq.' + enc(school.id), { rows: rows, updated_at: new Date().toISOString() });
+          if (!ok(w)) return res.json({ error: 'Could not tick the term plan: ' + why(w) });
+        }
+      }
+      return res.json({ success: true, marked: marked });
     }
 
     if (action === 'get') {
