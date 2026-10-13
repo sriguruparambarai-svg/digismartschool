@@ -93,6 +93,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .tp th.h-cls{color:var(--cls)} .tp th.h-home{color:var(--home)} .tp th.h-gr{color:var(--ground)}
 .tp td.c-done{width:56px;text-align:center;padding-top:8px} .tp td.c-done input{width:18px;height:18px;accent-color:var(--ok)}
 .tp td.c-x{width:30px;padding-top:8px} .tp .x{border:none;background:none;color:var(--muted);font-size:1rem}
+.tp td.c-x{width:64px;white-space:nowrap} .tp a.ws{text-decoration:none;font-size:1rem;padding:2px 4px;border-radius:6px} .tp a.ws:hover{background:var(--surface-2)}
 .tp .x:hover{color:var(--bad)}
 .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
 .saved{font-size:.82rem;color:var(--muted)}
@@ -379,6 +380,17 @@ async function redoChapter(title){
 
 /* ---------- the plan table ---------- */
 const COLS=[["teach","What to teach","c-teach",""],["class_act","🏫 Class activity","c-cls","h-cls"],["home_act","🏠 Home activity","c-home","h-home"],["ground_act","⚽ Ground activity","c-gr","h-gr"]];
+// 📝 on each lesson row opens Today's Worksheet with this lesson filled in:
+// the chapter's book pages (so book back exercises are found), the lesson's
+// own pages and what is taught (so new questions stay on today's part), and
+// the class activity (so the activity ideas build on it).
+function wsLink(r){
+  const ch=((S.settings&&S.settings.chapters)||[]).find(x=>x.title===r.chapter)||{};
+  const q=new URLSearchParams({class:$("fClass").value,subject:$("fSubject").value});
+  if(r.chapter)q.set("chapter",r.chapter);if(ch.from)q.set("from",ch.from);if(ch.to)q.set("to",ch.to);
+  if(r.class_act)q.set("act",String(r.class_act).slice(0,300));
+  const f=((r.pages?"Pages "+r.pages+": ":"")+(r.teach||"")).trim();if(f)q.set("focus",f.slice(0,400));
+  return "todays-worksheet.html?"+q.toString()}
 function renderPlan(){
   const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;
   $("planCard").hidden=!S.rows.length&&!S.plan;
@@ -401,7 +413,7 @@ function renderPlan(){
       `<td class="c-pg"><div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
       COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}">${esc(r[x[0]])}</div></td>`).join("")+
       `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done" title="Ticks by itself when this day's class work is sent from the Homework Planner"></td>`+
-      `<td class="c-x noprint">${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
+      `<td class="c-x noprint"><a class="ws" href="${wsLink(r)}" target="_blank" rel="noopener" title="Make a worksheet for this lesson" aria-label="Make a worksheet for lesson ${i+1}">📝</a>${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
   $("tp").innerHTML=h+"</tbody>";
   renderActs()}
 function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
