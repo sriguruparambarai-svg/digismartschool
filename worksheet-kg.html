@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<script src="js/session-header.js"></script>
 <script src="js/tool-access.js"></script>
 <script>if(window.DSS_ACCESS)DSS_ACCESS.guard("nursery");</script>
 <meta charset="utf-8">
@@ -614,6 +615,17 @@
   .seg button{min-height:34px;padding:0 11px;border:0;border-radius:6px;background:transparent;font:inherit;font-size:13px;cursor:pointer;color:var(--ink)}
   .seg button.on{background:var(--maroon);color:#fff;font-weight:600}
   .wsmore-body{padding:4px 10px 6px}
+  /* from your book */
+  .bkcard{background:#fff;border:1.5px solid #e0cfae;border-radius:12px;padding:12px 14px 2px;margin-bottom:14px}
+  .bkcard input[type=file]{width:100%;font:inherit;font-size:13px;padding:6px 0}
+  #bkWhat{margin-bottom:4px}
+  #bkWhat button{min-height:40px;padding:0 16px;font-size:14px}
+  .bkgo{width:100%;min-height:48px;margin:14px 0 8px;border:0;border-radius:10px;background:var(--maroon);color:#fff;font:inherit;font-size:15px;font-weight:600;cursor:pointer}
+  .bkgo:hover{background:#561414}
+  .bkgo:disabled{opacity:.6;cursor:wait}
+  .bkstatus{margin:0 0 14px;font-size:13.5px;line-height:1.5;color:#3d5a2a}
+  .bkstatus.bad{color:#a12a1e}
+  .bknote{font-size:12px;color:var(--grey);margin:0 0 14px;line-height:1.5}
   .wsmore > summary{white-space:normal;line-height:1.4}
   .stagebar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin:0 auto 16px;max-width:820px}
   .crumb{margin:0;font-size:14px;color:#5c4a35}
@@ -642,6 +654,7 @@
   </div>
   <nav class="modetabs" id="wsTabs" aria-label="What are you making">
     <button type="button" data-tab="ws" class="on">Worksheet</button>
+    <button type="button" data-tab="book">From your book</button>
     <button type="button" data-tab="exam">Exam paper</button>
     <button type="button" data-tab="hw">Home work (mixed)</button>
   </nav>
@@ -659,6 +672,45 @@
     <div id="wsTopicBox">
       <p class="wsh">3 &middot; Pick a topic</p>
       <div id="wsTopics"></div>
+    </div>
+
+    <div id="wsBookBox" style="display:none">
+      <p class="wsh">3 &middot; Pick the chapter</p>
+      <div class="bkcard">
+        <div class="grp">
+          <label for="bkBook">Book</label>
+          <select id="bkBook"><option value="">Loading books…</option></select>
+          <p class="hint" id="bkBookHint"></p>
+        </div>
+        <div class="grp">
+          <label for="bkChap">Chapter</label>
+          <select id="bkChap"><option value="">Pick a book first</option></select>
+        </div>
+        <div class="row2 grp">
+          <div><label for="bkFrom">From page</label><input type="number" id="bkFrom" min="1"></div>
+          <div><label for="bkTo">To page</label><input type="number" id="bkTo" min="1"></div>
+        </div>
+        <div class="grp">
+          <label for="bkFile">Or upload the chapter</label>
+          <input type="file" id="bkFile" accept="application/pdf,image/*" multiple>
+          <p class="hint">A PDF, or photos of the pages in order (up to 12). An upload is used instead of the book above.</p>
+        </div>
+      </div>
+      <p class="wsh">4 &middot; What to make</p>
+      <div class="seg" id="bkWhat">
+        <button type="button" data-v="ws" class="on">Worksheet</button>
+        <button type="button" data-v="paper">Question paper</button>
+      </div>
+      <div class="qrow" id="bkMarksRow" style="display:none;margin-top:10px">
+        <span>Total marks</span>
+        <div class="seg" id="bkMarks">
+          <button type="button" data-v="25" class="on">25</button>
+          <button type="button" data-v="50">50</button>
+        </div>
+      </div>
+      <button type="button" class="bkgo" id="bkGo">Read the chapter and make the worksheet</button>
+      <p class="bkstatus" id="bkStatus" role="status" aria-live="polite"></p>
+      <p class="bknote">The AI reads the chapter once and remembers it, so making the same chapter again is free and instant.</p>
     </div>
 
     <div class="wsquick" id="wsQuick">
@@ -768,6 +820,13 @@
 
       <div id="secList"></div>
       <button class="btn sec-add" id="secAdd" type="button">+ Add a section</button>
+    </div>
+
+    <!-- from your book -->
+    <div data-panel="book" style="display:none">
+      <p class="hint" style="margin:0 0 10px">These parts were made from your chapter. Change, move or remove any of them.</p>
+      <div id="bookList"></div>
+      <button class="btn sec-add" id="bookAdd" type="button">+ Add a section</button>
     </div>
 
     <!-- mixed home work -->
@@ -1998,6 +2057,10 @@ Draw your school bag</textarea>
     var more = $("accMore");
     if(tab==="exam"){ switchSheet("exam", null); if(more){ more.open = true; } }
     else if(tab==="hw"){ switchSheet("mix", null); if(more){ more.open = true; } }
+    else if(tab==="book"){
+      switchSheet("book", null); if(more){ more.open = false; }
+      navClass = wsState.cls; bkApplyCls(); wsDraw(); bkRefreshBooks(); render();
+    }
     else {
       if(more){ more.open = false; }
       var c = wsCurrent();
@@ -2057,7 +2120,7 @@ Draw your school bag</textarea>
       $("qCountLbl").textContent = info.lines ? "Lines to write on" : "How many";
       $("qCountVal").textContent = info.value;
     }
-    var writes = (mode==="sec"||mode==="mix"||mode==="exam"||mode==="mseq"||mode==="nname");
+    var writes = (mode==="sec"||mode==="book"||mode==="mix"||mode==="exam"||mode==="mseq"||mode==="nname");
     $("qSizeRow").style.display = writes ? "" : "none";
     function mark(boxId, v){
       var bs = $(boxId).getElementsByTagName("button");
@@ -2087,9 +2150,10 @@ Draw your school bag</textarea>
       tb[i].className = on ? "on" : "";
       if(on){ tb[i].setAttribute("aria-pressed","true"); } else { tb[i].removeAttribute("aria-pressed"); }
     }
-    var isWs = (tab==="ws");
-    $("wsSteps").style.display = isWs ? "" : "none";
+    var isWs = (tab==="ws"), isBook = (tab==="book");
+    $("wsSteps").style.display = (isWs || isBook) ? "" : "none";
     $("wsTopicBox").style.display = isWs ? "" : "none";
+    $("wsBookBox").style.display = isBook ? "" : "none";
     $("moreSum").textContent = isWs ? "More settings — lines, letter style, header, edit the sheet"
                              : (tab==="exam" ? "Build the question paper" : "Build the home work sheet");
 
@@ -2110,7 +2174,14 @@ Draw your school bag</textarea>
     }).join("");
 
     var crumb = $("wsCrumb");
-    if(isWs){
+    if(isBook){
+      crumb.innerHTML = BOOK.secs.length
+        ? 'Made from your book: <b>'+esc(val("cls"))+' &middot; '+esc((BOOK.hdr && BOOK.hdr.subj) || val("subj"))+' &middot; '+esc(val("title"))+'</b>'
+        : 'From your book: pick <b>'+esc(c.cls.name)+' &middot; '+esc(c.sub.label || c.sub.name)+'</b> and the chapter on the left';
+      if($("curType")){ $("curType").textContent = "From your book"; }
+      $("moreSum").textContent = "More settings — change the parts, lines, header";
+    }
+    else if(isWs){
       crumb.innerHTML = 'Your sheet: <b>'+esc(c.cls.name)+' &middot; '+esc(c.sub.label || c.sub.name)+' &middot; '+esc(c.topic.name)+'</b>';
       if($("curType")){ $("curType").textContent = c.topic.name; }
     } else {
@@ -2130,6 +2201,18 @@ Draw your school bag</textarea>
     $("wsSteps").addEventListener("click", function(ev){
       var b = ev.target.closest ? ev.target.closest("button") : null;
       if(!b) return;
+      if(wsState.tab==="book"){
+        /* on the book tab, class and subject only choose which books to show */
+        if(b.hasAttribute("data-ws-class")){
+          wsState.cls = b.getAttribute("data-ws-class");
+          wsState.subj = (wsFindSubject(wsState.subj) || wsSubjects()[0]).id;
+        } else if(b.hasAttribute("data-ws-subj")){
+          wsState.subj = b.getAttribute("data-ws-subj");
+        } else { return; }
+        navClass = wsState.cls;
+        wsSyncLevels(); if(!BOOK.secs.length){ wsSyncHeader(); } wsSave(); wsDraw(); bkRefreshBooks(); render();
+        return;
+      }
       if(b.hasAttribute("data-ws-class")){
         var oldTopic = wsState.topic;
         wsState.cls = b.getAttribute("data-ws-class");
@@ -2176,12 +2259,423 @@ Draw your school bag</textarea>
     $("accMore").addEventListener("click", function(){ setTimeout(wsSyncQuick, 0); });
   }
 
+  /* ---------- from your book: AI reads a chapter, our own builders make the sheet ----------
+     The teacher picks a book chapter (or uploads the pages). The AI only READS
+     it and lists what the chapter teaches: letters, words, letter-and-word
+     pairs, sentences, numbers, shapes and which library pictures fit. The
+     sheets themselves are made by the same builders as every other sheet, so
+     the look, ruling and printing match. A question paper goes to the Exam
+     paper tab with marks. Each chapter's reading is saved on the server, so
+     the AI is paid for once per chapter, not every time. */
+  var BK = { books:null, lib:null, chaps:{}, list:[], chapList:[], what:"ws", marks:25, title:"", busy:false };
+
+  function bkUser(){ var u = {}; try{ u = JSON.parse(localStorage.getItem("dss_user") || "{}") || {}; }catch(e){} return u; }
+  function bkSchoolId(){
+    var role = ""; try{ role = localStorage.getItem("dss_role") || ""; }catch(e){}
+    var u = bkUser();
+    return role==="teacher" ? (u.school_id || (u.schools && u.schools.id) || "") : (u.school_id || u.id || "");
+  }
+  async function bkPost(body){
+    var r = await fetch("/api/auth", { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) });
+    var d;
+    try{ d = await r.json(); }catch(e){ throw new Error("The server did not answer properly (status " + r.status + ")."); }
+    if(d && d.error){ throw new Error(d.error); }
+    return d;
+  }
+  function bkNormCls(s){ s = String(s||"").toLowerCase().replace(/[^a-z0-9]/g,""); var m = s.match(/(\d+)/); return m ? "c"+(+m[1]) : s; }
+  function bkNormSub(v){
+    v = String(v||"").toLowerCase().replace(/[^a-z]/g,"");
+    if(["math","maths","mathematics","ganitham","kanakku"].indexOf(v)>=0) return "maths";
+    return v;
+  }
+  function bkStatus(msg, bad){
+    var e = $("bkStatus");
+    e.textContent = msg || "";
+    e.className = "bkstatus" + (bad ? " bad" : "");
+  }
+
+  async function bkLoadBooks(){
+    if(!BK.books){
+      try{ var d = await bkPost({ action:"get_school_books", school_id:bkSchoolId() }); BK.books = d.books || []; }
+      catch(e){ BK.books = []; BK.bookErr = e.message; }
+    }
+    if(!BK.lib){
+      try{
+        var l = await bkPost({ action:"tbl_get", table:"textbook_library", params:"select=id,title,class_name,subject,medium,pdf_url&order=class_name" });
+        BK.lib = Array.isArray(l) ? l : (l.books || []);
+      }catch(e){ BK.lib = []; }
+    }
+  }
+
+  /* Books for the class and subject chosen in the strip */
+  async function bkRefreshBooks(){
+    var c = wsCurrent(), want = c.cls.id + "|" + c.sub.id;
+    var cls = c.cls.name, sub = c.sub.label || c.sub.name, anySub = (c.sub.id==="act");
+    $("bkBook").innerHTML = '<option value="">Loading books…</option>';
+    $("bkChap").innerHTML = '<option value="">Pick a book first</option>';
+    await bkLoadBooks();
+    var now = wsCurrent();
+    if(now.cls.id + "|" + now.sub.id !== want) return;       // the teacher clicked on meanwhile
+    BK.list = [];
+    BK.books.forEach(function(b){
+      if(bkNormCls(b.class_name)!==bkNormCls(cls)) return;
+      if(!anySub && b.subject && bkNormSub(b.subject)!==bkNormSub(sub)) return;
+      BK.list.push({ id:b.id, name:(b.book_name||"Book") + (b.term ? " — Term " + b.term : ""), pdf:b.pdf_url||"", src:"private" });
+    });
+    BK.lib.forEach(function(b){
+      if(bkNormCls(b.class_name)!==bkNormCls(cls)) return;
+      if(!anySub && bkNormSub(b.subject)!==bkNormSub(sub)) return;
+      BK.list.push({ id:b.id, name:(b.title||b.subject||"Book") + (b.medium ? " — " + b.medium : "") + " (Samacheer)", pdf:b.pdf_url||"", src:"library" });
+    });
+    $("bkBook").innerHTML = BK.list.length
+      ? '<option value="">Choose the book</option>' + BK.list.map(function(b,i){ return '<option value="'+i+'">'+esc(b.name)+'</option>'; }).join("")
+      : '<option value="">No book uploaded for ' + esc(cls) + ' ' + esc(sub) + '</option>';
+    $("bkBookHint").textContent = BK.list.length ? ""
+      : (BK.bookErr ? "Could not load your school's books: " + BK.bookErr + ". You can still upload the chapter below."
+                    : "Upload the chapter pages below, or the principal can add the book in the Teacher Panel.");
+    if(BK.list.length===1){ $("bkBook").value = "0"; await bkRefreshChapters(); }
+  }
+
+  async function bkRefreshChapters(){
+    var b = BK.list[+$("bkBook").value];
+    BK.chapList = [];
+    if(!b || $("bkBook").value===""){ $("bkChap").innerHTML = '<option value="">Pick a book first</option>'; return; }
+    var k = b.src + b.id;
+    if(!BK.chaps[k]){
+      try{
+        var r = await bkPost({ action:"tbl_get", table:(b.src==="private" ? "school_book_chapters" : "textbook_chapters"),
+                               params:"book_id=eq." + encodeURIComponent(b.id) + "&order=page_from&select=chapter_number,chapter_title,page_from,page_to" });
+        var rows = Array.isArray(r) ? r : (r.chapters || []);
+        BK.chaps[k] = rows.filter(function(x){ return x && x.page_from && x.page_to; });
+      }catch(e){ BK.chaps[k] = []; }
+    }
+    BK.chapList = BK.chaps[k];
+    $("bkChap").innerHTML = BK.chapList.length
+      ? '<option value="">Choose the chapter</option>' + BK.chapList.map(function(ch,i){
+          return '<option value="'+i+'">Ch ' + esc(ch.chapter_number||i+1) + '. ' + esc(ch.chapter_title||"") + ' (p.' + ch.page_from + '–' + ch.page_to + ')</option>';
+        }).join("")
+      : '<option value="">No chapters marked — type the pages below</option>';
+  }
+
+  /* ---------- reading the pages ---------- */
+  function bkLoadPdfJs(){
+    if(window.pdfjsLib) return Promise.resolve();
+    return new Promise(function(ok, no){
+      var s = document.createElement("script");
+      s.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";
+      s.onload = function(){
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+        ok();
+      };
+      s.onerror = function(){ no(new Error("The PDF reader could not load. Check the internet and try again.")); };
+      document.head.appendChild(s);
+    });
+  }
+  async function bkPdf(src){
+    await bkLoadPdfJs();
+    if(src instanceof File){ return window.pdfjsLib.getDocument({ data: await src.arrayBuffer() }).promise; }
+    var r = await fetch(src);
+    if(!r.ok){ throw new Error("Could not download the book (" + r.status + ")."); }
+    return window.pdfjsLib.getDocument({ data: await r.arrayBuffer() }).promise;
+  }
+  /* Text when the pages have it; pictures of the pages when they are scanned
+     or mostly pictures, as KG books often are */
+  async function bkFromPdf(doc, from, to){
+    from = Math.max(1, from || 1);
+    to = Math.min(doc.numPages, Math.max(from, to || doc.numPages), from + 11);
+    var text = "", p;
+    for(p = from; p <= to; p++){
+      var pg = await doc.getPage(p), tc = await pg.getTextContent();
+      var s = tc.items.map(function(x){ return x.str; }).join(" ").replace(/\s+/g," ").trim();
+      if(s){ text += "\n\n----- Book page " + p + " -----\n" + s; }
+    }
+    var words = text.replace(/----- Book page \d+ -----/g,"").trim();
+    if(words.length > 300){ return { text:text.trim().slice(0, 40000), pages:from + "-" + to }; }
+    var width = 1100, q = 0.6;
+    for(var attempt = 0; attempt < 3; attempt++){
+      var imgs = [], total = 0;
+      for(p = from; p <= to; p++){
+        var page = await doc.getPage(p), v1 = page.getViewport({ scale:1 });
+        var vp = page.getViewport({ scale: width / v1.width });
+        var cv = document.createElement("canvas");
+        cv.width = vp.width; cv.height = vp.height;
+        await page.render({ canvasContext:cv.getContext("2d"), viewport:vp }).promise;
+        var b64 = cv.toDataURL("image/jpeg", q).split(",")[1];
+        total += b64.length; imgs.push(b64);
+      }
+      if(total <= 3200000){ return { images:imgs, pages:from + "-" + to }; }
+      width = Math.max(700, width - 200); q = Math.max(0.35, q - 0.12);
+    }
+    throw new Error("These pages are too heavy to send. Choose fewer pages and try again.");
+  }
+  function bkImageFile(file, width, q){
+    return new Promise(function(ok, no){
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function(){
+        var sc = Math.min(1, width / img.naturalWidth), cv = document.createElement("canvas");
+        cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc);
+        cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+        URL.revokeObjectURL(url);
+        ok(cv.toDataURL("image/jpeg", q).split(",")[1]);
+      };
+      img.onerror = function(){ URL.revokeObjectURL(url); no(new Error("Could not open the photo " + file.name + ".")); };
+      img.src = url;
+    });
+  }
+  async function bkGather(){
+    var files = Array.prototype.slice.call($("bkFile").files || []);
+    var from = parseInt($("bkFrom").value,10) || 0, to = parseInt($("bkTo").value,10) || 0;
+    if(files.length){
+      var pdf = files.filter(function(f){ return /pdf/i.test(f.type) || /\.pdf$/i.test(f.name); })[0];
+      var id = "file:" + files.map(function(f){ return f.name + ":" + f.size; }).join(",");
+      if(pdf){ var got = await bkFromPdf(await bkPdf(pdf), from || 1, to || 0); got.id = id + "|" + got.pages; return got; }
+      var imgs = [], total = 0;
+      for(var i = 0; i < files.length && i < 12; i++){
+        var b64 = await bkImageFile(files[i], 1100, 0.6);
+        total += b64.length; imgs.push(b64);
+      }
+      if(total > 3200000){
+        imgs = []; total = 0;
+        for(var j = 0; j < files.length && j < 12; j++){ imgs.push(await bkImageFile(files[j], 800, 0.45)); }
+      }
+      return { images:imgs, id:id };
+    }
+    var b = BK.list[+$("bkBook").value];
+    if(!b || $("bkBook").value===""){ throw new Error("Choose the book and chapter, or upload the chapter pages."); }
+    if(!b.pdf){ throw new Error("This book has no PDF saved. Upload the chapter pages instead."); }
+    if(!from || !to){ throw new Error("Choose the chapter, or type the page numbers."); }
+    var got2 = await bkFromPdf(await bkPdf(b.pdf), from, to);
+    got2.id = b.src + ":" + b.id + "|" + got2.pages;
+    return got2;
+  }
+
+  async function bkKey(parts){
+    var buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(parts.join("|")));
+    return Array.from(new Uint8Array(buf)).slice(0, 20).map(function(b){ return b.toString(16).padStart(2,"0"); }).join("");
+  }
+  async function bkCacheGet(key){
+    try{ var r = await fetch("/api/lesson-plan?key=" + key); if(!r.ok) return null; var d = await r.json();
+         return (d && Array.isArray(d.steps) && d.steps.length && d.steps[0] && d.steps[0].kgbook) ? d.steps[0] : null; }
+    catch(e){ return null; }
+  }
+  async function bkCachePut(key, data, meta){
+    try{ await fetch("/api/lesson-plan", { method:"POST", headers:{"Content-Type":"application/json"},
+                     body:JSON.stringify({ key:key, steps:[data], meta:meta }) }); }catch(e){}
+  }
+
+  function bkPictureList(){
+    var out = [];
+    for(var k in ICONS){ if(ICONS.hasOwnProperty(k) && (ICONS[k].img || ICONS[k].d)){ out.push(k); } }
+    return out.sort();
+  }
+
+  async function bkAskAI(src, cls, sub){
+    var prompt =
+      "You are reading pages from a " + cls + " " + sub + " school textbook chapter for a teacher who makes practice worksheets.\n" +
+      "List only what is really in these pages. Never invent anything.\n" +
+      "Reply with ONLY this JSON:\n" +
+      '{"title":"chapter title as printed",' +
+      '"letters":["letters this chapter teaches, in book order"],' +
+      '"words":["up to 12 words from the chapter a child should learn to write"],' +
+      '"letter_words":[["a letter","a word from the chapter that begins with it"]],' +
+      '"sentences":["up to 4 short sentences from the chapter"],' +
+      '"numbers":{"from":0,"to":0},' +
+      '"maths":[],' +
+      '"shapes":[],' +
+      '"picture_words":[]}\n' +
+      "Rules:\n" +
+      "- letters, words, letter_words and sentences stay in the book's own language and script. English words in small letters.\n" +
+      "- numbers: the range of numbers the chapter teaches, or 0 and 0 if none.\n" +
+      "- maths: any of count, add, subtract, compare, before_after that the chapter practises.\n" +
+      "- shapes: only from circle, square, triangle, rectangle, oval, star, heart, diamond.\n" +
+      "- picture_words: words from the PICTURE LIST below whose thing appears in the chapter, as a word or a picture. Use the list's English word even when the book is in Tamil or Hindi.\n" +
+      "- Leave a list empty if the chapter has none of it.\n" +
+      "PICTURE LIST: " + bkPictureList().join(", ") +
+      (src.text ? "\n\nCHAPTER TEXT:\n" + src.text : "\n\nThe chapter pages are the pictures above.");
+    var content = [];
+    (src.images || []).forEach(function(b64){
+      content.push({ type:"image", source:{ type:"base64", media_type:"image/jpeg", data:b64 } });
+    });
+    content.push({ type:"text", text:prompt });
+    var r = await fetch("/api/ai", { method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({ system:"You read school textbook pages and reply with JSON only.",
+                            messages:[{ role:"user", content:content }], max_tokens:3000 }) });
+    var raw = await r.text(), d = null;
+    try{ d = JSON.parse(raw); }catch(e){
+      throw new Error(r.status===413 ? "These pages are too big to send. Choose fewer pages." : "The AI did not answer properly (status " + r.status + ").");
+    }
+    if(r.status===429){ throw new Error("Too many requests just now. Wait a minute and try again."); }
+    if(!r.ok || d.type==="error"){ throw new Error(d.message || (typeof d.error==="string" ? d.error : (d.error && d.error.message) || "AI error (" + r.status + ")")); }
+    var txt = (d.content || []).map(function(x){ return x.text || ""; }).join("").replace(/```json|```/gi,"");
+    var a = txt.indexOf("{"), b = txt.lastIndexOf("}");
+    if(a<0 || b<a){ throw new Error("The AI's answer was not in the expected form. Please try again."); }
+    try{ return JSON.parse(txt.slice(a, b+1)); }catch(e){ throw new Error("The AI's answer could not be read. Please try again."); }
+  }
+
+  /* ---------- turning the reading into sections ---------- */
+  var BK_HEAD = {
+    en:{ letters:"Write the letters", missing:"Write the missing letters", lw:"Letter and word", words:"Write the words",
+         vowel:"Write the missing letter", first:"Write the first letter", match:"Match the picture to its word",
+         picword:"Look at the picture and write the word", sent:"Copy the sentences" },
+    ta:{ letters:"எழுத்துகளை எழுதுக", missing:"விடுபட்ட எழுத்தை எழுதுக", lw:"எழுத்தும் சொல்லும்", words:"சொற்களை எழுதுக",
+         vowel:"விடுபட்ட எழுத்தை எழுதுக", first:"முதல் எழுத்தை எழுதுக", match:"படத்தையும் சொல்லையும் இணைக்க",
+         picword:"படத்தின் பெயரை எழுதுக", sent:"வாக்கியங்களை எழுதுக" },
+    hi:{ letters:"अक्षर लिखो", missing:"छूटे अक्षर लिखो", lw:"अक्षर और शब्द", words:"शब्द लिखो",
+         vowel:"छूटा अक्षर लिखो", first:"पहला अक्षर लिखो", match:"चित्र और शब्द मिलाओ",
+         picword:"चित्र देखकर नाम लिखो", sent:"वाक्य लिखो" }
+  };
+  function bkList(v, n){ return (Array.isArray(v) ? v : []).map(function(x){ return String(x||"").trim(); }).filter(Boolean).slice(0, n || 50); }
+
+  /* Every part the chapter supports, best first: {kind fields…, q:true when its size follows the marks} */
+  function bkParts(d, lang){
+    var H = BK_HEAD[lang] || BK_HEAD.en, P = [];
+    var letters = bkList(d.letters, 40), words = bkList(d.words, 12), sents = bkList(d.sentences, 4);
+    var lw = (Array.isArray(d.letter_words) ? d.letter_words : []).filter(function(p){ return Array.isArray(p) && p[0] && p[1]; }).slice(0, 10);
+    var pics = bkList(d.picture_words, 30).map(function(w){ return w.toLowerCase(); })
+                 .filter(function(k){ return ICONS[k] && (ICONS[k].img || ICONS[k].d) && (lang==="en" || ICONS[k][lang]); });
+    var maths = bkList(d.maths, 6), shapes = bkList(d.shapes, 8).map(function(x){ return x.toLowerCase(); }).filter(function(x){ return SHAPE_LIB[x]; });
+    var n = d.numbers || {}, nf = parseInt(n.from,10) || 0, nt = parseInt(n.to,10) || 0;
+    function rows(list, per){ var o = []; for(var i=0;i<list.length;i+=per){ o.push(list.slice(i,i+per).join(" ")); } return o.join("\n"); }
+
+    if(letters.length >= 2){ P.push({ heading:H.letters, kind:"copy", set:"custom", content:rows(letters, 12), copyLines:2, exam:{ copyLines:1 } }); }
+    if(letters.length >= 5){ P.push({ heading:H.missing, kind:"missing", set:"custom", content:rows(letters, 10), gapPct:40 }); }
+    if(pics.length >= 3){
+      P.push({ heading:H.first, kind:"picFirst", pfLang:lang, pfMode:"write", pfQty:Math.min(6, pics.length), picks:pics.join(","), qField:"pfQty", qMax:pics.length });
+      P.push({ heading:H.match, kind:"picMatch", pmType:"word", pmLang:lang, pmQty:Math.min(5, pics.length), picks:pics.join(","), qField:"pmQty", qMax:Math.min(8, pics.length) });
+    }
+    if(lw.length){ P.push({ heading:H.lw, kind:"letterword", set:"custom", content:lw.map(function(p){ return String(p[0]).trim() + " " + String(p[1]).trim(); }).join("\n"), lwTimes:2, exam:{ lwTimes:1 } }); }
+    if(words.length){ P.push({ heading:H.words, kind:"words", set:"custom", content:words.slice(0,8).join("\n"), times:3, wtrace:1, exam:{ times:1, wtrace:0 } }); }
+    if(lang==="en"){
+      var cvc = words.filter(function(w){ return /^[a-z]{3,5}$/.test(w); });
+      if(cvc.length >= 3){ P.push({ heading:H.vowel, kind:"vowel", set:"custom", content:cvc.slice(0,9).join("\n"), vHide:"mid", vPer:3 }); }
+    }
+    if(pics.length >= 3){ P.push({ heading:H.picword, kind:"picWord", pwLang:lang, pwQty:Math.min(4, pics.length), pwTimes:2, picks:pics.join(","), exam:{ pwTimes:1 }, qField:"pwQty", qMax:pics.length }); }
+    if(sents.length){ P.push({ heading:H.sent, kind:"copy", set:"custom", content:sents.join("\n"), copyLines:1 }); }
+
+    var langCount = P.length;
+    if(nt > nf){
+      var top = Math.min(nt, 200);
+      P.push({ heading:"Write the numbers", kind:"mseq", mFrom:nf || 1, mTo:top, mTimes:2, mTraced:1, exam:{ mTimes:1, mTraced:0 } });
+      P.push({ heading:"Fill in the missing numbers", kind:"mnum", mFrom:nf || 1, mTo:Math.max(top, (nf||1)+9), mPer:10, mGap:40 });
+      if(maths.indexOf("count")>=0){ P.push({ heading:"Count and write the number", kind:"count", mQty:5, mMax:Math.max(3, Math.min(top, 10)), mShape:"mixed", qField:"mQty", qMax:10 }); }
+      if(maths.indexOf("before_after")>=0){ P.push({ heading:"Before, after and between", kind:"mbaf", mType:"mixed", mQty:6, mMax:Math.max(5, top), qField:"mQty", qMax:12 }); }
+      if(maths.indexOf("add")>=0 || maths.indexOf("subtract")>=0){
+        var op = (maths.indexOf("add")>=0 && maths.indexOf("subtract")>=0) ? "mix" : (maths.indexOf("add")>=0 ? "add" : "sub");
+        P.push({ heading:op==="sub" ? "Subtract" : (op==="add" ? "Add" : "Add and subtract"), kind:"mpic", mOp:op, mQty:5, mMax:Math.max(5, Math.min(top, 20)), mShape:"mixed", qField:"mQty", qMax:10 });
+      }
+      if(maths.indexOf("compare")>=0){ P.push({ heading:"Circle the bigger number", kind:"mcmp", mWhich:"big", mQty:8, mMax:Math.max(5, top), qField:"mQty", qMax:16 }); }
+    }
+    if(shapes.length){ P.push({ heading:"Shapes", kind:"shapes", shMode:"trace", shapes:shapes.join(","), shLang:lang, stTimes:2, exam:{ shMode:"sides" } }); }
+    for(var i = 0; i < P.length; i++){ P[i].grp = (i < langCount) ? "lang" : "maths"; }
+    return P;
+  }
+
+  /* The subject decides what comes first; a worksheet keeps to 4 parts, a paper to 5 */
+  function bkOrder(parts, subId){
+    var lang = parts.filter(function(p){ return p.grp==="lang"; }), maths = parts.filter(function(p){ return p.grp!=="lang"; });
+    return (subId==="math") ? maths.concat(lang) : lang.concat(maths);
+  }
+  function bkSavedCls(){ try{ return localStorage.getItem("glm_ws_book_cls") || ""; }catch(e){ return ""; } }
+  /* The book sheet keeps the class it was made for, whatever is clicked later */
+  function bkApplyCls(){
+    var k = bkSavedCls();
+    if(BOOK.secs.length && k && $("cls")){ $("cls").value = k; } else { wsSyncHeader(); }
+  }
+
+  function bkClean(p){ var o = {}; for(var k in p){ if(p.hasOwnProperty(k) && k!=="exam" && k!=="qField" && k!=="qMax" && k!=="grp"){ o[k] = p[k]; } } return o; }
+
+  function bkMake(d){
+    var c = wsCurrent(), lang = (c.sub.id==="tam") ? "ta" : (c.sub.id==="hin" ? "hi" : "en");
+    var parts = bkOrder(bkParts(d, lang), c.sub.id), subName = c.sub.label || c.sub.name;
+    BK.title = String(d.title || "").trim();
+    if(!parts.length){ throw new Error("No letters, words, numbers or pictures were found in these pages. Check the chapter or page numbers."); }
+
+    if(BK.what==="paper"){
+      var total = BK.marks, pick = parts.slice(0, 5), n = pick.length;
+      var each = Math.floor(total / n), extra = total - each * n;
+      var secs = pick.map(function(p, i){
+        var m = each + (i===n-1 ? extra : 0), o = bkClean(p), k;
+        if(p.exam){ for(k in p.exam){ if(p.exam.hasOwnProperty(k)){ o[k] = p.exam[k]; } } }
+        if(p.qField){ o[p.qField] = Math.max(1, Math.min(m, p.qMax || m)); }
+        o.marks = m;
+        var s = newSec(o); s.open = (i===0); return s;
+      });
+      EXAM.secs = secs;
+      EXAM.hdr = { title:BK.title, subj:subName, instr:"Write your answers in the space given on this paper itself." };
+      EXAM.save(); EXAM.draw();
+      wsSetTab("exam");
+      wsSyncHeader(); render();
+      return n;
+    }
+
+    parts = parts.slice(0, 4);
+    try{ localStorage.setItem("glm_ws_book_cls", c.cls.name); }catch(e){}
+    BOOK.secs = parts.map(function(p, i){ var s = newSec(bkClean(p)); s.open = (i===0); return s; });
+    BOOK.hdr = { title:BK.title || "Worksheet", subj:subName, instr:"" };
+    BOOK.save(); BOOK.draw();
+    if(mode!=="book"){ switchSheet("book", null); }
+    BOOK.applyHdr();
+    wsSyncHeader(); wsDraw(); render();
+    return parts.length;
+  }
+
+  async function bkGo(){
+    if(BK.busy) return;
+    var c = wsCurrent(), btn = $("bkGo");
+    BK.busy = true; btn.disabled = true;
+    try{
+      bkStatus("Opening the pages…");
+      var src = await bkGather();
+      var key = await bkKey(["kgbook", "v1", c.cls.name, c.sub.label || c.sub.name, src.id]);
+      var data = await bkCacheGet(key);
+      if(!data){
+        bkStatus("The AI is reading the chapter… this takes about half a minute.");
+        data = await bkAskAI(src, c.cls.name, c.sub.label || c.sub.name);
+        data.kgbook = 1;
+        bkCachePut(key, data, { tool:"worksheet-kg", cls:c.cls.name, subject:c.sub.label || c.sub.name, source:src.id });
+      }
+      var n = bkMake(data);
+      bkStatus((BK.what==="paper" ? "Question paper ready" : "Worksheet ready") + " — " + n + " parts from “" + (BK.title || "your chapter") +
+               "”. Change any part under " + (BK.what==="paper" ? "Build the question paper." : "More settings."));
+    }catch(e){
+      bkStatus(e && e.message ? e.message : String(e), true);
+    }finally{
+      BK.busy = false; btn.disabled = false;
+    }
+  }
+
+  function bkBind(){
+    $("bkBook").addEventListener("change", function(){ bkRefreshChapters(); });
+    $("bkChap").addEventListener("change", function(){
+      var ch = BK.chapList[+this.value];
+      if(!ch || this.value==="") return;
+      $("bkFrom").value = ch.page_from; $("bkTo").value = ch.page_to;
+    });
+    $("bkWhat").addEventListener("click", function(ev){
+      var b = ev.target.closest ? ev.target.closest("button[data-v]") : null;
+      if(!b) return;
+      BK.what = b.getAttribute("data-v");
+      var bs = this.getElementsByTagName("button");
+      for(var i=0;i<bs.length;i++){ bs[i].className = (bs[i]===b) ? "on" : ""; }
+      $("bkMarksRow").style.display = (BK.what==="paper") ? "" : "none";
+      $("bkGo").textContent = (BK.what==="paper") ? "Read the chapter and make the paper" : "Read the chapter and make the worksheet";
+    });
+    $("bkMarks").addEventListener("click", function(ev){
+      var b = ev.target.closest ? ev.target.closest("button[data-v]") : null;
+      if(!b) return;
+      BK.marks = parseInt(b.getAttribute("data-v"), 10) || 25;
+      var bs = this.getElementsByTagName("button");
+      for(var i=0;i<bs.length;i++){ bs[i].className = (bs[i]===b) ? "on" : ""; }
+    });
+    $("bkGo").addEventListener("click", bkGo);
+  }
+
   /* Runs once at start-up, after the saved sheets are loaded */
   function wsStart(){
     var saved = null;
     try{ saved = JSON.parse(localStorage.getItem(WS_KEY) || "null"); }catch(e){ saved = null; }
     if(saved && typeof saved === "object"){
-      if(saved.tab==="ws" || saved.tab==="exam" || saved.tab==="hw"){ wsState.tab = saved.tab; }
+      if(saved.tab==="ws" || saved.tab==="book" || saved.tab==="exam" || saved.tab==="hw"){ wsState.tab = saved.tab; }
       if(saved.cls){ wsState.cls = wsFindClass(saved.cls).id; }
       var sub = wsFindSubject(saved.subj) || wsSubjects()[0];
       wsState.subj = sub.id;
@@ -2190,6 +2684,7 @@ Draw your school bag</textarea>
     }
     wsHideDuplicates();
     wsBind();
+    bkBind();
     if(wsState.tab==="ws"){
       /* First visit after this update: load the topic fresh, so the sheet
          matches the buttons. After that, keep whatever the teacher edited. */
@@ -2205,8 +2700,8 @@ Draw your school bag</textarea>
       var prev = mode;
       mode = t;
       if(prev!==mode){
-        var pl = (prev==="sec") ? LANG : (prev==="mix") ? MIX : (prev==="exam") ? EXAM : OTHER;
-        var nl = (mode==="sec") ? LANG : (mode==="mix") ? MIX : (mode==="exam") ? EXAM : OTHER;
+        var pl = (prev==="sec") ? LANG : (prev==="book") ? BOOK : (prev==="mix") ? MIX : (prev==="exam") ? EXAM : OTHER;
+        var nl = (mode==="sec") ? LANG : (mode==="book") ? BOOK : (mode==="mix") ? MIX : (mode==="exam") ? EXAM : OTHER;
         pl.captureHdr(); pl.save();
         nl.applyHdr();
       }
@@ -2216,7 +2711,7 @@ Draw your school bag</textarea>
       }
       var onlyWrite = document.querySelectorAll("[data-only=write]");
       for(var m=0;m<onlyWrite.length;m++){
-        onlyWrite[m].style.display = (mode==="sec"||mode==="mix"||mode==="exam"||mode==="mseq"||mode==="nname") ? "" : "none";
+        onlyWrite[m].style.display = (mode==="sec"||mode==="book"||mode==="mix"||mode==="exam"||mode==="mseq"||mode==="nname") ? "" : "none";
       }
       var onlyMaths = document.querySelectorAll("[data-only=maths]");
       for(var q=0;q<onlyMaths.length;q++){
@@ -2248,7 +2743,7 @@ Draw your school bag</textarea>
       t.textContent = btn.firstChild.textContent.replace(/\s+$/,"") + (sm ? " — " + sm.textContent : "");
     }
     var a = $("secAddTop");
-    if(a){ a.style.display = (mode==="sec"||mode==="mix"||mode==="exam") ? "" : "none"; }
+    if(a){ a.style.display = (mode==="sec"||mode==="book"||mode==="mix"||mode==="exam") ? "" : "none"; }
   }
   function syncSums(){
     var sh = $("sumHead");
@@ -2275,7 +2770,7 @@ Draw your school bag</textarea>
   function syncShuffle(){
     var b = $("shuffle");
     if(!b){ return; }
-    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="mix" || mode==="sec" || mode==="exam" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="m35" || mode==="ta35" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
+    var uses = (MATHS.indexOf(mode)>=0 || mode==="count" || mode==="cgrid" || mode==="book" || mode==="mix" || mode==="sec" || mode==="exam" || mode==="colourpic" || mode==="phonics" || mode==="cutpaste" || mode==="c12" || mode==="m35" || mode==="ta35" || mode==="c12e" || mode==="kcon" || mode==="ta12" || mode==="hi12");
     b.style.display = uses ? "" : "none";
   }
 
@@ -4175,6 +4670,9 @@ Draw your school bag</textarea>
   var EXAM = new SecList({mode:"exam", listId:"examList", addId:"examAdd", presetId:"examPreset",
                           key:"glm_ws_exam_v1", presets:EXAM_PRESETS, mixed:true,
                           exam:true, defaultPreset:"ukgEng"});
+  /* the sheet made from a book chapter (From your book tab) */
+  var BOOK = new SecList({mode:"book", listId:"bookList", addId:"bookAdd", presetId:"",
+                          key:"glm_ws_book_v1", presets:{}, mixed:true});
   /* the maths and activity tabs share one remembered header */
   var OTHER = new SecList({mode:"other", key:"glm_ws_other_v1", presets:{}});
   OTHER.hdr = {title:"Practice sheet", subj:"Maths", instr:""};
@@ -4449,6 +4947,7 @@ Draw your school bag</textarea>
   function buildSections(fsOv){ return LANG.build(fsOv); }
   function buildMix(fsOv){ return MIX.build(fsOv); }
   function buildExam(fsOv){ return EXAM.build(fsOv); }
+  function buildBook(fsOv){ return BOOK.build(fsOv); }
 
   /* ---------- counting ---------- */
   var SHAPES = {
@@ -7698,6 +8197,7 @@ Draw your school bag</textarea>
     syncSums();
     if(mode==="sec"){ LANG.captureHdr(); LANG.save(); }
     else if(mode==="mix"){ MIX.captureHdr(); MIX.save(); }
+    else if(mode==="book"){ BOOK.captureHdr(); BOOK.save(); }
     else if(mode==="exam"){ EXAM.captureHdr(); EXAM.save(); examSyncTotal(); }
     else { OTHER.captureHdr(); OTHER.save(); }
     var colour = $("colour").checked ? " colour" : "";
@@ -7705,8 +8205,9 @@ Draw your school bag</textarea>
 
     var nnRuled = (mode==="nname" && (val("wnFmt")==="trace" || val("wnFmt")==="writename"));
 
-    if(mode==="sec" || mode==="mix" || mode==="exam" || mode==="mseq" || nnRuled){
+    if(mode==="sec" || mode==="book" || mode==="mix" || mode==="exam" || mode==="mseq" || nnRuled){
       var mk = (mode==="sec") ? buildSections
+             : (mode==="book") ? buildBook
              : (mode==="mix") ? buildMix
              : (mode==="exam") ? buildExam
              : (mode==="mseq" ? buildSeq : buildNnameBlocks);
@@ -8004,6 +8505,7 @@ Draw your school bag</textarea>
 
   $("shuffle").addEventListener("click", function(){
     if(mode==="mix"){ MIX.reseed(); render(); return; }
+    if(mode==="book"){ BOOK.reseed(); render(); return; }
     if(mode==="sec"){ LANG.reseed(); render(); return; }
     if(mode==="exam"){ EXAM.reseed(); render(); return; }
     cpSeed++;
@@ -8036,7 +8538,9 @@ Draw your school bag</textarea>
 
   /* the class / subject / topic strip is drawn by wsStart() below */
 
-  bindSecList(LANG); bindSecList(MIX); bindSecList(EXAM);
+  bindSecList(LANG); bindSecList(MIX); bindSecList(EXAM); bindSecList(BOOK);
+  if(!BOOK.load()){ BOOK.secs = []; }
+  BOOK.draw();
   if(!LANG.load()){ LANG.loadPreset(LANG.cfg.defaultPreset, true); }
   else { LANG.draw(); }
   if(!MIX.load()){
