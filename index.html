@@ -1022,7 +1022,27 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
 
   try {
     const qText = questions || 'Generate answers for all exercise questions in this lesson.';
-    const promptText = `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this lesson (attached as PDF or page images), answer these questions:\n${qText}\n\nIf no specific questions given, answer ALL exercise/activity questions from the lesson.\nNumber each answer clearly. Use simple language for ${cls} students.${bbLangBlock(sub, bbLangMode())}`;
+    // Book back = ONLY the exercise printed at the END of the chapter.
+    // Earlier the AI was told "exercise/activity questions", so it picked the
+    // activity boxes inside the lesson and invented the rest. Never again.
+    const bbRules = questions ? `
+
+RULES:
+- Answer ONLY the questions listed above, in the same order and numbering.
+- Do NOT add any question of your own.
+- Base every answer on the attached lesson.`
+    : `
+
+WHICH QUESTIONS TO ANSWER (absolute rule):
+- Use ONLY the book back exercise: the questions printed at the END of this chapter, after the lesson text. It usually has a heading such as Exercise, Exercises, Let us practise, Let us do, Check your understanding, Answer these, Evaluation or Assessment, and sub-headings such as Fill in the blanks, Match the following, Tick the correct answer, True or False, Answer in one word, Answer the following.
+- IGNORE the small activity or discussion boxes that appear in the middle of the lesson (such as Let's talk, Think and tell, Do this, Activity, Find out). They are not book back questions.
+- First copy each exercise question EXACTLY as printed - same words, same numbering, same section headings, same order. Then write its answer directly below it.
+- Include EVERY exercise question. Do not skip any.
+- NEVER write a question of your own, never reword a question, and never fill a gap by inventing one.
+- Fill in the blanks: copy the sentence and give the missing word. Match the following: copy both columns and give the correct pairs. Tick / choose the correct answer: copy the options and give the right one.
+- Picture questions (colour, draw, look at the picture, match the picture): copy the question, add "(see picture in the book, page __)" with the page number, then give the expected answer in words.
+- If the pages given do NOT contain the end-of-chapter exercise section, do not answer anything. Reply with exactly this one word and nothing else: NO_BOOK_BACK_FOUND`;
+    const promptText = `You are an expert CBSE school teacher in Tamil Nadu.\nClass: ${cls} | Subject: ${sub}\n\nAnswer Style: ${style === 'brief' ? 'Brief (2-3 lines)' : style === 'points' ? 'Point-wise' : 'Detailed paragraphs'}\n\nBased on this lesson (attached as PDF or page images), answer these questions:\n${qText}${bbRules}\n\nNumber each answer clearly. Use simple language for ${cls} students.${bbLangBlock(sub, bbLangMode())}`;
 
     let content;
 
@@ -1070,6 +1090,17 @@ async function generateBookBackFromPDF(file, cls, sub, questions, style) {
 
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
     const result = data.content && data.content[0] ? data.content[0].text : 'Error generating answers';
+    // The AI found no end-of-chapter exercise in the pages given.
+    if (result.indexOf('NO_BOOK_BACK_FOUND') !== -1) {
+      const sp = document.getElementById('bb-start-page').value;
+      const ep = document.getElementById('bb-end-page').value;
+      const range = (sp && ep) ? ('pages ' + sp + ' to ' + ep) : 'the pages given';
+      alert('The book back exercise is not in ' + range + '.\n\n'
+          + 'The exercise is usually on the last page of the chapter. '
+          + 'Increase the End page by 1 or 2 and try again.\n\n'
+          + 'Or type the book back questions into the "Book Back Questions" box.');
+      return;
+    }
     showOutput('out-bookback', 'actions-bookback', result, 'bookback');
 
   } catch(e) {
@@ -5103,6 +5134,7 @@ Base your answers STRICTLY on this lesson content:
 ${content || 'Use standard CBSE curriculum knowledge for this subject and class.'}
 
 IMPORTANT: Answers must be accurate, simple language suitable for ${cls} students.
+Answer ONLY the questions below, in the same order and numbering. Copy each question as given, then its answer. Do NOT add any question of your own.
 
 QUESTIONS TO ANSWER:
 ${questions}
