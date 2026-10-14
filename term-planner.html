@@ -90,6 +90,14 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .tp td.c-date .dow{font-size:.72rem;color:var(--muted);padding-left:2px}
 .tp td.c-pg{width:80px} .tp td.c-teach{min-width:220px}
 .tp td.c-cls{min-width:180px;border-left:3px solid #DCE8F5} .tp td.c-home{min-width:170px;border-left:3px solid #F3E2BD} .tp td.c-gr{min-width:170px;border-left:3px solid #D6E8D3}
+.tp td.c-hw{min-width:170px;border-left:3px solid #E7C9CF} .tp th.h-hw{color:var(--m,#6B0F1A)}
+.wbbox{margin-top:12px;background:#FBF4E2;border:1px dashed var(--g,#C9A84C);border-radius:10px;padding:10px 12px;font-size:.88rem}
+.wbbox select{max-width:100%}
+.ptype{display:inline-block;padding:2px 8px;border-radius:999px;font-size:.72rem;font-weight:800;white-space:nowrap}
+.pt-teachbot{background:#6B0F1A;color:#fff} .pt-teach{background:#8B1A2A;color:#fff} .pt-read{background:#E3EEF9;color:#184C80}
+.pt-practice{background:#EAF3E5;color:#2F5A2A} .pt-classwork{background:#FCEFD6;color:#6A4A0C} .pt-catchup{background:#EEE;color:#444}
+.pt-revision{background:#EFE5F7;color:#5A2D7A} .pt-test{background:#FBE7E3;color:#7A1A13}
+.tp td.c-wb{min-width:160px;border-left:3px solid #E9D59B}
 .tp th.h-cls{color:var(--cls)} .tp th.h-home{color:var(--home)} .tp th.h-gr{color:var(--ground)}
 .tp td.c-done{width:56px;text-align:center;padding-top:8px} .tp td.c-done input{width:18px;height:18px;accent-color:var(--ok)}
 .tp td.c-x{width:30px;padding-top:8px} .tp .x{border:none;background:none;color:var(--muted);font-size:1rem}
@@ -160,7 +168,13 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
       <div class="chaps" id="chaps"></div>
       <div class="btnrow" style="margin-top:8px"><button class="btn ghost small" id="addOwn">+ Add a chapter by name</button></div>
     </div>
-    <label style="margin-top:12px">Note for AI (optional)<input id="fNote" placeholder="e.g. children are weak in reading; keep ground activities short"></label>
+    <div class="row" style="margin-top:12px">
+      <label>🤖 TeachBot (AI class) periods per chapter
+        <select id="fTb"><option value="auto">Auto — 1 to 3, by chapter length</option><option value="1">1 per chapter</option><option value="2">2 per chapter</option><option value="3">3 per chapter</option><option value="0">None — the teacher teaches in class</option></select></label>
+      <div class="hint" style="align-self:end;line-height:1.45">New pages are taught in the AI class. Reading, exercises, class work writing, catch-up, revision and the class test happen in the classroom.</div>
+    </div>
+    <div id="wbBox" class="wbbox" hidden></div>
+    <label style="margin-top:12px">Note for AI (optional)<input id="fNote" placeholder="e.g. children are weak in reading; give more practice periods"></label>
     <div class="btnrow">
       <button class="btn" id="makeBtn">✨ Make the term plan with AI</button>
       <span class="hint" id="slotHint"></span>
@@ -273,7 +287,7 @@ async function renderChapters(){
   slotHint()}
 $("chaps").addEventListener("input",e=>{const t=e.target,d=t.dataset;
   if(d.ot!=null)S.own[+d.ot].title=t.value;if(d.of!=null)S.own[+d.of].from=+t.value||null;if(d.oto!=null)S.own[+d.oto].to=+t.value||null;slotHint()});
-$("chaps").addEventListener("change",slotHint);
+$("chaps").addEventListener("change",()=>{slotHint();renderWbBox()});
 $("chaps").addEventListener("click",e=>{const d=e.target.dataset;if(d.odel!=null){e.preventDefault();S.own.splice(+d.odel,1);renderChapters()}});
 $("addOwn").onclick=()=>{S.own.push({title:"",from:null,to:null});renderChapters().then(()=>{const l=$("chaps").querySelectorAll("[data-ot]");l.length&&l[l.length-1].focus()})};
 function pickedChapters(){const out=[];
@@ -384,16 +398,115 @@ function pageSlots(cp,ch,n){
   if(rev)out.push({from:pages[0].book,to:pages[pages.length-1].book,fromPdf:pages[0].pdf,toPdf:pages[pages.length-1].pdf,revision:true});
   return out}
 const pgLabel=s=>s.from==null?"":(s.from===s.to?String(s.from):s.from+"–"+s.to);
+/* ---------- the shape of a chapter (Oct 2026) ----------
+   A chapter is NOT taught in every period. New pages are taught in 1–3 TeachBot (AI class)
+   periods; after each one come classroom periods for that part — reading in class, oral
+   exercise practice, class work writing — and at the end a catch-up period (for lessons
+   missed), revision and the class test. The computer fixes the order and the pages; the
+   AI only writes what to do in each period. */
+const PTYPE={teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"📝 Class work",catchup:"⏳ Catch-up",revision:"🔁 Revision",test:"✅ Class test"};
+function tbCount(pages,n){const v=$("fTb").value;
+  let k=v==="auto"?(pages<=6?1:pages<=14?2:3):+v;
+  return Math.max(0,Math.min(k,Math.floor(n/3)||(n>=1&&v!=="0"?1:0)))}
+function chapterSlots(cp,ch,n){
+  let pages=cp.pages.length?cp.pages.slice():[];
+  if(!pages.length){const f=+ch.from||0,t=+ch.to||0;if(f&&t>=f)for(let p=f;p<=t;p++)pages.push({pdf:p,book:p,text:""})}
+  const w=pages.map(p=>cp.scanned?1:Math.max(200,p.text.length)),tot=w.reduce((a,b)=>a+b,0)||1;
+  const span=(a,b)=>pages.length?{from:pages[a].book,to:pages[b].book,fromPdf:pages[a].pdf,toPdf:pages[b].pdf}:{from:null,to:null};
+  const all=pages.length?span(0,pages.length-1):{from:null,to:null};
+  // end periods (dropped first when the chapter has few periods)
+  let ends=[];if(n>=3)ends.push("revision");if(n>=4)ends.push("test");if(n>=8)ends.unshift("catchup");
+  const k=tbCount(pages.length,n),teachType=k?"teachbot":"teach";
+  let parts=k||Math.max(1,Math.min(pages.length||1,Math.round((n-ends.length)/3)));
+  let r=n-ends.length-parts;                      // classroom follow-up periods
+  while(r<0&&ends.length){ends.shift();r++}
+  if(r<0){parts=Math.max(1,parts+r);r=Math.max(0,n-ends.length-parts)}
+  // split pages into parts by amount of text
+  const cut=[];const cum=[];w.reduce((a,b,i)=>(cum[i]=a+b),0);
+  const at=x=>{for(let i=0;i<cum.length;i++)if(x<=cum[i]+1e-9)return i;return cum.length-1};
+  let prevB=-1;
+  for(let j=0;j<parts;j++){if(!pages.length){cut.push({from:null,to:null,wt:1});continue}
+    const last=pages.length-1,a=Math.min(last,prevB+1<=last?prevB+1:prevB);
+    const b=j===parts-1?last:Math.max(a,at(tot*(j+1)/parts));prevB=b;
+    cut.push(Object.assign(span(a,b),{a,b,wt:w.slice(a,b+1).reduce((x,y)=>x+y,0)||1}))}
+  // share the follow-ups between parts by size (each part gets at least one when possible)
+  const tw=cut.reduce((x,c)=>x+c.wt,0)||1;let fol=cut.map(c=>r>=parts?1:0);let left=r-fol.reduce((x,y)=>x+y,0);
+  const order=cut.map((c,i)=>[c.wt/tw,i]).sort((x,y)=>y[0]-x[0]).map(x=>x[1]);let q=0;while(left>0){fol[order[q%order.length]]++;left--;q++}
+  const out=[];
+  cut.forEach((c,j)=>{out.push(Object.assign({type:teachType,part:j+1,parts},c));
+    const f=fol[j];const seq=f===1?["classwork"]:f===2?["read","classwork"]:["read"].concat(Array(f-2).fill("practice"),["classwork"]);
+    seq.forEach(t=>out.push(Object.assign({type:t,part:j+1,parts},c)))});
+  ends.forEach(t=>out.push(Object.assign({type:t},t==="catchup"?{from:null,to:null}:all)));
+  return out.slice(0,n)}
+
+/* ---------- workbook (optional — only schools whose Workbook Generator has this class and subject) ---------- */
+let WB=null,WBP=null,WBPICKS=null;
+async function loadWorkbook(){if(WB)return WB;if(WBP)return WBP;
+  WBP=(async()=>{const r=await fetch("workbook-generator.html",{cache:"no-cache"});if(!r.ok)throw new Error("Workbook Generator not found ("+r.status+")");
+    const html=await r.text();const a=html.indexOf("<script>\n/*"),b=html.indexOf("\nvar cls = ");
+    const a2=a>=0?a:html.lastIndexOf("<script>",b);if(a2<0||b<0)throw new Error("Workbook chapters could not be read.");
+    const CL=(new Function(html.slice(a2+8,b)+"\n;return CLASSES;"))();const out={};
+    Object.keys(CL).forEach(c=>{out[c]={};Object.keys(CL[c]).forEach(sb=>{out[c][sb]=(CL[c][sb]||[]).map(ch=>({no:ch.no,title:String(ch.title||""),
+      sections:(ch.sections||[]).map(x=>({id:x.id,head:String(x.head||"").replace(/\s+/g," ").trim()}))}))})});
+    try{const r2=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"workbook_get"})});const d=await r2.json();WBPICKS=d&&d.success&&d.plan?d.plan:null}catch(e){WBPICKS=null}
+    WB=out;return WB})();
+  try{return await WBP}catch(e){WBP=null;throw e}}
+function wbChapters(){const c=String(num($("fClass").value)||""),sb=$("fSubject").value;
+  if(!WB||!WB[c])return[];const key=Object.keys(WB[c]).find(k=>sk(k)===sk(sb));return key?WB[c][key].map((x,i)=>Object.assign({i,subjKey:key},x)):[]}
+const words=t=>String(t||"").toLowerCase().replace(/^ch(apter)?\s*\d+\.?\s*/,"").split(/[^a-z஀-௿ऀ-ॿ]+/).filter(x=>x.length>2);
+function bestWb(title,list){const a=words(title);let best=-1,sc=0;list.forEach(x=>{const b=words(x.title);const m=a.filter(y=>b.includes(y)).length;if(m>sc){sc=m;best=x.i}});return best}
+async function renderWbBox(){const box=$("wbBox");
+  try{await loadWorkbook()}catch(e){box.hidden=true;return}
+  const list=wbChapters();if(!list.length){box.hidden=true;return}
+  const st=S.settings||{},map=st.wb_map||{},on=$("wbUse")?$("wbUse").checked:!!st.use_wb;
+  const chs=pickedChapters();
+  box.innerHTML=`<label style="display:flex;gap:8px;align-items:center;font-weight:800"><input type="checkbox" id="wbUse"${on?" checked":""} style="width:18px;height:18px">📒 Use the school's workbook for this subject</label>`+
+    (on?(chs.length?`<div class="hint" style="margin:6px 0">Each chapter's workbook Class Work, Home Work 1–3 and Class Test are placed on the right periods. Check the matching chapter:</div>`+
+      chs.map(c=>{const cur=map[c.key]!=null?map[c.key]:bestWb(c.title,list);
+        return `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:4px 0"><span style="min-width:180px">${esc(c.title)}</span>→<select data-wb="${esc(c.key)}"><option value="-1">No workbook chapter</option>${list.map(x=>`<option value="${x.i}"${x.i===cur?" selected":""}>Workbook ${esc(String(x.no||x.i+1))}. ${esc(x.title)}</option>`).join("")}</select></div>`}).join("")
+      :`<div class="hint">Tick chapters above first.</div>`):"");
+  box.hidden=false;
+  $("wbUse").onchange=()=>renderWbBox()}
+function wbSettings(){const on=!!($("wbUse")&&$("wbUse").checked&&!$("wbBox").hidden),map={};
+  $("wbBox").querySelectorAll("select[data-wb]").forEach(s=>{map[s.dataset.wb]=+s.value});return{use_wb:on,wb_map:map}}
+// what one workbook slot (CW, HW1…, BB, TEST) holds, e.g. "Home Work 1: Fill in the blanks; Match"
+function wbSlotText(ch,slotId){const c=String(num($("fClass").value)),sbKey=ch.subjKey;
+  let slot=null;try{slot=WBPICKS[c][sbKey][ch.i].slots.find(x=>x.id===slotId)}catch(e){slot=null}
+  const names={CW:"Class Work",HW1:"Home Work 1",HW2:"Home Work 2",HW3:"Home Work 3",BB:"Book Back Exercises",TEST:"Class Test"};
+  const name=(slot&&slot.name)||names[slotId]||slotId;
+  if(!slot)return slotId==="BB"?"":name;
+  const heads=ch.sections.filter(sec=>slot.picks&&slot.picks[sec.id]&&slot.picks[sec.id].length).map(sec=>sec.head+" ("+slot.picks[sec.id].length+")");
+  if(!heads.length)return"";
+  return name+": "+heads.slice(0,4).join("; ")+(heads.length>4?" …":"")}
+// lay the workbook on the chapter's periods: CW → class work periods, HW1–3 → spread over the classroom
+// periods (as that day's homework), Book Back → exercise periods, Class Test → the test period
+function applyWorkbook(rows,slots,ch){
+  if(!ch)return;const tag="Workbook "+(ch.no||ch.i+1)+" — ";
+  const idx=t=>slots.map((s,i)=>s.type===t?i:-1).filter(i=>i>=0);
+  const cw=idx("classwork"),pr=idx("practice"),te=idx("test"),room=slots.map((s,i)=>["read","practice","classwork"].includes(s.type)?i:-1).filter(i=>i>=0);
+  const put=(i,txt,asHw)=>{if(i==null||!rows[i]||!txt)return;rows[i].workbook=(rows[i].workbook?rows[i].workbook+"\n":"")+tag+txt;if(asHw)rows[i].homework=tag+txt};
+  put(cw.length?cw[cw.length-1]:null,wbSlotText(ch,"CW"));
+  put(pr.length?pr[0]:(cw[0]!=null?cw[0]:null),wbSlotText(ch,"BB"));
+  ["HW1","HW2","HW3"].forEach((id,k)=>{const t=wbSlotText(ch,id);if(!t||!room.length)return;put(room[Math.min(room.length-1,Math.floor((k+1)*room.length/3)-1)],t,true)});
+  put(te.length?te[0]:null,wbSlotText(ch,"TEST"))}
 
 /* ---------- AI ---------- */
-function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India, planning a school term for ${SCHOOL_NAME||"the school"}. Plan lesson by lesson (one row = one class period of about 40 minutes). The school teaches from its own textbook, so the plan must follow the book exactly.
-EACH PERIOD'S BOOK PAGES ARE ALREADY FIXED for you. Plan each period ONLY from the text of its own pages — never move content to another period, never use content from other pages, and never invent anything that is not on those pages. When several periods share the same page, split that page's content between them (e.g. first half of the passage, then the rest, then the exercises).
+function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India, planning a school term for ${SCHOOL_NAME||"the school"}. One row = one class period of about 40 minutes. The school teaches from its own textbook, so the plan must follow the book exactly.
+EACH PERIOD'S KIND AND BOOK PAGES ARE ALREADY FIXED. Plan each period ONLY from its own pages — never move content to another period, never use content from other pages, never invent anything not on those pages. When several periods share pages, split the content between them in order.
+The kinds of period:
+- TEACHBOT: the class goes to the AI class room and TeachBot (the AI teacher on the big screen) teaches these NEW pages. The class teacher sits with them, pauses to ask questions and keeps order.
+- TEACH: the class teacher teaches these new pages in the classroom (the school does not use TeachBot for this subject).
+- READING: in the classroom, after the pages were taught — children read the pages aloud / in turns; the teacher explains hard lines and new words again; quick oral questions.
+- EXERCISES: in the classroom — the book's exercises on these pages done orally / on the board, so children can write them later.
+- CLASS WORK: in the classroom — children WRITE the class work in their class work notebook: the exact book exercise / question numbers on these pages (as printed). The teacher corrects in class.
+- CATCH-UP: a spare period for anything not finished, lessons missed because of absence or holidays, and re-teaching weak points of this chapter. Say what to check and re-teach.
+- REVISION: revision of the whole chapter in the classroom — key words, main points, the exercises to revise.
+- CLASS TEST: a short written test on the whole chapter — which exercises / questions, and total marks.
 Each row needs:
-- "teach": start with the page, then say exactly what is on it to teach — the heading or passage name, which paragraphs / examples / poem lines, the new words, and the exercise numbers done in class (e.g. "p. 24: Read 'The Little Bird' paragraphs 1–3. New words: nest, feather. Do Exercise A Q1–3 orally.") — 1–3 short sentences, using the book's own headings and exercise numbers as printed
-- "class_act": one activity done in the classroom with this lesson (pair work, game, model, chart, role-play, reading aloud, quick quiz…) — simple, low-cost, suits the age
-- "home_act": one small activity the child does at home with family or household things (observe, collect, ask parents, draw, say aloud) — not heavy written homework
-- "ground_act": one safe outdoor or playground activity linked to the lesson (movement game, relay, nature walk, measuring, shadow play, chalk drawing…), 10–15 minutes, needs no costly material
-The first period of a chapter introduces it with an interesting start. A period marked REVISION is revision of the whole chapter and a short class test (name the book exercises to revise). Write in simple English a new teacher can follow. Reply with JSON only.`}
+- "teach": FIRST the order of work as numbered steps, each starting with the page — the heading or passage, which paragraphs / examples / poem lines, new words, the exercise numbers exactly as printed. e.g. "1. p. 24: Read 'The Little Bird' paras 1–3. 2. p. 24: New words — nest, feather. 3. p. 25: Exercise A Q1–3 orally." THEN, only if it helps, one short line starting "How:" with the way to do it. Keep it short and specific.
+- "activity": ONE simple, low-cost activity ONLY where it really helps (introducing the chapter, a hard idea, a revision game). Most periods get "". Start with where it happens: "(Class) …", "(Ground) …" (10–15 minutes outdoors) or "(Home) …". Never more than the number of activities you are told is still allowed.
+- "homework": a SUGGESTED written homework ONLY from what has been taught so far — the book's exercise / question numbers as printed (e.g. "p. 25: Exercise B Q1–4 in notebook"). Small: about 10–15 minutes for LKG–Class 2, 15–20 for Class 3–5, 20–30 for Class 6 and above. Use "" for TEACHBOT and TEACH periods, CATCH-UP, and wherever no written homework suits. For REVISION: "Revise the chapter for the class test" with the pages. The school may use it or skip it.
+Write in simple English a new teacher can follow. Reply with JSON only.`}
 async function askAI(prompt,maxTokens){
   const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
   let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
@@ -402,23 +515,30 @@ async function askAI(prompt,maxTokens){
   if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
   try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
 // rows for one chapter, in groups of up to 10 periods
-async function planChapter(ch,n,ct,note,progress){
-  // ct = chapterPages(ch). Pages per period are worked out here, by the computer, in book order.
-  const out=[],slots=pageSlots(ct,ch,n),byPdf={};
+async function planChapter(ch,n,ct,note,progress,wbCh){
+  // ct = chapterPages(ch). The kind and pages of every period are fixed here, by the computer, in book order.
+  const out=[],slots=chapterSlots(ct,ch,n),byPdf={};
   (ct.pages||[]).forEach(p=>byPdf[p.pdf]=p);
+  const NAME={teachbot:"TEACHBOT",teach:"TEACH",read:"READING",practice:"EXERCISES",classwork:"CLASS WORK",catchup:"CATCH-UP",revision:"REVISION",test:"CLASS TEST"};
+  const maxAct=Math.max(1,Math.min(2,Math.round(n/6)));let acts=0;
+  const lastPdf=(ct.pages||[]).length?ct.pages[ct.pages.length-1].pdf:null;
   const STEP=6;
   for(let a=0;a<n;a+=STEP){const b=Math.min(n,a+STEP);progress(a,n);
-    const before=out.slice(-8).map((r,i)=>"Period "+(out.length-Math.min(8,out.length)+i+1)+" (p. "+r.pages+"): "+r.teach).join("\n");
-    const list=slots.slice(a,b).map((s,i)=>"Period "+(a+i+1)+(s.revision?": REVISION of the whole chapter + short class test":": book page"+(s.from===s.to?" ":"s ")+pgLabel(s))).join("\n");
-    // only the text of these periods' own pages (the revision period gets the exercise pages at the end)
+    const before=out.slice(-8).map((r,i)=>"Period "+(out.length-Math.min(8,out.length)+i+1)+" ["+NAME[r.type]+(r.pages?", p. "+r.pages:"")+"]: "+r.teach).join("\n");
+    const list=slots.slice(a,b).map((s,i)=>"Period "+(a+i+1)+": "+NAME[s.type]+(s.parts>1?" (part "+s.part+" of "+s.parts+")":"")+(s.from!=null?" — book page"+(s.from===s.to?" ":"s ")+pgLabel(s):"")).join("\n");
+    // only the text of these periods' own pages; exercise-type periods also get the chapter's last pages (where exercises usually are)
     let txt="";
     if(!ct.scanned){const want=[];slots.slice(a,b).forEach(s=>{if(s.fromPdf==null)return;
-        const f=s.revision?Math.max(s.fromPdf,s.toPdf-2):s.fromPdf;for(let p=f;p<=s.toPdf;p++)if(!want.includes(p))want.push(p)});
-      want.sort((x,y)=>x-y).forEach(p=>{const pg=byPdf[p];if(pg&&txt.length<18000)txt+="\n[Book page "+pg.book+"]\n"+pg.text.slice(0,4000)})}
-    const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${slots.length&&slots[0].from!=null?" (book pages "+slots[0].from+"–"+slots[slots.length-1].to+")":""}\nThis chapter has ${n} periods. Plan periods ${a+1} to ${b}. Their pages are FIXED:\n${list}\n${before?"Periods already planned (do not repeat them):\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":"(The book's text could not be read — plan from the chapter name and the pages given, and keep it general.)\n"}\nReply with JSON only: {"rows":[{"teach":"","class_act":"","home_act":"","ground_act":""}]} with exactly ${b-a} rows, in the same order as the periods above.`,Math.min(8000,800*(b-a)+700));
+        const f=["revision","test"].includes(s.type)?Math.max(s.fromPdf,s.toPdf-2):s.fromPdf;for(let p=f;p<=s.toPdf;p++)if(!want.includes(p))want.push(p);
+        if(["practice","classwork"].includes(s.type)&&lastPdf)for(let p=Math.max(s.toPdf+1,lastPdf-1);p<=lastPdf;p++)if(!want.includes(p))want.push(p)});
+      want.sort((x,y)=>x-y).forEach(p=>{const pg=byPdf[p];if(pg&&txt.length<18000)txt+="\n[Book page "+pg.book+"]\n"+pg.text.slice(0,3500)})}
+    const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${slots.length&&slots[0].from!=null?" (book pages "+slots[0].from+"–"+slots[slots.length-1].to+")":""}\nThis chapter has ${n} periods. Plan periods ${a+1} to ${b}. Their kind and pages are FIXED:\n${list}\nActivities still allowed in this chapter: ${Math.max(0,maxAct-acts)}.\n${before?"Periods already planned (do not repeat them):\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":"(The book's text could not be read — plan from the chapter name and the pages given, and keep it general.)\n"}\nReply with JSON only: {"rows":[{"teach":"","activity":"","homework":""}]} with exactly ${b-a} rows, in the same order as the periods above.`,Math.min(8000,700*(b-a)+700));
     const rows=(res.rows||[]).slice(0,b-a);while(rows.length<b-a)rows.push({teach:"(AI gave fewer lessons — write this one)"});
-    rows.forEach((r,i)=>{const s=slots[a+i]||{};
-      out.push({chapter:ch.title,pages:(s.revision?"Revision · ":"")+pgLabel(s),teach:String(r.teach||""),class_act:String(r.class_act||""),home_act:String(r.home_act||""),ground_act:String(r.ground_act||""),done:false})})}
+    rows.forEach((r,i)=>{const sl=slots[a+i]||{};let act=String(r.activity||r.class_act||"").trim();
+      if(act&&acts>=maxAct)act="";if(act)acts++;
+      out.push({chapter:ch.title,type:sl.type||"",pages:pgLabel(sl),teach:String(r.teach||""),class_act:act,home_act:"",ground_act:"",
+        homework:["teachbot","teach","catchup"].includes(sl.type)?"":String(r.homework||""),workbook:"",done:false})})}
+  if(wbCh)applyWorkbook(out,slots,wbCh);
   return out}
 
 $("makeBtn").onclick=async()=>{
@@ -433,7 +553,8 @@ $("makeBtn").onclick=async()=>{
   try{for(let i=0;i<chs.length;i++){
       P.innerHTML=`<span class="spin"></span>Reading ${esc(chs[i].title)} (${i+1} of ${chs.length})…`;
       const ct=await chapterPages(chs[i]);if(ct.note)notes.push(ct.note);
-      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+6)} of ${n} (chapter ${i+1} of ${chs.length})…`);
+      const wbs=wbSettings(),wl=wbs.use_wb?wbChapters():[],wi=wbs.use_wb?wbs.wb_map[chs[i].key]:-1;
+      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+6)} of ${n} (chapter ${i+1} of ${chs.length})…`,wi!=null&&wi>=0?wl.find(x=>x.i===wi):null);
       rows.push(...got)}
     rows.forEach((r,k)=>r.date=dates[k]||"");
     S.rows=rows;S.settings=collectSettings(chs);
@@ -443,7 +564,7 @@ $("makeBtn").onclick=async()=>{
   catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
     if(rows.length){rows.forEach((r,k)=>r.date=dates[k]||"");S.rows=rows;S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
-function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,note:$("fNote").value.trim(),
+function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
 
 /* redo one chapter with AI, keeping its dates */
@@ -453,12 +574,15 @@ async function redoChapter(title){
   const saved=((S.settings&&S.settings.chapters)||[]).find(c=>c.title===title)||{title};
   const opt=CHOPTS.find(o=>o.key===saved.key);const ch=Object.assign({},saved,{bookObj:opt&&opt.bookObj});
   toast("Making “"+title+"” again…");
-  try{const ct=await chapterPages(ch);if(ct.note)toast(ct.note,true);const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{});
+  try{const ct=await chapterPages(ch);if(ct.note)toast(ct.note,true);const wbs=wbSettings(),wi=wbs.use_wb?(((S.settings||{}).wb_map||wbs.wb_map)[saved.key]):-1,wl=wbs.use_wb?wbChapters():[];
+    const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{},wi!=null&&wi>=0?wl.find(x=>x.i===wi):null);
     idx.forEach((ri,k)=>{const d=S.rows[ri].date;S.rows[ri]=Object.assign(got[k],{date:d})});renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
 
 /* ---------- the plan table ---------- */
-const COLS=[["teach","What to teach","c-teach",""],["class_act","🏫 Class activity","c-cls","h-cls"],["home_act","🏠 Home activity","c-home","h-home"],["ground_act","⚽ Ground activity","c-gr","h-gr"]];
+const ALLCOLS=[["teach","What to do (in order)","c-teach",""],["class_act","🎯 Activity","c-cls","h-cls"],["homework","📝 Homework (suggested)","c-hw","h-hw"],["workbook","📒 Workbook","c-wb","h-hw"],["home_act","🏠 Home activity (old)","c-home","h-home"],["ground_act","⚽ Ground activity (old)","c-gr","h-gr"]];
+let COLS=ALLCOLS;
+function pickCols(){COLS=ALLCOLS.filter(c=>["teach","class_act","homework"].includes(c[0])||S.rows.some(r=>r[c[0]]))}
 // 📝 on each lesson row opens Today's Worksheet with this lesson filled in:
 // the chapter's book pages (so book back exercises are found), the lesson's
 // own pages and what is taught (so new questions stay on today's part), and
@@ -482,15 +606,15 @@ function renderPlan(){
   PB.hidden=!S.rows.length;PB.className="behind"+(behind?"":" ok");
   PB.textContent=behind?`⚠ ${behind} lesson${behind>1?"s":""} behind`:"✓ On track";
   PB.title="Lessons dated before today that are not ticked done. Lessons tick themselves when the day's class work is sent from the Homework Planner.";
-  const ed=!locked();let h=`<thead><tr><th>#</th><th>Date</th><th>Pages</th>${COLS.map(x=>`<th class="${x[3]}">${x[1]}</th>`).join("")}<th>Done</th><th class="noprint"></th></tr></thead><tbody>`;
+  pickCols();const ed=!locked();let h=`<thead><tr><th>#</th><th>Date</th><th>Pages</th>${COLS.map(x=>`<th class="${x[3]}">${x[1]}</th>`).join("")}<th>Done</th><th class="noprint"></th></tr></thead><tbody>`;
   let last=null;
   S.rows.forEach((r,i)=>{
     if(r.chapter!==last){last=r.chapter;const n=S.rows.filter(x=>x.chapter===r.chapter).length;
       h+=`<tr class="ch"><td colspan="${COLS.length+5}">${esc(r.chapter||"(no chapter)")} <span class="hint">· ${n} lesson${n>1?"s":""}</span>${ed&&r.chapter?`<button class="btn ghost small noprint" data-redo="${esc(r.chapter)}">↻ Redo this chapter with AI</button>`:""}</td></tr>`}
     h+=`<tr class="${r.done?"done":""}" data-r="${i}"><td class="c-no">${i+1}</td>`+
       `<td class="c-date">${ed?`<input type="date" data-f="date" value="${esc(r.date)}">`:esc(nice(r.date))}<div class="dow">${dow(r.date)}</div></td>`+
-      `<td class="c-pg"><div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
-      COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}">${esc(r[x[0]])}</div></td>`).join("")+
+      `<td class="c-pg">${r.type?`<span class="ptype pt-${esc(r.type)}">${esc(PTYPE[r.type]||r.type)}</span>`:""}<div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
+      COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}" style="white-space:pre-line">${esc(r[x[0]])}</div></td>`).join("")+
       `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done" title="Ticks by itself when this day's class work is sent from the Homework Planner"></td>`+
       `<td class="c-x noprint"><a class="ws" href="${wsLink(r)}" target="_blank" rel="noopener" title="Make a worksheet for this lesson" aria-label="Make a worksheet for lesson ${i+1}">📝</a>${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
   $("tp").innerHTML=h+"</tbody>";
@@ -500,6 +624,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(PRINCIPAL&&S.plan&&st!=="approved")a.push(`<button class="btn ok" id="aApprove">Approve</button>`);
   if(PRINCIPAL&&S.plan&&st==="waiting")a.push(`<button class="btn ghost" id="aBack">Send back</button>`);
   if(PRINCIPAL&&S.plan&&st==="approved")a.push(`<button class="btn ghost" id="aReopen">Open again for changes</button>`);
+  if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -507,7 +632,30 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aApprove",()=>act("approve","Plan approved"));
   on("aReopen",()=>act("reopen","Open for changes"));
   on("aBack",()=>{const n=prompt("Note for the teacher (what to change):","");if(n!==null)act("send_back","Sent back to the teacher",{note:n})});
-  on("aPrint",()=>window.print())}
+  on("aPrint",()=>window.print());
+  on("aHw",suggestHomework)}
+/* AI suggests homework for lessons that have none (plans made before Oct 2026, or rows added by hand).
+   Uses each lesson's own pages and what was taught; the school may keep, change or clear it. */
+const NOHW=["teachbot","teach","catchup"];   // periods that get no homework
+async function suggestHomework(){
+  if(locked())return;const btn=$("aHw");if(btn)btn.disabled=true;
+  const todo=S.rows.map((r,i)=>r.homework||NOHW.includes(r.type)?-1:i).filter(i=>i>=0);
+  const byCh={};todo.forEach(i=>{(byCh[S.rows[i].chapter]=byCh[S.rows[i].chapter]||[]).push(i)});
+  let done=0;
+  try{for(const title of Object.keys(byCh)){
+      const saved=((S.settings&&S.settings.chapters)||[]).find(c=>c.title===title)||{title};
+      const opt=CHOPTS.find(o=>o.key===saved.key);const ct=await chapterPages(Object.assign({},saved,{bookObj:opt&&opt.bookObj}));
+      const list=byCh[title];
+      for(let a=0;a<list.length;a+=8){const part=list.slice(a,a+8);
+        toast("Suggesting homework — "+title+" ("+(done+1)+"–"+(done+part.length)+" of "+todo.length+")…");
+        const want=new Set();part.forEach(i=>{const m=String(S.rows[i].pages||"").match(/(\d+)(?:\D+(\d+))?/);if(m){const f=+m[1],t=+(m[2]||m[1]);for(let p=f;p<=t&&p<=f+6;p++)want.add(p)}});
+        let txt="";(ct.pages||[]).forEach(p=>{if(want.has(p.book)&&!ct.scanned&&txt.length<16000)txt+="\n[Book page "+p.book+"]\n"+p.text.slice(0,3500)});
+        const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${title}\nSuggest ONLY the "homework" for these lessons (already planned — do not change them):\n${part.map((i,k)=>"Lesson "+(k+1)+" (p. "+(S.rows[i].pages||"?")+"): "+S.rows[i].teach).join("\n")}\n${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":""}\nReply with JSON only: {"rows":[{"homework":""}]} with exactly ${part.length} rows in the same order.`,Math.min(4000,300*part.length+400));
+        (res.rows||[]).slice(0,part.length).forEach((x,k)=>{if(x&&x.homework)S.rows[part[k]].homework=String(x.homework)});
+        done+=part.length}}
+    renderPlan();queueSave();toast("Homework suggested for "+todo.length+" lessons. Change or clear any you don't want.")}
+  catch(e){renderPlan();queueSave();toast("AI could not finish: "+e.message+(done?" — the ones done so far are kept.":""),true)}
+  finally{const b=$("aHw");if(b)b.disabled=false}}
 async function act(action,msg,extra){try{if(S.dirty)await saveNow();const d=await tp(action,Object.assign({id:S.plan.id},extra||{}));S.plan=d.plan;renderPlan();loadList();toast(msg)}catch(e){toast(e.message,true)}}
 
 $("tp").addEventListener("input",e=>{const f=e.target.dataset.f;if(!f)return;const i=+e.target.closest("tr").dataset.r;
@@ -517,7 +665,7 @@ $("tp").addEventListener("click",async e=>{const d=e.target.dataset;
   if(d.del!=null){const i=+d.del;if(!confirm("Remove lesson "+(i+1)+"?"))return;S.rows.splice(i,1);renderPlan();queueSave()}
   if(d.done!=null){const i=+d.done;S.rows[i].done=e.target.checked;e.target.closest("tr").classList.toggle("done",e.target.checked);
     if(S.plan&&!S.dirty){try{const r=await tp("mark_done",{id:S.plan.id,index:i,done:e.target.checked});S.plan=r.plan;loadList()}catch(err){toast(err.message,true)}}else queueSave()}});
-$("addRow").onclick=()=>{if(locked())return;const lastRow=S.rows[S.rows.length-1]||{};S.rows.push({date:"",chapter:lastRow.chapter||"",pages:"",teach:"",class_act:"",home_act:"",ground_act:"",done:false});renderPlan();queueSave()};
+$("addRow").onclick=()=>{if(locked())return;const lastRow=S.rows[S.rows.length-1]||{};S.rows.push({date:"",chapter:lastRow.chapter||"",pages:"",teach:"",type:"",class_act:"",home_act:"",homework:"",workbook:"",ground_act:"",done:false});renderPlan();queueSave()};
 
 /* ---------- saving ---------- */
 let saveT;function queueSave(){S.dirty=true;$("savedNote").textContent="Saving…";clearTimeout(saveT);saveT=setTimeout(()=>saveNow().catch(()=>{}),1500)}
@@ -538,10 +686,10 @@ async function openPlan(){
   S.plan=null;S.rows=[];S.settings=null;S.own=[];
   try{const d=await tp("get",{class_name:c,subject:sb,term:t});
     if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
-      const st=S.settings||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";
+      const st=S.settings||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
   catch(e){showErr("Could not open the plan: "+e.message)}
-  $("prog").hidden=true;renderChapters();renderPlan();loadHolidays()}
+  $("prog").hidden=true;renderChapters().then(renderWbBox);renderPlan();loadHolidays()}
 ["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
   if(S.dirty)saveNow().catch(()=>{});openPlan()}));
 $("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));

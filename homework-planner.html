@@ -815,11 +815,14 @@ async function fillFromTermPlan(c,ds){const box=$("cwTp");
   box.hidden=false}
 async function showTpHome(){const el=$("tTp"),c=S.sel.cls,ds=S.sel.date,sb=$("tSubj").value;
   const rows=await tpFor(c,ds);if(S.sel.cls!==c||S.sel.date!==ds||$("tSubj").value!==sb)return;
-  const r=rows.find(x=>x.subject===sb&&x.home_act);
+  const r=rows.find(x=>x.subject===sb&&(x.homework||x.home_act));
   if(!r){el.hidden=true;return}
-  el.innerHTML=`<span><b>📘 Term plan home activity:</b> ${esc(r.home_act)}</span><button type="button" class="iconbtn go" id="tTpUse">Use this</button>`;
+  // term plan's suggested homework (Oct 2026) first, then the home activity — the school may use either or skip both
+  el.innerHTML=(r.homework?`<span><b>📘 Term plan homework:</b> ${esc(r.homework)}</span><button type="button" class="iconbtn go" id="tTpHw">Use this</button>`:"")+
+    (r.home_act?`<span><b>📘 Term plan home activity:</b> ${esc(r.home_act)}</span><button type="button" class="iconbtn go" id="tTpUse">Use this</button>`:"");
   el.hidden=false;
-  $("tTpUse").onclick=()=>{const t=$("tText");t.value=(t.value.trim()?t.value.trim()+" ":"")+r.home_act;$("tKind").value=KINDS.includes("Activity")?"Activity":$("tKind").value;t.focus()}}
+  if($("tTpHw"))$("tTpHw").onclick=()=>{const t=$("tText");t.value=(t.value.trim()?t.value.trim()+" ":"")+r.homework;$("tKind").value=KINDS[0];t.focus()};
+  if($("tTpUse"))$("tTpUse").onclick=()=>{const t=$("tText");t.value=(t.value.trim()?t.value.trim()+" ":"")+r.home_act;$("tKind").value=KINDS.includes("Activity")?"Activity":$("tKind").value;t.focus()}}
 /* 🤖 TeachBot lessons → class work (Oct 2026)
    A lesson the teacher started in TeachBot on this day (active_lessons, saved when the
    lesson is activated) fills that subject's EMPTY class-work box, for the teacher to check
@@ -1150,9 +1153,12 @@ function tRowExtras(r,c,ds){const sb=r.querySelector('[data-f="subj"]').value,m=
   const live=liveSubs(c,ds).includes(sb);if(live&&!m){ex.textContent=sb+" already has homework on this day. This will be a second one.";ex.hidden=false}
   const tp=r.querySelector('[data-f="tp"]');tp.hidden=true;
   tpFor(c,ds).then(rows=>{if(S.sel.cls!==c||S.sel.date!==ds||r.querySelector('[data-f="subj"]').value!==sb)return;
-    const x=rows.find(y=>y.subject===sb&&y.home_act);if(!x){tp.hidden=true;return}
-    tp.innerHTML=`<span><b>📘 Term plan home activity:</b> ${esc(x.home_act)}</span><button type="button" class="iconbtn go" data-f="tpuse">Use this</button>`;tp.hidden=false;
-    tp.querySelector('[data-f="tpuse"]').onclick=()=>{const ta=r.querySelector('[data-f="text"]');ta.value=(ta.value.trim()?ta.value.trim()+" ":"")+x.home_act;r.querySelector('[data-f="kind"]').value=KINDS.includes("Activity")?"Activity":KINDS[0];ta.focus()}})}
+    const x=rows.find(y=>y.subject===sb&&(y.homework||y.home_act));if(!x){tp.hidden=true;return}
+    tp.innerHTML=(x.homework?`<span><b>📘 Term plan homework:</b> ${esc(x.homework)}</span><button type="button" class="iconbtn go" data-f="tphw">Use this</button>`:"")+
+      (x.home_act?`<span><b>📘 Term plan home activity:</b> ${esc(x.home_act)}</span><button type="button" class="iconbtn go" data-f="tpuse">Use this</button>`:"");tp.hidden=false;
+    const add=(txt,kind)=>{const ta=r.querySelector('[data-f="text"]');ta.value=(ta.value.trim()?ta.value.trim()+" ":"")+txt;r.querySelector('[data-f="kind"]').value=kind;ta.focus()};
+    const bh=tp.querySelector('[data-f="tphw"]');if(bh)bh.onclick=()=>add(x.homework,KINDS[0]);
+    const ba=tp.querySelector('[data-f="tpuse"]');if(ba)ba.onclick=()=>add(x.home_act,KINDS.includes("Activity")?"Activity":KINDS[0])})}
 function defaultTRows(c,ds){const fx=fixedFor(c,ds),live=liveSubs(c,ds);
   if(fx){const todo=fx.filter(s=>!live.includes(s));if(todo.length)return todo.map(s=>({subj:s,kind:KINDS[0],text:""}))}
   const subs=subjectsFor(c),first=(fx||[]).concat(subs).find(s=>!live.includes(s))||subs[0];return[{subj:first,kind:KINDS[0],text:""}]}
