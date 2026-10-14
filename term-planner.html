@@ -154,6 +154,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
       <div><div class="hint" style="font-weight:600;margin-bottom:4px">School days</div>
         <div class="days" id="fDays"></div></div>
     </div>
+    <div class="hint" id="holHint" style="margin-top:8px"></div>
     <div style="margin-top:14px">
       <div class="toolbar"><b style="font-size:.9rem">Chapters for this term</b><span class="hint" id="chapHint"></span></div>
       <div class="chaps" id="chaps"></div>
@@ -286,7 +287,7 @@ function pickedChapters(){const out=[];
 function periodDates(start,end,days,ppw){
   if(!start||!end||!days.length)return[];const out=[];let d=parse(start),e=parse(end);if(e<d)return[];
   let m=new Date(d);m.setDate(m.getDate()-((m.getDay()+6)%7));
-  while(m<=e){const wk=[];for(let k=0;k<7;k++){const x=new Date(m);x.setDate(m.getDate()+k);if(x>=d&&x<=e&&days.includes(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][x.getDay()]))wk.push(iso(x))}
+  while(m<=e){const wk=[];for(let k=0;k<7;k++){const x=new Date(m);x.setDate(m.getDate()+k);if(x>=d&&x<=e&&days.includes(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][x.getDay()])&&!HOL[iso(x)])wk.push(iso(x))}
     if(wk.length){const n=Math.max(1,Math.round(ppw*wk.length/days.length));for(let k=0;k<n;k++)out.push(wk[Math.floor(k*wk.length/n)])}
     m.setDate(m.getDate()+7)}
   return out}
@@ -297,7 +298,23 @@ function share(chs,total){   // periods per chapter, by pages (at least 2 each w
   let k=0;while(diff>0){base[order[k%order.length]]++;diff--;k++}
   k=0;while(diff<0&&k<1000){const i=order[order.length-1-(k%order.length)];if(base[i]>1){base[i]--;diff++}k++}
   return base}
-function slotHint(){const n=periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
+/* ---------- school holiday calendar (Oct 2026) ----------
+   The principal keeps one calendar for the school (School Admin → School Calendar).
+   Its days are skipped when lesson periods are spread over the term. */
+let HOL={},HOL_LIST=[];
+async function loadHolidays(){
+  try{const d=await tp("holidays",{});HOL={};HOL_LIST=d.holidays||[];HOL_LIST.forEach(h=>HOL[h.date]=h)}
+  catch(e){HOL={};HOL_LIST=[];$("holHint").innerHTML='<span style="color:var(--bad)">School calendar not loaded: '+esc(e.message)+'</span>';return}
+  slotHint()}
+function holHint(){
+  const st=$("fStart").value,en=$("fEnd").value,days=getDays();
+  if(!st||!en){$("holHint").textContent="";return}
+  const inTerm=HOL_LIST.filter(h=>h.date>=st&&h.date<=en&&days.includes(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][parse(h.date).getDay()]));
+  $("holHint").innerHTML=(inTerm.length
+    ?"🗓️ <b>"+inTerm.length+" school holiday"+(inTerm.length>1?"s":"")+" skipped</b> this term: "+inTerm.map(h=>esc(h.name)+" ("+esc(h.date.slice(8)+"/"+h.date.slice(5,7))+")").join(", ")
+    :"🗓️ No school holidays marked in this term.")+
+    (PRINCIPAL?' <a href="dashboard.html#calendar">Change the school calendar</a>':" Holidays are set by the principal in the School Calendar.")}
+function slotHint(){holHint();const n=periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
   $("slotHint").textContent=n?`${n} lesson periods in this term${c?" for "+c+" chapter"+(c>1?"s":"")+" — about "+Math.round(n/Math.max(1,c))+" each":""}.`:"Choose the term dates."}
 ["fStart","fEnd","fPpw"].forEach(id=>$(id).addEventListener("input",slotHint));$("fDays").addEventListener("change",slotHint);
 
@@ -524,7 +541,7 @@ async function openPlan(){
       const st=S.settings||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
   catch(e){showErr("Could not open the plan: "+e.message)}
-  $("prog").hidden=true;renderChapters();renderPlan()}
+  $("prog").hidden=true;renderChapters();renderPlan();loadHolidays()}
 ["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
   if(S.dirty)saveNow().catch(()=>{});openPlan()}));
 $("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
