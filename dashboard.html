@@ -971,6 +971,26 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     out+=section('Every class, '+(d.is_today?'today':'that day'),
       '<span style="display:inline-flex;gap:12px;flex-wrap:wrap;font-weight:800;"><span>'+pill('ok')+'</span><span>'+pill('slow')+'</span><span>'+pill('bad')+'</span></span>',tbl);
 
+    // today's parent update (Step 4): class work + homework, approve and send
+    var pu=d.parent_update||[], waiting=pu.filter(function(x){return x.status==='waiting';});
+    var puHtml='';
+    if(d.parent_update_error) puHtml+='<div style="background:#FBE7E3;border:1px solid #A3241B;color:#5E120C;border-radius:12px;padding:12px;font-weight:700;margin-bottom:8px;">'+h(d.parent_update_error)+'</div>';
+    if(!pu.length) puHtml+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">Nothing for parents yet. When teachers submit their day, the lessons they marked Done appear here as class work.</div>';
+    else {
+      puHtml+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:6px 14px;">'+pu.map(function(x){
+          var st=x.sent?pill('ok','Sent to parents'):x.status==='added'?pill('ok','Approved — goes at 4 PM'):pill('slow','Waiting for you');
+          return '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px dashed #EEDDC2;">'
+            +'<div style="flex:0 0 150px;"><b>'+h(x.class_name)+'</b><div style="font-size:.78rem;color:#6E5A4E;">'+h(x.subject)+' &middot; '+(x.type==='classwork'?'Class work':'Homework')+'</div></div>'
+            +'<div style="flex:1 1 280px;font-size:.86rem;white-space:pre-line;">'+h(x.text)+(x.teacher?'<div style="font-size:.74rem;color:#6E5A4E;margin-top:3px;">by '+h(x.teacher)+'</div>':'')+'</div>'
+            +'<div style="flex:0 0 auto;">'+st+'</div></div>';
+        }).join('')+'</div>';
+      puHtml+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center;">'
+        +(waiting.length?'<button type="button" id="ac-approve" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:10px;padding:11px 18px;font-weight:900;cursor:pointer;min-height:46px;">Approve all '+waiting.length+' and send to parents</button>':'')
+        +'<a href="homework-planner.html" style="font-weight:800;font-size:.86rem;">Change or send back in the Homework Planner &rarr;</a>'
+        +'<span id="ac-approve-msg" style="font-weight:800;font-size:.86rem;"></span></div>';
+    }
+    out+=section('Today\'s parent update','Class work and homework go to the Student Diary and the parent app at 4 PM after you approve',puHtml);
+
     // teachers' day
     var ts=d.teachers||[];
     var tl=ts.length? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">'+ts.map(function(t,i){
@@ -993,6 +1013,16 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     out+=section('Teachers\' day','What each teacher marked and submitted',tl);
 
     body.innerHTML=out;
+    if($('ac-approve')) $('ac-approve').onclick=async function(){
+      var ids=waiting.map(function(x){return x.id;}), m=$('ac-approve-msg'), b=this;
+      if(!confirm('Approve '+ids.length+' class work / homework for parents?\n\nThey go to parents at 4 PM (straight away if it is already past 4 PM).')) return;
+      b.disabled=true; m.style.color='#6E5A4E'; m.textContent='Approving…';
+      var r; try{ r=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add',ids:ids})}).then(function(x){return x.json();}); }
+      catch(e){ r={error:'No internet: '+e.message}; }
+      if(!r.success){ b.disabled=false; m.style.color='#c0392b'; m.textContent=r.error||'Could not approve.'; return; }
+      m.style.color='#1a5c2a'; m.textContent='Approved '+(r.added||ids.length)+'.'+(r.sent&&r.sent.sent?' Sent to parents now.':'');
+      setTimeout(load,1200);
+    };
     $('ac-dl-save').onclick=async function(){
       var v=$('ac-deadline').value, m=$('ac-dl-msg');
       m.style.color='#6E5A4E'; m.textContent='Saving…';
