@@ -23,6 +23,22 @@
 //                                               (the Homework Planner calls it when class work is sent)
 //   list also gives behind_count: lessons dated before today (India time) not yet ticked done.
 //
+// SCHOOL HOLIDAY CALENDAR (Oct 2026) — one calendar per school, shared by every term plan.
+//   holidays        { from?, to? }                 anyone of the school → { holidays:[{id,date,name,kind}] }
+//   holiday_save    { date, name, kind }          principal: add or change one day
+//                                                 kind 'holiday' (closed) | 'no_teaching' (exams, events)
+//   holiday_save_many { list:[{date,name,kind}] } principal: add several (the government list)
+//   holiday_remove  { id }                        principal
+//   declare_holiday { date, name, kind? }         principal, for a SUDDEN holiday (rain, Collector's order):
+//                                                 saves the day, then in EVERY term plan of the school the
+//                                                 lessons of that day and all later ones move forward by one
+//                                                 lesson slot (new slots are added after the plan's last day,
+//                                                 on its school days, skipping holidays). Lessons already
+//                                                 ticked done stay. Homework / class work of that day not yet
+//                                                 sent moves to the next school day.
+//                                                 → { moved_plans, over_term:[{class_name,subject,over}] }
+// Table: school_holidays (step5-holidays.sql). RLS on, no policies.
+//
 // Table: term_plans (made in Supabase, Step 1). RLS on, no policies — only this file uses it.
 
 const https = require('https');
@@ -190,6 +206,98 @@ module.exports = async function handler(req, res) {
         }
       }
       return res.json({ success: true, marked: marked });
+    }
+
+    // ── SCHOOL HOLIDAY CALENDAR ──
+    if (action === 'holidays') {
+      let q = '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&select=id,date,name,kind&order=date.asc';
+      if (isDate(body.from)) q += '&date=gte.' + body.from;
+      if (isDate(body.to)) q += '&date=lte.' + body.to;
+      const r = await db('GET', q);
+      if (!ok(r)) return res.json({ error: 'Could not load holidays: ' + why(r) + (r.status === 404 ? ' (Has step5-holidays.sql been run in Supabase?)' : '') });
+      return res.json({ success: true, holidays: r.data, principal: principal });
+    }
+    if (['holiday_save', 'holiday_save_many', 'holiday_remove', 'declare_holiday'].indexOf(action) !== -1 && !principal) {
+      return res.status(403).json({ error: 'Only the principal can change the school calendar.' });
+    }
+    const cleanHol = function (x) {
+      const date = String((x && x.date) || ''), name = clip(x && x.name, 80);
+      if (!isDate(date)) return { error: 'Choose a date.' };
+      if (!name) return { error: 'Type a name for ' + date + '.' };
+      return { school_id: school.id, date: date, name: name, kind: (x && x.kind) === 'no_teaching' ? 'no_teaching' : 'holiday' };
+    };
+    const upsertHol = function (rows) {
+      return db('POST', '/rest/v1/school_holidays?on_conflict=school_id,date', rows);
+    };
+    if (action === 'holiday_save' || action === 'holiday_save_many') {
+      const list = action === 'holiday_save' ? [body] : (Array.isArray(body.list) ? body.list.slice(0, 120) : []);
+      if (!list.length) return res.json({ error: 'Nothing to save.' });
+      const rows = [];
+      for (const x of list) { const c = cleanHol(x); if (c.error) return res.json({ error: c.error }); rows.push(c); }
+      // replace any existing row for the same dates (so a name or kind can be changed)
+      const dr = await db('DELETE', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=in.(' + rows.map(function (r) { return r.date; }).join(',') + ')');
+      if (!ok(dr)) return res.json({ error: 'Could not save: ' + why(dr) + (dr.status === 404 ? ' (Has step5-holidays.sql been run in Supabase?)' : '') });
+      const r = await upsertHol(rows);
+      if (!ok(r)) return res.json({ error: 'Could not save: ' + why(r) });
+      return res.json({ success: true, saved: r.data.length });
+    }
+    if (action === 'holiday_remove') {
+      if (!body.id) return res.json({ error: 'Nothing chosen.' });
+      const r = await db('DELETE', '/rest/v1/school_holidays?id=eq.' + enc(body.id) + '&school_id=eq.' + enc(school.id));
+      if (!ok(r)) return res.json({ error: 'Could not remove: ' + why(r) });
+      return res.json({ success: true });
+    }
+    if (action === 'declare_holiday') {
+      const c = cleanHol(body);
+      if (c.error) return res.json({ error: c.error });
+      const D = c.date;
+      await db('DELETE', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=eq.' + D);
+      const hs = await upsertHol([c]);
+      if (!ok(hs)) return res.json({ error: 'Could not save the holiday: ' + why(hs) + (hs.status === 404 ? ' (Has step5-holidays.sql been run in Supabase?)' : '') });
+      const hr = await db('GET', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=gte.' + D + '&select=date');
+      const off = {};
+      (ok(hr) ? hr.data : []).forEach(function (h) { off[h.date] = 1; });
+      const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const nextDay = function (d, days) {
+        const x = new Date(d + 'T00:00:00Z');
+        for (let i = 0; i < 60; i++) {
+          x.setUTCDate(x.getUTCDate() + 1);
+          const iso = x.toISOString().slice(0, 10);
+          if (days.indexOf(WD[x.getUTCDay()]) !== -1 && !off[iso]) return iso;
+        }
+        return '';
+      };
+      const pr = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,settings,rows');
+      if (!ok(pr)) return res.json({ error: 'Holiday saved, but the term plans could not be read: ' + why(pr) });
+      let moved = 0; const over = [];
+      for (const p of pr.data) {
+        const rows = Array.isArray(p.rows) ? p.rows : [];
+        // lessons of that day (not yet taught) and every later lesson, in order
+        const idx = [];
+        rows.forEach(function (r, i) { if (r && r.date && (r.date > D || (r.date === D && !r.done))) idx.push(i); });
+        if (!rows.some(function (r) { return r && r.date === D && !r.done; })) continue;
+        idx.sort(function (a, b) { return rows[a].date < rows[b].date ? -1 : rows[a].date > rows[b].date ? 1 : a - b; });
+        // the free slots: every later slot date, then new days after the last one
+        const slots = idx.map(function (i) { return rows[i].date; }).filter(function (d) { return d > D; });
+        const days = (p.settings && Array.isArray(p.settings.days) && p.settings.days.length) ? p.settings.days : ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+        let last = slots.length ? slots[slots.length - 1] : D;
+        while (slots.length < idx.length) { const n = nextDay(last, days); if (!n) break; slots.push(n); last = n; }
+        idx.forEach(function (ri, k) { if (slots[k]) rows[ri].date = slots[k]; });
+        const end = p.settings && isDate(p.settings.end) ? p.settings.end : '';
+        if (end) { const n = rows.filter(function (r) { return r && r.date > end; }).length; if (n) over.push({ class_name: p.class_name, subject: p.subject, over: n }); }
+        const w = await db('PATCH', '/rest/v1/term_plans?id=eq.' + enc(p.id) + '&school_id=eq.' + enc(school.id), { rows: rows, updated_at: new Date().toISOString() });
+        if (!ok(w)) return res.json({ error: 'Holiday saved, but ' + p.class_name + ' ' + p.subject + ' could not be moved: ' + why(w) });
+        moved++;
+      }
+      // homework / class work planned for that day and not yet sent → next school day (Mon–Sat)
+      const nd = nextDay(D, ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+      let hwMoved = 0;
+      if (nd) {
+        const hw = await db('PATCH', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + D + '&sent_at=is.null',
+                            { hw_date: nd, updated_at: new Date().toISOString() });
+        if (ok(hw)) hwMoved = hw.data.length;
+      }
+      return res.json({ success: true, moved_plans: moved, over_term: over, homework_moved: hwMoved, homework_to: nd });
     }
 
     if (action === 'get') {
