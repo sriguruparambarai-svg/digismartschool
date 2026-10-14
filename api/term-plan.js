@@ -50,7 +50,10 @@ const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const TERMS = ['I', 'II', 'III'];
-const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act'];
+const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook'];
+// homework = AI's suggestion; type = kind of period (teachbot, teach, read, practice, classwork, catchup, revision, test);
+// workbook = the school's workbook pages placed on this period (Oct 2026). class_act now holds the one Activity.
+const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test'];
 
 function db(method, path, body) {
   return new Promise(function (resolve) {
@@ -112,6 +115,13 @@ async function findSchool(label) {
   return ok(r) && r.data.length ? r.data[0] : null;
 }
 
+function cleanMap(m) {   // chapter key → workbook chapter number (index), for the optional workbook
+  const out = {};
+  if (m && typeof m === 'object' && !Array.isArray(m)) Object.keys(m).slice(0, 40).forEach(function (k) {
+    const v = parseInt(m[k], 10); if (!isNaN(v) && v >= -1 && v < 200) out[clip(k, 120)] = v;
+  });
+  return out;
+}
 function cleanSettings(s) {
   s = s && typeof s === 'object' ? s : {};
   const days = Array.isArray(s.days) ? s.days.filter(function (d) { return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(d) !== -1; }) : [];
@@ -120,7 +130,9 @@ function cleanSettings(s) {
              from: parseInt(c && c.from, 10) || null, to: parseInt(c && c.to, 10) || null };
   }) : [];
   return { start: isDate(s.start) ? s.start : '', end: isDate(s.end) ? s.end : '', days: days,
-           ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), chapters: chapters, note: clip(s.note, 500) };
+           ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), chapters: chapters, note: clip(s.note, 500),
+           tb: ['auto', '0', '1', '2', '3'].indexOf(String(s.tb)) !== -1 ? String(s.tb) : 'auto',
+           use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map) };
 }
 function cleanRows(rows) {
   if (!Array.isArray(rows)) return [];
@@ -128,6 +140,7 @@ function cleanRows(rows) {
     const o = {};
     ROW_FIELDS.forEach(function (f) { o[f] = clip(r && r[f], f === 'date' ? 10 : 1200); });
     if (!isDate(o.date)) o.date = '';
+    if (ROW_TYPES.indexOf(o.type) === -1) o.type = '';
     o.done = !!(r && r.done);
     return o;
   });
@@ -188,7 +201,7 @@ module.exports = async function handler(req, res) {
           (Array.isArray(p.rows) ? p.rows : []).forEach(function (row, i) {
             if (row && row.date === date) out.push({ plan_id: p.id, subject: p.subject, term: p.term, status: p.status, index: i,
               chapter: row.chapter || '', pages: row.pages || '', teach: row.teach || '', class_act: row.class_act || '',
-              home_act: row.home_act || '', ground_act: row.ground_act || '', done: !!row.done });
+              home_act: row.home_act || '', ground_act: row.ground_act || '', homework: row.homework || '', type: row.type || '', workbook: row.workbook || '', done: !!row.done });
           });
         });
         return res.json({ success: true, rows: out });

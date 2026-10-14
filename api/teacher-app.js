@@ -448,7 +448,7 @@ module.exports = async function handler(req, res) {
             if (!row) return;
             const card = { plan_id: p.id, index: i, class_name: p.class_name, subject: p.subject, date: row.date || '',
                            chapter: row.chapter || '', pages: row.pages || '', teach: row.teach || '',
-                           class_act: row.class_act || '', home_act: row.home_act || '', ground_act: row.ground_act || '',
+                           class_act: row.class_act || '', home_act: row.home_act || '', ground_act: row.ground_act || '', homework: row.homework || '', type: row.type || '', workbook: row.workbook || '',
                            done: !!row.done };
             if (row.date === today) out.items.push(card);
             else if (row.date && row.date < today && !row.done) late.push(card);
