@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
+<meta name="theme-color" content="#6B0F1A"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-title" content="My Day"/>
+<title>My Day — DigiSmart Teacher App</title>
+<!--
+  my-day.html — DigiSmart Teacher Communication App (Oct 2026, Step 2)
+  The teacher opens her personal link (my-day.html?t=CODE) and enters her 4-digit PIN.
+  She sees ONLY what the principal ticked for her in School Admin → My Teachers:
+    • Today          — her lessons from the Term Planner, activity and homework, Done / Not done
+    • Homework       — the last school day's homework: corrected? who didn't submit?
+    • Submit my day  — check every lesson and submit before the school's deadline
+  It talks only to /api/teacher-app (its own login, kept 30 days on this phone).
+  It never opens books, lessons or any other TeachBot page.
+-->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+:root{--m:#6B0F1A;--md:#4A0A12;--g:#C9A84C;--gl:#E8C96A;--s:#F5E6C8;--sd:#EDD9A3;--bg:#F7EFE2;--card:#FFFBF4;--t:#2A0A0F;--mut:#6E5A4E;
+      --ok:#2E7D4F;--warn:#8A6418;--warnbg:#FCF1D9;--bad:#A3241B;--badbg:#FBE7E3;}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--bg);}
+body{font-family:"Nunito",sans-serif;color:var(--t);min-height:100vh;padding-bottom:84px;}
+button{font-family:inherit;}
+.hdr{background:linear-gradient(135deg,var(--md),var(--m));color:#FBF4E8;padding:18px 18px 16px;border-bottom:4px solid var(--g);}
+.hdr .school{font-size:.78rem;color:var(--gl);font-weight:800;letter-spacing:.04em;}
+.hdr h1{font-family:"Cinzel",serif;font-size:1.35rem;font-weight:700;margin:3px 0 2px;}
+.hdr .sub{font-size:.86rem;color:var(--s);}
+.wrap{max-width:560px;margin:0 auto;padding:14px;}
+.card{background:var(--card);border:1px solid var(--sd);border-radius:14px;padding:14px 15px;margin-bottom:12px;}
+.card.now{border:2px solid var(--g);}
+.card.earlier{border:1.5px solid #D9A13B;background:#FFF8EA;}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.cls{font-family:"Cinzel",serif;font-size:1.08rem;color:var(--m);font-weight:700;}
+.tag{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:900;white-space:nowrap;}
+.t-done{background:var(--ok);color:#fff;} .t-not{background:var(--bad);color:#fff;}
+.t-open{background:#F2CC74;color:#3A2A00;} .t-earlier{background:#D9A13B;color:#2A1A00;}
+.line{display:flex;gap:10px;font-size:.9rem;margin-top:7px;line-height:1.4;}
+.line b{flex:0 0 74px;color:var(--mut);font-weight:800;}
+.btns{display:flex;gap:8px;margin-top:12px;}
+.btn{flex:1;min-height:46px;border-radius:10px;font-weight:900;font-size:.95rem;cursor:pointer;border:1.5px solid var(--m);background:#fff;color:var(--m);}
+.btn.primary{background:var(--m);color:#fff;border-color:var(--m);}
+.btn.okon{background:var(--ok);border-color:var(--ok);color:#fff;}
+.btn.ok{border-color:var(--ok);color:var(--ok);}
+.btn.bad{border-color:var(--bad);color:var(--bad);}
+.btn.badon{background:var(--bad);border-color:var(--bad);color:#fff;}
+.btn.warn{border-color:var(--warn);color:var(--warn);}
+.btn.warnon{background:#F2CC74;border-color:var(--warn);color:#3A2A00;}
+.btn:disabled{opacity:.55;cursor:default;}
+select,textarea,input{font-family:inherit;font-size:.95rem;}
+select{width:100%;min-height:44px;border:1.5px solid var(--sd);border-radius:10px;padding:0 10px;background:#fff;margin-top:8px;}
+textarea{width:100%;min-height:80px;border:1.5px solid var(--sd);border-radius:10px;padding:10px;background:#fff;}
+.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+.chip{min-height:40px;min-width:44px;padding:0 12px;border-radius:999px;font-weight:800;font-size:.82rem;cursor:pointer;border:1.5px solid #E0CBA8;background:#fff;color:#4E3D33;}
+.chip.on{background:var(--bad);border-color:var(--bad);color:#fff;}
+.banner{border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:.88rem;line-height:1.4;}
+.banner.red{background:var(--badbg);border:1px solid var(--bad);color:#5E120C;}
+.banner.yellow{background:var(--warnbg);border:1px solid #D9A13B;color:#4E3D33;}
+.banner.green{background:#EAF6EE;border:1px solid var(--ok);color:#164A2C;}
+.empty{text-align:center;color:var(--mut);padding:26px 10px;font-size:.92rem;line-height:1.5;}
+.h2{font-family:"Cinzel",serif;color:var(--m);font-size:1.05rem;margin:6px 2px 10px;}
+.nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:2px solid var(--sd);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:10;}
+.nav button{flex:1;min-height:62px;background:none;border:none;font-weight:900;font-size:.8rem;color:var(--mut);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
+.nav button svg{width:22px;height:22px;}
+.nav button.on{color:var(--m);box-shadow:inset 0 3px 0 var(--g);}
+.nav .dot{display:inline-block;min-width:18px;padding:0 5px;border-radius:9px;background:var(--bad);color:#fff;font-size:.68rem;line-height:18px;}
+.pinbox{max-width:360px;margin:30px auto;padding:0 16px;text-align:center;}
+.pin{width:100%;font-size:2rem;letter-spacing:.6em;text-align:center;padding:12px 0 12px .6em;border:2px solid var(--sd);border-radius:14px;background:#fff;font-weight:900;}
+.msg{min-height:22px;font-weight:800;font-size:.88rem;margin-top:10px;}
+.small{font-size:.8rem;color:var(--mut);}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--t);color:#fff;padding:9px 16px;border-radius:999px;font-weight:800;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;}
+.toast.show{opacity:1;}
+a{color:var(--m);}
+</style>
+</head>
+<body>
+
+<div id="pinView" style="display:none;">
+  <div class="hdr"><div class="school" id="pinSchool">DigiSmart</div><h1>Teacher App</h1><div class="sub">Your day, in one place</div></div>
+  <div class="pinbox">
+    <p id="pinHello" style="font-weight:800;font-size:1.05rem;margin-bottom:14px;">Enter your PIN</p>
+    <label for="pinIn" class="small" style="display:block;margin-bottom:6px;">4-digit PIN from your principal</label>
+    <input id="pinIn" class="pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off"/>
+    <button type="button" id="pinGo" class="btn primary" style="width:100%;margin-top:14px;">Open my day</button>
+    <div id="pinMsg" class="msg" style="color:var(--bad);"></div>
+    <p class="small" style="margin-top:18px;line-height:1.5;">Tip: after opening, use your browser menu → <b>Add to Home screen</b>. Then it opens like an app.</p>
+  </div>
+</div>
+
+<div id="appView" style="display:none;">
+  <div class="hdr">
+    <div class="school" id="hSchool"></div>
+    <h1 id="hHello">Good morning</h1>
+    <div class="sub" id="hSub"></div>
+  </div>
+  <div class="wrap" id="main"><div class="empty">Loading your day…</div></div>
+  <nav class="nav" id="nav" aria-label="Sections"></nav>
+</div>
+
+<div id="loadView" class="empty" style="padding-top:80px;">Loading…</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+"use strict";
+var $=function(id){return document.getElementById(id);};
+function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+function lsDel(k){try{localStorage.removeItem(k);}catch(e){}}
+
+var CODE=(new URLSearchParams(location.search).get('t')||'').trim().toLowerCase();
+var TOK_KEY='ta_tok_'+CODE;
+var D=null;            // the day from the server
+var marks={};          // "planId|index" → {status:'done'|'not', reason}
+var checks={};         // hw_id → {corrected, missing:[]}
+var watch='';
+var tab='today';
+var REASONS=["Children needed more time on the last lesson","Event / assembly took the period","I was on other duty","I was absent","Other"];
+
+function toast(t){var e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast._t);toast._t=setTimeout(function(){e.classList.remove('show');},1800);}
+function show(v){['pinView','appView','loadView'].forEach(function(id){$(id).style.display=id===v?'block':'none';});}
+
+async function api(action,data){
+  var headers={'Content-Type':'application/json'};
+  var tok=lsGet(TOK_KEY); if(tok) headers['x-teacher-app']=tok;
+  var r,txt,d;
+  try{ r=await fetch('/api/teacher-app',{method:'POST',headers:headers,body:JSON.stringify(Object.assign({action:action},data||{}))}); }
+  catch(e){ return {error:'No internet. Please check your connection and try again.'}; }
+  txt=await r.text();
+  try{ d=JSON.parse(txt); }catch(e){ d={error:'Server reply could not be read (status '+r.status+').'}; }
+  if(r.status===401){ lsDel(TOK_KEY); d.relogin=true; }
+  return d;
+}
+
+// ── PIN ──
+async function showPin(note){
+  show('pinView'); $('pinIn').value=''; $('pinMsg').textContent=note||'';
+  if(!CODE){ $('pinHello').textContent='This link is incomplete.'; $('pinMsg').textContent='Please open the full link your principal sent you.'; $('pinGo').disabled=true; return; }
+  var d=await api('link_info',{code:CODE});
+  if(d.success){ $('pinSchool').textContent=d.school_name||'DigiSmart'; $('pinHello').textContent='Hello, '+d.name+'. Enter your PIN.'; }
+  else { $('pinHello').textContent=''; $('pinMsg').textContent=d.error||'This link is not working.'; $('pinGo').disabled=true; }
+  setTimeout(function(){ try{$('pinIn').focus();}catch(e){} },100);
+}
+async function doLogin(){
+  var pin=$('pinIn').value.trim();
+  if(!/^\d{4}$/.test(pin)){ $('pinMsg').textContent='Type your 4-digit PIN.'; return; }
+  $('pinGo').disabled=true; $('pinMsg').textContent='';
+  var d=await api('login',{code:CODE,pin:pin});
+  $('pinGo').disabled=false;
+  if(!d.success){ $('pinMsg').textContent=d.error||'Could not log in.'; $('pinIn').value=''; return; }
+  lsSet(TOK_KEY,d.token); loadDay();
+}
+$('pinGo').onclick=doLogin;
+$('pinIn').addEventListener('keydown',function(e){ if(e.key==='Enter') doLogin(); });
+$('pinIn').addEventListener('input',function(){ this.value=this.value.replace(/\D/g,'').slice(0,4); if(this.value.length===4) doLogin(); });
+
+// ── Load the day ──
+async function loadDay(){
+  if(!lsGet(TOK_KEY)) return showPin();
+  show('loadView');
+  var d=await api('my_day');
+  if(d.relogin) return showPin(d.error);
+  if(!d.success){ show('appView'); $('main').innerHTML='<div class="banner red">'+h(d.error||'Could not load your day.')+'</div><button type="button" class="btn primary" onclick="location.reload()">Try again</button>'; return; }
+  D=d; marks={}; checks={}; watch='';
+  if(d.report){
+    (d.report.items||[]).forEach(function(x){ if(x.status) marks[x.plan_id+'|'+x.index]={status:x.status,reason:x.reason||''}; });
+    (d.report.hw_checks||[]).forEach(function(c){ checks[c.hw_id]={corrected:c.corrected||'',missing:(c.missing||[]).slice()}; });
+    watch=d.report.watch||'';
+  }
+  // lessons already ticked as taught (e.g. by the Homework Planner) start as Done
+  (d.items||[]).forEach(function(x){ if(x.done && !marks[key(x)]) marks[key(x)]={status:'done',reason:''}; });
+  show('appView');
+  $('hSchool').textContent=d.teacher.school_name||'';
+  var hr=parseInt((d.now||'09:00').slice(0,2),10);
+  $('hHello').textContent=(hr<12?'Good morning, ':hr<16?'Good afternoon, ':'Good evening, ')+d.teacher.name;
+  $('hSub').textContent=niceDate(d.today);
+  var tabs=[];
+  if(has('today')) tabs.push('today');
+  if(has('hw_check')) tabs.push('hw');
+  if(has('submit_day')) tabs.push('submit');
+  if(tabs.indexOf(tab)===-1) tab=tabs[0]||'none';
+  drawNav(tabs); draw();
+}
+function has(k){ return D && (D.access||[]).indexOf(k)!==-1; }
+function niceDate(s){ try{ var x=new Date(s+'T00:00:00'); return x.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'}); }catch(e){ return s; } }
+function nice12(t){ var p=String(t||'').split(':'),H=parseInt(p[0],10),M=p[1]||'00'; if(isNaN(H)) return t; return ((H%12)||12)+':'+M+' '+(H<12?'AM':'PM'); }
+function allItems(){ return (D.earlier||[]).concat(D.items||[]); }
+function key(x){ return x.plan_id+'|'+x.index; }
+function unmarked(){ return allItems().filter(function(x){ return !(marks[key(x)]&&marks[key(x)].status); }).length; }
+function hwFor(x){ return (D.hw_today||[]).filter(function(hw){ return hw.class_name===x.class_name && String(hw.subject).toLowerCase()===String(x.subject).toLowerCase(); }); }
+
+var ICON={
+  today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+  hw:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 13l3 3 5-6"/></svg>',
+  submit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>'
+};
+function drawNav(tabs){
+  var label={today:'Today',hw:'Homework',submit:'Submit my day'};
+  if(tabs.length<2){ $('nav').style.display='none'; document.body.style.paddingBottom='24px'; }
+  $('nav').innerHTML=tabs.map(function(t){
+    var dot='';
+    if(t==='submit' && !(D.report&&D.report.submitted_at)) dot=' <span class="dot">!</span>';
+    if(t==='hw'){ var n=(D.hw_check||[]).filter(function(x){return !(checks[x.id]&&checks[x.id].corrected);}).length; if(n) dot=' <span class="dot">'+n+'</span>'; }
+    return '<button type="button" data-t="'+t+'" class="'+(tab===t?'on':'')+'" aria-current="'+(tab===t?'page':'false')+'">'+ICON[t]+'<span>'+label[t]+dot+'</span></button>';
+  }).join('');
+  $('nav').querySelectorAll('button').forEach(function(b){ b.onclick=function(){ tab=b.getAttribute('data-t'); drawNav(tabs); draw(); window.scrollTo(0,0); }; });
+  drawNav._tabs=tabs;
+}
+function redrawNav(){ if(drawNav._tabs) drawNav(drawNav._tabs); }
+
+function draw(){
+  var m=$('main');
+  if(tab==='today') m.innerHTML=todayHTML();
+  else if(tab==='hw') m.innerHTML=hwHTML();
+  else if(tab==='submit') m.innerHTML=submitHTML();
+  else m.innerHTML='<div class="empty">Your principal has not given you anything to see yet.</div>';
+  wire();
+}
+
+// ── TODAY ──
+function lessonCard(x,isEarlier,showButtons){
+  var mk=marks[key(x)]||{}, st=mk.status||'';
+  var tag=st==='done'?'<span class="tag t-done">Done</span>':st==='not'?'<span class="tag t-not">Not done</span>':isEarlier?'<span class="tag t-earlier">Left from '+h(shortDate(x.date))+'</span>':'<span class="tag t-open">To do</span>';
+  var hws=hwFor(x);
+  var hwLine=hws.length?hws.map(function(hw){return h(hw.homework)+(hw.status==='waiting'?' <span class="small">(waiting for principal)</span>':'');}).join('<br>')
+            :(x.home_act?'<span class="small">Suggested:</span> '+h(x.home_act):'<span class="small">None set</span>');
+  var act=[x.class_act,x.ground_act?('Ground: '+x.ground_act):''].filter(Boolean).map(h).join('<br>')||'<span class="small">—</span>';
+  var html='<div class="card'+(isEarlier?' earlier':'')+'">'
+    +'<div class="row"><div class="cls">'+h(x.class_name)+' · '+h(x.subject)+'</div>'+tag+'</div>'
+    +'<div class="line"><b>Lesson</b><span>'+h(x.chapter||'')+(x.pages?' <span class="small">(p. '+h(x.pages)+')</span>':'')+'</span></div>'
+    +'<div class="line"><b>Teach</b><span>'+h(x.teach||'')+'</span></div>'
+    +'<div class="line"><b>Activity</b><span>'+act+'</span></div>'
+    +'<div class="line"><b>Homework</b><span>'+hwLine+'</span></div>';
+  if(showButtons){
+    html+='<div class="btns">'
+      +'<button type="button" class="btn '+(st==='done'?'okon':'ok')+'" data-mark="done" data-k="'+h(key(x))+'">Done</button>'
+      +'<button type="button" class="btn '+(st==='not'?'badon':'bad')+'" data-mark="not" data-k="'+h(key(x))+'">Not done</button></div>';
+    if(st==='not'){
+      var id='rs_'+x.plan_id.slice(0,8)+'_'+x.index;
+      html+='<label for="'+id+'" class="small" style="display:block;margin-top:10px;font-weight:800;">Reason</label>'
+        +'<select id="'+id+'" data-reason="'+h(key(x))+'"><option value="">Choose a reason</option>'
+        +REASONS.map(function(r){return '<option'+(mk.reason===r?' selected':'')+'>'+h(r)+'</option>';}).join('')+'</select>'
+        +'<div class="small" style="margin-top:6px;">This lesson stays open and comes back on your Today screen until it is done.</div>';
+    }
+  }
+  return html+'</div>';
+}
+function shortDate(s){ try{ return new Date(s+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short'}); }catch(e){ return s; } }
+function todayHTML(){
+  var canMark=has('submit_day')||has('today');
+  if(D.weekday==='Sun') return '<div class="empty">It is Sunday. Enjoy your day off!</div>';
+  if(!(D.classes||[]).length) return '<div class="empty">Your principal has not added your classes yet.<br>Please ask them to add your classes and subjects.</div>';
+  var out='';
+  if(D.hw_error) out+='<div class="banner red">'+h(D.hw_error)+'</div>';
+  if((D.earlier||[]).length){
+    out+='<div class="h2">Left from earlier</div>'+D.earlier.map(function(x){return lessonCard(x,true,canMark);}).join('');
+  }
+  out+='<div class="h2">Today</div>';
+  if(!(D.items||[]).length) out+='<div class="empty">No lessons planned for today in the Term Planner for your classes.<br>If this is wrong, please tell your principal.</div>';
+  else out+=D.items.map(function(x){return lessonCard(x,false,canMark);}).join('');
+  out+='<p class="small" style="margin:8px 2px;">Tap <b>Done</b> right after each class. You check everything again in <b>Submit my day</b>.</p>';
+  return out;
+}
+
+// ── HOMEWORK CHECK ──
+function hwHTML(){
+  var list=D.hw_check||[];
+  if(!list.length) return '<div class="empty">No homework to check from the last school day.</div>';
+  var out='<div class="h2">Homework given on '+h(niceDate(list[0].hw_date))+'</div>';
+  out+=list.map(function(hw){
+    var c=checks[hw.id]||{corrected:'',missing:[]};
+    var kids=(D.students||{})[hw.class_name]||[];
+    function cb(v,label,cls){ return '<button type="button" class="btn '+(c.corrected===v?cls+'on':cls)+'" data-cor="'+v+'" data-hw="'+h(hw.id)+'">'+label+'</button>'; }
+    return '<div class="card"><div class="cls">'+h(hw.class_name)+' · '+h(hw.subject)+'</div>'
+      +'<div class="small" style="margin-top:4px;font-size:.88rem;color:#4E3D33;">'+h(hw.homework)+'</div>'
+      +'<div style="font-weight:900;font-size:.88rem;margin-top:12px;">Corrected?</div>'
+      +'<div class="btns" style="margin-top:6px;">'+cb('yes','Yes, all','ok')+cb('some','Some','warn')+cb('no','Not yet','bad')+'</div>'
+      +'<div style="font-weight:900;font-size:.88rem;margin-top:14px;">Didn\'t submit — tap roll numbers</div>'
+      +(kids.length?'<div class="chips">'+kids.map(function(k){
+          var on=c.missing.indexOf(k.roll)!==-1;
+          return '<button type="button" class="chip'+(on?' on':'')+'" data-miss="'+h(k.roll)+'" data-hw="'+h(hw.id)+'" aria-pressed="'+on+'" title="'+h(k.name)+'">'+h(k.roll)+'</button>';
+        }).join('')+'</div>'
+        :'<div class="small" style="margin-top:6px;">No student list for '+h(hw.class_name)+' yet. Your principal can add it in My Students.</div>')
+      +'</div>';
+  }).join('');
+  out+='<button type="button" class="btn primary" id="saveHw" style="width:100%;">Save homework check</button>';
+  return out;
+}
+
+// ── SUBMIT MY DAY ──
+function submitHTML(){
+  var rep=D.report||{}, done=!!rep.submitted_at;
+  var items=allItems();
+  var left=unmarked();
+  var out='';
+  if(done){
+    var tm=new Date(rep.submitted_at).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'});
+    out+='<div class="banner green"><b>Submitted at '+h(tm)+'</b>'+(rep.late?' (after the '+h(nice12(D.deadline))+' deadline)':'')+'. You can still correct it today and tap Update.</div>';
+  } else {
+    var mins=minsLeft();
+    out+='<div class="banner '+(mins<0?'red':'yellow')+'"><b>Due by '+h(nice12(D.deadline))+'</b> <span class="small">(time set by your principal)</span><br>'
+      +(mins<0?'The deadline has passed. Please submit now.':(mins<=60?mins+' minutes left.':'Parents get today\'s update after you submit.'))+'</div>';
+  }
+  if(left) out+='<div class="banner red">'+left+' lesson'+(left>1?'s are':' is')+' not marked yet. Mark each one Done or Not done.</div>';
+  out+='<div class="h2">Your lessons</div>';
+  if(!items.length) out+='<div class="empty">No lessons to mark today.</div>';
+  else out+=items.map(function(x){ return lessonCard(x,x.date!==D.today,true); }).join('');
+  out+='<div class="card"><label for="watchIn" style="font-weight:900;font-size:.92rem;">Children to watch <span class="small">(optional)</span></label>'
+    +'<div class="small" style="margin:4px 0 8px;">Who didn\'t follow today\'s lesson, or needs help? Roll numbers or names.</div>'
+    +'<textarea id="watchIn" maxlength="600" placeholder="e.g. Class 3: roll 7 and 12 found new words hard">'+h(watch)+'</textarea></div>';
+  out+='<button type="button" class="btn primary" id="submitDay" style="width:100%;min-height:54px;font-size:1.05rem;">'+(done?'Update my day':'Submit my day')+'</button>';
+  out+='<p class="small" style="text-align:center;margin-top:8px;">Not submitted by the school\'s deadline shows red on the principal\'s screen.</p>';
+  out+='<p class="small" style="text-align:center;margin-top:18px;"><a href="#" id="logout">Not you? Log out</a></p>';
+  return out;
+}
+function minsLeft(){
+  var now=new Date(Date.now()+5.5*3600*1000), p=String(D.deadline||'15:30').split(':');
+  var nowM=now.getUTCHours()*60+now.getUTCMinutes();
+  return (parseInt(p[0],10)*60+parseInt(p[1],10))-nowM;
+}
+
+// ── Actions ──
+function payload(submit){
+  return {
+    items: allItems().map(function(x){ var mk=marks[key(x)]||{}; var hws=hwFor(x);
+      return {plan_id:x.plan_id,index:x.index,status:mk.status||'',reason:mk.reason||'',hw:hws.map(function(hw){return hw.homework;}).join(' | ')}; })
+      .filter(function(x){ return x.status || submit; }),
+    hw_checks: (D.hw_check||[]).filter(function(hw){ return checks[hw.id]; }).map(function(hw){ var c=checks[hw.id];
+      return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,homework:hw.homework,hw_date:hw.hw_date,corrected:c.corrected||'',missing:c.missing}; }),
+    watch: watch,
+    submit: !!submit
+  };
+}
+var saving=false, again=false;
+async function save(submit){
+  if(saving && !submit){ again=true; return; }
+  saving=true;
+  var d=await api('save_day',payload(submit));
+  saving=false;
+  if(d.relogin) return showPin(d.error);
+  if(!d.success){ alert(d.error||'Could not save. Please try again.'); return false; }
+  if(submit){ D.report=D.report||{}; D.report.submitted_at=d.submitted_at; D.report.late=d.late; }
+  if(again){ again=false; save(false); }
+  return true;
+}
+function wire(){
+  var m=$('main');
+  m.querySelectorAll('[data-mark]').forEach(function(b){ b.onclick=function(){
+    var k=b.getAttribute('data-k'), v=b.getAttribute('data-mark'), cur=marks[k]||{};
+    marks[k]={status:cur.status===v?'':v,reason:v==='not'?(cur.reason||''):''};
+    if(!marks[k].status) delete marks[k];
+    draw(); redrawNav(); save(false).then(function(ok){ if(ok!==false) toast('Saved'); });
+  }; });
+  m.querySelectorAll('[data-reason]').forEach(function(s){ s.onchange=function(){
+    var k=s.getAttribute('data-reason'); marks[k]=marks[k]||{status:'not'}; marks[k].reason=s.value; save(false).then(function(ok){ if(ok!==false) toast('Saved'); });
+  }; });
+  m.querySelectorAll('[data-cor]').forEach(function(b){ b.onclick=function(){
+    var id=b.getAttribute('data-hw'); checks[id]=checks[id]||{corrected:'',missing:[]};
+    checks[id].corrected=checks[id].corrected===b.getAttribute('data-cor')?'':b.getAttribute('data-cor'); draw(); redrawNav();
+  }; });
+  m.querySelectorAll('[data-miss]').forEach(function(b){ b.onclick=function(){
+    var id=b.getAttribute('data-hw'), r=b.getAttribute('data-miss'); checks[id]=checks[id]||{corrected:'',missing:[]};
+    var i=checks[id].missing.indexOf(r); if(i===-1) checks[id].missing.push(r); else checks[id].missing.splice(i,1);
+    b.classList.toggle('on'); b.setAttribute('aria-pressed',String(i===-1));
+  }; });
+  if($('saveHw')) $('saveHw').onclick=async function(){
+    var miss=(D.hw_check||[]).filter(function(hw){return !(checks[hw.id]&&checks[hw.id].corrected);}).length;
+    if(miss && !confirm(miss+' homework not answered "Corrected?" yet. Save anyway?')) return;
+    this.disabled=true; var ok=await save(false); this.disabled=false; if(ok!==false){ toast('Homework check saved'); redrawNav(); }
+  };
+  if($('watchIn')) $('watchIn').oninput=function(){ watch=this.value; };
+  if($('submitDay')) $('submitDay').onclick=async function(){
+    var left=unmarked();
+    if(left && !confirm(left+' lesson'+(left>1?'s are':' is')+' not marked. Submit anyway?')) return;
+    var bad=Object.keys(marks).filter(function(k){return marks[k].status==='not'&&!marks[k].reason;}).length;
+    if(bad){ alert('Please choose a reason for every lesson marked Not done.'); return; }
+    this.disabled=true; var ok=await save(true); this.disabled=false;
+    if(ok!==false){ toast('Day submitted. Thank you!'); draw(); redrawNav(); window.scrollTo(0,0); }
+  };
+  if($('logout')) $('logout').onclick=function(e){ e.preventDefault(); if(confirm('Log out of the teacher app on this phone?')){ lsDel(TOK_KEY); showPin(); } };
+}
+
+loadDay();
+})();
+</script>
+</body>
+</html>
