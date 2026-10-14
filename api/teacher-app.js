@@ -16,6 +16,10 @@
 //   set_pin  { id, pin? }                      → { pin }   pin left empty = a random one is made; shown ONCE
 //   new_link { id }                            → { link_code }   old link stops working, phones are logged out
 //   remove   { id }
+//   get_settings / save_settings { deadline:'HH:MM' }   the school's Submit-my-day deadline (Step 3)
+//   live     { date? }                         Academic Control: stats, needs-attention list, every class+subject
+//                                              (today's lessons, Done/Not done, homework, portion, behind) and each
+//                                              teacher's day (submitted / late / missing, what she marked)
 //
 // Teacher (no login yet):
 //   link_info { code }                         → { name, school_name }   for the PIN screen
@@ -471,6 +475,159 @@ module.exports = async function handler(req, res) {
       const r = await db('DELETE', '/rest/v1/teacher_app?id=eq.' + enc(t.id) + '&school_id=eq.' + enc(school.id));
       if (!ok(r)) return res.json({ error: 'Could not remove: ' + why(r) });
       return res.json({ success: true });
+    }
+
+    // ── ACADEMIC CONTROL (Step 3): the principal's Live School screen ──
+    if (action === 'get_settings') {
+      return res.json({ success: true, deadline: await readDeadline(school) });
+    }
+    if (action === 'save_settings') {
+      const dl = String(body.deadline || '');
+      if (!/^\d{2}:\d{2}$/.test(dl) || dl < '10:00' || dl > '21:00') return res.json({ error: 'Choose a deadline between 10:00 AM and 9:00 PM.' });
+      const r = await db('POST', '/rest/v1/teacher_app_settings?on_conflict=school_id',
+                         { school_id: school.id, deadline: dl, updated_at: new Date().toISOString() });
+      // (POST with on_conflict needs "merge-duplicates"; fall back to PATCH if the row exists)
+      if (!ok(r)) {
+        const p = await db('PATCH', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id), { deadline: dl, updated_at: new Date().toISOString() });
+        if (!ok(p) || !p.data.length) return res.json({ error: 'Could not save the deadline: ' + why(r) + (r.status === 404 ? ' (Has step2-teacher-day.sql been run in Supabase?)' : '') });
+      }
+      return res.json({ success: true, deadline: dl });
+    }
+
+    if (action === 'live') {
+      const day = isDate(body.date) ? body.date : istToday();
+      const isToday = day === istToday();
+      const deadline = await readDeadline(school);
+      const pastDeadline = !isToday || istTime() > deadline;
+
+      const [tr, pr, hr, rr, wr] = await Promise.all([
+        db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access'),
+        db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,term,status,teacher_name,rows'),
+        db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=neq.returned&hw_date=eq.' + day + '&select=id,class_name,subject,homework,status'),
+        db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&report_date=eq.' + day + '&select=*'),
+        db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&report_date=gte.' + addDays(day, -7) +
+                  '&report_date=lte.' + day + '&select=teacher_name,report_date,hw_checks')
+      ]);
+      for (const x of [tr, pr, hr, rr, wr]) {
+        if (!ok(x)) return res.json({ error: 'Could not load: ' + why(x) + (x.status === 404 ? ' (Have the step 1 and step 2 SQL files been run in Supabase?)' : '') });
+      }
+      const teachers = tr.data, plans = pr.data, hwToday = hr.data, reports = rr.data, week = wr.data;
+      const low = function (s) { return String(s || '').toLowerCase(); };
+      const teacherFor = function (cls, sub) {
+        const t = teachers.find(function (t) { return (t.classes || []).some(function (c) { return c.class_name === cls && low(c.subject) === low(sub); }); });
+        return t ? t.name : '';
+      };
+      const reportOf = {};
+      reports.forEach(function (r) { reportOf[r.teacher_app_id] = r; });
+      // what each lesson was marked as today: "planId|index" → item
+      const marked = {};
+      reports.forEach(function (r) { (r.items || []).forEach(function (x) { if (x.status) marked[x.plan_id + '|' + x.index] = Object.assign({ teacher: r.teacher_name }, x); }); });
+
+      // ── one entry per class + subject that has a term plan ──
+      const subjects = [];
+      plans.forEach(function (p) {
+        const rows = Array.isArray(p.rows) ? p.rows : [];
+        const total = rows.length, done = rows.filter(function (x) { return x && x.done; }).length;
+        const dueBy = rows.filter(function (x) { return x && x.date && x.date <= day; }).length;
+        const behind = rows.filter(function (x) { return x && x.date && x.date < day && !x.done; }).length;
+        const todays = [];
+        rows.forEach(function (x, i) {
+          if (x && x.date === day) {
+            const m = marked[p.id + '|' + i];
+            todays.push({ chapter: x.chapter || '', teach: x.teach || '', activity: x.class_act || '',
+                          state: m ? m.status : (x.done ? 'done' : ''), reason: m ? (m.reason || '') : '' });
+          }
+        });
+        subjects.push({ class_name: p.class_name, subject: p.subject, term: p.term, plan_status: p.status,
+                        teacher: teacherFor(p.class_name, p.subject) || p.teacher_name || '',
+                        total: total, done: done, due: dueBy, behind: behind, today: todays,
+                        hw: hwToday.filter(function (h) { return h.class_name === p.class_name && low(h.subject) === low(p.subject); })
+                                   .map(function (h) { return { text: h.homework, status: h.status }; }) });
+      });
+      subjects.forEach(function (s) {
+        const notToday = s.today.some(function (x) { return x.state === 'not'; });
+        s.level = s.behind >= 3 ? 'bad' : (s.behind >= 1 || notToday) ? 'slow' : 'ok';
+      });
+
+      // ── needs attention ──
+      const flags = [];
+      // 1. teachers who have not submitted after the deadline
+      teachers.forEach(function (t) {
+        if ((t.access || []).indexOf('submit_day') === -1) return;
+        const r = reportOf[t.id];
+        if (!(r && r.submitted_at) && pastDeadline) {
+          flags.push({ level: 'bad', kind: 'Not submitted', title: t.name + ' has not submitted ' + (isToday ? 'today' : 'that day'),
+                       detail: 'Deadline was ' + deadline + '. Parents of those classes are waiting for the day\'s update.' });
+        } else if (r && r.late) {
+          flags.push({ level: 'slow', kind: 'Late', title: t.name + ' submitted after the deadline',
+                       detail: 'Submitted at ' + new Date(new Date(r.submitted_at).getTime() + 5.5 * 3600e3).toISOString().slice(11, 16) + ' (deadline ' + deadline + ').' });
+        }
+      });
+      // 2. classes behind the term plan
+      subjects.filter(function (s) { return s.behind >= 3; }).sort(function (a, b) { return b.behind - a.behind; }).forEach(function (s) {
+        flags.push({ level: 'bad', kind: 'Behind', title: s.class_name + ' ' + s.subject + ' is ' + s.behind + ' lessons behind the Term Planner',
+                     detail: (s.teacher ? s.teacher + ' · ' : '') + s.done + ' of ' + s.total + ' lessons done. Consider an extra period or merging two lessons.' });
+      });
+      // 3. lessons marked Not done today
+      Object.keys(marked).forEach(function (k) {
+        const m = marked[k];
+        if (m.status !== 'not') return;
+        flags.push({ level: 'slow', kind: 'Not done', title: m.class_name + ' ' + m.subject + ' — ' + (m.chapter || 'lesson') + ' marked Not done',
+                     detail: (m.teacher ? m.teacher + ': ' : '') + (m.reason || 'no reason given') + '. It stays on the teacher\'s Today screen until it is done.' });
+      });
+      // 4. homework not corrected (from the checks saved on this day)
+      reports.forEach(function (r) {
+        (r.hw_checks || []).forEach(function (c) {
+          if (c.corrected === 'no' || c.corrected === 'some') {
+            flags.push({ level: c.corrected === 'no' ? 'bad' : 'slow', kind: 'Homework',
+                         title: c.class_name + ' ' + c.subject + ' — homework ' + (c.corrected === 'no' ? 'not corrected' : 'only partly corrected'),
+                         detail: (r.teacher_name || '') + (c.homework ? ' · "' + c.homework.slice(0, 80) + '"' : '') });
+          }
+        });
+      });
+      // 5. children who missed homework 3 or more times in the last 7 days
+      const miss = {};
+      week.forEach(function (r) {
+        (r.hw_checks || []).forEach(function (c) {
+          (c.missing || []).forEach(function (roll) {
+            const k = c.class_name + '|' + roll;
+            miss[k] = miss[k] || { class_name: c.class_name, roll: roll, n: 0, subjects: {} };
+            miss[k].n++; miss[k].subjects[c.subject] = 1;
+          });
+        });
+      });
+      Object.keys(miss).map(function (k) { return miss[k]; }).filter(function (m) { return m.n >= 3; })
+        .sort(function (a, b) { return b.n - a.n; }).forEach(function (m) {
+          flags.push({ level: 'slow', kind: 'Students', title: m.class_name + ' roll ' + m.roll + ' missed homework ' + m.n + ' times this week',
+                       detail: 'Subjects: ' + Object.keys(m.subjects).join(', ') + '. Consider telling the parent.' });
+        });
+      // 6. children to watch
+      reports.forEach(function (r) {
+        if (r.watch) flags.push({ level: 'info', kind: 'Watch', title: 'Children to watch — ' + (r.teacher_name || ''), detail: r.watch });
+      });
+      const order = { bad: 0, slow: 1, info: 2 };
+      flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
+
+      // ── teachers' day ──
+      const tday = teachers.map(function (t) {
+        const r = reportOf[t.id];
+        const items = r ? (r.items || []) : [];
+        return { id: t.id, name: t.name, submitted_at: r && r.submitted_at ? r.submitted_at : null, late: !!(r && r.late),
+                 done: items.filter(function (x) { return x.status === 'done'; }).length,
+                 not: items.filter(function (x) { return x.status === 'not'; }).length,
+                 items: items, hw_checks: r ? (r.hw_checks || []) : [], watch: r ? (r.watch || '') : '',
+                 state: r && r.submitted_at ? (r.late ? 'late' : 'ok') : (pastDeadline ? 'missing' : 'waiting') };
+      });
+
+      const lessonsToday = subjects.reduce(function (n, s) { return n + s.today.length; }, 0);
+      const lessonsDone = subjects.reduce(function (n, s) { return n + s.today.filter(function (x) { return x.state === 'done'; }).length; }, 0);
+      const submitTeachers = teachers.filter(function (t) { return (t.access || []).indexOf('submit_day') !== -1; });
+      return res.json({ success: true, date: day, is_today: isToday, deadline: deadline, past_deadline: pastDeadline,
+        stats: { lessons_today: lessonsToday, lessons_done: lessonsDone, homework_today: hwToday.length,
+                 submitted: submitTeachers.filter(function (t) { return reportOf[t.id] && reportOf[t.id].submitted_at; }).length,
+                 teachers: submitTeachers.length,
+                 needs_action: flags.filter(function (f) { return f.level === 'bad'; }).length },
+        flags: flags, subjects: subjects, teachers: tday });
     }
 
     return res.json({ error: 'Unknown action: ' + action });
