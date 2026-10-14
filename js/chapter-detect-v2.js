@@ -325,6 +325,171 @@
     return out;
   }
 
+  // -- STRATEGY 1c: language books (Oct 2026) ------------------
+  // Samacheer English books have no "Chapter 1, 2, 3". Each unit holds a
+  // Prose, a Poem and a Supplementary lesson, so the old detector found
+  // nothing and cut the book into fixed 15-page blocks. Here every Prose /
+  // Poem / Supplementary banner at the top of a page starts a new lesson.
+  // PDF text usually arrives as one flat line per page, so we look at the
+  // first characters of the page rather than at separate lines.
+  var LESSON_TYPE = /(?:^|[^A-Za-z])(PROSE|Prose|POEM|Poem|POETRY|Poetry|SUPPLEMENTARY|Supplementary)(?![A-Za-z])/;
+  var LESSON_TYPE_G = /(?:^|[^A-Za-z])(PROSE|Prose|POEM|Poem|POETRY|Poetry|SUPPLEMENTARY|Supplementary)(?![A-Za-z])/g;
+  function lessonKind(w) {
+    w = w.toLowerCase();
+    if (w === 'prose') return { k: 0, name: 'Prose' };
+    if (w === 'poem' || w === 'poetry') return { k: 1, name: 'Poem' };
+    return { k: 2, name: 'Supplementary' };
+  }
+
+  function guessLessonTitle(flat, after) {
+    var t = flat.substring(after, after + 90)
+      .replace(/^[\s:.\-–—|\d]+/, '');
+    var cut = t.search(/Warm\s*up|Warm-up|WARM|Learning|Objectives|Introduction|Read|Before|Listen|Look|\d|[|–—]|\s-\s/);
+    if (cut > 0) t = t.substring(0, cut);
+    t = t.replace(/[^A-Za-z ,'&!?\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    var words = t.split(' ').filter(Boolean);
+    if (!words.length || words.length > 8) return '';
+    return words.join(' ');
+  }
+
+  function fromLanguageLessons(pages, map, totalPages, say) {
+    var hits = [], last = null, unit = 0;
+    pages.forEach(function (p) {
+      var flat = p.text.replace(/\s+/g, ' ');
+      if (!flat) return;
+      // A contents page names many lessons at once - never a lesson start.
+      var all = flat.match(LESSON_TYPE_G) || [];
+      if (all.length >= 4) return;
+      var head = flat.substring(0, 160);
+      var m = LESSON_TYPE.exec(head);
+      if (!m) return;
+      var kind = lessonKind(m[1]);
+      // A running header repeats the same word on every page of a lesson,
+      // so only a change of type counts as a new lesson.
+      if (last && last.k === kind.k) return;
+      if (!last || kind.k <= last.k) unit++;
+      var after = m.index + m[0].length;
+      hits.push({ unit: unit, kind: kind, page: p.n,
+                  guess: guessLessonTitle(flat, after),
+                  peek: flat.substring(0, 500) });
+      last = kind;
+    });
+    if (hits.length < 4) return null;
+    var poems = hits.filter(function (h) { return h.kind.k === 1; }).length;
+    if (!poems) return null;
+    var spans = hits.map(function (h, i) {
+      var to = hits[i + 1] ? hits[i + 1].page - 1 : totalPages;
+      return to - h.page + 1;
+    });
+    if (Math.max.apply(null, spans) > totalPages * 0.45) return null;
+    if (say) say('Found ' + hits.length + ' Prose / Poem / Supplementary lessons…');
+    return hits.map(function (h, i) {
+      var from = h.page;
+      var to = hits[i + 1] ? hits[i + 1].page - 1 : totalPages;
+      var label = 'Unit ' + h.unit + ' · ' + h.kind.name;
+      return { number: i + 1, title: label + (h.guess ? ': ' + h.guess : ''),
+               pageFrom: from, pageTo: to, text: textOfRange(map, from, to, 130000),
+               source: 'lessons', _label: label, _peek: h.peek };
+    });
+  }
+
+  // One small AI call to read the real lesson names off each lesson's first
+  // page ("His First Flight", "Life"...). If it fails, the Unit / type labels
+  // and best-guess names stay, and the admin can still edit them by hand.
+  async function nameLessons(list, say) {
+    if (say) say('Reading lesson names…');
+    var digest = list.map(function (c, i) {
+      return '[' + (i + 1) + '] ' + c._label + ' | ' + c._peek;
+    }).join('\n');
+    var sys = 'You are given the start of the first page of each lesson in a school English textbook. '
+      + 'For each numbered lesson give its title exactly as printed (the lesson or poem name, not the author, not "Warm up"). '
+      + 'Return ONLY a JSON array of strings, one per lesson, in the same order. No prose, no code fences.';
+    try {
+      var r = await fetch('/api/ai', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ max_tokens: 1500, system: sys,
+          messages: [{ role: 'user', content: digest }] })
+      });
+      var d = await r.json();
+      if (!r.ok) throw new Error((d && (d.message || d.error)) || ('status ' + r.status));
+      var txt = (d && d.content && d.content[0] && d.content[0].text) || '';
+      var a = txt.indexOf('['), b = txt.lastIndexOf(']');
+      var arr = JSON.parse(txt.slice(a, b + 1));
+      if (!Array.isArray(arr) || arr.length !== list.length) throw new Error('names did not match the lessons');
+      list.forEach(function (c, i) {
+        var nm = plainText(arr[i]).substring(0, 70);
+        if (nm) c.title = c._label + ': ' + nm;
+      });
+    } catch (e) {
+      if (say) say('Could not read lesson names (' + e.message + ') — keeping Unit / Prose / Poem labels…');
+    }
+    list.forEach(function (c) { delete c._label; delete c._peek; });
+    return list;
+  }
+
+  // -- STRATEGY 2b: old flat-text headings ("Unit - 10") ----------
+  // fromHeadings() reads line by line, but most PDFs here arrive as one
+  // flat line per page, so it never matched. The older detector in
+  // chapter-detect.js reads flat text; use it before asking the AI.
+  function fromFlatHeadings(pages, map, totalPages, say) {
+    if (typeof window.tblDetectChapters !== 'function') return null;
+    var raw = pages.map(function (p) { return '[Page ' + p.n + ']\n' + p.text; }).join('\n\n');
+    var ch = window.tblDetectChapters(raw) || [];
+    if (ch.length < 2) return null;
+    for (var i = 0; i < ch.length; i++) {
+      if ((ch[i].pageTo - ch[i].pageFrom + 1) / totalPages > 0.35) return null;
+    }
+    if (say) say('Found ' + ch.length + ' unit headings…');
+    return ch.map(function (c) {
+      return { number: c.number, title: plainText(c.title), pageFrom: c.pageFrom, pageTo: c.pageTo,
+               text: textOfRange(map, c.pageFrom, c.pageTo, 130000), source: 'headings' };
+    });
+  }
+
+  // AI chapter finder with the real error shown (the older one hid failures
+  // and silently fell back to page blocks). Language books: each Prose,
+  // Poem and Supplementary piece is its own lesson.
+  async function aiChapters(pages, map, totalPages, say) {
+    var digest = pages.map(function (p) {
+      return '[p' + p.n + '] ' + p.text.replace(/\s+/g, ' ').slice(0, 260);
+    }).join('\n');
+    if (digest.length > 90000) digest = digest.slice(0, 90000);
+    var sys = 'You find chapter and lesson starts in a school textbook. '
+      + 'You are given the first few words of every page, tagged with its page number. '
+      + 'Return ONLY a JSON array, no prose and no code fences. '
+      + 'Each item: {"title": "<chapter name>", "from": <page number where it starts>}. '
+      + 'Use the page number in the [pN] tag. Ignore the contents page, which lists many chapters at once. '
+      + 'Ignore back-references inside body text. '
+      + 'In language books (English, Tamil, Hindi) where each unit has several pieces such as Prose, Poem and Supplementary, '
+      + 'make EACH piece its own item, titled like "Unit 1 · Prose: His First Flight". '
+      + 'If you find no chapters, return [].';
+    var r = await fetch('/api/ai', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ max_tokens: 4000, system: sys,
+        messages: [{ role: 'user', content: digest }] })
+    });
+    var d = null;
+    try { d = await r.json(); } catch (e) { throw new Error('server reply could not be read (status ' + r.status + ')'); }
+    if (!r.ok || (d && d.type === 'error')) throw new Error((d && (d.message || (d.error && d.error.message) || d.error)) || ('status ' + r.status));
+    var txt = (d && d.content && d.content[0] && d.content[0].text) || '';
+    var a = txt.indexOf('['), b = txt.lastIndexOf(']');
+    if (a < 0 || b < a) throw new Error('AI gave no chapter list');
+    var arr = JSON.parse(txt.slice(a, b + 1));
+    var starts = [];
+    (arr || []).forEach(function (it) {
+      var pg = parseInt(it.from, 10);
+      if (pg >= 1 && pg <= totalPages) starts.push({ page: pg, title: plainText(it.title) });
+    });
+    starts.sort(function (x, y) { return x.page - y.page; });
+    starts = starts.filter(function (s, i) { return !i || s.page > starts[i - 1].page; });
+    if (starts.length < 2) throw new Error('AI found fewer than 2 chapters');
+    return starts.map(function (s, i) {
+      var to = starts[i + 1] ? starts[i + 1].page - 1 : totalPages;
+      return { number: i + 1, title: s.title || ('Chapter ' + (i + 1)), pageFrom: s.page, pageTo: to,
+               text: textOfRange(map, s.page, to, 130000), source: 'ai' };
+    });
+  }
+
   // -- public: same name + signature as before -----------------
   window.tblBuildChapters = async function (raw, say) {
     var pages = splitPages(raw);
@@ -337,8 +502,13 @@
     var totalPages = pages[pages.length - 1].n;
 
     var result = fromContents(pages, map, totalPages, say)
-              || fromContentsChapterWord(pages, map, totalPages, say)
-              || fromHeadings(pages, map, totalPages, say);
+              || fromContentsChapterWord(pages, map, totalPages, say);
+    if (!result) {
+      var lessons = fromLanguageLessons(pages, map, totalPages, say);
+      if (lessons) result = await nameLessons(lessons, say);
+    }
+    if (!result) result = fromHeadings(pages, map, totalPages, say)
+                       || fromFlatHeadings(pages, map, totalPages, say);
 
     // Free methods failed - ask AI once (the result is saved, so it never
     // runs again for this book). Only then fall back to page blocks.
@@ -346,10 +516,10 @@
       var chars = pages.reduce(function (n, p) { return n + p.text.length; }, 0);
       if (chars / Math.max(1, pages.length) < 40) {
         if (say) say('This PDF has very little readable text (it may be scanned pictures) \u2014 splitting into page blocks\u2026');
-      } else if (typeof window.tblAiChapters === 'function') {
+      } else {
         if (say) say('No chapter names found \u2014 asking AI\u2026');
         try {
-          var ai = await window.tblAiChapters(raw);
+          var ai = await aiChapters(pages, map, totalPages, say);
           if (ai && ai.length >= 2) {
             result = ai.map(function (c) {
               return { number: c.number, title: plainText(c.title), pageFrom: c.pageFrom,
@@ -526,5 +696,5 @@
   };
 
   // handy for debugging from the browser console
-  window.tblChapterDetectVersion = 'v2';
+  window.tblChapterDetectVersion = 'v2.1';
 })();
