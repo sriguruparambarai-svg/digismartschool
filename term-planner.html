@@ -317,14 +317,66 @@ async function chapterText(ch){
     return t.replace(/\[Page \d+\]/g,"").trim().length>150?{text:t.slice(0,14000)}:{text:"",note:ch.title+": the pages are pictures (scanned), so AI plans from the chapter name."}}
   catch(e){return{text:"",note:ch.title+": could not read the book ("+e.message+"), so AI plans from the chapter name."}}}
 
+/* ---------- exact pages (Oct 2026) ----------
+   The plan must follow the book page by page, not guess. So:
+   1. every page of the chapter is read separately (no 25-page / 14,000-letter cut-off),
+   2. the page number PRINTED in the book is found (the PDF's own page count includes the
+      cover and contents, so "PDF page 31" may be "book page 24" — teachers need 24),
+   3. the computer — not the AI — shares the chapter's pages across its periods in order,
+      by how much text each page has, and the last period is revision + class test,
+   4. the AI only writes what to teach FROM those exact pages; it cannot change the pages. */
+function printedNumber(items,vh){
+  // a short item that is only a number, near the top or bottom of the page = the printed page number
+  let best=null;
+  items.forEach(it=>{const t=String(it.str||"").trim();if(!/^\d{1,3}$/.test(t))return;
+    const y=it.transform?it.transform[5]:null;if(y==null||!vh)return;const edge=Math.min(y,vh-y)/vh;
+    if(edge<0.12&&(!best||edge<best.edge))best={n:+t,edge}});
+  return best?best.n:null}
+async function chapterPages(ch){
+  // → { pages:[{pdf,book,text}], offset, scanned, note }
+  const from=Math.max(1,+ch.from||1),to=Math.max(from,+ch.to||from);
+  if(!ch.bookObj)return{pages:[],offset:null,scanned:true,note:ch.title+": no book uploaded, so AI plans from the chapter name. Check the page numbers."};
+  try{const doc=await pdfFor(ch.bookObj);const last=Math.min(doc.numPages,to,from+59);const pages=[],offs={};
+    for(let p=from;p<=last;p++){const pg=await doc.getPage(p);const vp=pg.getViewport({scale:1});const tc=await pg.getTextContent();
+      const n=printedNumber(tc.items,vp.height);if(n!=null){const o=n-p;offs[o]=(offs[o]||0)+1}
+      pages.push({pdf:p,text:tc.items.map(x=>x.str).join(" ").replace(/[ \t]+/g," ").trim()})}
+    // the same gap (book number − PDF number) on most pages = the book's page numbering
+    let offset=null,cnt=0;Object.keys(offs).forEach(o=>{if(offs[o]>cnt){cnt=offs[o];offset=+o}});
+    if(cnt<Math.max(2,Math.ceil(pages.length*0.3)))offset=null;
+    pages.forEach(p=>p.book=offset!=null?p.pdf+offset:p.pdf);
+    const words=pages.reduce((a,p)=>a+p.text.length,0);
+    const scanned=words<150*Math.max(1,pages.length*0.3);
+    let note="";
+    if(scanned)note=ch.title+": the pages are pictures (scanned), so pages were shared evenly and AI planned from the chapter name. Check each lesson against the book.";
+    else if(offset==null)note=ch.title+": the printed page numbers could not be read, so PDF page numbers are shown. Check them against the book.";
+    if(last<to)note=(note?note+" ":"")+ch.title+": only the first 60 pages were read.";
+    return{pages,offset,scanned,note}}
+  catch(e){return{pages:[],offset:null,scanned:true,note:ch.title+": could not read the book ("+e.message+"), so AI plans from the chapter name. Check the page numbers."}}}
+// share the chapter's pages over n periods, in book order → [{from,to,revision}]  (book page numbers)
+function pageSlots(cp,ch,n){
+  let pages=cp.pages.length?cp.pages:[];
+  if(!pages.length){const f=+ch.from||0,t=+ch.to||0;if(f&&t>=f)for(let p=f;p<=t;p++)pages.push({pdf:p,book:p,text:""})}
+  if(!pages.length)return Array.from({length:n},(_,i)=>({from:null,to:null,revision:n>=3&&i===n-1}));
+  const rev=n>=3?1:0,m=n-rev;
+  // weight = amount of text on the page (pictures-only pages still count a little)
+  const w=pages.map(p=>cp.scanned?1:Math.max(200,p.text.length)),tot=w.reduce((a,b)=>a+b,0);
+  const cum=[];w.reduce((a,b,i)=>(cum[i]=a+b),0);
+  const at=x=>{for(let i=0;i<cum.length;i++)if(x<=cum[i]+1e-9)return i;return cum.length-1};
+  const out=[];
+  for(let k=0;k<m;k++){const a=at(tot*k/m+1e-6),b=at(tot*(k+1)/m);out.push({from:pages[a].book,to:pages[Math.max(a,b)].book,fromPdf:pages[a].pdf,toPdf:pages[Math.max(a,b)].pdf,revision:false})}
+  if(rev)out.push({from:pages[0].book,to:pages[pages.length-1].book,fromPdf:pages[0].pdf,toPdf:pages[pages.length-1].pdf,revision:true});
+  return out}
+const pgLabel=s=>s.from==null?"":(s.from===s.to?String(s.from):s.from+"–"+s.to);
+
 /* ---------- AI ---------- */
-function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India, planning a school term for ${SCHOOL_NAME||"the school"}. Plan lesson by lesson (one row = one class period of about 40 minutes). Follow the school's own textbook when its pages are given: use its real page numbers, exercises and content, and never invent pages that are not there. Each row needs:
-- "pages": the page numbers covered (e.g. "24–25"), or "" if not known
-- "teach": what the teacher teaches and practises in that period — concrete, 1–3 short sentences
+function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India, planning a school term for ${SCHOOL_NAME||"the school"}. Plan lesson by lesson (one row = one class period of about 40 minutes). The school teaches from its own textbook, so the plan must follow the book exactly.
+EACH PERIOD'S BOOK PAGES ARE ALREADY FIXED for you. Plan each period ONLY from the text of its own pages — never move content to another period, never use content from other pages, and never invent anything that is not on those pages. When several periods share the same page, split that page's content between them (e.g. first half of the passage, then the rest, then the exercises).
+Each row needs:
+- "teach": start with the page, then say exactly what is on it to teach — the heading or passage name, which paragraphs / examples / poem lines, the new words, and the exercise numbers done in class (e.g. "p. 24: Read 'The Little Bird' paragraphs 1–3. New words: nest, feather. Do Exercise A Q1–3 orally.") — 1–3 short sentences, using the book's own headings and exercise numbers as printed
 - "class_act": one activity done in the classroom with this lesson (pair work, game, model, chart, role-play, reading aloud, quick quiz…) — simple, low-cost, suits the age
 - "home_act": one small activity the child does at home with family or household things (observe, collect, ask parents, draw, say aloud) — not heavy written homework
 - "ground_act": one safe outdoor or playground activity linked to the lesson (movement game, relay, nature walk, measuring, shadow play, chalk drawing…), 10–15 minutes, needs no costly material
-The first period of a chapter introduces it with an interesting start; the last period of a chapter is revision and a short class test. Write in simple English a new teacher can follow. Reply with JSON only.`}
+The first period of a chapter introduces it with an interesting start. A period marked REVISION is revision of the whole chapter and a short class test (name the book exercises to revise). Write in simple English a new teacher can follow. Reply with JSON only.`}
 async function askAI(prompt,maxTokens){
   const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
   let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
@@ -334,12 +386,22 @@ async function askAI(prompt,maxTokens){
   try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
 // rows for one chapter, in groups of up to 10 periods
 async function planChapter(ch,n,ct,note,progress){
-  const out=[];
-  for(let a=0;a<n;a+=10){const b=Math.min(n,a+10);progress(a,n);
-    const before=out.map((r,i)=>"Period "+(i+1)+": "+r.teach).join("\n");
-    const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${ch.from&&ch.to?" (book pages "+ch.from+"–"+ch.to+")":""}\nThis chapter gets ${n} periods in the term. Plan periods ${a+1} to ${b} of ${n}.\n${before?"Periods already planned:\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${ct.text?"The chapter's pages from the school's own book:\n<<<\n"+ct.text+"\n>>>\n":""}\nReply with JSON only: {"rows":[{"pages":"","teach":"","class_act":"","home_act":"","ground_act":""}]} with exactly ${b-a} rows.`,Math.min(8000,700*(b-a)+600));
+  // ct = chapterPages(ch). Pages per period are worked out here, by the computer, in book order.
+  const out=[],slots=pageSlots(ct,ch,n),byPdf={};
+  (ct.pages||[]).forEach(p=>byPdf[p.pdf]=p);
+  const STEP=6;
+  for(let a=0;a<n;a+=STEP){const b=Math.min(n,a+STEP);progress(a,n);
+    const before=out.slice(-8).map((r,i)=>"Period "+(out.length-Math.min(8,out.length)+i+1)+" (p. "+r.pages+"): "+r.teach).join("\n");
+    const list=slots.slice(a,b).map((s,i)=>"Period "+(a+i+1)+(s.revision?": REVISION of the whole chapter + short class test":": book page"+(s.from===s.to?" ":"s ")+pgLabel(s))).join("\n");
+    // only the text of these periods' own pages (the revision period gets the exercise pages at the end)
+    let txt="";
+    if(!ct.scanned){const want=[];slots.slice(a,b).forEach(s=>{if(s.fromPdf==null)return;
+        const f=s.revision?Math.max(s.fromPdf,s.toPdf-2):s.fromPdf;for(let p=f;p<=s.toPdf;p++)if(!want.includes(p))want.push(p)});
+      want.sort((x,y)=>x-y).forEach(p=>{const pg=byPdf[p];if(pg&&txt.length<18000)txt+="\n[Book page "+pg.book+"]\n"+pg.text.slice(0,4000)})}
+    const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${slots.length&&slots[0].from!=null?" (book pages "+slots[0].from+"–"+slots[slots.length-1].to+")":""}\nThis chapter has ${n} periods. Plan periods ${a+1} to ${b}. Their pages are FIXED:\n${list}\n${before?"Periods already planned (do not repeat them):\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":"(The book's text could not be read — plan from the chapter name and the pages given, and keep it general.)\n"}\nReply with JSON only: {"rows":[{"teach":"","class_act":"","home_act":"","ground_act":""}]} with exactly ${b-a} rows, in the same order as the periods above.`,Math.min(8000,800*(b-a)+700));
     const rows=(res.rows||[]).slice(0,b-a);while(rows.length<b-a)rows.push({teach:"(AI gave fewer lessons — write this one)"});
-    rows.forEach(r=>out.push({chapter:ch.title,pages:String(r.pages||""),teach:String(r.teach||""),class_act:String(r.class_act||""),home_act:String(r.home_act||""),ground_act:String(r.ground_act||""),done:false}))}
+    rows.forEach((r,i)=>{const s=slots[a+i]||{};
+      out.push({chapter:ch.title,pages:(s.revision?"Revision · ":"")+pgLabel(s),teach:String(r.teach||""),class_act:String(r.class_act||""),home_act:String(r.home_act||""),ground_act:String(r.ground_act||""),done:false})})}
   return out}
 
 $("makeBtn").onclick=async()=>{
@@ -353,8 +415,8 @@ $("makeBtn").onclick=async()=>{
   const parts=share(chs,dates.length),notes=[],rows=[];
   try{for(let i=0;i<chs.length;i++){
       P.innerHTML=`<span class="spin"></span>Reading ${esc(chs[i].title)} (${i+1} of ${chs.length})…`;
-      const ct=await chapterText(chs[i]);if(ct.note)notes.push(ct.note);
-      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+10)} of ${n} (chapter ${i+1} of ${chs.length})…`);
+      const ct=await chapterPages(chs[i]);if(ct.note)notes.push(ct.note);
+      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+6)} of ${n} (chapter ${i+1} of ${chs.length})…`);
       rows.push(...got)}
     rows.forEach((r,k)=>r.date=dates[k]||"");
     S.rows=rows;S.settings=collectSettings(chs);
@@ -374,7 +436,7 @@ async function redoChapter(title){
   const saved=((S.settings&&S.settings.chapters)||[]).find(c=>c.title===title)||{title};
   const opt=CHOPTS.find(o=>o.key===saved.key);const ch=Object.assign({},saved,{bookObj:opt&&opt.bookObj});
   toast("Making “"+title+"” again…");
-  try{const ct=await chapterText(ch);const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{});
+  try{const ct=await chapterPages(ch);if(ct.note)toast(ct.note,true);const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{});
     idx.forEach((ri,k)=>{const d=S.rows[ri].date;S.rows[ri]=Object.assign(got[k],{date:d})});renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
 
