@@ -20,6 +20,9 @@
 //   live     { date? }                         Academic Control: stats, needs-attention list, every class+subject
 //                                              (today's lessons, Done/Not done, homework, portion, behind) and each
 //                                              teacher's day (submitted / late / missing, what she marked)
+//                                              Step 4: also parent_update — the day's class work and homework
+//                                              (waiting / approved). A teacher's submitted Done lessons become
+//                                              class work 'waiting' in the Homework Planner (table homework_plan).
 //
 // Teacher (no login yet):
 //   link_info { code }                         → { name, school_name }   for the PIN screen
@@ -194,6 +197,77 @@ async function byCode(code) {
   return ok(r) && r.data.length ? r.data[0] : null;
 }
 
+// Same wording the Homework Planner uses when it fills class work from the Term Planner.
+function cwLine(x) {
+  return [x.chapter, x.pages ? 'pp ' + x.pages : ''].filter(Boolean).join(', ') +
+         (x.teach ? ' — ' + x.teach : '') + (x.class_act ? ' Class activity: ' + x.class_act : '');
+}
+// Lessons marked Done → one class-work entry per class + subject for the day (waiting for the principal).
+// Entries this report made earlier are updated, or removed if no lesson of that subject is Done any more —
+// but only while they are still waiting (never after the principal approved or they were sent).
+// If the class already has class work for that subject and day (typed in the planner), nothing is added.
+async function syncClassWork(school, t, day, items, report) {
+  try {
+    const mine = (report && report.cw_ids && typeof report.cw_ids === 'object') ? Object.assign({}, report.cw_ids) : {};
+    // full term-plan rows for the Done lessons (items keep only chapter and teach)
+    const planIds = items.filter(function (x) { return x.status === 'done'; }).map(function (x) { return x.plan_id; })
+                         .filter(function (v, i, a) { return a.indexOf(v) === i; });
+    const rowsOf = {};
+    if (planIds.length) {
+      const pr = await db('GET', '/rest/v1/term_plans?id=in.(' + planIds.map(enc).join(',') + ')&school_id=eq.' + enc(school.id) + '&select=id,rows');
+      if (ok(pr)) pr.data.forEach(function (p) { rowsOf[p.id] = Array.isArray(p.rows) ? p.rows : []; });
+    }
+    const groups = {};
+    items.forEach(function (x) {
+      if (x.status !== 'done') return;
+      const k = x.class_name + '|' + x.subject;
+      const row = (rowsOf[x.plan_id] || [])[x.index] || {};
+      const line = cwLine({ chapter: row.chapter || x.chapter, pages: row.pages || '', teach: row.teach || x.teach, class_act: row.class_act || '' });
+      if (!line) return;
+      groups[k] = groups[k] || { class_name: x.class_name, subject: x.subject, lines: [] };
+      if (groups[k].lines.indexOf(line) === -1) groups[k].lines.push(line);
+    });
+    const er = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.classwork&hw_date=eq.' + day +
+                        '&select=id,class_name,subject,status,sent_at');
+    if (!ok(er)) return { made: 0, error: 'Could not read class work: ' + why(er) };
+    const existing = er.data;
+    let made = 0;
+    for (const k of Object.keys(groups)) {
+      const g = groups[k], text = g.lines.join('\n').substring(0, 1000);
+      const ownId = mine[k];
+      const own = ownId ? existing.find(function (e) { return e.id === ownId; }) : null;
+      if (own) {
+        if (own.status === 'waiting' && !own.sent_at) {
+          await db('PATCH', '/rest/v1/homework_plan?id=eq.' + enc(own.id) + '&school_id=eq.' + enc(school.id),
+                   { homework: text, updated_at: new Date().toISOString() });
+        }
+        continue;
+      }
+      const other = existing.find(function (e) { return e.class_name === g.class_name && String(e.subject).toLowerCase() === String(g.subject).toLowerCase() && e.status !== 'returned'; });
+      if (other) continue;                       // the class already has class work for this subject today
+      const ins = await db('POST', '/rest/v1/homework_plan', {
+        school_id: school.id, class_name: g.class_name, subject: g.subject, kind: 'Class work', homework: text,
+        hw_date: day, status: 'waiting', entry_type: 'classwork', made_by: 'teacher', teacher_name: clip(t.name, 60),
+        updated_at: new Date().toISOString()
+      });
+      if (!ok(ins)) return { made: made, error: 'Could not add class work: ' + why(ins) };
+      mine[k] = ins.data[0].id; made++;
+    }
+    // subjects no longer Done: remove the entry this report made, if it is still only waiting
+    for (const k of Object.keys(mine)) {
+      if (groups[k]) continue;
+      const own = existing.find(function (e) { return e.id === mine[k]; });
+      if (own && own.status === 'waiting' && !own.sent_at) {
+        await db('DELETE', '/rest/v1/homework_plan?id=eq.' + enc(own.id) + '&school_id=eq.' + enc(school.id));
+      }
+      if (!own || (own.status === 'waiting' && !own.sent_at)) delete mine[k];
+    }
+    const sv = await db('PATCH', '/rest/v1/teacher_day_reports?id=eq.' + enc(report.id), { cw_ids: mine });
+    if (!ok(sv)) return { made: made, error: 'Class work was added, but could not be remembered (has step4-class-work.sql been run?): ' + why(sv) };
+    return { made: made };
+  } catch (e) { return { made: 0, error: 'Class work: ' + e.message }; }
+}
+
 // A teacher-app login is valid only while the link and PIN it was made with are unchanged.
 async function readTeacher(raw) {
   const tok = verify(raw, appSecret());
@@ -350,7 +424,14 @@ module.exports = async function handler(req, res) {
         }
         if (!ok(w)) return res.json({ error: 'Could not save: ' + why(w) });
         const saved = w.data[0];
-        return res.json({ success: true, submitted_at: saved.submitted_at || null, late: !!saved.late });
+        // ── Step 4: on Submit / Update, the lessons marked Done become today's CLASS WORK for parents.
+        // They go into the Homework Planner as 'waiting', so the principal approves them (Academic Control
+        // → Today's parent update, or the Homework Planner) and the usual 4 PM send takes them to the
+        // Student Diary and the ERP parent app — the same way as class work typed in the planner.
+        let cw = { made: 0, error: '' };
+        if (body.submit) cw = await syncClassWork(school, t, today, items, saved);
+        return res.json({ success: true, submitted_at: saved.submitted_at || null, late: !!saved.late,
+                          class_work_made: cw.made, class_work_error: cw.error || undefined });
       }
 
       // ── my_day: build the screen ──
@@ -500,6 +581,8 @@ module.exports = async function handler(req, res) {
       const deadline = await readDeadline(school);
       const pastDeadline = !isToday || istTime() > deadline;
 
+      const wt = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + day +
+        '&entry_type=in.(homework,classwork)&status=in.(waiting,added)&select=id,entry_type,class_name,subject,homework,status,sent_at,teacher_name&order=class_name.asc');
       const [tr, pr, hr, rr, wr] = await Promise.all([
         db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access'),
         db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,term,status,teacher_name,rows'),
@@ -622,7 +705,17 @@ module.exports = async function handler(req, res) {
       const lessonsToday = subjects.reduce(function (n, s) { return n + s.today.length; }, 0);
       const lessonsDone = subjects.reduce(function (n, s) { return n + s.today.filter(function (x) { return x.state === 'done'; }).length; }, 0);
       const submitTeachers = teachers.filter(function (t) { return (t.access || []).indexOf('submit_day') !== -1; });
+      // Step 4: today's parent update — class work and homework waiting for the principal, and what is already approved
+      const parentUpdate = ok(wt) ? wt.data.map(function (x) {
+        return { id: x.id, type: x.entry_type, class_name: x.class_name, subject: x.subject, text: x.homework,
+                 status: x.status, sent: !!x.sent_at, teacher: x.teacher_name || '' };
+      }) : [];
+      const waitingN = parentUpdate.filter(function (x) { return x.status === 'waiting'; }).length;
+      if (waitingN) flags.push({ level: 'slow', kind: 'Approve', title: waitingN + ' class work / homework waiting for your approval',
+        detail: 'Approve them in "Today\'s parent update" below so parents get them at 4 PM.' });
+      flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
       return res.json({ success: true, date: day, is_today: isToday, deadline: deadline, past_deadline: pastDeadline,
+        parent_update: parentUpdate, parent_update_error: ok(wt) ? '' : 'Could not read class work: ' + why(wt),
         stats: { lessons_today: lessonsToday, lessons_done: lessonsDone, homework_today: hwToday.length,
                  submitted: submitTeachers.filter(function (t) { return reportOf[t.id] && reportOf[t.id].submitted_at; }).length,
                  teachers: submitTeachers.length,
