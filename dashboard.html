@@ -67,8 +67,24 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
     <a href="https://wa.me/918098604177?text=Hi%2C%20our%20school%20subscription%20is%20expiring%20soon.%20Please%20help%20us%20renew." target="_blank" style="margin-left:14px;background:white;color:#e65100;padding:5px 14px;border-radius:6px;font-weight:800;text-decoration:none;font-size:0.85rem;">Renew Now</a>
   </div>
 
+  <!-- ACADEMIC CONTROL strip (Oct 2026): today's school at a glance, opens the full screen -->
+  <button type="button" id="ac-strip" onclick="showAcademic()" style="display:none;width:100%;text-align:left;background:linear-gradient(135deg,#4A0A12,#6B0F1A);color:#FBF4E8;border:none;border-bottom:4px solid #C9A84C;border-radius:16px;padding:16px 20px;margin-bottom:18px;cursor:pointer;font-family:Nunito,sans-serif;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:.75rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">Academic Control &middot; Today</div>
+        <div id="ac-strip-text" style="font-size:1rem;font-weight:800;margin-top:4px;">Loading&hellip;</div>
+      </div>
+      <span style="background:#C9A84C;color:#3A0E0E;border-radius:10px;padding:9px 16px;font-weight:900;font-size:.88rem;white-space:nowrap;">Open &rarr;</span>
+    </div>
+  </button>
+
   <!-- TOOLS -->
   <div class="tools-grid">
+    <div class="tool-card" onclick="showAcademic()">
+      <div class="tool-icon">&#x1F4CA;</div>
+      <div class="tool-name">Academic Control</div>
+      <div class="tool-desc">Every class today, teachers' day, what needs you</div>
+    </div>
     <a href="/learnbot.html" class="tool-card">
       <div class="tool-icon">🤖</div>
       <div class="tool-name">TeachBot</div>
@@ -125,6 +141,27 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
     </div>
   </div>
 
+
+  <!-- ACADEMIC CONTROL FULL PAGE (Oct 2026, Teacher Communication App step 3) -->
+  <div id="ac-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#F7EFE2;z-index:1000;overflow-y:auto;">
+    <div style="background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;padding:14px 16px;">
+      <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button type="button" onclick="hideAcademic()" style="background:#C9A84C;color:#3A0E0E;border:none;border-radius:8px;padding:9px 16px;font-family:Nunito,sans-serif;font-weight:900;cursor:pointer;min-height:42px;">&#8592; Back</button>
+          <div>
+            <div style="font-size:.72rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">Academic Control</div>
+            <h2 id="ac-title" style="font-family:Cinzel,serif;color:#FBF4E8;font-size:1.25rem;margin:0;">Live School</h2>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <label for="ac-date" style="color:#F5E6C8;font-size:.8rem;font-weight:800;">Day</label>
+          <input id="ac-date" type="date" style="padding:8px;border-radius:8px;border:1.5px solid #C9A84C;font-family:Nunito,sans-serif;font-weight:700;min-height:42px;"/>
+          <button type="button" id="ac-refresh" style="background:transparent;color:#FBF4E8;border:1.5px solid #C9A84C;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;min-height:42px;">Refresh</button>
+        </div>
+      </div>
+    </div>
+    <div id="ac-body" style="max-width:1200px;margin:0 auto;padding:18px 16px 40px;"><div style="text-align:center;padding:30px;color:#888;">Loading&hellip;</div></div>
+  </div>
 
   <!-- MY TEACHERS FULL PAGE -->
   <div id="teachers-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f2f5;z-index:1000;overflow-y:auto;padding:16px;">
@@ -808,6 +845,164 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
 
   window.TA={load:load};
   drawForm(); drawPicked();
+})();
+</script>
+<script>
+/* ── Academic Control (Oct 2026) — the principal's Live School screen ──
+   Reads /api/teacher-app (action 'live'): every class+subject's lesson today from the
+   Term Planner, what teachers marked Done / Not done, today's homework, portion done,
+   lessons behind, homework checks, teachers who have / have not submitted their day. */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+  function istToday(){ return new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10); }
+  function t12(t){ var p=String(t||'').split(':'),H=parseInt(p[0],10); if(isNaN(H)) return t; return ((H%12)||12)+':'+(p[1]||'00')+' '+(H<12?'AM':'PM'); }
+  function clock(iso){ try{ return new Date(iso).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+  var COL={ ok:{fg:'#fff',bg:'#2E7D4F',label:'On track'}, slow:{fg:'#3A2A00',bg:'#F2CC74',label:'Slightly behind'}, bad:{fg:'#fff',bg:'#A3241B',label:'Needs action'}, info:{fg:'#fff',bg:'#5B4A3F',label:'Note'} };
+  var FLAGBG={ bad:'#FBE7E3', slow:'#FCF1D9', info:'#F3ECE2' };
+  var CLS_ORDER=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+
+  async function call(action,data){
+    var r=await fetch('/api/teacher-app',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var txt=await r.text(), d;
+    try{ d=JSON.parse(txt); }catch(e){ d={error:'Server reply could not be read (status '+r.status+').'}; }
+    return d;
+  }
+
+  // ── strip on the School Admin home ──
+  async function strip(){
+    if(localStorage.getItem('dss_role')!=='school_admin') return;
+    var el=$('ac-strip'); el.style.display='block';
+    var d=await call('live',{date:istToday()});
+    if(!d.success){ $('ac-strip-text').textContent=d.error||'Could not load.'; return; }
+    var s=d.stats, parts=[];
+    parts.push(s.lessons_today? (s.lessons_done+' of '+s.lessons_today+' lessons marked done') : 'No lessons planned today');
+    if(s.teachers) parts.push(s.submitted+' of '+s.teachers+' teachers submitted');
+    parts.push(s.needs_action? (s.needs_action+' need'+(s.needs_action>1?'':'s')+' your action') : 'Nothing urgent');
+    $('ac-strip-text').textContent=parts.join(' · ');
+  }
+
+  // ── full page ──
+  window.showAcademic=function(){
+    $('ac-page').style.display='block'; document.body.style.overflow='hidden';
+    if(!$('ac-date').value) $('ac-date').value=istToday();
+    load();
+  };
+  window.hideAcademic=function(){ $('ac-page').style.display='none'; document.body.style.overflow=''; strip(); };
+  $('ac-date').onchange=load; $('ac-refresh').onclick=load;
+
+  function tile(label,value,sub,color){
+    return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:14px 16px;">'
+      +'<div style="font-size:.8rem;color:#6E5A4E;font-weight:800;">'+h(label)+'</div>'
+      +'<div style="font-family:Cinzel,serif;font-size:1.9rem;color:'+color+';line-height:1.15;margin:4px 0;">'+h(value)+'</div>'
+      +'<div style="font-size:.76rem;color:#6E5A4E;">'+h(sub)+'</div></div>';
+  }
+  function pill(level,text){ var c=COL[level]||COL.info; return '<span style="display:inline-block;padding:4px 11px;border-radius:999px;font-size:.72rem;font-weight:900;white-space:nowrap;background:'+c.bg+';color:'+c.fg+';">'+h(text||c.label)+'</span>'; }
+  function section(title,sub,inner){
+    return '<section style="margin-top:22px;"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+      +'<h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.1rem;margin:0;">'+h(title)+'</h3>'
+      +(sub?'<div style="font-size:.8rem;color:#6E5A4E;">'+sub+'</div>':'')+'</div>'+inner+'</section>';
+  }
+
+  async function load(){
+    var body=$('ac-body'), day=$('ac-date').value||istToday();
+    body.innerHTML='<div style="text-align:center;padding:30px;color:#888;">Loading&hellip;</div>';
+    var d=await call('live',{date:day});
+    if(!d.success){ body.innerHTML='<div style="background:#FBE7E3;border:1px solid #A3241B;color:#5E120C;border-radius:12px;padding:14px;font-weight:700;">'+h(d.error||'Could not load.')+'</div>'; return; }
+    var nice=new Date(day+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
+    $('ac-title').textContent='Live School — '+nice;
+    var s=d.stats, out='';
+
+    // tiles
+    out+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;">'
+      +tile('Lessons marked done', s.lessons_done+' / '+s.lessons_today, 'From the Term Planner', '#2E7D4F')
+      +tile('Teachers submitted', s.submitted+' / '+s.teachers, (d.is_today && !d.past_deadline)?'Deadline '+t12(d.deadline):'Deadline was '+t12(d.deadline), s.submitted<s.teachers&&d.past_deadline?'#A3241B':'#6B0F1A')
+      +tile('Homework today', s.homework_today, 'In the Homework Planner', '#6B0F1A')
+      +tile('Need your action', s.needs_action, s.needs_action?'See the list below':'Everything is running', s.needs_action?'#A3241B':'#2E7D4F')
+      +'</div>';
+
+    // deadline setting
+    out+='<div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#FFFBF4;border:1px dashed #C9A84C;border-radius:12px;padding:10px 14px;font-size:.85rem;">'
+      +'<label for="ac-deadline" style="font-weight:800;color:#6B0F1A;">Teachers must submit their day by</label>'
+      +'<input id="ac-deadline" type="time" value="'+h(d.deadline)+'" style="padding:7px;border:1.5px solid #EDD9A3;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;min-height:40px;"/>'
+      +'<button type="button" id="ac-dl-save" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:8px;padding:8px 14px;font-weight:900;cursor:pointer;min-height:40px;">Save</button>'
+      +'<span id="ac-dl-msg" style="font-weight:800;"></span></div>';
+
+    // needs attention
+    var flags=d.flags||[];
+    var fl=flags.length? flags.map(function(f){
+        return '<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;background:'+(FLAGBG[f.level]||'#F3ECE2')+';border-radius:12px;padding:12px 14px;margin-bottom:8px;">'
+          +'<div style="flex:0 0 auto;min-width:96px;">'+pill(f.level,f.kind)+'</div>'
+          +'<div style="flex:1 1 300px;"><div style="font-weight:900;font-size:.95rem;">'+h(f.title)+'</div>'
+          +'<div style="font-size:.84rem;color:#4E3D33;margin-top:2px;white-space:pre-line;">'+h(f.detail)+'</div></div></div>';
+      }).join('')
+      :'<div style="background:#EAF6EE;border:1px solid #2E7D4F;border-radius:12px;padding:14px;font-weight:800;color:#164A2C;">Nothing needs you right now. Every class is running on its own.</div>';
+    out+=section('Needs your attention','Only these need you &mdash; everything else is running on its own',fl);
+
+    // classes
+    var subs=(d.subjects||[]).slice().sort(function(a,b){ var x=CLS_ORDER.indexOf(a.class_name)-CLS_ORDER.indexOf(b.class_name); return x||String(a.subject).localeCompare(b.subject); });
+    var tbl;
+    if(!subs.length) tbl='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">No term plans yet. Teachers make them in Teacher Tools &rarr; Lesson Planner &rarr; Term Planner, and you approve them.</div>';
+    else {
+      tbl='<div style="overflow-x:auto;background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;"><table style="width:100%;min-width:900px;border-collapse:collapse;font-size:.85rem;">'
+        +'<thead><tr style="background:#F1E1C6;text-align:left;">'
+        +['Class','Subject · Teacher','Today\'s lesson','Activity','Homework today','Portion','Status'].map(function(x){return '<th style="padding:10px 12px;font-weight:900;">'+x+'</th>';}).join('')
+        +'</tr></thead><tbody>'
+        +subs.map(function(r){
+          var c=COL[r.level];
+          var lesson=r.today.length? r.today.map(function(x){
+              var st=x.state==='done'?' <span style="color:#2E7D4F;font-weight:900;">&#10003; Done</span>':x.state==='not'?' <span style="color:#A3241B;font-weight:900;">Not done</span>'+(x.reason?' <span style="color:#6E5A4E;">('+h(x.reason)+')</span>':''):' <span style="color:#8A6418;font-weight:800;">Not marked</span>';
+              return '<div><b>'+h(x.chapter)+'</b>'+st+(x.teach?'<div style="color:#6E5A4E;font-size:.78rem;">'+h(x.teach.slice(0,120))+'</div>':'')+'</div>';
+            }).join(''):'<span style="color:#999;">No lesson planned</span>';
+          var act=r.today.map(function(x){return h(x.activity);}).filter(Boolean).join('<br>')||'<span style="color:#999;">—</span>';
+          var hw=r.hw.length? r.hw.map(function(x){return h(x.text.slice(0,120))+(x.status==='waiting'?' <span style="color:#8A6418;font-size:.75rem;">(waiting for you)</span>':'');}).join('<br>'):'<span style="color:#999;">—</span>';
+          var pct=r.total?Math.round(100*r.done/r.total):0;
+          return '<tr style="border-top:1px solid #EEDDC2;vertical-align:top;">'
+            +'<td style="padding:10px 12px;font-weight:900;white-space:nowrap;">'+h(r.class_name)+'</td>'
+            +'<td style="padding:10px 12px;"><div style="font-weight:800;">'+h(r.subject)+'</div><div style="color:#6E5A4E;font-size:.78rem;">'+h(r.teacher||'No teacher set')+'</div></td>'
+            +'<td style="padding:10px 12px;">'+lesson+'</td>'
+            +'<td style="padding:10px 12px;">'+act+'</td>'
+            +'<td style="padding:10px 12px;">'+hw+'</td>'
+            +'<td style="padding:10px 12px;min-width:130px;"><div style="height:8px;background:#EEDDC2;border-radius:999px;overflow:hidden;"><div style="height:8px;width:'+pct+'%;background:'+c.bg+';"></div></div>'
+            +'<div style="font-size:.74rem;color:#6E5A4E;margin-top:4px;">'+r.done+' of '+r.total+' lessons'+(r.behind?' &middot; <b style="color:#A3241B;">'+r.behind+' behind</b>':'')+'</div></td>'
+            +'<td style="padding:10px 12px;">'+pill(r.level)+'</td></tr>';
+        }).join('')+'</tbody></table></div>';
+    }
+    out+=section('Every class, '+(d.is_today?'today':'that day'),
+      '<span style="display:inline-flex;gap:12px;flex-wrap:wrap;font-weight:800;"><span>'+pill('ok')+'</span><span>'+pill('slow')+'</span><span>'+pill('bad')+'</span></span>',tbl);
+
+    // teachers' day
+    var ts=d.teachers||[];
+    var tl=ts.length? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">'+ts.map(function(t,i){
+        var st=t.state==='ok'?pill('ok','Submitted '+clock(t.submitted_at)):t.state==='late'?pill('slow','Late — '+clock(t.submitted_at)):t.state==='missing'?pill('bad','Not submitted'):pill('info','Not yet');
+        var det='';
+        if(t.items.length) det+='<div style="margin-top:8px;font-size:.8rem;">'+t.items.map(function(x){
+            return '<div style="padding:3px 0;border-top:1px dashed #EEDDC2;">'+(x.status==='done'?'<b style="color:#2E7D4F;">&#10003;</b>':x.status==='not'?'<b style="color:#A3241B;">&#10007;</b>':'<b style="color:#8A6418;">?</b>')
+              +' '+h(x.class_name)+' '+h(x.subject)+' &mdash; '+h(x.chapter||'')+(x.status==='not'&&x.reason?' <span style="color:#6E5A4E;">('+h(x.reason)+')</span>':'')+'</div>';
+          }).join('')+'</div>';
+        if(t.hw_checks.length) det+='<div style="margin-top:6px;font-size:.8rem;color:#4E3D33;"><b>Homework check:</b> '+t.hw_checks.map(function(c){
+            return h(c.class_name+' '+c.subject)+' — '+(c.corrected==='yes'?'corrected':c.corrected==='some'?'some corrected':c.corrected==='no'?'<b style="color:#A3241B;">not corrected</b>':'not answered')
+              +(c.missing&&c.missing.length?' · didn\'t submit: roll '+h(c.missing.join(', ')):'');
+          }).join('; ')+'</div>';
+        if(t.watch) det+='<div style="margin-top:6px;font-size:.8rem;color:#4E3D33;white-space:pre-line;"><b>Children to watch:</b> '+h(t.watch)+'</div>';
+        return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:12px 14px;">'
+          +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-size:.95rem;">'+h(t.name)+'</b>'+st+'</div>'
+          +'<div style="font-size:.78rem;color:#6E5A4E;margin-top:4px;">'+t.done+' done · '+t.not+' not done</div>'+det+'</div>';
+      }).join('')+'</div>'
+      :'<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">No teachers in the Teacher App yet. Add them in My Teachers.</div>';
+    out+=section('Teachers\' day','What each teacher marked and submitted',tl);
+
+    body.innerHTML=out;
+    $('ac-dl-save').onclick=async function(){
+      var v=$('ac-deadline').value, m=$('ac-dl-msg');
+      m.style.color='#6E5A4E'; m.textContent='Saving…';
+      var r=await call('save_settings',{deadline:v});
+      if(r.success){ m.style.color='#1a5c2a'; m.textContent='Saved. Teachers see '+t12(r.deadline)+' from now.'; }
+      else { m.style.color='#c0392b'; m.textContent=r.error||'Could not save.'; }
+    };
+  }
+
+  window.addEventListener('load',function(){ setTimeout(strip,600); });
 })();
 </script>
 <!-- Report Cards → ERP for schools with the ERP switch ON -->
