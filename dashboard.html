@@ -90,6 +90,11 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div class="tool-name">School Calendar</div>
       <div class="tool-desc">Holidays the Term Planner skips; declare a sudden holiday</div>
     </div>
+    <div class="tool-card" onclick="showTimetable()">
+      <div class="tool-icon">&#x1F552;</div>
+      <div class="tool-name">School Timetable</div>
+      <div class="tool-desc">From ERP, or read from a photo &mdash; the Term Planner follows it</div>
+    </div>
     <a href="/learnbot.html" class="tool-card">
       <div class="tool-icon">🤖</div>
       <div class="tool-name">TeachBot</div>
@@ -212,6 +217,18 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
         <div id="cal-list"><div style="color:#888;">Loading&hellip;</div></div>
       </section>
     </div>
+  </div>
+
+  <!-- SCHOOL TIMETABLE FULL PAGE (Oct 2026) -->
+  <div id="tt-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#F7EFE2;z-index:1000;overflow-y:auto;">
+    <div style="background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;padding:14px 16px;">
+      <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;">
+        <button type="button" onclick="hideTimetable()" style="background:#C9A84C;color:#3A0E0E;border:none;border-radius:8px;padding:9px 16px;font-family:Nunito,sans-serif;font-weight:900;cursor:pointer;min-height:42px;">&#8592; Back</button>
+        <div><div style="font-size:.72rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">The Term Planner follows this</div>
+          <h2 style="font-family:Cinzel,serif;color:#FBF4E8;font-size:1.25rem;margin:0;">School Timetable</h2></div>
+      </div>
+    </div>
+    <div id="tt-body" style="max-width:1200px;margin:0 auto;padding:18px 16px 40px;"><div style="color:#888;">Loading&hellip;</div></div>
   </div>
 
   <!-- MY TEACHERS FULL PAGE -->
@@ -1178,6 +1195,130 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     this.disabled=true; await addDays(rows,$('cal-gov-msg')); this.disabled=false;
   };
   window.addEventListener('load',function(){ if(location.hash==='#calendar' && localStorage.getItem('dss_role')==='school_admin') setTimeout(showCalendar,400); });
+})();
+</script>
+<script>
+/* ── School Timetable (Oct 2026) ──
+   Schools with ERP: read live from ERP's master timetable (shown here, changed in ERP).
+   Schools without ERP: upload photos of the timetable → AI reads them → the principal checks
+   and corrects the grid → Save. Talks to /api/timetable and /api/ai. */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  var DAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], CLS=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+  var T=null, day='Mon', dirty=false;
+  async function api(action,data){
+    var r=await fetch('/api/timetable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var d; try{ d=await r.json(); }catch(e){ d={error:'Server reply could not be read (status '+r.status+'). Is api/timetable.js uploaded?'}; }
+    return d;
+  }
+  window.showTimetable=function(){ $('tt-page').style.display='block'; document.body.style.overflow='hidden'; load(); };
+  window.hideTimetable=function(){ if(dirty&&!confirm('Leave without saving the timetable?'))return; $('tt-page').style.display='none'; document.body.style.overflow=''; };
+
+  async function load(){
+    $('tt-body').innerHTML='<div style="color:#888;">Loading&hellip;</div>';
+    var d=await api('get'); dirty=false;
+    if(!d.success){ $('tt-body').innerHTML=box('red',h(d.error||'Could not load.')); return; }
+    T={source:d.source,periods:d.periods||[],days:(d.days&&d.days.length?d.days:DAYS.slice(0,5)),classes:d.classes||[],grid:d.grid||{},ai_room:!!d.ai_room,year:d.academic_year||'',error:d.error||'',note:d.note||''};
+    if(T.days.indexOf(day)===-1) day=T.days[0];
+    draw();
+  }
+  function box(kind,html){ var c={red:'#FBE7E3;border:1px solid #A3241B;color:#5E120C',green:'#EAF6EE;border:1px solid #2E7D4F;color:#164A2C',gold:'#FCF1D9;border:1px solid #D9A13B;color:#4E3D33'}[kind];
+    return '<div style="background:'+c+';border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:.88rem;line-height:1.45;">'+html+'</div>'; }
+
+  function draw(){
+    var erp=T.source==='erp', out='';
+    if(erp){
+      out+=box(T.error?'red':'green', T.error? h(T.error)+'<br>Check that <b>TEACHBOT_LINK_KEY</b> is the same in both Vercel projects and that ERP\'s <b>api/teachbot-timetable.js</b> is uploaded.'
+        : '<b>Connected to ERP</b> &mdash; master timetable'+(T.year?' '+h(T.year):'')+'. To change it, edit it in ERP &rarr; Timetable &rarr; Master timetable, then tap Refresh here.'
+          +(T.note?'<br>'+h(T.note):'')+(T.ai_room?'<br>&#x1F916; AI class room: ON &mdash; the boxes ticked "AI" in ERP are the class\'s AI-room periods.':'<br>&#x1F916; AI class room: OFF in ERP (screen in every classroom).'));
+      out+='<button type="button" id="tt-refresh" style="margin-bottom:12px;padding:9px 16px;border-radius:9px;border:1.5px solid #6B0F1A;background:#fff;color:#6B0F1A;font-weight:900;cursor:pointer;min-height:42px;">Refresh from ERP</button>';
+    } else {
+      out+='<section style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:16px;margin-bottom:14px;">'
+        +'<h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;margin:0 0 4px;">'+(T.source?'Read again from photos':'Read your timetable from photos')+'</h3>'
+        +'<div style="font-size:.82rem;color:#6E5A4E;margin-bottom:10px;">Take clear photos or screenshots of the school timetable (the master timetable, or one per class &mdash; up to 6). AI reads them; then check every box below and correct anything wrong before saving.</div>'
+        +'<label for="tt-files" style="font-size:.8rem;font-weight:800;color:#6B0F1A;">Photos</label> '
+        +'<input id="tt-files" type="file" accept="image/*" multiple style="margin:6px 0;"/> '
+        +'<button type="button" id="tt-read" style="padding:10px 16px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:900;cursor:pointer;min-height:44px;">&#x2728; Read with AI</button>'
+        +'<div id="tt-read-msg" style="font-size:.85rem;font-weight:800;min-height:20px;padding-top:8px;"></div></section>';
+      if(!T.source&&!Object.keys(T.grid).length){ $('tt-body').innerHTML=out+box('gold','No timetable yet. Without it, the Term Planner spreads lessons evenly over the school days.'); wire(); return; }
+      out+='<label style="display:flex;gap:8px;align-items:center;font-weight:800;font-size:.9rem;margin-bottom:10px;"><input type="checkbox" id="tt-airoom"'+(T.ai_room?' checked':'')+' style="width:18px;height:18px;"/> &#x1F916; We have a separate AI class room (classes walk to it). Tick "AI" on each period a class goes there.</label>';
+    }
+    // day tabs
+    out+='<div role="tablist" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'+T.days.map(function(d){
+      return '<button type="button" role="tab" class="tt-day" data-d="'+d+'" aria-selected="'+(d===day)+'" style="min-height:40px;padding:0 14px;border-radius:999px;font-weight:900;cursor:pointer;border:1.5px solid #6B0F1A;'+(d===day?'background:#6B0F1A;color:#fff;':'background:#fff;color:#6B0F1A;')+'">'+d+'</button>';}).join('')+'</div>';
+    var classes=T.classes.length?T.classes:CLS.filter(function(c){return Object.keys(T.grid).some(function(d){return Object.keys(T.grid[d]||{}).some(function(p){return T.grid[d][p][c];});});});
+    var np=Math.max(T.periods.length, Object.keys(T.grid[day]||{}).reduce(function(m,p){return Math.max(m,+p+1);},0));
+    if(!np||!classes.length){ out+=box('gold','Nothing for '+day+'.'); }
+    else {
+      out+='<div style="overflow-x:auto;background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;"><table style="border-collapse:collapse;font-size:.8rem;min-width:'+(120+classes.length*130)+'px;">'
+        +'<thead><tr style="background:#F1E1C6;"><th style="padding:8px;text-align:left;position:sticky;left:0;background:#F1E1C6;">Period</th>'+classes.map(function(c){return '<th style="padding:8px;text-align:left;">'+h(c)+'</th>';}).join('')+'</tr></thead><tbody>';
+      for(var p=0;p<np;p++){
+        var pr=T.periods[p]||{label:'P'+(p+1)}; var row=(T.grid[day]||{})[String(p)]||{};
+        out+='<tr style="border-top:1px solid #EEDDC2;'+(pr.isBreak?'background:#F3ECE2;':'')+'"><td style="padding:6px 8px;font-weight:900;white-space:nowrap;position:sticky;left:0;background:'+(pr.isBreak?'#F3ECE2':'#FFFBF4')+';">'+h(pr.label||('P'+(p+1)))+(pr.start?'<div style="font-weight:600;color:#6E5A4E;">'+h(pr.start)+(pr.end?'–'+h(pr.end):'')+'</div>':'')+'</td>';
+        classes.forEach(function(c){ var cell=row[c]||{};
+          if(erp||pr.isBreak) out+='<td style="padding:6px 8px;'+(cell.ai?'background:#6B0F1A;color:#fff;':'')+'">'+(pr.isBreak?'<i style="color:#888;">break</i>':h(cell.subject||'')+(cell.ai?' <b>&#x1F916; AI</b>':'')+(cell.teacher?'<div style="font-size:.72rem;opacity:.8;">'+h(cell.teacher)+'</div>':''))+'</td>';
+          else out+='<td style="padding:4px;'+(cell.ai?'background:#F7E3E6;':'')+'"><input aria-label="'+h(c+' '+day+' '+(pr.label||'P'+(p+1)))+'" class="tt-cell" data-p="'+p+'" data-c="'+h(c)+'" value="'+h(cell.subject||'')+'" style="width:110px;padding:6px;border:1px solid #E0CBA8;border-radius:6px;font-family:Nunito,sans-serif;font-size:.8rem;"/>'
+            +(T.ai_room?'<label style="display:flex;gap:4px;align-items:center;font-size:.72rem;font-weight:800;margin-top:3px;"><input type="checkbox" class="tt-ai" data-p="'+p+'" data-c="'+h(c)+'"'+(cell.ai?' checked':'')+'/>AI</label>':'')+'</td>';
+        });
+        out+='</tr>';
+      }
+      out+='</tbody></table></div>';
+      if(!erp) out+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;"><button type="button" id="tt-save" style="padding:11px 20px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:10px;font-weight:900;cursor:pointer;min-height:46px;">Save timetable</button><span id="tt-msg" style="font-weight:800;font-size:.86rem;"></span></div>'
+        +(T.ai_room?aiClash():'');
+    }
+    $('tt-body').innerHTML=out; wire();
+  }
+  // two classes in the AI room in the same period = a clash
+  function aiClash(){
+    var c=[];T.days.forEach(function(d){Object.keys(T.grid[d]||{}).forEach(function(p){var n=Object.keys(T.grid[d][p]).filter(function(k){return T.grid[d][p][k].ai&&!T.grid[d][p][k].common;});if(n.length>1)c.push(d+' '+((T.periods[p]||{}).label||'P'+(+p+1))+': '+n.join(', '));});});
+    return c.length?box('red','<b>AI room clash</b> &mdash; two classes in the AI room at the same time:<br>'+c.map(h).join('<br>')):'';
+  }
+  function wire(){
+    document.querySelectorAll('.tt-day').forEach(function(b){ b.onclick=function(){ day=b.getAttribute('data-d'); draw(); }; });
+    if($('tt-refresh')) $('tt-refresh').onclick=load;
+    if($('tt-airoom')) $('tt-airoom').onchange=function(){ T.ai_room=this.checked; dirty=true; draw(); };
+    document.querySelectorAll('.tt-cell').forEach(function(i){ i.oninput=function(){ var p=i.getAttribute('data-p'),c=i.getAttribute('data-c');
+      T.grid[day]=T.grid[day]||{}; T.grid[day][p]=T.grid[day][p]||{}; var cell=T.grid[day][p][c]||{};
+      cell.subject=i.value.trim(); if(!cell.subject&&!cell.teacher) delete T.grid[day][p][c]; else T.grid[day][p][c]=cell; dirty=true; }; });
+    document.querySelectorAll('.tt-ai').forEach(function(i){ i.onchange=function(){ var p=i.getAttribute('data-p'),c=i.getAttribute('data-c');
+      var cell=((T.grid[day]||{})[p]||{})[c]; if(!cell){ i.checked=false; alert('Type the subject first.'); return; } cell.ai=i.checked; dirty=true; draw(); }; });
+    if($('tt-save')) $('tt-save').onclick=async function(){
+      var m=$('tt-msg'); m.style.color='#6E5A4E'; m.textContent='Saving…';
+      var d=await api('save',{periods:T.periods,days:T.days,classes:T.classes,grid:T.grid,ai_room:T.ai_room});
+      if(d.success){ dirty=false; m.style.color='#1a5c2a'; m.textContent='Saved. The Term Planner follows it from now on.'; }
+      else { m.style.color='#c0392b'; m.textContent=d.error||'Could not save.'; }
+    };
+    if($('tt-read')) $('tt-read').onclick=readPhotos;
+  }
+
+  // shrink a photo to ~1500px JPEG so several fit in one request
+  function shrink(file){ return new Promise(function(ok,bad){ var img=new Image(), url=URL.createObjectURL(file);
+    img.onload=function(){ var k=Math.min(1,1500/Math.max(img.width,img.height)), cv=document.createElement('canvas'); cv.width=Math.round(img.width*k); cv.height=Math.round(img.height*k);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg',0.8).split(',')[1]); };
+    img.onerror=function(){ bad(new Error('Could not open '+file.name)); }; img.src=url; }); }
+  async function readPhotos(){
+    var files=[].slice.call(($('tt-files').files)||[]).slice(0,6), m=$('tt-read-msg');
+    if(!files.length){ m.style.color='#c0392b'; m.textContent='Choose one or more photos first.'; return; }
+    if(Object.keys(T.grid).length&&!confirm('Replace the timetable below with what AI reads from these photos?')) return;
+    this.disabled=true; m.style.color='#6E5A4E'; m.textContent='Reading '+files.length+' photo'+(files.length>1?'s':'')+'… (about a minute)';
+    try{
+      var imgs=[]; for(var i=0;i<files.length;i++) imgs.push(await shrink(files[i]));
+      var content=imgs.map(function(b){return {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b}};});
+      content.push({type:'text',text:'These photos are a school timetable (a master timetable of all classes, or one timetable per class). Read EVERY box exactly as written. Use these class names: "Pre KG","LKG","UKG","Class 1" … "Class 12" (e.g. "III Std", "3rd", "Class III" → "Class 3"). Subjects as written (e.g. English, Maths, Tamil, Hindi, EVS, Science, Social Science, Computer, PT, Library). Days as Mon Tue Wed Thu Fri Sat. Periods in order from the first; include breaks/lunch as periods with isBreak true. If a box says AI, AI class, smart class or TeachBot, set "ai": true. Leave out boxes you cannot read rather than guessing.\nReply with JSON only: {"periods":[{"label":"P1","start":"09:00","end":"09:40","isBreak":false}],"days":["Mon"],"classes":["Class 3"],"grid":{"Mon":{"0":{"Class 3":{"subject":"English","teacher":"","ai":false}}}},"unclear":"anything you could not read"}  (grid keys "0","1"… are the period numbers counting breaks).'});
+      var r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:12000,system:'You read school timetables from photos accurately. Reply with JSON only.',messages:[{role:'user',content:content}]})});
+      var d=await r.json(); if(!r.ok||d.type==='error') throw new Error(d.message||(d.error&&(d.error.message||d.error))||('status '+r.status));
+      var txt=(d.content||[]).map(function(x){return x.text||'';}).join(''); var a=txt.indexOf('{'), b=txt.lastIndexOf('}');
+      var j=JSON.parse(txt.slice(a,b+1));
+      T.periods=Array.isArray(j.periods)?j.periods:[]; T.days=(Array.isArray(j.days)&&j.days.length?j.days:DAYS.slice(0,6)).filter(function(x){return DAYS.indexOf(x)!==-1;});
+      T.classes=Array.isArray(j.classes)?j.classes.filter(function(c){return CLS.indexOf(c)!==-1;}):[]; T.grid=j.grid&&typeof j.grid==='object'?j.grid:{};
+      if(Object.keys(T.grid).some(function(dd){return Object.keys(T.grid[dd]||{}).some(function(p){return Object.keys(T.grid[dd][p]).some(function(c){return T.grid[dd][p][c].ai;});});})) T.ai_room=true;
+      T.source=T.source||'photo'; dirty=true; if(T.days.indexOf(day)===-1) day=T.days[0];
+      draw(); var mm=$('tt-read-msg'); mm.style.color='#8A6418';
+      mm.textContent='Read. Check every day and box against the photo, correct anything wrong'+(j.unclear?' (AI could not read: '+j.unclear+')':'')+', then tap Save timetable.';
+    }catch(e){ m.style.color='#c0392b'; m.textContent='AI could not read the photos: '+e.message+'. Try clearer photos, fewer at a time.'; }
+    finally{ var bb=$('tt-read'); if(bb) bb.disabled=false; }
+  }
 })();
 </script>
 <!-- Report Cards → ERP for schools with the ERP switch ON -->

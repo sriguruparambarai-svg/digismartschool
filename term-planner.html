@@ -163,6 +163,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
         <div class="days" id="fDays"></div></div>
     </div>
     <div class="hint" id="holHint" style="margin-top:8px"></div>
+    <div class="hint" id="ttHint" style="margin-top:4px"></div>
     <div style="margin-top:14px">
       <div class="toolbar"><b style="font-size:.9rem">Chapters for this term</b><span class="hint" id="chapHint"></span></div>
       <div class="chaps" id="chaps"></div>
@@ -328,7 +329,36 @@ function holHint(){
     ?"🗓️ <b>"+inTerm.length+" school holiday"+(inTerm.length>1?"s":"")+" skipped</b> this term: "+inTerm.map(h=>esc(h.name)+" ("+esc(h.date.slice(8)+"/"+h.date.slice(5,7))+")").join(", ")
     :"🗓️ No school holidays marked in this term.")+
     (PRINCIPAL?' <a href="dashboard.html#calendar">Change the school calendar</a>':" Holidays are set by the principal in the School Calendar.")}
-function slotHint(){holHint();const n=periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
+/* ---------- school timetable (Oct 2026) ----------
+   From ERP's master timetable, or read from a photo (School Admin → School Timetable).
+   When this class + subject is in it, lessons go on its REAL periods (holidays skipped),
+   and TeachBot lessons only on the periods the class goes to the AI class room. */
+let TT=null;
+async function loadTimetable(){
+  try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
+    const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null;if(d&&d.error)console.warn("timetable:",d.error)}
+  catch(e){TT=null}
+  slotHint()}
+const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
+// → [{date, p, label, ai}] for one class + subject between two dates
+function ttSlots(cls,subject,start,end){
+  if(!TT||!start||!end)return null;const want=subjKey(subject),out=[];let any=false;
+  const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  for(let d=parse(start),e=parse(end);d<=e;d.setDate(d.getDate()+1)){
+    const ds=iso(d),wd=WD[d.getDay()],day=TT.grid[wd];if(!day)continue;
+    Object.keys(day).map(Number).sort((a,b)=>a-b).forEach(p=>{const c=(day[String(p)]||{})[cls];
+      if(!c||subjKey(c.subject)!==want)return;any=true;
+      if(HOL[ds])return;
+      out.push({date:ds,p,label:((TT.periods||[])[p]||{}).label||"P"+(p+1),ai:!!(TT.ai_room&&c.ai)})})}
+  return any?out:null}
+function ttInfo(){const sl=ttSlots($("fClass").value,$("fSubject").value,$("fStart").value,$("fEnd").value);
+  const el=$("ttHint");if(!el)return sl;
+  if(!TT){el.innerHTML="🕒 No school timetable yet — lessons are spread evenly over the school days. "+(PRINCIPAL?'<a href="dashboard.html">Add it in School Admin → School Timetable</a>':"Your principal can add it in School Admin.");$("fPpw").disabled=false;return null}
+  if(!sl){el.innerHTML="🕒 "+esc($("fClass").value+" "+$("fSubject").value)+" is not in the school timetable"+(TT.source==="erp"?" (ERP)":"")+" — lessons are spread evenly over the school days.";$("fPpw").disabled=false;return null}
+  const ai=sl.filter(x=>x.ai).length;$("fPpw").disabled=true;
+  el.innerHTML="🕒 Following the school timetable"+(TT.source==="erp"?" from ERP":"")+": <b>"+sl.length+" periods</b> this term for "+esc($("fClass").value+" "+$("fSubject").value)+(TT.ai_room?", <b>"+ai+" in the 🤖 AI class room</b>"+(ai?" — TeachBot lessons go only on those.":" — none marked, so TeachBot lessons cannot be placed. Tick AI periods in the timetable."):"")+" Periods per week is taken from the timetable.";
+  return sl}
+function slotHint(){holHint();const tsl=ttInfo();const n=tsl?tsl.length:periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
   $("slotHint").textContent=n?`${n} lesson periods in this term${c?" for "+c+" chapter"+(c>1?"s":"")+" — about "+Math.round(n/Math.max(1,c))+" each":""}.`:"Choose the term dates."}
 ["fStart","fEnd","fPpw"].forEach(id=>$(id).addEventListener("input",slotHint));$("fDays").addEventListener("change",slotHint);
 
@@ -439,6 +469,38 @@ function chapterSlots(cp,ch,n){
   ends.forEach(t=>out.push(Object.assign({type:t},t==="catchup"?{from:null,to:null}:all)));
   return out.slice(0,n)}
 
+// pat[i] = true when period i of this chapter is in the AI class room.
+// TeachBot lessons go on the first AI periods (one per part of the chapter); later AI periods
+// become revision in the AI room; classroom periods get reading, exercises, class work,
+// and at the end catch-up, revision and the class test.
+function chapterSlotsAI(cp,ch,n,pat){
+  const aiIdx=pat.map((x,i)=>x?i:-1).filter(i=>i>=0);
+  let pages=cp.pages.length?cp.pages.slice():[];
+  if(!pages.length){const f=+ch.from||0,t=+ch.to||0;if(f&&t>=f)for(let p=f;p<=t;p++)pages.push({pdf:p,book:p,text:""})}
+  const k=Math.min(tbCount(pages.length,n),aiIdx.length);
+  if(!k)return chapterSlots(cp,ch,n).map((x,i)=>Object.assign(x,{room:pat[i]?"ai":""}));
+  const w=pages.map(p=>cp.scanned?1:Math.max(200,p.text.length)),tot=w.reduce((a,b)=>a+b,0)||1;
+  const span=(a,b)=>pages.length?{from:pages[a].book,to:pages[b].book,fromPdf:pages[a].pdf,toPdf:pages[b].pdf}:{from:null,to:null};
+  const all=pages.length?span(0,pages.length-1):{from:null,to:null};
+  const cum=[];w.reduce((a,b,i)=>(cum[i]=a+b),0);
+  const at=x=>{for(let i=0;i<cum.length;i++)if(x<=cum[i]+1e-9)return i;return cum.length-1};
+  const cut=[];let prevB=-1;
+  for(let j=0;j<k;j++){if(!pages.length){cut.push({from:null,to:null});continue}
+    const last=pages.length-1,a=Math.min(last,prevB+1<=last?prevB+1:prevB),b=j===k-1?last:Math.max(a,at(tot*(j+1)/k));prevB=b;cut.push(span(a,b))}
+  const tbAt=aiIdx.slice(0,k),out=new Array(n);
+  // before the first TeachBot lesson (only when the chapter cannot start on an AI period)
+  for(let i=0;i<tbAt[0];i++)out[i]={type:"catchup",from:null,to:null};
+  tbAt.forEach((pos,j)=>{out[pos]=Object.assign({type:"teachbot",part:j+1,parts:k,room:"ai"},cut[j])});
+  // the classroom periods after each TeachBot lesson
+  tbAt.forEach((pos,j)=>{const end=j<k-1?tbAt[j+1]:n,lastTaught=pages.length?Math.max(0,pages.findIndex(p=>p.pdf===cut[j].toPdf)):-1,taught=lastTaught>=0?span(0,lastTaught):{from:null,to:null};
+    const room=[];for(let i=pos+1;i<end;i++){if(pat[i])out[i]=Object.assign({type:"revision",room:"ai"},taught);else room.push(i)}
+    let ends=[];if(j===k-1){if(room.length>=2)ends.push("test");if(room.length>=3)ends.unshift("revision");if(room.length>=6)ends.unshift("catchup")}
+    const fol=room.slice(0,room.length-ends.length),f=fol.length;
+    const seq=f===0?[]:f===1?["classwork"]:f===2?["read","classwork"]:["read"].concat(Array(f-2).fill("practice"),["classwork"]);
+    fol.forEach((i,q)=>out[i]=Object.assign({type:seq[q],part:j+1,parts:k},cut[j]));
+    ends.forEach((t,q)=>{out[room[fol.length+q]]=Object.assign({type:t},t==="catchup"?{from:null,to:null}:all)})});
+  return out.map(x=>x||{type:"catchup",from:null,to:null})}
+
 /* ---------- workbook (optional — only schools whose Workbook Generator has this class and subject) ---------- */
 let WB=null,WBP=null,WBPICKS=null;
 async function loadWorkbook(){if(WB)return WB;if(WBP)return WBP;
@@ -501,6 +563,7 @@ The kinds of period:
 - CLASS WORK: in the classroom — children WRITE the class work in their class work notebook: the exact book exercise / question numbers on these pages (as printed). The teacher corrects in class.
 - CATCH-UP: a spare period for anything not finished, lessons missed because of absence or holidays, and re-teaching weak points of this chapter. Say what to check and re-teach.
 - REVISION: revision of the whole chapter in the classroom — key words, main points, the exercises to revise.
+- REVISION IN AI ROOM: the class is in the AI class room — revise the pages taught so far with TeachBot (Say-Along Revision, class quiz with answer cards).
 - CLASS TEST: a short written test on the whole chapter — which exercises / questions, and total marks.
 Each row needs:
 - "teach": FIRST the order of work as numbered steps, each starting with the page — the heading or passage, which paragraphs / examples / poem lines, new words, the exercise numbers exactly as printed. e.g. "1. p. 24: Read 'The Little Bird' paras 1–3. 2. p. 24: New words — nest, feather. 3. p. 25: Exercise A Q1–3 orally." THEN, only if it helps, one short line starting "How:" with the way to do it. Keep it short and specific.
@@ -515,9 +578,9 @@ async function askAI(prompt,maxTokens){
   if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
   try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
 // rows for one chapter, in groups of up to 10 periods
-async function planChapter(ch,n,ct,note,progress,wbCh){
+async function planChapter(ch,n,ct,note,progress,wbCh,aiPat){
   // ct = chapterPages(ch). The kind and pages of every period are fixed here, by the computer, in book order.
-  const out=[],slots=chapterSlots(ct,ch,n),byPdf={};
+  const out=[],slots=aiPat&&aiPat.some(Boolean)?chapterSlotsAI(ct,ch,n,aiPat):chapterSlots(ct,ch,n),byPdf={};
   (ct.pages||[]).forEach(p=>byPdf[p.pdf]=p);
   const NAME={teachbot:"TEACHBOT",teach:"TEACH",read:"READING",practice:"EXERCISES",classwork:"CLASS WORK",catchup:"CATCH-UP",revision:"REVISION",test:"CLASS TEST"};
   const maxAct=Math.max(1,Math.min(2,Math.round(n/6)));let acts=0;
@@ -525,7 +588,7 @@ async function planChapter(ch,n,ct,note,progress,wbCh){
   const STEP=6;
   for(let a=0;a<n;a+=STEP){const b=Math.min(n,a+STEP);progress(a,n);
     const before=out.slice(-8).map((r,i)=>"Period "+(out.length-Math.min(8,out.length)+i+1)+" ["+NAME[r.type]+(r.pages?", p. "+r.pages:"")+"]: "+r.teach).join("\n");
-    const list=slots.slice(a,b).map((s,i)=>"Period "+(a+i+1)+": "+NAME[s.type]+(s.parts>1?" (part "+s.part+" of "+s.parts+")":"")+(s.from!=null?" — book page"+(s.from===s.to?" ":"s ")+pgLabel(s):"")).join("\n");
+    const list=slots.slice(a,b).map((s,i)=>"Period "+(a+i+1)+": "+NAME[s.type]+(s.room==="ai"&&s.type!=="teachbot"?" IN AI ROOM":"")+(s.parts>1?" (part "+s.part+" of "+s.parts+")":"")+(s.from!=null?" — book page"+(s.from===s.to?" ":"s ")+pgLabel(s):"")).join("\n");
     // only the text of these periods' own pages; exercise-type periods also get the chapter's last pages (where exercises usually are)
     let txt="";
     if(!ct.scanned){const want=[];slots.slice(a,b).forEach(s=>{if(s.fromPdf==null)return;
@@ -536,33 +599,41 @@ async function planChapter(ch,n,ct,note,progress,wbCh){
     const rows=(res.rows||[]).slice(0,b-a);while(rows.length<b-a)rows.push({teach:"(AI gave fewer lessons — write this one)"});
     rows.forEach((r,i)=>{const sl=slots[a+i]||{};let act=String(r.activity||r.class_act||"").trim();
       if(act&&acts>=maxAct)act="";if(act)acts++;
-      out.push({chapter:ch.title,type:sl.type||"",pages:pgLabel(sl),teach:String(r.teach||""),class_act:act,home_act:"",ground_act:"",
+      out.push({chapter:ch.title,type:sl.type||"",room:sl.room||"",pages:pgLabel(sl),teach:String(r.teach||""),class_act:act,home_act:"",ground_act:"",
         homework:["teachbot","teach","catchup"].includes(sl.type)?"":String(r.homework||""),workbook:"",done:false})})}
   if(wbCh)applyWorkbook(out,slots,wbCh);
   return out}
 
 $("makeBtn").onclick=async()=>{
   const chs=pickedChapters(),days=getDays(),ppw=+$("fPpw").value||5;
-  const dates=periodDates($("fStart").value,$("fEnd").value,days,ppw);
+  const TS=ttSlots($("fClass").value,$("fSubject").value,$("fStart").value,$("fEnd").value);
+  const dates=TS?TS.map(x=>x.date):periodDates($("fStart").value,$("fEnd").value,days,ppw);
   if(!chs.length){toast("Tick at least one chapter.",true);return}
   if(!dates.length){toast("Choose the term start and end dates and the school days.",true);return}
   if(locked()){toast("This plan is approved and locked. Ask the principal to open it again.",true);return}
   if(S.rows.length&&!confirm("Make a new plan? The current plan for "+$("fClass").value+" "+$("fSubject").value+" will be replaced."))return;
   const btn=$("makeBtn");btn.disabled=true;const P=$("prog");P.hidden=false;
-  const parts=share(chs,dates.length),notes=[],rows=[];
+  let parts=share(chs,dates.length);const notes=[],rows=[];
+  // with AI-room periods, each chapter starts on an AI period (so it begins with its TeachBot lesson)
+  if(TS&&TS.some(x=>x.ai)&&$("fTb").value!=="0"){let st=0;const np=[];
+    for(let i=0;i<chs.length;i++){let end=i===chs.length-1?dates.length:st+parts[i];
+      if(i<chs.length-1){let j=end;while(j<dates.length&&!TS[j].ai&&j<end+4)j++;if(j<dates.length&&TS[j].ai)end=j}
+      end=Math.max(st+1,Math.min(end,dates.length-(chs.length-1-i)));np.push(end-st);st=end}
+    parts=np}
+  let at0=0;
   try{for(let i=0;i<chs.length;i++){
       P.innerHTML=`<span class="spin"></span>Reading ${esc(chs[i].title)} (${i+1} of ${chs.length})…`;
       const ct=await chapterPages(chs[i]);if(ct.note)notes.push(ct.note);
       const wbs=wbSettings(),wl=wbs.use_wb?wbChapters():[],wi=wbs.use_wb?wbs.wb_map[chs[i].key]:-1;
-      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+6)} of ${n} (chapter ${i+1} of ${chs.length})…`,wi!=null&&wi>=0?wl.find(x=>x.i===wi):null);
-      rows.push(...got)}
-    rows.forEach((r,k)=>r.date=dates[k]||"");
+      const got=await planChapter(chs[i],parts[i],ct,$("fNote").value.trim(),(a,n)=>P.innerHTML=`<span class="spin"></span>Planning ${esc(chs[i].title)} — periods ${a+1}–${Math.min(n,a+6)} of ${n} (chapter ${i+1} of ${chs.length})…`,wi!=null&&wi>=0?wl.find(x=>x.i===wi):null,TS?TS.slice(at0,at0+parts[i]).map(x=>x.ai):null);
+      rows.push(...got);at0+=parts[i]}
+    rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});
     S.rows=rows;S.settings=collectSettings(chs);
     await saveNow(true);renderPlan();
     P.innerHTML=`✓ ${rows.length} lessons planned.`+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
     $("planCard").scrollIntoView({behavior:"smooth"})}
   catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
-    if(rows.length){rows.forEach((r,k)=>r.date=dates[k]||"");S.rows=rows;S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
+    if(rows.length){rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});S.rows=rows;S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
 function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
@@ -575,8 +646,8 @@ async function redoChapter(title){
   const opt=CHOPTS.find(o=>o.key===saved.key);const ch=Object.assign({},saved,{bookObj:opt&&opt.bookObj});
   toast("Making “"+title+"” again…");
   try{const ct=await chapterPages(ch);if(ct.note)toast(ct.note,true);const wbs=wbSettings(),wi=wbs.use_wb?(((S.settings||{}).wb_map||wbs.wb_map)[saved.key]):-1,wl=wbs.use_wb?wbChapters():[];
-    const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{},wi!=null&&wi>=0?wl.find(x=>x.i===wi):null);
-    idx.forEach((ri,k)=>{const d=S.rows[ri].date;S.rows[ri]=Object.assign(got[k],{date:d})});renderPlan();queueSave();toast("“"+title+"” made again.")}
+    const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{},wi!=null&&wi>=0?wl.find(x=>x.i===wi):null,idx.map(i=>S.rows[i].room==="ai"));
+    idx.forEach((ri,k)=>{const d=S.rows[ri].date,pd=S.rows[ri].period||"";S.rows[ri]=Object.assign(got[k],{date:d,period:pd})});renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
 
 /* ---------- the plan table ---------- */
@@ -612,7 +683,7 @@ function renderPlan(){
     if(r.chapter!==last){last=r.chapter;const n=S.rows.filter(x=>x.chapter===r.chapter).length;
       h+=`<tr class="ch"><td colspan="${COLS.length+5}">${esc(r.chapter||"(no chapter)")} <span class="hint">· ${n} lesson${n>1?"s":""}</span>${ed&&r.chapter?`<button class="btn ghost small noprint" data-redo="${esc(r.chapter)}">↻ Redo this chapter with AI</button>`:""}</td></tr>`}
     h+=`<tr class="${r.done?"done":""}" data-r="${i}"><td class="c-no">${i+1}</td>`+
-      `<td class="c-date">${ed?`<input type="date" data-f="date" value="${esc(r.date)}">`:esc(nice(r.date))}<div class="dow">${dow(r.date)}</div></td>`+
+      `<td class="c-date">${ed?`<input type="date" data-f="date" value="${esc(r.date)}">`:esc(nice(r.date))}<div class="dow">${dow(r.date)}${r.period?" · "+esc(r.period):""}${r.room==="ai"?' <b title="AI class room">🤖</b>':""}</div></td>`+
       `<td class="c-pg">${r.type?`<span class="ptype pt-${esc(r.type)}">${esc(PTYPE[r.type]||r.type)}</span>`:""}<div class="ed" data-f="pages" contenteditable="${ed}">${esc(r.pages)}</div></td>`+
       COLS.map(x=>`<td class="${x[2]}"><div class="ed" data-f="${x[0]}" contenteditable="${ed}" style="white-space:pre-line">${esc(r[x[0]])}</div></td>`).join("")+
       `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done" title="Ticks by itself when this day's class work is sent from the Homework Planner"></td>`+
@@ -689,7 +760,7 @@ async function openPlan(){
       const st=S.settings||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
   catch(e){showErr("Could not open the plan: "+e.message)}
-  $("prog").hidden=true;renderChapters().then(renderWbBox);renderPlan();loadHolidays()}
+  $("prog").hidden=true;renderChapters().then(renderWbBox);renderPlan();loadHolidays().then(loadTimetable)}
 ["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
   if(S.dirty)saveNow().catch(()=>{});openPlan()}));
 $("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
