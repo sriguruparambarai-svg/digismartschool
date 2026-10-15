@@ -129,6 +129,32 @@ function cleanDays(list) {
   return out;
 }
 
+// The school's timetable in the one clean shape, from ERP or from the saved photo version.
+// Used by this file and by api/term-plan.js (Declare holiday / Re-fit to timetable).
+async function loadTimetable(school) {
+  if (school.has_erp === true && school.erp_school_id) {
+    const r = await erpDoor({ school_id: school.erp_school_id });
+    if (!ok(r) || !r.data || r.data.ok !== true) return { source: 'erp', error: 'Could not read the ERP timetable: ' + why(r) };
+    const d = r.data;
+    const grid = cleanGrid(d.grid, true);
+    let days = cleanDays(d.working_days);
+    if (!days.length) days = Object.keys(grid);
+    return { source: 'erp', academic_year: d.academic_year || '', periods: cleanPeriods(d.periods), days: days,
+      classes: (Array.isArray(d.classes) ? d.classes : []).map(function (c) { return CLASS_FROM_ERP[c] || c; }),
+      grid: grid, ai_room: !!d.ai_class, updated_at: d.updated_at || null, note: d.note || '' };
+  }
+  const r = await db('GET', '/rest/v1/school_timetable?school_id=eq.' + enc(school.id) + '&select=*&limit=1');
+  if (!ok(r)) return { error: 'Could not read the timetable: ' + why(r) + (r.status === 404 ? ' (Has step6-timetable.sql been run in Supabase?)' : '') };
+  const t = r.data[0];
+  if (!t) return { source: '', periods: [], days: [], classes: [], grid: {}, ai_room: false };
+  return { source: 'photo', periods: t.periods || [], days: t.days || [], classes: t.classes || [], grid: t.grid || {}, ai_room: !!t.ai_room, updated_at: t.updated_at };
+}
+async function getTimetable(schoolId) {
+  const r = await db('GET', '/rest/v1/schools?id=eq.' + enc(schoolId) + '&select=id,name,school_code,has_erp,erp_school_id&limit=1');
+  if (!ok(r) || !r.data.length) return { error: 'School not found.' };
+  return loadTimetable(r.data[0]);
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -148,24 +174,9 @@ module.exports = async function handler(req, res) {
     const viaErp = school.has_erp === true && !!school.erp_school_id;
 
     if (action === 'get') {
-      if (viaErp) {
-        const r = await erpDoor({ school_id: school.erp_school_id });
-        if (!ok(r) || !r.data || r.data.ok !== true) return res.json({ success: true, source: 'erp', error: 'Could not read the ERP timetable: ' + why(r), principal: principal });
-        const d = r.data;
-        const grid = cleanGrid(d.grid, true);
-        const classes = (Array.isArray(d.classes) ? d.classes : []).map(function (c) { return CLASS_FROM_ERP[c] || c; });
-        let days = cleanDays(d.working_days);
-        if (!days.length) days = Object.keys(grid);
-        return res.json({ success: true, source: 'erp', principal: principal, academic_year: d.academic_year || '',
-          periods: cleanPeriods(d.periods), days: days, classes: classes, grid: grid, ai_room: !!d.ai_class,
-          updated_at: d.updated_at || null, note: d.note || '' });
-      }
-      const r = await db('GET', '/rest/v1/school_timetable?school_id=eq.' + enc(school.id) + '&select=*&limit=1');
-      if (!ok(r)) return res.json({ error: 'Could not read the timetable: ' + why(r) + (r.status === 404 ? ' (Has step6-timetable.sql been run in Supabase?)' : '') });
-      const t = r.data[0];
-      if (!t) return res.json({ success: true, source: '', principal: principal, periods: [], days: [], classes: [], grid: {}, ai_room: false });
-      return res.json({ success: true, source: 'photo', principal: principal, periods: t.periods || [], days: t.days || [],
-        classes: t.classes || [], grid: t.grid || {}, ai_room: !!t.ai_room, updated_at: t.updated_at });
+      const t = await loadTimetable(school);
+      if (t.error && t.source !== 'erp') return res.json({ error: t.error });
+      return res.json(Object.assign({ success: true, principal: principal }, t));
     }
 
     if (action === 'save') {
@@ -187,3 +198,5 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'Server error: ' + e.message });
   }
 };
+
+module.exports.getTimetable = getTimetable;

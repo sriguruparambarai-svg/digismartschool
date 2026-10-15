@@ -37,6 +37,13 @@
 //                                                 ticked done stay. Homework / class work of that day not yet
 //                                                 sent moves to the next school day.
 //                                                 → { moved_plans, over_term:[{class_name,subject,over}] }
+//                                                 Plans made from the school timetable (rows with a period) are
+//                                                 RE-FITTED to it instead: lessons go on the class+subject's next real
+//                                                 periods, TeachBot lessons only on AI-room periods (a classroom
+//                                                 period before an AI one becomes a catch-up period).
+//   refit           { id }                        principal or teacher (not when approved, unless principal):
+//                                                 re-fit one plan's lessons not yet done (from today) to the
+//                                                 timetable — e.g. after the timetable was changed.
 // Table: school_holidays (step5-holidays.sql). RLS on, no policies.
 //
 // Table: term_plans (made in Supabase, Step 1). RLS on, no policies — only this file uses it.
@@ -54,6 +61,61 @@ const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act'
 // period = the timetable period (e.g. "P3"); room = 'ai' when the class is in the AI class room (Oct 2026)
 // homework = AI's suggestion; type = kind of period (teachbot, teach, read, practice, classwork, catchup, revision, test);
 // workbook = the school's workbook pages placed on this period (Oct 2026). class_act now holds the one Activity.
+// ── fitting lessons to the school timetable (Oct 2026) ──
+const timetableApi = require('./timetable.js');
+const WDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const subjKey = function (x) {
+  x = String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+  return { mathematics: 'maths', maths: 'maths', math: 'maths', social: 'social', socialscience: 'social', sst: 'social', socialstudies: 'social',
+           evs: 'evs', environmentalstudies: 'evs' }[x] || x;
+};
+// the class+subject's periods from `from` (inclusive) for up to `days` days, skipping holidays → [{date,label,ai}]
+function timetableSlots(tt, cls, subject, from, off, days) {
+  const out = [], want = subjKey(subject);
+  if (!tt || !tt.grid) return out;
+  const x = new Date(from + 'T00:00:00Z');
+  for (let i = 0; i < (days || 200); i++, x.setUTCDate(x.getUTCDate() + 1)) {
+    const ds = x.toISOString().slice(0, 10), day = tt.grid[WDAY[x.getUTCDay()]];
+    if (!day || off[ds]) continue;
+    Object.keys(day).map(Number).sort(function (a, b) { return a - b; }).forEach(function (p) {
+      const c = (day[String(p)] || {})[cls];
+      if (c && subjKey(c.subject) === want) out.push({ date: ds, label: ((tt.periods || [])[p] || {}).label || 'P' + (p + 1), ai: !!(tt.ai_room && c.ai) });
+    });
+  }
+  return out;
+}
+// Re-place the lessons not yet done, dated `from` or later, onto the timetable periods from `from`.
+// TeachBot lessons only on AI periods; a classroom period met while a TeachBot lesson waits becomes a
+// catch-up period. Returns { rows, fitted } or null when the class+subject is not in the timetable.
+function refitRows(rows, tt, cls, subject, from, off) {
+  const slots = timetableSlots(tt, cls, subject, from, off, 240);
+  if (!slots.length) return null;
+  const keep = [], move = [];
+  rows.forEach(function (r) { if (r && r.date && r.date >= from && !r.done) move.push(r); else keep.push(r); });
+  if (!move.length) return { rows: rows, fitted: 0 };
+  move.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  const placed = []; let s = 0;
+  for (let i = 0; i < move.length && s < slots.length; ) {
+    const r = move[i], sl = slots[s++];
+    if (r.type === 'teachbot' && tt.ai_room && !sl.ai) {
+      placed.push({ date: sl.date, period: sl.label, room: '', chapter: r.chapter, type: 'catchup', pages: '',
+        teach: 'Catch-up: finish anything not done, re-check yesterday\'s work and correct class work. (The next TeachBot lesson is in the AI room.)',
+        class_act: '', home_act: '', ground_act: '', homework: '', workbook: '', done: false });
+      continue;
+    }
+    r.date = sl.date; r.period = sl.label; r.room = sl.ai ? 'ai' : '';
+    placed.push(r); i++;
+  }
+  const all = keep.concat(placed);
+  all.sort(function (a, b) { return (a.date || '9') < (b.date || '9') ? -1 : (a.date || '9') > (b.date || '9') ? 1 : 0; });
+  return { rows: all, fitted: placed.length };
+}
+async function offDays(school, from) {
+  const hr = await db('GET', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=gte.' + from + '&select=date');
+  const off = {};
+  (ok(hr) ? hr.data : []).forEach(function (h) { off[h.date] = 1; });
+  return off;
+}
 const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test'];
 
 function db(method, path, body) {
@@ -285,8 +347,24 @@ module.exports = async function handler(req, res) {
       const pr = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,settings,rows');
       if (!ok(pr)) return res.json({ error: 'Holiday saved, but the term plans could not be read: ' + why(pr) });
       let moved = 0; const over = [];
+      let TT = null;
+      if (pr.data.some(function (p) { return (p.rows || []).some(function (r) { return r && r.period; }); })) {
+        TT = await timetableApi.getTimetable(school.id);
+        if (TT && (TT.error || !TT.grid || !Object.keys(TT.grid).length)) TT = null;
+      }
       for (const p of pr.data) {
         const rows = Array.isArray(p.rows) ? p.rows : [];
+        // plans made from the timetable: re-fit to the class+subject's real periods
+        if (TT && rows.some(function (r) { return r && r.period; }) && rows.some(function (r) { return r && r.date === D && !r.done; })) {
+          const ft = refitRows(rows, TT, p.class_name, p.subject, D, off);
+          if (ft) {
+            const end0 = p.settings && isDate(p.settings.end) ? p.settings.end : '';
+            if (end0) { const n0 = ft.rows.filter(function (r) { return r && r.date > end0; }).length; if (n0) over.push({ class_name: p.class_name, subject: p.subject, over: n0 }); }
+            const w0 = await db('PATCH', '/rest/v1/term_plans?id=eq.' + enc(p.id) + '&school_id=eq.' + enc(school.id), { rows: ft.rows, updated_at: new Date().toISOString() });
+            if (!ok(w0)) return res.json({ error: 'Holiday saved, but ' + p.class_name + ' ' + p.subject + ' could not be moved: ' + why(w0) });
+            moved++; continue;
+          }
+        }
         // lessons of that day (not yet taught) and every later lesson, in order
         const idx = [];
         rows.forEach(function (r, i) { if (r && r.date && (r.date > D || (r.date === D && !r.done))) idx.push(i); });
@@ -313,6 +391,23 @@ module.exports = async function handler(req, res) {
         if (ok(hw)) hwMoved = hw.data.length;
       }
       return res.json({ success: true, moved_plans: moved, over_term: over, homework_moved: hwMoved, homework_to: nd });
+    }
+
+    if (action === 'refit') {
+      const p = await getPlan(body.id, school);
+      if (!p) return res.json({ error: 'This plan was not found.' });
+      if (!principal && p.status === 'approved') return res.json({ error: 'The principal has approved this plan, so it is locked. Ask the principal to open it again.' });
+      const TT = await timetableApi.getTimetable(school.id);
+      if (!TT || TT.error) return res.json({ error: (TT && TT.error) || 'Could not read the school timetable.' });
+      if (!TT.grid || !Object.keys(TT.grid).length) return res.json({ error: 'There is no school timetable yet. Add it in School Admin → School Timetable.' });
+      const from = istToday();
+      const ft = refitRows(Array.isArray(p.rows) ? p.rows : [], TT, p.class_name, p.subject, from, await offDays(school, from));
+      if (!ft) return res.json({ error: p.class_name + ' ' + p.subject + ' is not in the school timetable.' });
+      const end = p.settings && isDate(p.settings.end) ? p.settings.end : '';
+      const over = end ? ft.rows.filter(function (r) { return r && r.date > end; }).length : 0;
+      const w = await setStatus(p, school, { rows: ft.rows });
+      if (w.error) return res.json(w);
+      return res.json({ success: true, plan: w.plan, fitted: ft.fitted, over_term: over });
     }
 
     if (action === 'get') {
