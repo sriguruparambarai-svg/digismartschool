@@ -97,6 +97,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .pt-teachbot{background:#6B0F1A;color:#fff} .pt-teach{background:#8B1A2A;color:#fff} .pt-read{background:#E3EEF9;color:#184C80}
 .pt-practice{background:#EAF3E5;color:#2F5A2A} .pt-classwork{background:#FCEFD6;color:#6A4A0C} .pt-catchup{background:#EEE;color:#444}
 .pt-revision{background:#EFE5F7;color:#5A2D7A} .pt-test{background:#FBE7E3;color:#7A1A13}
+.pt-hwday{background:#FFF3C4;color:#6A4A0C} .pt-worksheet{background:#E0F4F1;color:#155E54}
 .tp td.c-wb{min-width:160px;border-left:3px solid #E9D59B}
 .tp th.h-cls{color:var(--cls)} .tp th.h-home{color:var(--home)} .tp th.h-gr{color:var(--ground)}
 .tp td.c-done{width:56px;text-align:center;padding-top:8px} .tp td.c-done input{width:18px;height:18px;accent-color:var(--ok)}
@@ -434,7 +435,10 @@ const pgLabel=s=>s.from==null?"":(s.from===s.to?String(s.from):s.from+"–"+s.to
    exercise practice, class work writing — and at the end a catch-up period (for lessons
    missed), revision and the class test. The computer fixes the order and the pages; the
    AI only writes what to do in each period. */
-const PTYPE={teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"📝 Class work",catchup:"⏳ Catch-up",revision:"🔁 Revision",test:"✅ Class test"};
+const PTYPE={teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"📝 Class work",hwday:"🔁 Revise + Homework",worksheet:"📄 Worksheet",catchup:"⏳ Catch-up",revision:"🔁 Revision",test:"✅ Class test"};
+function followSeq(f){   // classroom periods after one AI class / teaching period
+  if(f<=0)return[];if(f===1)return["classwork"];if(f===2)return["classwork","hwday"];if(f===3)return["read","classwork","hwday"];
+  return["read"].concat(Array(f-4).fill("practice"),["classwork","hwday","worksheet"])}
 function tbCount(pages,n){const v=$("fTb").value;
   let k=v==="auto"?(pages<=6?1:pages<=14?2:3):+v;
   return Math.max(0,Math.min(k,Math.floor(n/3)||(n>=1&&v!=="0"?1:0)))}
@@ -464,7 +468,7 @@ function chapterSlots(cp,ch,n){
   const order=cut.map((c,i)=>[c.wt/tw,i]).sort((x,y)=>y[0]-x[0]).map(x=>x[1]);let q=0;while(left>0){fol[order[q%order.length]]++;left--;q++}
   const out=[];
   cut.forEach((c,j)=>{out.push(Object.assign({type:teachType,part:j+1,parts},c));
-    const f=fol[j];const seq=f===1?["classwork"]:f===2?["read","classwork"]:["read"].concat(Array(f-2).fill("practice"),["classwork"]);
+    const seq=followSeq(fol[j]);
     seq.forEach(t=>out.push(Object.assign({type:t,part:j+1,parts},c)))});
   ends.forEach(t=>out.push(Object.assign({type:t},t==="catchup"?{from:null,to:null}:all)));
   return out.slice(0,n)}
@@ -496,7 +500,7 @@ function chapterSlotsAI(cp,ch,n,pat){
     const room=[];for(let i=pos+1;i<end;i++){if(pat[i])out[i]=Object.assign({type:"revision",room:"ai"},taught);else room.push(i)}
     let ends=[];if(j===k-1){if(room.length>=2)ends.push("test");if(room.length>=3)ends.unshift("revision");if(room.length>=6)ends.unshift("catchup")}
     const fol=room.slice(0,room.length-ends.length),f=fol.length;
-    const seq=f===0?[]:f===1?["classwork"]:f===2?["read","classwork"]:["read"].concat(Array(f-2).fill("practice"),["classwork"]);
+    const seq=followSeq(f);
     fol.forEach((i,q)=>out[i]=Object.assign({type:seq[q],part:j+1,parts:k},cut[j]));
     ends.forEach((t,q)=>{out[room[fol.length+q]]=Object.assign({type:t},t==="catchup"?{from:null,to:null}:all)})});
   return out.map(x=>x||{type:"catchup",from:null,to:null})}
@@ -545,11 +549,17 @@ function wbSlotText(ch,slotId){const c=String(num($("fClass").value)),sbKey=ch.s
 function applyWorkbook(rows,slots,ch){
   if(!ch)return;const tag="Workbook "+(ch.no||ch.i+1)+" — ";
   const idx=t=>slots.map((s,i)=>s.type===t?i:-1).filter(i=>i>=0);
-  const cw=idx("classwork"),pr=idx("practice"),te=idx("test"),room=slots.map((s,i)=>["read","practice","classwork"].includes(s.type)?i:-1).filter(i=>i>=0);
+  const cw=idx("classwork"),pr=idx("practice"),hd=idx("hwday"),te=idx("test"),
+    room=slots.map((s,i)=>["read","practice","classwork","hwday","worksheet"].includes(s.type)?i:-1).filter(i=>i>=0);
   const put=(i,txt,asHw)=>{if(i==null||!rows[i]||!txt)return;rows[i].workbook=(rows[i].workbook?rows[i].workbook+"\n":"")+tag+txt;if(asHw)rows[i].homework=tag+txt};
-  put(cw.length?cw[cw.length-1]:null,wbSlotText(ch,"CW"));
+  const cwT=wbSlotText(ch,"CW");cw.forEach(i=>put(i,cwT));
   put(pr.length?pr[0]:(cw[0]!=null?cw[0]:null),wbSlotText(ch,"BB"));
-  ["HW1","HW2","HW3"].forEach((id,k)=>{const t=wbSlotText(ch,id);if(!t||!room.length)return;put(room[Math.min(room.length-1,Math.floor((k+1)*room.length/3)-1)],t,true)});
+  // HW1, HW2, HW3 in order: each on the next Revise + Homework day; if there are fewer such days,
+  // on the next classroom period after the last one used
+  let last=-1;const used=[];
+  ["HW1","HW2","HW3"].forEach(id=>{const t=wbSlotText(ch,id);if(!t)return;
+    let at=hd.find(i=>i>last&&!used.includes(i));if(at==null)at=room.find(i=>i>last&&!used.includes(i));if(at==null)return;
+    used.push(at);last=at;put(at,t,true)});
   put(te.length?te[0]:null,wbSlotText(ch,"TEST"))}
 
 /* ---------- AI ---------- */
@@ -561,6 +571,8 @@ The kinds of period:
 - READING: in the classroom, after the pages were taught — children read the pages aloud / in turns; the teacher explains hard lines and new words again; quick oral questions.
 - EXERCISES: in the classroom — the book's exercises on these pages done orally / on the board, so children can write them later.
 - CLASS WORK: in the classroom — children WRITE the class work in their class work notebook: the exact book exercise / question numbers on these pages (as printed). The teacher corrects in class.
+- REVISE + HOMEWORK: in the classroom — go through EACH homework question of these pages with the class, one by one, orally / on the board, so every child knows how to answer; then give the homework. The "homework" must be those questions.
+- WORKSHEET: in the classroom — children do a short worksheet made by the school on these pages (fill in the blanks, match, picture or creative questions from the lesson). Say what the worksheet should have.
 - CATCH-UP: a spare period for anything not finished, lessons missed because of absence or holidays, and re-teaching weak points of this chapter. Say what to check and re-teach.
 - REVISION: revision of the whole chapter in the classroom — key words, main points, the exercises to revise.
 - REVISION IN AI ROOM: the class is in the AI class room — revise the pages taught so far with TeachBot (Say-Along Revision, class quiz with answer cards).
@@ -568,7 +580,7 @@ The kinds of period:
 Each row needs:
 - "teach": FIRST the order of work as numbered steps, each starting with the page — the heading or passage, which paragraphs / examples / poem lines, new words, the exercise numbers exactly as printed. e.g. "1. p. 24: Read 'The Little Bird' paras 1–3. 2. p. 24: New words — nest, feather. 3. p. 25: Exercise A Q1–3 orally." THEN, only if it helps, one short line starting "How:" with the way to do it. Keep it short and specific.
 - "activity": ONE simple, low-cost activity ONLY where it really helps (introducing the chapter, a hard idea, a revision game). Most periods get "". Start with where it happens: "(Class) …", "(Ground) …" (10–15 minutes outdoors) or "(Home) …". Never more than the number of activities you are told is still allowed.
-- "homework": a SUGGESTED written homework ONLY from what has been taught so far — the book's exercise / question numbers as printed (e.g. "p. 25: Exercise B Q1–4 in notebook"). Small: about 10–15 minutes for LKG–Class 2, 15–20 for Class 3–5, 20–30 for Class 6 and above. Use "" for TEACHBOT and TEACH periods, CATCH-UP, and wherever no written homework suits. For REVISION: "Revise the chapter for the class test" with the pages. The school may use it or skip it.
+- "homework": a SUGGESTED written homework ONLY from what has been taught so far — the book's exercise / question numbers as printed (e.g. "p. 25: Exercise B Q1–4 in notebook"). Small: about 10–15 minutes for LKG–Class 2, 15–20 for Class 3–5, 20–30 for Class 6 and above. Use "" ONLY for TEACHBOT and TEACH periods and CATCH-UP — every READING, EXERCISES, CLASS WORK, REVISE + HOMEWORK and WORKSHEET period gets a homework. For REVISION: "Revise the chapter for the class test" with the pages. The school may use it or skip it.
 Write in simple English a new teacher can follow. Reply with JSON only.`}
 async function askAI(prompt,maxTokens){
   const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:maxTokens})});
@@ -582,7 +594,7 @@ async function planChapter(ch,n,ct,note,progress,wbCh,aiPat){
   // ct = chapterPages(ch). The kind and pages of every period are fixed here, by the computer, in book order.
   const out=[],slots=aiPat&&aiPat.some(Boolean)?chapterSlotsAI(ct,ch,n,aiPat):chapterSlots(ct,ch,n),byPdf={};
   (ct.pages||[]).forEach(p=>byPdf[p.pdf]=p);
-  const NAME={teachbot:"TEACHBOT",teach:"TEACH",read:"READING",practice:"EXERCISES",classwork:"CLASS WORK",catchup:"CATCH-UP",revision:"REVISION",test:"CLASS TEST"};
+  const NAME={teachbot:"TEACHBOT",teach:"TEACH",read:"READING",practice:"EXERCISES",classwork:"CLASS WORK",hwday:"REVISE + HOMEWORK",worksheet:"WORKSHEET",catchup:"CATCH-UP",revision:"REVISION",test:"CLASS TEST"};
   const maxAct=Math.max(1,Math.min(2,Math.round(n/6)));let acts=0;
   const lastPdf=(ct.pages||[]).length?ct.pages[ct.pages.length-1].pdf:null;
   const STEP=6;
@@ -593,7 +605,7 @@ async function planChapter(ch,n,ct,note,progress,wbCh,aiPat){
     let txt="";
     if(!ct.scanned){const want=[];slots.slice(a,b).forEach(s=>{if(s.fromPdf==null)return;
         const f=["revision","test"].includes(s.type)?Math.max(s.fromPdf,s.toPdf-2):s.fromPdf;for(let p=f;p<=s.toPdf;p++)if(!want.includes(p))want.push(p);
-        if(["practice","classwork"].includes(s.type)&&lastPdf)for(let p=Math.max(s.toPdf+1,lastPdf-1);p<=lastPdf;p++)if(!want.includes(p))want.push(p)});
+        if(["practice","classwork","hwday","worksheet"].includes(s.type)&&lastPdf)for(let p=Math.max(s.toPdf+1,lastPdf-1);p<=lastPdf;p++)if(!want.includes(p))want.push(p)});
       want.sort((x,y)=>x-y).forEach(p=>{const pg=byPdf[p];if(pg&&txt.length<18000)txt+="\n[Book page "+pg.book+"]\n"+pg.text.slice(0,3500)})}
     const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${ch.title}${slots.length&&slots[0].from!=null?" (book pages "+slots[0].from+"–"+slots[slots.length-1].to+")":""}\nThis chapter has ${n} periods. Plan periods ${a+1} to ${b}. Their kind and pages are FIXED:\n${list}\nActivities still allowed in this chapter: ${Math.max(0,maxAct-acts)}.\n${before?"Periods already planned (do not repeat them):\n"+before+"\n":""}${note?"Teacher's note: "+note+"\n":""}${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":"(The book's text could not be read — plan from the chapter name and the pages given, and keep it general.)\n"}\nReply with JSON only: {"rows":[{"teach":"","activity":"","homework":""}]} with exactly ${b-a} rows, in the same order as the periods above.`,Math.min(8000,700*(b-a)+700));
     const rows=(res.rows||[]).slice(0,b-a);while(rows.length<b-a)rows.push({teach:"(AI gave fewer lessons — write this one)"});
@@ -602,6 +614,7 @@ async function planChapter(ch,n,ct,note,progress,wbCh,aiPat){
       out.push({chapter:ch.title,type:sl.type||"",room:sl.room||"",pages:pgLabel(sl),teach:String(r.teach||""),class_act:act,home_act:"",ground_act:"",
         homework:["teachbot","teach","catchup"].includes(sl.type)?"":String(r.homework||""),workbook:"",done:false})})}
   if(wbCh)applyWorkbook(out,slots,wbCh);
+  out.forEach(r=>{if(r.homework&&r.type!=="test"&&!/Before giving homework/.test(r.teach))r.teach=(r.teach?r.teach+" ":"")+"Before giving homework: go through each homework question with the class."});
   return out}
 
 $("makeBtn").onclick=async()=>{
@@ -738,9 +751,19 @@ $("tp").addEventListener("input",e=>{const f=e.target.dataset.f;if(!f)return;con
   S.rows[i][f]=f==="date"?e.target.value:e.target.innerText.trim();if(f==="date"){const dw=e.target.parentElement.querySelector(".dow");if(dw)dw.textContent=dow(e.target.value)}queueSave()});
 $("tp").addEventListener("click",async e=>{const d=e.target.dataset;
   if(d.redo)redoChapter(d.redo);
-  if(d.del!=null){const i=+d.del;if(!confirm("Remove lesson "+(i+1)+"?"))return;S.rows.splice(i,1);renderPlan();queueSave()}
+  if(d.del!=null){const i=+d.del;if(!confirm("Remove lesson "+(i+1)+"? The lessons after it will move up one period."))return;removeLesson(i)}
   if(d.done!=null){const i=+d.done;S.rows[i].done=e.target.checked;e.target.closest("tr").classList.toggle("done",e.target.checked);
     if(S.plan&&!S.dirty){try{const r=await tp("mark_done",{id:S.plan.id,index:i,done:e.target.checked});S.plan=r.plan;loadList()}catch(err){toast(err.message,true)}}else queueSave()}});
+// the date, period and room belong to the timetable slot, not to the lesson
+function removeLesson(i){
+  const slot=S.rows.map(r=>({date:r.date,period:r.period||"",room:r.room||""}));
+  const last=S.rows[S.rows.length-1]||{};S.rows.splice(i,1);
+  for(let k=i;k<S.rows.length;k++)Object.assign(S.rows[k],slot[k]);
+  const end=slot[slot.length-1];
+  if(end&&end.date)S.rows.push(Object.assign({chapter:last.chapter||"",type:"catchup",pages:"",teach:"Spare period — finish anything left over, or re-teach weak points.",class_act:"",home_act:"",homework:"",workbook:"",ground_act:"",done:false},end));
+  renderPlan();queueSave();
+  const clash=slot.some(x=>x.room==="ai")&&S.rows.some(r=>r.type==="teachbot"&&r.room!=="ai");
+  toast(clash?"Lesson removed. Note: a TeachBot class has moved to a period that is not in the AI room — check its date.":"Lesson removed — the lessons after it moved up one period.",clash)}
 $("addRow").onclick=()=>{if(locked())return;const lastRow=S.rows[S.rows.length-1]||{};S.rows.push({date:"",chapter:lastRow.chapter||"",pages:"",teach:"",type:"",class_act:"",home_act:"",homework:"",workbook:"",ground_act:"",done:false});renderPlan();queueSave()};
 
 /* ---------- saving ---------- */
