@@ -338,7 +338,7 @@ async function loadTimetable(){
   try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
     const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null;if(d&&d.error)console.warn("timetable:",d.error)}
   catch(e){TT=null}
-  slotHint()}
+  slotHint();if(S.rows.length)renderActs()}
 const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
 // → [{date, p, label, ai}] for one class + subject between two dates
 function ttSlots(cls,subject,start,end){
@@ -696,6 +696,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(PRINCIPAL&&S.plan&&st==="waiting")a.push(`<button class="btn ghost" id="aBack">Send back</button>`);
   if(PRINCIPAL&&S.plan&&st==="approved")a.push(`<button class="btn ghost" id="aReopen">Open again for changes</button>`);
   if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
+  if(!locked()&&S.plan&&TT&&S.rows.length)a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -704,7 +705,11 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aReopen",()=>act("reopen","Open for changes"));
   on("aBack",()=>{const n=prompt("Note for the teacher (what to change):","");if(n!==null)act("send_back","Sent back to the teacher",{note:n})});
   on("aPrint",()=>window.print());
-  on("aHw",suggestHomework)}
+  on("aHw",suggestHomework);
+  on("aRefit",async()=>{if(!confirm("Put the lessons not yet done (from today) on the class's timetable periods again?\n\nTeachBot lessons go only on AI-room periods; a classroom period before one becomes a catch-up period."))return;
+    try{if(S.dirty)await saveNow();const d=await tp("refit",{id:S.plan.id});S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];renderPlan();loadList();
+      toast(d.fitted+" lessons placed on the timetable."+(d.over_term?" "+d.over_term+" lesson"+(d.over_term>1?"s go":" goes")+" past the term end — add an extra period or merge two lessons.":""),!!d.over_term)}
+    catch(e){toast(e.message,true)}})}
 /* AI suggests homework for lessons that have none (plans made before Oct 2026, or rows added by hand).
    Uses each lesson's own pages and what was taught; the school may keep, change or clear it. */
 const NOHW=["teachbot","teach","catchup"];   // periods that get no homework
