@@ -231,6 +231,7 @@ function cleanModel(m) {
     const x = (m.groups && m.groups[g]) || {};
     out.groups[g] = { steps: clip(x.steps, 3000), teachMin: n(x.teachMin, 1, 8, 2), teachMax: n(x.teachMax, 1, 8, 3),
                       cwMin: n(x.cwMin, 0, 8, 2), cwMax: n(x.cwMax, 0, 8, 3), words: n(x.words, 0, 30, 10),
+                      read: n(x.read, 0, 4, 0), spare: n(x.spare, 0, 3, 1), revise: n(x.revise, 0, 3, 1),
                       ai1: clip(x.ai1, 40), ai2: clip(x.ai2, 40) };
     if (out.groups[g].teachMax < out.groups[g].teachMin) out.groups[g].teachMax = out.groups[g].teachMin;
     if (out.groups[g].cwMax < out.groups[g].cwMin) out.groups[g].cwMax = out.groups[g].cwMin;
