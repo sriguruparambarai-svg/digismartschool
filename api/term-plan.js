@@ -47,6 +47,11 @@
 // Table: school_holidays (step5-holidays.sql). RLS on, no policies.
 //
 // Table: term_plans (made in Supabase, Step 1). RLS on, no policies — only this file uses it.
+//
+// THE SCHOOL'S MODEL (Oct 2026) — how a chapter is run, per subject, decided by the principal.
+//   model_get  {}          anyone of the school → { model | null }  (null = DigiSmart's model is used)
+//   model_save { model }   principal only. model = null resets to DigiSmart's model.
+// Table: term_models (step6-term-model.sql). RLS on, no policies — only this file uses it.
 
 const https = require('https');
 const crypto = require('crypto');
@@ -57,7 +62,8 @@ const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const TERMS = ['I', 'II', 'III'];
-const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook', 'period', 'room'];
+const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook', 'period', 'room', 'act'];
+// act = 'class' when this period is the chapter's class activity day, 'home' when the home activity is given on it (Oct 2026)
 // period = the timetable period (e.g. "P3"); room = 'ai' when the class is in the AI class room (Oct 2026)
 // homework = AI's suggestion; type = kind of period (teachbot, teach, read, practice, classwork, catchup, revision, test);
 // workbook = the school's workbook pages placed on this period (Oct 2026). class_act now holds the one Activity.
@@ -116,7 +122,7 @@ async function offDays(school, from) {
   (ok(hr) ? hr.data : []).forEach(function (h) { off[h.date] = 1; });
   return off;
 }
-const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test'];
+const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test', 'hwday', 'worksheet', 'activity'];
 
 function db(method, path, body) {
   return new Promise(function (resolve) {
@@ -195,7 +201,41 @@ function cleanSettings(s) {
   return { start: isDate(s.start) ? s.start : '', end: isDate(s.end) ? s.end : '', days: days,
            ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), chapters: chapters, note: clip(s.note, 500),
            tb: ['auto', '0', '1', '2', '3'].indexOf(String(s.tb)) !== -1 ? String(s.tb) : 'auto',
-           use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map) };
+           use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map), acts: cleanActs(s.acts) };
+}
+// chapter title → { opts:[{w:'class'|'home', t}], pick:[index…] }  (AI suggests, the principal picks)
+function cleanActs(a) {
+  const out = {};
+  if (!a || typeof a !== 'object' || Array.isArray(a)) return out;
+  Object.keys(a).slice(0, 40).forEach(function (k) {
+    const x = a[k] || {};
+    const opts = (Array.isArray(x.opts) ? x.opts : []).slice(0, 12).map(function (o) {
+      return { w: o && o.w === 'home' ? 'home' : 'class', t: clip(o && o.t, 400) };
+    }).filter(function (o) { return o.t; });
+    const pick = (Array.isArray(x.pick) ? x.pick : []).map(function (i) { return parseInt(i, 10); })
+      .filter(function (i, j, arr) { return i >= 0 && i < opts.length && arr.indexOf(i) === j; }).slice(0, 12);
+    out[clip(k, 160)] = { opts: opts, pick: pick };
+  });
+  return out;
+}
+// the school's model: only known fields, numbers kept in range, text clipped
+function cleanModel(m) {
+  if (!m || typeof m !== 'object') return null;
+  const n = function (v, lo, hi, d) { v = parseInt(v, 10); return isNaN(v) ? d : Math.max(lo, Math.min(hi, v)); };
+  const out = { version: 1, suggest: n(m.suggest, 2, 10, 5), bands: {}, groups: {} };
+  ['1-2', '3-5', '6-8', '9-12'].forEach(function (b) {
+    const x = (m.bands && m.bands[b]) || {};
+    out.bands[b] = { cls: n(x.cls, 0, 6, 1), home: n(x.home, 0, 6, 1) };
+  });
+  ['english', 'maths', 'science', 'social'].forEach(function (g) {
+    const x = (m.groups && m.groups[g]) || {};
+    out.groups[g] = { steps: clip(x.steps, 3000), teachMin: n(x.teachMin, 1, 8, 2), teachMax: n(x.teachMax, 1, 8, 3),
+                      cwMin: n(x.cwMin, 0, 8, 2), cwMax: n(x.cwMax, 0, 8, 3), words: n(x.words, 0, 30, 10),
+                      ai1: clip(x.ai1, 40), ai2: clip(x.ai2, 40) };
+    if (out.groups[g].teachMax < out.groups[g].teachMin) out.groups[g].teachMax = out.groups[g].teachMin;
+    if (out.groups[g].cwMax < out.groups[g].cwMin) out.groups[g].cwMax = out.groups[g].cwMin;
+  });
+  return out;
 }
 function cleanRows(rows) {
   if (!Array.isArray(rows)) return [];
@@ -205,6 +245,7 @@ function cleanRows(rows) {
     if (!isDate(o.date)) o.date = '';
     if (ROW_TYPES.indexOf(o.type) === -1) o.type = '';
     if (o.room !== 'ai') o.room = '';
+    if (o.act !== 'class' && o.act !== 'home') o.act = '';
     o.done = !!(r && r.done);
     return o;
   });
@@ -408,6 +449,25 @@ module.exports = async function handler(req, res) {
       const w = await setStatus(p, school, { rows: ft.rows });
       if (w.error) return res.json(w);
       return res.json({ success: true, plan: w.plan, fitted: ft.fitted, over_term: over });
+    }
+
+    // ── the school's model (Oct 2026) ──
+    if (action === 'model_get') {
+      const r = await db('GET', '/rest/v1/term_models?school_id=eq.' + enc(school.id) + '&select=model,updated_at&limit=1');
+      if (!ok(r)) return res.json({ success: true, model: null, not_ready: r.status === 404 || r.status === 400 });
+      return res.json({ success: true, model: r.data.length ? r.data[0].model : null, updated_at: r.data.length ? r.data[0].updated_at : null });
+    }
+    if (action === 'model_save') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can change the school\'s model.' });
+      const model = body.model == null ? null : cleanModel(body.model);
+      const row = { model: model || {}, updated_at: new Date().toISOString() };
+      const ex = await db('GET', '/rest/v1/term_models?school_id=eq.' + enc(school.id) + '&select=school_id&limit=1');
+      if (!ok(ex)) return res.json({ error: 'Could not save the model: ' + why(ex) + (ex.status === 404 ? ' (Has step6-term-model.sql been run in Supabase?)' : '') });
+      const w = ex.data.length
+        ? await db('PATCH', '/rest/v1/term_models?school_id=eq.' + enc(school.id), row)
+        : await db('POST', '/rest/v1/term_models', Object.assign({ school_id: String(school.id) }, row));
+      if (!ok(w)) return res.json({ error: 'Could not save the model: ' + why(w) });
+      return res.json({ success: true, model: model });
     }
 
     if (action === 'get') {
