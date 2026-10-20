@@ -66,7 +66,7 @@ const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
 const TERMS = ['I', 'II', 'III'];
-const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook', 'period', 'room', 'act'];
+const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook', 'period', 'room', 'act', 'speak'];   // speak = Spoken English topic|level
 // act = 'class' when this period is the chapter's class activity day, 'home' when the home activity is given on it (Oct 2026)
 // period = the timetable period (e.g. "P3"); room = 'ai' when the class is in the AI class room (Oct 2026)
 // homework = AI's suggestion; type = kind of period (teachbot, teach, read, practice, classwork, catchup, revision, test);
@@ -126,7 +126,7 @@ async function offDays(school, from) {
   (ok(hr) ? hr.data : []).forEach(function (h) { off[h.date] = 1; });
   return off;
 }
-const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test', 'hwday', 'worksheet', 'activity'];
+const ROW_TYPES = ['teachbot', 'teach', 'read', 'practice', 'classwork', 'catchup', 'revision', 'test', 'hwday', 'worksheet', 'activity', 'speaking'];
 
 function db(method, path, body) {
   return new Promise(function (resolve) {
