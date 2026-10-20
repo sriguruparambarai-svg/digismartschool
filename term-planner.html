@@ -1058,7 +1058,7 @@ $("makeBtn").onclick=async()=>{
       if(modelOn()){P.innerHTML=`<span class="spin"></span>Activity ideas for ${esc(chs[i].title)}…`;
         try{ACTS_NEW[chs[i].title]=await suggestActs(chs[i],ct)}catch(e){notes.push(chs[i].title+": activity ideas could not be made ("+e.message+") — use “🎯 Activities” in the plan.")}}}
     rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});
-    await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.")}
+    await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.");if(hm.filled)notes.push(hm.filled+" homework day"+(hm.filled>1?"s":"")+" with no homework got practice of the last lesson taught.")}
     S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);
     await saveNow(true);renderPlan();
     P.innerHTML=`✓ ${rows.length} lessons planned.`+(modelOn()&&Object.keys(S.acts).length?(PRINCIPAL?" Pick each chapter's activities with “🎯 Activities”.":" The principal picks each chapter's activities."):"")+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
@@ -1109,15 +1109,31 @@ function matchHwTT(rows,cls,subj){
   // no homework day left in this plan: the homework stays on its own lesson, given as Extra
   pending.forEach(x=>{const s=rows[x];s.homework=hwOf[x];
     if(String(s.teach||"").indexOf(HW_EXTRA_NOTE.trim())<0){s.teach=(s.teach||"")+HW_EXTRA_NOTE;extra++}});
-  return{moved,extra}}
+  // Oct 2026: a homework day with no homework (e.g. a TeachBot or activity day) gets practice of the last lesson taught
+  const filled=fillEmptyHwDays(rows,days,today);
+  return{moved,extra,filled}}
+const HW_PRACTICE_RE=/^Practise at home what was taught on /;
+const TAUGHT_TYPES=["teach","classwork","practice","hwday","read","worksheet"];
+function fillEmptyHwDays(rows,days,today){
+  const order=rows.map((r,i)=>i).filter(i=>rows[i].date).sort((a,b)=>rows[a].date<rows[b].date?-1:rows[a].date>rows[b].date?1:a-b);
+  let last=null,filled=0;
+  order.forEach(i=>{const r=rows[i];
+    const onHwDay=r.date>=today&&!r.done&&days.includes(dow(r.date))&&!["test","revision"].includes(r.type);
+    if(onHwDay&&!String(r.homework||"").trim()&&last!=null){
+      const src=rows[last];
+      let what=String(src.homework||"").trim();
+      if(!what){what=String(src.teach||"").replace(/^\s*1\.\s*/,"").split(/\s2\.\s/)[0].split(" How:")[0].trim();{const m=what.match(/^(.{20,}?\.)\s/);if(m)what=m[1]}if(what.length>160)what=what.slice(0,157).replace(/\s+\S*$/,"")+"…"}
+      if(what){r.homework="Practise at home what was taught on "+nice(src.date)+": "+what;filled++}}
+    if(TAUGHT_TYPES.includes(r.type)&&String(r.teach||"").trim())last=i});
+  return filled}
 async function hwTTButton(){
   await loadHwTT();
   const cls=$("fClass").value,subj=$("fSubject").value;
   if(!hwDaysFor(cls,subj)){toast("The homework timetable has no "+subj+" days for "+cls+". Set it in the Homework Planner first.",true);return}
   const copy=JSON.parse(JSON.stringify(S.rows)),res=matchHwTT(copy,cls,subj);
-  if(!res.moved&&!res.extra){toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
-  if(!confirm(res.moved+" homework will move to the next "+subj+" homework day ("+hwDaysFor(cls,subj).join(", ")+")."+(res.extra?"\n"+res.extra+" have no later homework day and will be marked to give as Extra.":"")+"\n\nOnly lessons from today on are changed. Go ahead?"))return;
-  S.rows=copy;renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.extra?", "+res.extra+" marked Extra":"")+".")}
+  if(!res.moved&&!res.extra&&!res.filled){toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
+  if(!confirm(res.moved+" homework will move to the next "+subj+" homework day ("+hwDaysFor(cls,subj).join(", ")+")."+(res.filled?"\n"+res.filled+" homework day"+(res.filled>1?"s":"")+" with no homework (e.g. a TeachBot day) will get practice of the last lesson taught.":"")+(res.extra?"\n"+res.extra+" have no later homework day and will be marked to give as Extra.":"")+"\n\nOnly lessons from today on are changed. Go ahead?"))return;
+  S.rows=copy;renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.filled?", "+res.filled+" empty homework day"+(res.filled>1?"s":"")+" filled":"")+(res.extra?", "+res.extra+" marked Extra":"")+".")}
 
 /* redo one chapter with AI, keeping its dates */
 async function redoChapter(title){
