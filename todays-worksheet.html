@@ -8,7 +8,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Today's Worksheet — DigiSmartSchool</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;600&family=Playwrite+IN:wght@400&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <!--
   Today's Worksheet (Oct 2026) — one half of the Workbook & Worksheet Generator.
@@ -172,6 +172,13 @@ table.tbl td.blank{height:11mm}
 .wp-w{font-size:1.6em;font-weight:700;line-height:1.1;flex:none;min-width:24mm}
 .wp-slot{height:11mm;border-bottom:1.2px solid #555;display:flex;align-items:flex-end;font-size:1.6em;line-height:1.1;padding-left:1mm;overflow:hidden;white-space:nowrap}
 .wp-tr{color:#c2c2c2;font-weight:600}
+/* handwriting: cursive letters, and four-line ruling (top, waist, base line, tail) for little classes */
+.wp-pg.cur .wp-w,.wp-pg.cur .wp-tr{font-family:"Playwrite IN",cursive;font-weight:400}
+.wp-pg.four .wp-ln,.wp-pg.four .wp-slot{height:13mm;margin-top:1.5mm;border-bottom:none;padding-bottom:2.45mm;align-items:flex-end;
+  background:linear-gradient(#999,#999) 0 0/100% 1px no-repeat,linear-gradient(#cfcfcf,#cfcfcf) 0 4.33mm/100% 1px no-repeat,
+  linear-gradient(#444,#444) 0 8.66mm/100% 1.3px no-repeat,linear-gradient(#999,#999) 0 calc(13mm - 1px)/100% 1px no-repeat}
+.wp-pg.four .wp-tr{font-size:8.6mm;line-height:1}
+.wp-pg.four.ta .wp-ln,.wp-pg.four.ta .wp-slot{padding-bottom:3.05mm}   /* Tamil letters sit on the base line */
 .wp-grid{display:grid;gap:3.5mm;margin-top:3.5mm;break-inside:avoid}
 .wp-card{border:1.2px solid #999;border-radius:2.5mm;padding:1.5mm 4mm 2.5mm}
 .wp-hd{display:flex;align-items:center;gap:3mm;min-height:9mm;border-bottom:1px dashed #bbb;padding-bottom:1.5mm}
@@ -319,8 +326,10 @@ table.tbl td.blank{height:11mm}
       <div class="pb">
         <div class="row">
           <label>Write each word<select id="wpTimes"><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option></select></label>
-          <label>Layout<select id="wpLayout"><option value="box2">Boxes — word on top, lines below, 2 in a row</option><option value="box3">Boxes — word on top, lines below, 3 in a row</option><option value="beside">Word beside the lines</option></select></label>
-          <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option></select></label>
+          <label>Layout<select id="wpLayout"><option value="box2">Boxes — word on top, lines below, 2 in a row</option><option value="box3">Boxes — word on top, lines below, 3 in a row</option><option value="box1">Boxes — 1 in a row (for sentences)</option><option value="beside">Word beside the lines</option></select></label>
+          <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option><option value="trace">Trace once, then write</option></select></label>
+          <label>Ruling<select id="wpRule"><option value="single">Single line</option><option value="four">Four-line (letter height)</option></select></label>
+          <label>Letters<select id="wpFont"><option value="print">Print</option><option value="cursive">Cursive (joined)</option></select></label>
           <label>Add your own words (comma between)<input id="wpOwn" placeholder="e.g. fox, gift, hen"></label>
         </div>
         <label style="margin-top:10px">Instruction on the sheet<input id="wpInst" value=""></label>
@@ -844,9 +853,11 @@ async function loadPics(){if(PICS)return PICS;PICS={};
   return PICS}
 async function wpPage(){
   const words=wpWords();if(!words.length)return null;
-  const n=Math.max(1,+$("wpTimes").value||5),pic=$("wpStyle").value==="pic";
+  const n=Math.max(1,+$("wpTimes").value||5),pic=$("wpStyle").value==="pic",trace=pic||$("wpStyle").value==="trace";
   const pics=pic?await loadPics():{};let missing=0;
   let rows="";
+  // a handwriting sheet of letters fills the page: about 10 rows (four-line) or 14 (single line) shared by the letters
+  const fillRows=PARAMS.hand&&PARAMS.wpk==="letters"?Math.max(1,Math.floor(($("wpRule").value==="four"?10:12)/Math.max(1,words.length))):1;
   if($("wpLayout").value==="beside"){
   // as many equal lines in a row as fit a child's handwriting of the word; the rest go on the next row, lined up
   const ww=Math.min(55,Math.max(24,Math.max(...words.map(w=>[...w].length))*4.2+4));   // one word column for every row, so the lines line up
@@ -855,8 +866,10 @@ async function wpPage(){
     if(pic){const u=picFor(w);if(!u)missing++;h+=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div>`;room=158}
     else{h+=`<div class="wp-w" style="width:${ww}mm">${esc(w)}</div>`;room=176-ww}
     let per=Math.max(1,Math.min(n,Math.floor((room+3)/(Math.max(20,len*5+6)+3))));per=Math.ceil(n/Math.ceil(n/per));   // even rows, no line left alone
-    let cells="";for(let k=0;k<n;k++)cells+=(pic&&k===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
-    return h+`<div class="wp-lines" style="grid-template-columns:repeat(${per},minmax(0,1fr))">${cells}</div></div>`}).join("");
+    let cells="";for(let k=0;k<n;k++)cells+=(trace&&k===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
+    const one=h+`<div class="wp-lines" style="grid-template-columns:repeat(${per},minmax(0,1fr))">${cells}</div></div>`;
+    // handwriting letters: repeat each letter's row so a short list still fills the page
+    return one.repeat(fillRows)}).join("");
   }else{
   // each word is a box: the word (or its picture) on top, then one line under another for each time it is written.
   // Boxes sit 2 or 3 in a row (the teacher's choice), so the page fills.
@@ -864,18 +877,19 @@ async function wpPage(){
     if(pic){const u=picFor(w);if(!u)missing++;
       hd=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div><div class="wp-w">${esc(w)}</div>`}
     else hd=`<div class="wp-w">${esc(w)}</div>`;
-    let lines="";for(let i=0;i<n;i++)lines+=(pic&&i===0)?`<div class="wp-ln"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-ln"></div>`;
+    let lines="";for(let i=0;i<n;i++)lines+=(trace&&i===0)?`<div class="wp-ln"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-ln"></div>`;
     return`<div class="wp-card"><div class="wp-hd">${hd}</div>${lines}</div>`};
   // one block per row of boxes, so a long list carries on neatly onto the next page
   // the teacher picks 2 or 3 in a row; a row with a long word (like "Good afternoon") gets one box fewer, so it fits
-  const want=$("wpLayout").value==="box3"?3:2;
+  const want=$("wpLayout").value==="box3"?3:$("wpLayout").value==="box1"?1:2;
   for(let i=0;i<words.length;){let c=want;if(words.slice(i,i+c).some(w=>[...w].length>11))c=Math.max(1,c-1);
     const part=words.slice(i,i+c);i+=part.length;
     rows+=`<div class="wp-grid" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${part.map(card).join("")}</div>`}
   }
   if(pic&&missing)toast(missing+" word(s) have no picture — the sheet gives a box for the child to draw it. You can draw them with AI in the Writing practice box.");
-  const title="Writing practice";
-  return`<div class="pg act-pg">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}${FOOT}</div>`}
+  const title=PARAMS.hand?"Handwriting":"Writing practice";
+  const wcls=($("wpRule").value==="four"?" four":"")+($("wpFont").value==="cursive"?" cur":"")+(/tamil/i.test($("fSubject").value)?" ta":"");
+  return`<div class="pg act-pg wp-pg${wcls}">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}${FOOT}</div>`}
 wpSetInst();
 
 /* ---------- count ---------- */
@@ -1061,13 +1075,26 @@ $("fChapter").addEventListener("change",chapterPicked);
 ["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
 
 /* ---------- opened from the Term Planner ---------- */
-const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus","hw"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:k==="hw"?1500:600)})}catch(e){}
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus","hw","hand","wp","wpt","wpr","wpf","wpl","wpk"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:(k==="hw"||k==="wp")?1500:600)})}catch(e){}
 (async function start(){
   $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
   fillSubjects(PARAMS.subject||lsGet("tws_subject"));
   if(PARAMS.subject&&$("fSubject").value!==PARAMS.subject){const o=[...$("fSubject").options].find(o=>normSub(o.value)===normSub(PARAMS.subject));if(o)$("fSubject").value=o.value}
   await renderBooks();
-  if(PARAMS.chapter||PARAMS.from){
+  // opened from a Handwriting term plan: this period's letters / words go straight into Writing practice
+  if(PARAMS.hand&&PARAMS.wp){
+    const items=PARAMS.wp.split("\n").map(x=>x.trim()).filter(Boolean);
+    WP=items.map(w=>({w,group:"Today's handwriting",on:true}));
+    const setSel=(id,v)=>{const el=$(id);if(!el||!v)return;if(![...el.options].some(o=>o.value===v)){const o=document.createElement("option");o.value=o.textContent=v;el.appendChild(o)}el.value=v};
+    setSel("wpTimes",PARAMS.wpt);setSel("wpLayout",PARAMS.wpl);setSel("wpRule",PARAMS.wpr);setSel("wpFont",PARAMS.wpf);$("wpStyle").value="trace";
+    const n=+PARAMS.wpt||5,k=PARAMS.wpk||"words";
+    $("wpInst").value=(k==="letters"?"Trace the grey letter, then write it on every line, neatly between the lines.":k==="sentences"?"Write each sentence "+n+" times — capital letter at the start, a gap between words, full stop at the end.":"Read each word aloud, then write it "+n+" times neatly.")+" Finish the sheet at home.";
+    wpInstTouched=true;$("useWP").checked=true;renderWP();
+    if(num($("fClass").value)<=2&&$("fFs").value!=="14pt")$("fFs").value="14pt";
+    $("fTitle").value="Handwriting";$("fTopic").value=String(PARAMS.chapter||"").replace(/^Unit \d+\.\s*/,"").slice(0,80);
+    $("fromPlan").innerHTML="Opened from the Term Planner — today's handwriting ("+items.length+" item"+(items.length>1?"s":"")+") is ready in <b>✍️ Writing practice</b> below. Press <b>Make the worksheet</b>.";$("fromPlan").hidden=false;
+    count();setTimeout(()=>$("useWP").closest(".part").scrollIntoView({behavior:"smooth",block:"center"}),300)}
+  else if(PARAMS.chapter||PARAMS.from){
     const t=String(PARAMS.chapter||"").replace(/^Ch\s*\d+\.\s*/i,"").trim().toLowerCase();
     // the term plan stores the chapter title and its book pages — find the same chapter
     outer:for(let bi=0;bi<BOOKS.length;bi++){$("fBook").value=String(bi);await renderChapters();

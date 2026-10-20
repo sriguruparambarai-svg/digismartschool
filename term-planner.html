@@ -12,6 +12,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="js/speaking-ladder.js"></script>
 <script src="js/spoken-syllabus.js"></script>
+<script src="js/handwriting-syllabus.js"></script>
 <!--
   Term Planner (Oct 2026)
   Teacher: picks class, subject and term, ticks chapters from the school's uploaded books,
@@ -142,7 +143,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .acttbl th{font-size:.74rem;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
 .acttbl input{width:70px}
 .pt-activity{background:#E6F4EA;color:#1F5E33}
-.pt-speaking{background:#1F4E79;color:#fff}
+.pt-speaking{background:#1F4E79;color:#fff} .pt-writing{background:#4A3A12;color:#fff}
 .c-x a.sp{text-decoration:none;font-size:1.05rem}
 .actrow td{background:#FFFBF2;padding:8px 10px}
 .actpanel{display:grid;gap:6px;max-width:900px}
@@ -194,6 +195,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
       <label>Class<select id="fClass"></select></label>
       <label>Subject<select id="fSubject"></select></label>
       <label>Term<select id="fTerm"><option>I</option><option selected>II</option><option>III</option></select></label>
+      <label id="hwStyleBox" hidden>English writing style<select id="fHwStyle"><option value="print">Print — all classes</option><option value="cursive">Cursive from Class 3</option></select></label>
       <label>Periods per week for this subject<input type="number" id="fPpw" min="1" max="14" value="5"><span class="hint" id="ppwNote" style="display:block;margin-top:3px"></span><span style="display:flex;gap:6px;align-items:center;font-weight:400;font-size:.85rem;margin-top:3px"><input type="checkbox" id="fPpwOwn" style="width:auto">Type my own (don't follow the timetable)</span></label>
     </div>
     <div class="row" style="margin-top:10px">
@@ -263,11 +265,14 @@ if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
 const CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
 const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
 function subjectsFor(c){const n=num(c);
-  if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS","Spoken English"];
-  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer","Spoken English"];
-  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer","Spoken English"]}
+  if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS","Spoken English","English Handwriting","Tamil Handwriting"];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer","Spoken English","English Handwriting","Tamil Handwriting"];
+  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer","Spoken English","English Handwriting","Tamil Handwriting"]}
 // Spoken English has no book: its units come from js/spoken-syllabus.js and the plan is made without AI
-const isSpoken=()=>$("fSubject").value==="Spoken English"&&!!window.SPOKEN_SYLLABUS;
+const isSpokenOnly=()=>$("fSubject").value==="Spoken English"&&!!window.SPOKEN_SYLLABUS;
+const isHand=()=>/^(English|Tamil) Handwriting$/.test($("fSubject").value)&&!!window.HANDWRITING_SYLLABUS;
+// the no-book subjects (Spoken English, English / Tamil Handwriting): units from a syllabus file, plan made without AI
+const isSpoken=()=>isSpokenOnly()||isHand();
 const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"],DAYFULL=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const pad=n=>String(n).padStart(2,"0");
@@ -341,41 +346,52 @@ function pickedChapters(){const out=[];
   S.own.forEach((o,i)=>{const cb=$("chaps").querySelector(`[data-own="${i}"]`);if(cb&&cb.checked&&o.title.trim())out.push({key:"O:"+i+":"+o.title.trim(),title:o.title.trim(),book:"",from:o.from,to:o.to})});
   return out}
 
-/* ---------- Spoken English units ---------- */
-// Book-only settings are hidden for Spoken English
+/* ---------- Spoken English and Handwriting units (no book) ---------- */
+// Book-only settings are hidden; English Handwriting gets the Print / Cursive choice
 function spokenUI(){const sp=isSpoken();
   const tbRow=$("fTb").closest(".row");if(tbRow)tbRow.hidden=sp;
   const note=$("fNote").closest("label");if(note)note.hidden=sp;
-  $("makeBtn").textContent=sp?"✨ Make the Spoken English plan":"✨ Make the term plan with AI"}
-// Units the class did in its other Spoken English plans (other terms), so this term carries on
-async function spokenDone(){const c=$("fClass").value,t=$("fTerm").value,done={};
+  const st=$("hwStyleBox");if(st)st.hidden=!(isHand()&&/^English/.test($("fSubject").value));
+  $("makeBtn").textContent=sp?"✨ Make the "+$("fSubject").value+" plan":"✨ Make the term plan with AI"}
+const hwStyle=()=>($("fHwStyle")&&$("fHwStyle").value)||"print";
+// Units the class did in its other plans of this subject (other terms), so this term carries on
+async function spokenDone(){const c=$("fClass").value,t=$("fTerm").value,sb=$("fSubject").value,done={};
   for(const term of ["I","II","III"]){if(term===t)continue;
-    try{const d=await tp("get",{class_name:c,subject:"Spoken English",term});
+    try{const d=await tp("get",{class_name:c,subject:sb,term});
       ((d.plan&&d.plan.settings&&d.plan.settings.chapters)||[]).forEach(x=>{done[x.key]=term})}catch(e){}}
   return done}
+function ladderUnits(c){const sb=$("fSubject").value;
+  if(isHand())return HANDWRITING_SYLLABUS.units(c,sb,hwStyle());
+  return SPOKEN_SYLLABUS.units(c)}
+function ladderBand(c){return isHand()?HANDWRITING_SYLLABUS.bandName(c):SPOKEN_SYLLABUS.bands[SPOKEN_SYLLABUS.bandOf(c)].name}
 async function renderUnits(){
-  const c=$("fClass").value,SY=window.SPOKEN_SYLLABUS;$("addOwn").hidden=true;spokenUI();
-  $("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading the Spoken English syllabus…</div>`;
-  const list=SY.units(c),done=await spokenDone();
-  if($("fClass").value!==c||!isSpoken())return;
-  CHOPTS=list.map(u=>({key:u.key,title:u.title,book:"Spoken English · "+SY.bands[SY.bandOf(c)].name+(done[u.key]?" · done in Term "+done[u.key]:""),from:null,to:null,unit:u}));CHOPTS._for=c+"|Spoken English";
-  let picked=new Set(((S.settings&&S.settings.chapters)||[]).map(x=>x.key));
+  const c=$("fClass").value,sb=$("fSubject").value;$("addOwn").hidden=true;spokenUI();
+  $("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading the ${esc(sb)} syllabus…</div>`;
+  const list=ladderUnits(c),done=await spokenDone();
+  if($("fClass").value!==c||$("fSubject").value!==sb||!isSpoken())return;
+  CHOPTS=list.map(u=>({key:u.key,title:u.title,book:sb+" · "+ladderBand(c)+(done[u.key]?" · done in Term "+done[u.key]:""),from:null,to:null,unit:u}));CHOPTS._for=c+"|"+sb;
+  let picked=new Set(((S.settings&&S.settings.chapters)||[]).map(x=>x.key).filter(k=>CHOPTS.some(o=>o.key===k)));
   if(!picked.size){   // a new plan: tick the next units not done yet, as many as the term's periods hold
     const n=termPeriods();let used=0;
     for(const o of CHOPTS){if(done[o.key])continue;if(n&&used+o.unit.periods>n)break;picked.add(o.key);used+=o.unit.periods;if(!n&&picked.size>=6)break}}
   $("chaps").innerHTML=CHOPTS.map((o,i)=>`<label class="chk"><input type="checkbox" data-i="${i}" data-key="${esc(o.key)}"${picked.has(o.key)?" checked":""}><span>${esc(o.title)}<br><span class="hint">${esc(o.book)}</span></span><span class="pg">${o.unit.periods} period${o.unit.periods>1?"s":""}</span></label>`).join("");
-  $("chapHint").textContent="The Spoken English syllabus for "+c+" — every class starts at Level 1. The next units not done yet are ticked. No book needed; the plan is made without AI.";
+  $("chapHint").textContent=isHand()
+    ?"The "+sb+" syllabus for "+c+" — "+(/^English/.test(sb)?"written from the Spoken English words":"உயிர் → மெய் → உயிர்மெய் → words → sentences")+". Four-line up to Class 2. The next units not done yet are ticked; the plan is made without AI."
+    :"The Spoken English syllabus for "+c+" — every class starts at Level 1. The next units not done yet are ticked. No book needed; the plan is made without AI.";
   slotHint()}
 function termPeriods(){const tsl=ttInfo();return tsl?tsl.length:periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length}
-// The rows of a Spoken English plan: each ticked unit's periods in order; spare periods at the end are revision
-function spokenRows(chs,n){const SY=window.SPOKEN_SYLLABUS,rows=[],fitted=[];let cut=0;
-  for(const c of chs){const o=CHOPTS.find(x=>x.key===c.key);if(!o)continue;
-    // a unit goes in only if all its periods fit; the rest wait for next term
-    if(cut||rows.length+o.unit.periods>n){cut++;continue}fitted.push(c);
-    SY.lessons(o.unit).forEach((l,j)=>{
-      rows.push({chapter:o.title,type:"speaking",room:"",pages:"Level "+o.unit.level+(o.unit.periods>1?" · part "+(j+1)+" of "+o.unit.periods:""),teach:l.teach,speak:o.unit.topic+"|"+o.unit.level,
-        class_act:"",home_act:"",ground_act:"",homework:"",workbook:"",act:"",done:false})})}
-  while(rows.length<n)rows.push({chapter:"Revision",type:"speaking",room:"",pages:"",teach:SY.revisePeriod().teach,speak:"",class_act:"",home_act:"",ground_act:"",homework:"",workbook:"",act:"",done:false});
+// The rows of the plan: each ticked unit's periods in order (a unit only if all of it fits); spare periods are revision
+function spokenRows(chs,n){const hand=isHand(),c=$("fClass").value,sb=$("fSubject").value,rows=[],fitted=[];let cut=0;
+  const blank={class_act:"",home_act:"",ground_act:"",homework:"",workbook:"",act:"",done:false,room:""};
+  for(const ch of chs){const o=CHOPTS.find(x=>x.key===ch.key);if(!o)continue;
+    if(cut||rows.length+o.unit.periods>n){cut++;continue}fitted.push(ch);
+    if(hand)HANDWRITING_SYLLABUS.lessons(o.unit,c,sb).forEach((l,j)=>rows.push(Object.assign({},blank,{chapter:o.title,type:"writing",
+        pages:o.unit.periods>1?"part "+(j+1)+" of "+o.unit.periods:"",teach:l.teach,homework:l.homework,write:JSON.stringify(l.write)})));
+    else SPOKEN_SYLLABUS.lessons(o.unit).forEach((l,j)=>rows.push(Object.assign({},blank,{chapter:o.title,type:"speaking",
+        pages:"Level "+o.unit.level+(o.unit.periods>1?" · part "+(j+1)+" of "+o.unit.periods:""),teach:l.teach,speak:o.unit.topic+"|"+o.unit.level})))}
+  while(rows.length<n)rows.push(Object.assign({},blank,hand
+    ?{chapter:"Revision",type:"writing",pages:"",teach:"✍️ Handwriting revision: each child rewrites the letters or words they found hardest this term; the teacher checks size, spacing and neatness.",homework:"Rewrite at home, neatly, the words you found hardest this term.",write:""}
+    :{chapter:"Revision",type:"speaking",pages:"",teach:SPOKEN_SYLLABUS.revisePeriod().teach,speak:""}));
   return{rows,cut,fitted}}
 
 /* ---------- lesson periods across the term ---------- */
@@ -446,7 +462,7 @@ function ttInfo(){const sl=ttSlots($("fClass").value,$("fSubject").value,$("fSta
   return sl}
 function slotHint(){holHint();const tsl=ttInfo();const n=tsl?tsl.length:periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
   if(isSpoken()){const need=pickedChapters().reduce((a,x)=>a+((CHOPTS.find(o=>o.key===x.key)||{unit:{periods:0}}).unit.periods),0);
-    $("slotHint").textContent=n?`${n} Spoken English periods this term · the ticked units need ${need}`+(need>n?" — the last ones will not fit; untick some.":need<n?" — the "+(n-need)+" spare period"+(n-need>1?"s":"")+" become revision.":"."):"Choose the term dates.";return}
+    $("slotHint").textContent=n?`${n} ${$("fSubject").value} periods this term · the ticked units need ${need}`+(need>n?" — the last ones will not fit; untick some.":need<n?" — the "+(n-need)+" spare period"+(n-need>1?"s":"")+" become revision.":"."):"Choose the term dates.";return}
   $("slotHint").textContent=n?`${n} lesson periods in this term${c?" for "+c+" chapter"+(c>1?"s":"")+" — about "+Math.round(n/Math.max(1,c))+" each":""}.`:"Choose the term dates."}
 ["fStart","fEnd","fPpw"].forEach(id=>$(id).addEventListener("input",slotHint));$("fDays").addEventListener("change",slotHint);
 $("fPpwOwn").addEventListener("change",()=>{slotHint();if(S.rows.length)queueSave()});
@@ -523,7 +539,7 @@ const pgLabel=s=>s.from==null?"":(s.from===s.to?String(s.from):s.from+"–"+s.to
    exercise practice, class work writing — and at the end a catch-up period (for lessons
    missed), revision and the class test. The computer fixes the order and the pages; the
    AI only writes what to do in each period. */
-const PTYPE={speaking:"🗣 Speaking",teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"📝 Class work",hwday:"🔁 Revise + Homework",worksheet:"📄 Worksheet",catchup:"⏳ Catch-up",revision:"🔁 Revision",test:"✅ Class test",activity:"🎯 Activity"};
+const PTYPE={speaking:"🗣 Speaking",writing:"✍️ Handwriting",teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"📝 Class work",hwday:"🔁 Revise + Homework",worksheet:"📄 Worksheet",catchup:"⏳ Catch-up",revision:"🔁 Revision",test:"✅ Class test",activity:"🎯 Activity"};
 function followSeq(f){   // classroom periods after one AI class / teaching period
   if(f<=0)return[];if(f===1)return["classwork"];if(f===2)return["classwork","hwday"];if(f===3)return["read","classwork","hwday"];
   return["read"].concat(Array(f-4).fill("practice"),["classwork","hwday","worksheet"])}
@@ -1021,7 +1037,7 @@ $("makeBtn").onclick=async()=>{
   if(isSpoken()){try{const{rows,cut,fitted}=spokenRows(chs,dates.length);
       rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:"";r.room=TS&&TS[k]&&TS[k].ai?"ai":""});
       S.rows=rows;S.acts={};S.settings=collectSettings(fitted);await saveNow(true);renderPlan();renderUnits();
-      P.innerHTML=`✓ ${rows.length} Spoken English periods planned (${fitted.length} unit${fitted.length>1?"s":""}).`+(cut?` ${cut} ticked unit${cut>1?"s":""} did not fit this term — ${cut>1?"they carry":"it carries"} on in the next term's plan.`:"");
+      P.innerHTML=`✓ ${rows.length} ${esc($("fSubject").value)} periods planned (${fitted.length} unit${fitted.length>1?"s":""}).`+(cut?` ${cut} ticked unit${cut>1?"s":""} did not fit this term — ${cut>1?"they carry":"it carries"} on in the next term's plan.`:"");
       $("planCard").scrollIntoView({behavior:"smooth"})}
     catch(e){P.innerHTML=`<span style="color:var(--bad)">Could not make the plan: ${esc(e.message)}</span>`}
     finally{btn.disabled=false}return}
@@ -1050,7 +1066,7 @@ $("makeBtn").onclick=async()=>{
   catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
     if(rows.length){rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
-function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),acts:S.acts||{},
+function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,hw_style:hwStyle(),...wbSettings(),acts:S.acts||{},
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
 
 /* ---------- homework timetable (Oct 2026) ----------
@@ -1127,6 +1143,13 @@ function pickCols(){COLS=ALLCOLS.filter(c=>["teach","class_act","homework"].incl
 // own pages and what is taught (so new questions stay on today's part), and
 // the class activity (so the activity ideas build on it).
 function wsLink(r){
+  // Handwriting rows: Today's Worksheet opens with this period's letters / words in Writing practice
+  if(r.type==="writing"&&r.write){let w={};try{w=JSON.parse(r.write)}catch(e){}
+    if(w&&Array.isArray(w.items)&&w.items.length){
+      const q=new URLSearchParams({class:$("fClass").value,subject:/^Tamil/.test($("fSubject").value)?"Tamil":"English",chapter:r.chapter||"Handwriting",
+        hand:"1",wp:w.items.join("\n").slice(0,1500),wpt:String(w.times||5),wpr:w.rule||"single",wpf:w.font||"print",
+        wpl:w.kind==="letters"?"beside":w.kind==="sentences"?"box1":"box2",wpk:w.kind||"words"});
+      return "todays-worksheet.html?"+q.toString()}}
   const ch=((S.settings&&S.settings.chapters)||[]).find(x=>x.title===r.chapter)||{};
   const q=new URLSearchParams({class:$("fClass").value,subject:$("fSubject").value});
   if(r.chapter)q.set("chapter",r.chapter);if(ch.from)q.set("from",ch.from);if(ch.to)q.set("to",ch.to);
@@ -1254,13 +1277,14 @@ async function openPlan(){
   S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;$("fPpwOwn").checked=false;
   try{const d=await tp("get",{class_name:c,subject:sb,term:t});
     if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
-      const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fPpwOwn").checked=!!st.ppw_own;$("fNote").value=st.note||"";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
+      const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fPpwOwn").checked=!!st.ppw_own;$("fNote").value=st.note||"";if($("fHwStyle"))$("fHwStyle").value=st.hw_style==="cursive"?"cursive":"print";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
   catch(e){showErr("Could not open the plan: "+e.message)}
   $("prog").hidden=true;renderChapters().then(renderWbBox).then(modelHint);renderPlan();modelHint();loadHolidays().then(loadTimetable)}
 ["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
   if(S.dirty)saveNow().catch(()=>{});openPlan()}));
-$("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
+$("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));
+$("fHwStyle").addEventListener("change",()=>{if(isHand()){S.settings=S.settings?Object.assign({},S.settings,{chapters:[]}):null;renderUnits()}});$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
 
 /* ---------- the school's plans ---------- */
 async function loadList(){
