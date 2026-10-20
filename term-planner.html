@@ -1117,16 +1117,18 @@ function matchHwTT(rows,cls,subj){
 const HW_PRACTICE_RE=/^Practise at home what was taught on /;
 const TAUGHT_TYPES=["teach","classwork","practice","hwday","read","worksheet"];
 function fillEmptyHwDays(rows,days,today){
+  // Oct 2026: a lesson day's homework practises THAT day's lesson (homework is given after class);
+  // a day without a lesson practises the last lesson before it. Our own earlier "Practise at home…"
+  // text is made again, so it always follows the lessons; anything else written stays.
   const order=rows.map((r,i)=>i).filter(i=>rows[i].date).sort((a,b)=>rows[a].date<rows[b].date?-1:rows[a].date>rows[b].date?1:a-b);
   let last=null,filled=0;
   order.forEach(i=>{const r=rows[i];
+    if((TAUGHT_TYPES.includes(r.type)||r.type==="teachbot")&&String(r.teach||"").trim())last=i;
     const onHwDay=r.date>=today&&!r.done&&days.includes(dow(r.date))&&!["test","revision"].includes(r.type);
-    if(onHwDay&&!String(r.homework||"").trim()&&last!=null){
-      const src=rows[last];
-      let what=String(src.homework||"").trim();
-      if(!what){what=String(src.teach||"").replace(/^\s*1\.\s*/,"").split(/\s2\.\s/)[0].split(" How:")[0].trim();{const m=what.match(/^(.{20,}?\.)\s/);if(m)what=m[1]}if(what.length>160)what=what.slice(0,157).replace(/\s+\S*$/,"")+"…"}
-      if(what){r.homework="Practise at home what was taught on "+nice(src.date)+": "+what;filled++}}
-    if(TAUGHT_TYPES.includes(r.type)&&String(r.teach||"").trim())last=i});
+    const cur=String(r.homework||"").trim();
+    if(onHwDay&&(!cur||HW_PRACTICE_RE.test(cur))&&last!=null){
+      const t=hoPractice(Object.assign({},rows[last],{homework:HW_PRACTICE_RE.test(String(rows[last].homework||"").trim())?"":rows[last].homework}));
+      if(t&&t!==cur){r.homework=t;filled++}}});
   return filled}
 async function hwTTButton(){
   await loadHwTT();
