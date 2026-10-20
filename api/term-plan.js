@@ -205,7 +205,12 @@ function cleanSettings(s) {
   return { start: isDate(s.start) ? s.start : '', end: isDate(s.end) ? s.end : '', days: days,
            ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), ppw_own: !!s.ppw_own, chapters: chapters, note: clip(s.note, 500),
            tb: ['auto', '0', '1', '2', '3'].indexOf(String(s.tb)) !== -1 ? String(s.tb) : 'auto',
-           use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map), acts: cleanActs(s.acts) };
+           use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map), acts: cleanActs(s.acts), hw_only: cleanHwOnly(s.hw_only) };
+}
+// homework-only days (Oct 2026): [{date, homework}] — homework-timetable days with no class of the subject
+function cleanHwOnly(l) {
+  return (Array.isArray(l) ? l : []).filter(function (x) { return x && isDate(x.date); }).slice(0, 200)
+    .map(function (x) { return { date: x.date, homework: clip(x.homework, 1500) }; });
 }
 // chapter title → { opts:[{w:'class'|'home', t}], pick:[index…] }  (AI suggests, the principal picks)
 function cleanActs(a) {
@@ -303,12 +308,12 @@ module.exports = async function handler(req, res) {
       const from = String(body.from || ''), to = String(body.to || '');
       if (!isDate(from) || !isDate(to) || to < from) return res.json({ error: 'Dates needed.' });
       const r = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) +
-        '&status=neq.returned&select=class_name,subject,status,rows&order=updated_at.desc');
+        '&status=neq.returned&select=class_name,subject,status,rows,settings&order=updated_at.desc');
       if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
       const out = [], seen = {};
       let notApproved = 0;
       r.data.forEach(function (p) {
-        const hits = (Array.isArray(p.rows) ? p.rows : []).filter(function (row) {
+        const hits = (Array.isArray(p.rows) ? p.rows : []).concat(p.settings && Array.isArray(p.settings.hw_only) ? p.settings.hw_only : []).filter(function (row) {
           return row && isDate(row.date) && row.date >= from && row.date <= to && String(row.homework || '').trim();
         });
         if (!hits.length) return;

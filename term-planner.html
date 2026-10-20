@@ -236,6 +236,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
     <div class="retnote" id="retNote" hidden></div>
     <p class="hint noprint" id="lockNote" hidden>The principal has approved this plan, so it is locked. You can still tick lessons as done.</p>
     <div class="tablewrap"><table class="tp" id="tp"></table></div>
+    <div id="hwoBox"></div>
     <div class="btnrow noprint"><button class="btn ghost small" id="addRow">+ Add a lesson row at the end</button><span class="hint">Click any cell to change it. Changes save by themselves.</span></div>
   </section>
 </div>
@@ -1059,14 +1060,15 @@ $("makeBtn").onclick=async()=>{
         try{ACTS_NEW[chs[i].title]=await suggestActs(chs[i],ct)}catch(e){notes.push(chs[i].title+": activity ideas could not be made ("+e.message+") — use “🎯 Activities” in the plan.")}}}
     rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});
     await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.");if(hm.filled)notes.push(hm.filled+" homework day"+(hm.filled>1?"s":"")+" with no homework got practice of the last lesson taught.")}
-    S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);
+    S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);S.settings.hw_only=[];
+    P.innerHTML=`<span class="spin"></span>Homework for days without a class…`;try{const ho=await refreshHwOnly();if(ho.count)notes.push(ho.count+" homework day"+(ho.count>1?"s":"")+" without a "+$("fSubject").value+" class got homework (see “Homework-only days” below the plan).")}catch(e){notes.push("Homework-only days could not be made: "+e.message)}
     await saveNow(true);renderPlan();
     P.innerHTML=`✓ ${rows.length} lessons planned.`+(modelOn()&&Object.keys(S.acts).length?(PRINCIPAL?" Pick each chapter's activities with “🎯 Activities”.":" The principal picks each chapter's activities."):"")+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
     $("planCard").scrollIntoView({behavior:"smooth"})}
   catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
     if(rows.length){rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
-function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,hw_style:hwStyle(),...wbSettings(),acts:S.acts||{},
+function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,hw_style:hwStyle(),...wbSettings(),acts:S.acts||{},hw_only:(S.settings&&S.settings.hw_only)||[],
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
 
 /* ---------- homework timetable (Oct 2026) ----------
@@ -1128,12 +1130,13 @@ function fillEmptyHwDays(rows,days,today){
   return filled}
 async function hwTTButton(){
   await loadHwTT();
+  const hoBefore=hoMissing();
   const cls=$("fClass").value,subj=$("fSubject").value;
   if(!hwDaysFor(cls,subj)){toast("The homework timetable has no "+subj+" days for "+cls+". Set it in the Homework Planner first.",true);return}
   const copy=JSON.parse(JSON.stringify(S.rows)),res=matchHwTT(copy,cls,subj);
-  if(!res.moved&&!res.extra&&!res.filled){toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
+  if(!res.moved&&!res.extra&&!res.filled){if(hoBefore){await hoButtonOnly(hoBefore);return}toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
   if(!confirm(res.moved+" homework will move to the next "+subj+" homework day ("+hwDaysFor(cls,subj).join(", ")+")."+(res.filled?"\n"+res.filled+" homework day"+(res.filled>1?"s":"")+" with no homework (e.g. a TeachBot day) will get practice of the last lesson taught.":"")+(res.extra?"\n"+res.extra+" have no later homework day and will be marked to give as Extra.":"")+"\n\nOnly lessons from today on are changed. Go ahead?"))return;
-  S.rows=copy;renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.filled?", "+res.filled+" empty homework day"+(res.filled>1?"s":"")+" filled":"")+(res.extra?", "+res.extra+" marked Extra":"")+".")}
+  S.rows=copy;try{await refreshHwOnly()}catch(e){}renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.filled?", "+res.filled+" empty homework day"+(res.filled>1?"s":"")+" filled":"")+(res.extra?", "+res.extra+" marked Extra":"")+".")}
 
 /* redo one chapter with AI, keeping its dates */
 async function redoChapter(title){
@@ -1147,8 +1150,72 @@ async function redoChapter(title){
     idx.forEach((ri,k)=>{const d=S.rows[ri].date,pd=S.rows[ri].period||"";S.rows[ri]=Object.assign(got[k],{date:d,period:pd})});
     if(modelOn()){if(!S.acts[title]){try{S.acts[title]=await suggestActs(ch,ct)}catch(e){}}if(S.acts[title])applyActs(title)}
     await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
+    try{await refreshHwOnly()}catch(e){}
     renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
+
+/* ---------- homework-only days (Oct 2026) ----------
+   The homework timetable can give a subject homework on a day the subject has no class
+   (e.g. Class 1 Hindi homework on Wednesday, Hindi class only on Monday). Those days get a
+   "homework only" entry, saved in the plan's settings (not lessons: they are not counted in
+   the portion, not "behind", not marked by teachers). Homework = practice of the last lesson
+   taught; before the term's first lesson, AI writes a revision homework. The Homework Planner's
+   "Fill this week from Term Plans" takes them like any other homework. */
+const HO_TAUGHT=["teach","teachbot","classwork","practice","hwday","read","worksheet","writing","speaking"];
+const nextDay=s=>{const t=parse(s);t.setDate(t.getDate()+1);return iso(t)};
+function hoLastTaught(date){let best=null;
+  S.rows.forEach(r=>{if(r.date&&r.date<date&&HO_TAUGHT.includes(r.type)&&String(r.teach||"").trim()&&(!best||r.date>=best.date))best=r});return best}
+function hoPractice(src){
+  let what=String(src.homework||"").split("\n").filter(l=>l.trim()&&!/^Practise at home what was taught on /.test(l.trim())).join(" ").trim();
+  if(!what){what=String(src.teach||"").replace(/^[^A-Za-z0-9\u0900-\u0DFF]*(TeachBot class|Maths Class|English Class|Teaching Mode|Science Class|Hindi Class)?:?\s*/,"").replace(/^\s*1\.\s*/,"").split(/\s2\.\s/)[0].split(" How:")[0].trim();
+    const m=what.match(/^(.{20,}?\.)\s/);if(m)what=m[1];if(what.length>160)what=what.slice(0,157).replace(/\s+\S*$/,"")+"…"}
+  return what?"Practise at home what was taught on "+nice(src.date)+": "+what:""}
+// homework-timetable days of this subject, from today to the plan's end, with no class of it that day
+function hoDates(){
+  const days=hwDaysFor($("fClass").value,$("fSubject").value);if(!days)return[];
+  const dated=S.rows.filter(r=>r.date).map(r=>r.date).sort(),st=S.settings||{};
+  const start=[st.start,dated[0]].filter(Boolean).sort()[0],end=[st.end,dated[dated.length-1]].filter(Boolean).sort().pop();
+  if(!start||!end)return[];
+  const school=Array.isArray(st.days)&&st.days.length?st.days:null,cls=new Set(dated),out=[],today=iso(new Date());
+  for(let d=start>today?start:today,n=0;d<=end&&n<400;d=nextDay(d),n++){
+    const w=dow(d);if(w==="Sun"||!days.includes(w)||(school&&!school.includes(w))||HOL[d]||cls.has(d))continue;out.push(d)}
+  return out}
+function hoMissing(){const have=new Set(((S.settings&&S.settings.hw_only)||[]).filter(x=>String(x.homework||"").trim()).map(x=>x.date));
+  return hoDates().filter(d=>!have.has(d)).length}
+async function hoButtonOnly(n){
+  if(!confirm("Homework is already on the right days for the lessons.\n"+n+" homework day"+(n>1?"s":"")+" without a "+$("fSubject").value+" class will get homework (practice of the last lesson taught; before the first lesson, AI writes a revision homework).\n\nGo ahead?"))return;
+  try{const r=await refreshHwOnly();renderPlan();queueSave();toast(r.count+" homework-only day"+(r.count>1?"s":"")+" filled — see below the plan.")}
+  catch(e){toast("Could not make them: "+e.message,true)}}
+async function refreshHwOnly(){
+  if(!S.settings)S.settings=collectSettings();
+  await loadHwTT();
+  const today=iso(new Date()),old={};(S.settings.hw_only||[]).forEach(x=>{if(x&&x.date)old[x.date]=x});
+  const list=(S.settings.hw_only||[]).filter(x=>x&&x.date&&x.date<today);   // days gone by stay as they were
+  hoDates().forEach(d=>{const o=old[d];list.push(o&&String(o.homework||"").trim()?o:{date:d,homework:""})});
+  const need=[];let count=0;
+  list.forEach(x=>{if(x.date<today||String(x.homework||"").trim())return;
+    const src=hoLastTaught(x.date),p=src?hoPractice(src):"";if(p){x.homework=p;count++}else need.push(x)});
+  if(need.length){
+    const first=S.rows.find(r=>r.chapter),cls=$("fClass").value,sb=$("fSubject").value,small=bandOf()==="1-2";
+    try{const res=await askAI(`Class: ${cls}\nSubject: ${sb}\nTerm: ${$("fTerm").value}\nNo lesson of this term has been taught yet in ${sb}${first?" — the term's first chapter is “"+first.chapter+"”; do NOT give homework on it yet":""}.\nWrite ${need.length} short REVISION homework, one for each day, each different, on what ${cls} children have already learnt in ${sb}. 10–15 minutes each, done in the homework notebook, clear enough for a parent to follow.${small?" This is Class 1–2: keep it very easy — write letters or simple words, draw and name, count and write.":""}\nReply with JSON only: {"rows":[{"homework":""}]} with exactly ${need.length} rows.`,Math.min(3000,200*need.length+300));
+      (res.rows||[]).slice(0,need.length).forEach((r,k)=>{const t=String((r&&r.homework)||"").trim();if(t){need[k].homework="Revision: "+t;count++}})}
+    catch(e){toast("AI could not write the revision homework ("+e.message+") — type it in “Homework-only days”.",true)}}
+  list.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  S.settings.hw_only=list.map(x=>({date:x.date,homework:String(x.homework||"")}));
+  return{count}}
+function renderHwOnly(){const box=$("hwoBox");if(!box)return;
+  const L=(S.settings&&S.settings.hw_only)||[],today=iso(new Date()),show=L.map((x,i)=>({x,i})).filter(o=>o.x.date>=today);
+  if(!S.rows.length||!show.length){box.innerHTML="";return}
+  const ed=!locked();
+  box.innerHTML=`<div style="margin-top:16px;border:1px solid #EDD9A3;border-radius:12px;background:#FFFBF4;overflow:hidden">
+    <div style="padding:10px 14px;background:#FFF3C4;font-weight:800;color:#6A4A0C">📝 Homework-only days <span class="hint" style="font-weight:600">· homework timetable days with no ${esc($("fSubject").value)} class — not lessons, not counted in the portion</span></div>
+    <table class="tp" style="margin:0"><tbody>${show.map(({x,i})=>`<tr data-ho="${i}"><td class="c-date" style="white-space:nowrap">${esc(nice(x.date))}<div class="dow">${dow(x.date)} · no class</div></td>
+      <td class="c-hw"><div class="ed" data-hof="1" contenteditable="${ed}" style="white-space:pre-line;min-height:1.4em">${esc(x.homework)}</div>${String(x.homework||"").trim()?"":`<div class="hint">No lesson taught yet — type the homework.</div>`}</td>
+      <td class="c-x noprint">${ed?`<button class="x" data-hodel="${i}" title="No homework this day">✕</button>`:""}</td></tr>`).join("")}</tbody></table></div>`}
+document.addEventListener("input",e=>{if(!e.target.dataset||e.target.dataset.hof==null)return;const tr=e.target.closest("tr[data-ho]");if(!tr||!S.settings)return;
+  const x=(S.settings.hw_only||[])[+tr.dataset.ho];if(x){x.homework=e.target.innerText.trim();queueSave()}});
+document.addEventListener("click",e=>{const b=e.target.closest&&e.target.closest("[data-hodel]");if(!b||!S.settings||locked())return;
+  const i=+b.dataset.hodel,x=(S.settings.hw_only||[])[i];if(!x)return;x.homework="";renderHwOnly();queueSave()});
 
 /* ---------- the plan table ---------- */
 const ALLCOLS=[["teach","What to do (in order)","c-teach",""],["class_act","🎯 Activity","c-cls","h-cls"],["homework","📝 Homework (suggested)","c-hw","h-hw"],["workbook","📒 Workbook","c-wb","h-hw"],["home_act","🏠 Home activity","c-home","h-home"],["ground_act","⚽ Ground activity (old)","c-gr","h-gr"]];
@@ -1208,6 +1275,7 @@ function renderPlan(){
       `<td class="c-done"><input type="checkbox" data-done="${i}"${r.done?" checked":""} aria-label="Lesson ${i+1} done" title="Ticks by itself when this day's class work is sent from the Homework Planner"></td>`+
       `<td class="c-x noprint">${r.type==="speaking"?`<a class="ws sp" href="speaking-class.html${r.speak?"?topic="+encodeURIComponent(String(r.speak).split("|")[0])+"&level="+encodeURIComponent(String(r.speak).split("|")[1]||1):""}" target="_blank" rel="noopener" title="Open the Speaking Class at this topic and level" aria-label="Open the Speaking Class for lesson ${i+1}">🗣</a>`:`<a class="ws" href="${wsLink(r)}" target="_blank" rel="noopener" title="Make a worksheet for this lesson" aria-label="Make a worksheet for lesson ${i+1}">📝</a>`}${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
   $("tp").innerHTML=h+"</tbody>";
+  renderHwOnly();
   renderActs()}
 function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(!PRINCIPAL&&S.plan&&(st==="draft"||st==="returned"))a.push(`<button class="btn" id="aSubmit">Send to principal</button>`);
@@ -1255,6 +1323,7 @@ async function suggestHomework(){
         (res.rows||[]).slice(0,part.length).forEach((x,k)=>{if(x&&x.homework)S.rows[part[k]].homework=String(x.homework)});
         done+=part.length}}
     await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
+    try{await refreshHwOnly()}catch(e){}
     renderPlan();queueSave();toast("Homework suggested for "+todo.length+" lessons. Change or clear any you don't want.")}
   catch(e){renderPlan();queueSave();toast("AI could not finish: "+e.message+(done?" — the ones done so far are kept.":""),true)}
   finally{const b=$("aHw");if(b)b.disabled=false}}
