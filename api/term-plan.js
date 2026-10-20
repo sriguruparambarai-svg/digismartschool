@@ -22,6 +22,9 @@
 //                                               (the Homework Planner fills class work and homework ideas from them)
 //   done_day  { class_name, date, subjects:[] } tick that day's rows of these subjects as taught
 //                                               (the Homework Planner calls it when class work is sent)
+//   for_week  { from, to }                      (Oct 2026) homework of every APPROVED plan, all classes, from..to
+//                                               → { rows:[{class_name,subject,date,homework}], not_approved }
+//                                               (Homework Planner → "Fill this week from Term Plans")
 //   list also gives behind_count: lessons dated before today (India time) not yet ticked done.
 //
 // SCHOOL HOLIDAY CALENDAR (Oct 2026) — one calendar per school, shared by every term plan.
@@ -293,6 +296,33 @@ module.exports = async function handler(req, res) {
                  done_count: rows.filter(function (x) { return x && x.done; }).length,
                  behind_count: rows.filter(function (x) { return x && !x.done && x.date && x.date < today; }).length };
       }) });
+    }
+
+    // ── every class, one week: the approved plans' homework (Oct 2026, Homework Planner "Fill this week") ──
+    if (action === 'for_week') {
+      const from = String(body.from || ''), to = String(body.to || '');
+      if (!isDate(from) || !isDate(to) || to < from) return res.json({ error: 'Dates needed.' });
+      const r = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) +
+        '&status=neq.returned&select=class_name,subject,status,rows&order=updated_at.desc');
+      if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
+      const out = [], seen = {};
+      let notApproved = 0;
+      r.data.forEach(function (p) {
+        const hits = (Array.isArray(p.rows) ? p.rows : []).filter(function (row) {
+          return row && isDate(row.date) && row.date >= from && row.date <= to && String(row.homework || '').trim();
+        });
+        if (!hits.length) return;
+        if (p.status !== 'approved') { notApproved++; return; }
+        hits.forEach(function (row) {
+          // one plan per class+subject wins (the newest); several lessons the same day are joined
+          const k = p.class_name + '|' + String(p.subject).toLowerCase() + '|' + row.date;
+          if (seen[k] && seen[k].plan !== p) return;
+          if (seen[k]) { seen[k].item.homework += '\n' + String(row.homework).trim(); return; }
+          const item = { class_name: p.class_name, subject: p.subject, date: row.date, homework: String(row.homework).trim() };
+          seen[k] = { plan: p, item: item }; out.push(item);
+        });
+      });
+      return res.json({ success: true, rows: out, not_approved: notApproved });
     }
 
     // ── one class, one day, every subject (for the Homework Planner) ──

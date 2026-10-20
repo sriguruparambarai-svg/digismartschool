@@ -321,6 +321,7 @@ textarea{resize:vertical;min-height:70px}
       </div>
       <div class="sechead">
         <h2>Week at a glance</h2>
+        <button class="btn ghost" id="fillTp" type="button" title="Put the homework of the approved Term Plans into this week. Days already passed and subjects that already have homework are left alone. You can edit or take out any of it before it is sent.">📘 Fill this week from Term Plans</button>
         <div class="legend">
           <span style="--c:var(--chip)">In this week (✓ sent)</span>
           <span style="--c:var(--wait-bg);--b:var(--wait);--s:dashed">Waiting from teacher</span>
@@ -1241,6 +1242,33 @@ function printSlips(list,ds){
 }
 function slipOne(){const c=S.sel.cls,ds=S.sel.date;if(!itemsFor(c,ds,added).length&&!cwFor(c,ds,added).length){toast("Nothing added to the week for "+c+" on "+nice(ds)+" yet.",true);return}printSlips([c],ds)}
 $("slipOne").onclick=slipOne;$("slipMine").onclick=slipOne;
+/* 📘 Fill this week from Term Plans (Oct 2026): the approved plans' homework goes straight into the week
+   (principal). Skips: days already passed (and today after the send time), classes not shown, and any
+   class+day+subject that already has homework. Everything stays editable until it is sent. */
+async function fillFromTp(){
+  if(!PRINCIPAL||busy)return;const btn=$("fillTp");btn.disabled=true;
+  try{
+    const from=S.week,to=addDays(S.week,5),hr=new Date().getHours();
+    const r=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"for_week",from,to})});
+    let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly (status "+r.status+").")}
+    if(d.error)throw new Error(d.error);
+    const shown=classesShown(),lc=s=>String(s||"").toLowerCase();
+    let past=0,have=0;
+    const items=(d.rows||[]).filter(x=>{
+      if(!shown.includes(x.class_name))return false;
+      if(x.date<TODAY||(x.date===TODAY&&hr>=SEND_HOUR)){past++;return false}
+      if(S.items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned")){have++;return false}
+      return true}).map(x=>({class_name:x.class_name,subject:x.subject,kind:"Written",homework:x.homework,hw_date:x.date,made_by:"principal"}));
+    const note=(have?" "+have+" already had homework (left as is).":"")+(past?" "+past+(past>1?" were":" was")+" for days already sent.":"")+(d.not_approved?" "+d.not_approved+" Term Plan"+(d.not_approved>1?"s are":" is")+" not approved yet, so "+(d.not_approved>1?"their":"its")+" homework was not taken.":"");
+    if(!items.length){toast("Nothing new to add from the Term Plans for this week."+note);return}
+    if(!confirm(items.length+" homework from the approved Term Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+"\n\nYou can edit or take out any of them before they are sent. Add them?"))return;
+    busy=true;let n=0;
+    try{for(let a=0;a<items.length;a+=60){const s=await hw("save_many",{items:items.slice(a,a+60),teacher_name:"Term Plan"});n+=(s.items||[]).length}}
+    finally{busy=false}
+    await load();toast(n+" homework added from the Term Plans. Check and edit them in the week below."+note);
+  }catch(e){toast("Could not fill from Term Plans: "+e.message,true)}
+  finally{btn.disabled=false}}
+if($("fillTp"))$("fillTp").onclick=fillFromTp;
 $("slipAll").onclick=()=>{const ds=S.sel.date;const list=classesShown().filter(c=>itemsFor(c,ds,added).length);if(!list.length){toast("Nothing added to the week on "+nice(ds)+" yet.",true);return}printSlips(list,ds)};
 
 /* ---------- start ---------- */
