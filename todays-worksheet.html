@@ -172,6 +172,12 @@ table.tbl td.blank{height:11mm}
 .wp-w{font-size:1.6em;font-weight:700;line-height:1.1;flex:none;min-width:24mm}
 .wp-slot{height:11mm;border-bottom:1.2px solid #555;display:flex;align-items:flex-end;font-size:1.6em;line-height:1.1;padding-left:1mm;overflow:hidden;white-space:nowrap}
 .wp-tr{color:#c2c2c2;font-weight:600}
+.wp-grid{display:grid;gap:3.5mm;margin-top:3.5mm;break-inside:avoid}
+.wp-card{border:1.2px solid #999;border-radius:2.5mm;padding:1.5mm 4mm 2.5mm}
+.wp-hd{display:flex;align-items:center;gap:3mm;min-height:9mm;border-bottom:1px dashed #bbb;padding-bottom:1.5mm}
+.wp-hd .wp-w{min-width:0;font-size:1.7em}
+.wp-hd .wp-pic{width:12mm;height:12mm}
+.wp-ln{height:9.5mm;border-bottom:1.2px solid #555;font-size:1.6em;line-height:1.1;display:flex;align-items:flex-end;padding-left:1mm;overflow:hidden;white-space:nowrap}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chips label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:400;color:var(--ink);font-size:.88rem;background:#fff}
 .key-pg{break-before:page}
@@ -313,6 +319,7 @@ table.tbl td.blank{height:11mm}
       <div class="pb">
         <div class="row">
           <label>Write each word<select id="wpTimes"><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option></select></label>
+          <label>Layout<select id="wpLayout"><option value="box2">Boxes — word on top, lines below, 2 in a row</option><option value="box3">Boxes — word on top, lines below, 3 in a row</option><option value="beside">Word beside the lines</option></select></label>
           <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option></select></label>
           <label>Add your own words (comma between)<input id="wpOwn" placeholder="e.g. fox, gift, hen"></label>
         </div>
@@ -762,6 +769,8 @@ let wpInstTouched=false;
 function wpSetInst(){if(!wpInstTouched)$("wpInst").value=wpInstDefault()}
 $("wpInst").addEventListener("input",()=>{wpInstTouched=true});
 ["wpTimes","wpStyle"].forEach(id=>$(id).addEventListener("change",()=>{wpSetInst();count();wpPicStatus()}));
+{const lv=lsGet("tws_wp_layout");if(lv&&[...$("wpLayout").options].some(o=>o.value===lv))$("wpLayout").value=lv}
+$("wpLayout").addEventListener("change",()=>lsSet("tws_wp_layout",$("wpLayout").value));
 $("wpOwn").addEventListener("change",()=>{count();wpPicStatus()});
 // With "Picture + trace + write": say which words have no picture yet, and offer to draw them
 async function wpPicStatus(){
@@ -837,15 +846,33 @@ async function wpPage(){
   const words=wpWords();if(!words.length)return null;
   const n=Math.max(1,+$("wpTimes").value||5),pic=$("wpStyle").value==="pic";
   const pics=pic?await loadPics():{};let missing=0;
+  let rows="";
+  if($("wpLayout").value==="beside"){
   // as many equal lines in a row as fit a child's handwriting of the word; the rest go on the next row, lined up
   const ww=Math.min(55,Math.max(24,Math.max(...words.map(w=>[...w].length))*4.2+4));   // one word column for every row, so the lines line up
-  const rows=words.map(w=>{const len=[...w].length;let h=`<div class="wp-row">`;
+  rows=words.map(w=>{const len=[...w].length;let h=`<div class="wp-row">`;
     let room=165;   // mm across the page after the picture or the word
     if(pic){const u=picFor(w);if(!u)missing++;h+=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div>`;room=158}
     else{h+=`<div class="wp-w" style="width:${ww}mm">${esc(w)}</div>`;room=176-ww}
     let per=Math.max(1,Math.min(n,Math.floor((room+3)/(Math.max(20,len*5+6)+3))));per=Math.ceil(n/Math.ceil(n/per));   // even rows, no line left alone
-    let cells="";for(let i=0;i<n;i++)cells+=(pic&&i===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
+    let cells="";for(let k=0;k<n;k++)cells+=(pic&&k===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
     return h+`<div class="wp-lines" style="grid-template-columns:repeat(${per},minmax(0,1fr))">${cells}</div></div>`}).join("");
+  }else{
+  // each word is a box: the word (or its picture) on top, then one line under another for each time it is written.
+  // Boxes sit 2 or 3 in a row (the teacher's choice), so the page fills.
+  const card=w=>{let hd;
+    if(pic){const u=picFor(w);if(!u)missing++;
+      hd=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div><div class="wp-w">${esc(w)}</div>`}
+    else hd=`<div class="wp-w">${esc(w)}</div>`;
+    let lines="";for(let i=0;i<n;i++)lines+=(pic&&i===0)?`<div class="wp-ln"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-ln"></div>`;
+    return`<div class="wp-card"><div class="wp-hd">${hd}</div>${lines}</div>`};
+  // one block per row of boxes, so a long list carries on neatly onto the next page
+  // the teacher picks 2 or 3 in a row; a row with a long word (like "Good afternoon") gets one box fewer, so it fits
+  const want=$("wpLayout").value==="box3"?3:2;
+  for(let i=0;i<words.length;){let c=want;if(words.slice(i,i+c).some(w=>[...w].length>11))c=Math.max(1,c-1);
+    const part=words.slice(i,i+c);i+=part.length;
+    rows+=`<div class="wp-grid" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${part.map(card).join("")}</div>`}
+  }
   if(pic&&missing)toast(missing+" word(s) have no picture — the sheet gives a box for the child to draw it. You can draw them with AI in the Writing practice box.");
   const title="Writing practice";
   return`<div class="pg act-pg">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}${FOOT}</div>`}
@@ -980,9 +1007,10 @@ function splitPage(pg){
   const nx=document.createElement("div");nx.className=pg.className.replace(/\bkey-pg\b/,"key-pg key-more");
   pg.querySelectorAll(":scope>.ws-head,:scope>.ws-meta").forEach(h=>nx.appendChild(h.cloneNode(true)));
   const ins=pg.querySelector(":scope>.inst");if(ins)nx.appendChild(ins.cloneNode(true));
-  const firstBlock=()=>nx.querySelector(":scope>.ws-foot")||null;
   if(foot)nx.appendChild(foot.cloneNode(true));
-  const put=el=>nx.insertBefore(el,firstBlock()?firstBlock():null);
+  // blocks are taken from the end of the page one by one, so each goes in front of the one moved before it
+  let anchor=nx.querySelector(":scope>.ws-foot")||null;
+  const put=el=>{nx.insertBefore(el,anchor);anchor=el};
   let guard=0;
   while(!fits(pg)&&guard++<400){
     const bl=blocks();if(bl.length===0)break;
