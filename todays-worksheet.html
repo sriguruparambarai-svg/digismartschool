@@ -188,6 +188,17 @@ table.tbl td.blank{height:11mm}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chips label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:400;color:var(--ink);font-size:.88rem;background:#fff}
 .key-pg{break-before:page}
+/* the term's handwriting book */
+.bk-cover{align-items:center;justify-content:center;text-align:center;gap:6mm}
+.bk-cover img{width:42mm;height:42mm;object-fit:contain}
+.bk-cover .bn{font-family:"Marcellus",Georgia,serif;font-size:2.1em;color:#6B1A1A;letter-spacing:.04em;text-transform:uppercase}
+.bk-cover .bt{font-family:"Marcellus",Georgia,serif;font-size:2.6em;color:#111;border-top:2px solid #C9A84C;border-bottom:2px solid #C9A84C;padding:4mm 10mm}
+.bk-cover .bs{font-size:1.35em}
+.bk-cover .bf{width:120mm;text-align:left;font-size:1.15em;display:grid;gap:7mm;margin-top:10mm}
+.bk-cover .bf div{display:flex;gap:3mm;align-items:flex-end}.bk-cover .bf i{flex:1;border-bottom:1px solid #444;height:1em}
+.bk-toc h3{font-family:"Marcellus",Georgia,serif;font-weight:400;color:#6B1A1A;font-size:1.5em;margin:0 0 6mm}
+.bk-toc table{width:100%;border-collapse:collapse}.bk-toc td{padding:2.2mm 1mm;border-bottom:1px dotted #aaa}.bk-toc td:last-child{text-align:right;width:20mm}
+.ws-foot .pno{margin-right:auto;color:#555}
 /* teacher's sign sits at the bottom of every page */
 .ws-foot{margin-top:auto;padding-top:6mm;display:flex;justify-content:flex-end;gap:2mm;align-items:flex-end;font-size:.92em}
 .ws-foot i{display:inline-block;width:45mm;border-bottom:1px solid #444;height:1em}
@@ -365,6 +376,8 @@ table.tbl td.blank{height:11mm}
   <div class="pbar">
     <button class="btn ghost small" id="backBtn">← Back to editing</button>
     <button class="btn gold small" id="printBtn">🖨 Print / Save as PDF</button>
+    <label id="bkPaperBox" hidden style="display:flex;gap:6px;align-items:center;color:#FFF3DF;font-size:.85rem;font-weight:600">Paper
+      <select id="bkPaper" style="width:auto;padding:4px 8px"><option value="full">Full A4</option><option value="half">Half A4 booklet (2 pages on a landscape sheet)</option></select></label>
     <span style="font-size:.85rem" id="sheetInfo"></span>
   </div>
   <div id="sheets"></div>
@@ -873,18 +886,20 @@ async function wpPage(){
   }else{
   // each word is a box: the word (or its picture) on top, then one line under another for each time it is written.
   // Boxes sit 2 or 3 in a row (the teacher's choice), so the page fills.
-  const card=w=>{let hd;
+  // the grey trace word shrinks if it is too long for its box (four-line writing is large)
+  const fit=(w,c)=>{if($("wpRule").value!=="four")return"";const box=[0,170,80,50][c]||50,fs=Math.min(8.6,box/Math.max(1,[...w].length*0.66));return fs<8.6?` style="font-size:${fs.toFixed(1)}mm"`:""};
+  const card=(w,c)=>{let hd;
     if(pic){const u=picFor(w);if(!u)missing++;
       hd=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div><div class="wp-w">${esc(w)}</div>`}
     else hd=`<div class="wp-w">${esc(w)}</div>`;
-    let lines="";for(let i=0;i<n;i++)lines+=(trace&&i===0)?`<div class="wp-ln"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-ln"></div>`;
+    let lines="";for(let i=0;i<n;i++)lines+=(trace&&i===0)?`<div class="wp-ln"><span class="wp-tr"${fit(w,c||2)}>${esc(w)}</span></div>`:`<div class="wp-ln"></div>`;
     return`<div class="wp-card"><div class="wp-hd">${hd}</div>${lines}</div>`};
   // one block per row of boxes, so a long list carries on neatly onto the next page
   // the teacher picks 2 or 3 in a row; a row with a long word (like "Good afternoon") gets one box fewer, so it fits
   const want=$("wpLayout").value==="box3"?3:$("wpLayout").value==="box1"?1:2;
   for(let i=0;i<words.length;){let c=want;if(words.slice(i,i+c).some(w=>[...w].length>11))c=Math.max(1,c-1);
     const part=words.slice(i,i+c);i+=part.length;
-    rows+=`<div class="wp-grid" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${part.map(card).join("")}</div>`}
+    rows+=`<div class="wp-grid" style="grid-template-columns:repeat(${c},minmax(0,1fr))">${part.map(w=>card(w,c)).join("")}</div>`}
   }
   if(pic&&missing)toast(missing+" word(s) have no picture — the sheet gives a box for the child to draw it. You can draw them with AI in the Writing practice box.");
   const title=PARAMS.hand?"Handwriting":"Writing practice";
@@ -1053,9 +1068,14 @@ async function layoutPages(){
   let pages=[...box.querySelectorAll(".pg")];
   for(let i=0;i<pages.length;i++){const nx=splitPage(pages[i]);if(nx){pages[i].after(nx);pages.splice(i+1,0,nx)}}
   pages=[...box.querySelectorAll(".pg")];
-  const half=$("fPaper").value==="half";
+  if(BOOK){bookNumbers(pages)}
+  const half=BOOK?$("bkPaper").value==="half":$("fPaper").value==="half";
   document.getElementById("pageSize")?.remove();
   const st=document.createElement("style");st.id="pageSize";st.textContent=half?"@page{size:A4 landscape;margin:0}":"@page{size:A4;margin:0}";document.head.appendChild(st);
+  if(half&&BOOK){
+    for(let i=0;i<pages.length;i+=2){const d=document.createElement("div");d.className="duo";pages[i].before(d);d.appendChild(pages[i]);if(pages[i+1])d.appendChild(pages[i+1])}
+    $("sheetInfo").textContent=pages.length+" book pages on "+box.querySelectorAll(".duo").length+" landscape A4 sheets (two pages on each — cut and bind, or fold).";return}
+  if(BOOK){$("sheetInfo").textContent=pages.length+" A4 book pages — print and bind.";return}
   if(half){
     // two copies of each worksheet page; answer key pages are put two to a sheet instead
     const work=pages.filter(p=>!p.classList.contains("key-pg")),keys=pages.filter(p=>p.classList.contains("key-pg"));
@@ -1064,7 +1084,51 @@ async function layoutPages(){
     $("sheetInfo").textContent=box.querySelectorAll(".duo").length+" landscape A4 sheet(s), two half-A4 copies on each — cut along the dotted line."}
   else $("sheetInfo").textContent=pages.length+" A4 page(s).";
 }
-$("backBtn").onclick=()=>{document.body.classList.remove("preview")};
+$("backBtn").onclick=()=>{if(BOOK){history.length>1?history.back():window.close();return}document.body.classList.remove("preview")};
+
+/* ---------- the term's handwriting book (Oct 2026) ----------
+   The Term Planner saves the Handwriting plan's periods (letters / words, times, ruling, print or cursive)
+   in this browser and opens ?book=1. Every period becomes a page, in order, with a cover, a contents
+   page, page numbers, a date line and the teacher's sign. Full A4, or Half A4 as a booklet. */
+let BOOK=null;
+function bookNumbers(pages){
+  pages.forEach((p,i)=>{if(i<2)return;const f=p.querySelector(":scope>.ws-foot");if(f&&!f.querySelector(".pno"))f.insertAdjacentHTML("afterbegin",`<span class="pno">Page ${i+1}</span>`)});
+  // contents: the first page of each unit
+  const first={};pages.forEach((p,i)=>{const u=p.dataset.unit;if(u!=null&&first[u]==null)first[u]=i+1});
+  document.querySelectorAll("[data-tocpg]").forEach(td=>{td.textContent=first[td.dataset.tocpg]||""});
+  const ks=Object.keys(first).map(Number).sort((a,b)=>a-b);
+  document.querySelectorAll("[data-tocn]").forEach(sp=>{const u=+sp.dataset.tocn,at=ks.indexOf(u);if(at<0)return;
+    const n=(at+1<ks.length?first[ks[at+1]]:pages.length+1)-first[u];sp.textContent=" · "+n+" page"+(n>1?"s":"")})}
+async function buildBook(){
+  const B=BOOK;$("sheets").classList.remove("paged");
+  $("fClass").value=B.class_name;fillSubjects(B.subject);$("fSubject").value=B.subject;$("fDate").value="";
+  $("fFs").value=num(B.class_name)<=2?"14pt":"12.5pt";
+  const units=[];B.periods.forEach(p=>{if(!units.length||units[units.length-1].name!==p.unit)units.push({name:p.unit,n:0});units[units.length-1].n++});
+  let html=`<div class="pg bk-cover">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div class="bn">${esc(SCHOOL_NAME||"")}</div>`+
+    `<div class="bt">${esc(B.subject)} Handwriting Book</div><div class="bs">${esc(B.class_name)} · Term ${esc(B.term||"")}${B.style==="cursive"?" · Cursive":""}</div>`+
+    `<div class="bf"><div>Name: <i></i></div><div>Class &amp; Section: <i></i></div><div>Roll No: <i></i></div></div></div>`;
+  html+=`<div class="pg bk-toc"><h3>Contents</h3><table>${units.map((u,i)=>`<tr><td>${esc(u.name)}<span class="hint" style="color:#777" data-tocn="${i}"></span></td><td data-tocpg="${i}"></td></tr>`).join("")}</table></div>`;
+  let ui=-1,last="";
+  for(const p of B.periods){if(p.unit!==last){ui++;last=p.unit}
+    WP=p.items.map(w=>({w,group:"book",on:true}));$("wpOwn").value="";
+    const setSel=(id,v)=>{const el=$(id);if(!el||v==null)return;v=String(v);if(![...el.options].some(o=>o.value===v)){const o=document.createElement("option");o.value=o.textContent=v;el.appendChild(o)}el.value=v};
+    setSel("wpTimes",p.times);setSel("wpRule",p.rule);setSel("wpFont",p.font);$("wpStyle").value="trace";
+    setSel("wpLayout",p.kind==="letters"?"beside":p.kind==="sentences"?"box1":"box3");
+    PARAMS.hand="1";PARAMS.wpk=p.kind;
+    $("wpInst").value=p.kind==="letters"?"Trace the grey letter, then write it on every line, neatly between the lines.":p.kind==="sentences"?"Write each sentence "+p.times+" times — capital letter at the start, a gap between words, full stop at the end.":"Read each word aloud, then write it "+p.times+" times neatly.";
+    $("fTopic").value=String(p.unit||"").replace(/^Unit \d+\.\s*/,"").slice(0,80);
+    let pg=await wpPage();if(!pg)continue;
+    pg=pg.replace(`<div class="pg act-pg wp-pg`,`<div data-unit="${ui}" class="pg act-pg wp-pg`)
+      .replace(/<div class="ws-meta">[\s\S]*?<\/div>(?=<div class="inst">)/,`<div class="ws-meta"><span>Date: <i></i></span><span></span></div>`);
+    html+=pg}
+  $("sheets").innerHTML=html;$("sheets").style.setProperty("--wfs",$("fFs").value);
+  document.body.classList.add("preview");window.scrollTo(0,0);
+  await layoutPages()}
+(function(){try{if(!new URLSearchParams(location.search).get("book"))return;const b=JSON.parse(lsGet("tws_book")||"null");
+  if(!b||!Array.isArray(b.periods)||!b.periods.length){showErr("The handwriting book could not be found. Open it again from the Term Planner.");return}
+  BOOK=b;$("bkPaperBox").hidden=false;$("backBtn").textContent="← Close";$("printBtn").textContent="🖨 Print the book / Save as PDF";
+  $("bkPaper").onchange=()=>buildBook();
+  setTimeout(()=>buildBook().catch(e=>showErr("The book could not be made: "+e.message)),50)}catch(e){showErr("The book could not be made: "+e.message)}})();
 $("printBtn").onclick=()=>window.print();
 
 /* ---------- form wiring ---------- */

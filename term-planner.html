@@ -1142,13 +1142,22 @@ function pickCols(){COLS=ALLCOLS.filter(c=>["teach","class_act","homework"].incl
 // the chapter's book pages (so book back exercises are found), the lesson's
 // own pages and what is taught (so new questions stay on today's part), and
 // the class activity (so the activity ideas build on it).
+// The term's handwriting book: every Handwriting period in order, opened in Today's Worksheet (?book=1)
+function openBook(){
+  const periods=[];S.rows.forEach(r=>{if(r.type!=="writing"||!r.write)return;let w=null;try{w=JSON.parse(r.write)}catch(e){}
+    if(w&&Array.isArray(w.items)&&w.items.length)periods.push({unit:r.chapter||"",items:w.items,times:w.times||5,kind:w.kind||"words",font:w.font||"print",rule:w.rule||"single"})});
+  if(!periods.length){toast("This plan has no handwriting periods yet.",true);return}
+  const book={class_name:$("fClass").value,subject:/^Tamil/.test($("fSubject").value)?"Tamil":"English",term:$("fTerm").value,
+    style:(S.settings&&S.settings.hw_style)||"print",periods};
+  try{localStorage.setItem("tws_book",JSON.stringify(book))}catch(e){toast("This browser could not keep the book: "+e.message,true);return}
+  window.open("todays-worksheet.html?book=1","_blank","noopener")}
 function wsLink(r){
   // Handwriting rows: Today's Worksheet opens with this period's letters / words in Writing practice
   if(r.type==="writing"&&r.write){let w={};try{w=JSON.parse(r.write)}catch(e){}
     if(w&&Array.isArray(w.items)&&w.items.length){
       const q=new URLSearchParams({class:$("fClass").value,subject:/^Tamil/.test($("fSubject").value)?"Tamil":"English",chapter:r.chapter||"Handwriting",
         hand:"1",wp:w.items.join("\n").slice(0,1500),wpt:String(w.times||5),wpr:w.rule||"single",wpf:w.font||"print",
-        wpl:w.kind==="letters"?"beside":w.kind==="sentences"?"box1":"box2",wpk:w.kind||"words"});
+        wpl:w.kind==="letters"?"beside":w.kind==="sentences"?"box1":"box3",wpk:w.kind||"words"});
       return "todays-worksheet.html?"+q.toString()}}
   const ch=((S.settings&&S.settings.chapters)||[]).find(x=>x.title===r.chapter)||{};
   const q=new URLSearchParams({class:$("fClass").value,subject:$("fSubject").value});
@@ -1192,6 +1201,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)&&!HW_MOVED_RE.test(r.teach||"")))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
   if(!locked()&&S.plan&&TT&&S.rows.length&&!ownPpw())a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
   if(!locked()&&S.rows.length)a.push(`<button class="btn ghost" id="aHwTT" title="Move homework that falls on a day this subject has no homework (Homework Planner → Homework timetable) to the next homework day. Only lessons from today on.">📅 Match homework timetable</button>`);
+  if(isHand()&&S.rows.some(r=>r.type==="writing"&&r.write))a.push(`<button class="btn gold" id="aBook" title="Every period's handwriting sheet in order, as one book — cover, contents, page numbers. Print once and bind.">📒 Print the term's handwriting book</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -1200,6 +1210,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aReopen",()=>act("reopen","Open for changes"));
   on("aBack",()=>{const n=prompt("Note for the teacher (what to change):","");if(n!==null)act("send_back","Sent back to the teacher",{note:n})});
   on("aPrint",()=>window.print());
+  on("aBook",openBook);
   on("aHw",suggestHomework);
   on("aHwTT",hwTTButton);
   on("aRefit",async()=>{if(!confirm("Put the lessons not yet done (from today) on the class's timetable periods again?\n\nTeachBot lessons go only on AI-room periods; a classroom period before one becomes a catch-up period."))return;
