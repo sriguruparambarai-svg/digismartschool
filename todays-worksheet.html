@@ -257,6 +257,19 @@ table.tbl td.blank{height:11mm}
     <h2>2. What goes on today's sheet</h2>
     <p class="hint" style="margin-top:4px">Tick one or more. Click any question to correct it before printing.</p>
 
+    <div class="part" id="hwPart" hidden style="border-color:var(--gold)">
+      <div class="ph" style="background:#FFF3D6">
+        <input type="checkbox" id="useHW" aria-label="Put today's homework on the sheet">
+        <h3>📝 Today's homework from the Term Planner</h3>
+        <button class="btn small" id="hwBtn">Make it into a worksheet</button>
+        <div class="hint">The homework suggested for this lesson. Correct it if you like, then press the button — words to read and write go to Writing practice below, questions come out ready to print.</div>
+      </div>
+      <div class="pb">
+        <textarea id="hwText" style="min-height:70px"></textarea>
+        <div id="hwBody"></div>
+      </div>
+    </div>
+
     <div class="part">
       <div class="ph">
         <input type="checkbox" id="useBB" aria-label="Put book back questions on the sheet">
@@ -701,6 +714,44 @@ $("acBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.acc!=nul
 $("acBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.aci!=null)ACTS[+d.aci].instruction=e.target.innerText.trim()});
 $("acBtn").onclick=suggestAC;
 
+/* ---------- 0. today's homework from the Term Planner ---------- */
+let HWQ=[];
+async function makeHW(){
+  const text=$("hwText").value.trim();if(!text){toast("There is no homework text to use.",true);return}
+  const btn=$("hwBtn");busy(btn,"Making…");
+  try{
+    $("hwBody").innerHTML='<p class="hint"><span class="spin"></span>Turning the homework into a worksheet…</p>';
+    const L=await getLesson().catch(()=>({text:""}));
+    const sys=`You turn a teacher's homework into a printable worksheet for ${$("fClass").value} ${$("fSubject").value}. ${langRule()}
+Use ONLY what the homework asks — do not add other work. Split it into:
+- "words": words or short phrases the child must read and write / memorise / copy (copy them exactly, keep their script), or [] if none;
+- "questions": every question, exercise, sum or task in the homework, written as worksheet questions, or [] if none. If the homework names book exercises (e.g. "Exercise B p. 9", "Ex 2.1 sums 1–5"), write those questions out from the chapter text when it is given; if the chapter text does not have them, write the task as one "other" question.
+Each question: {"type":"mcq|fill|tf|match|oneword|short|long|other","q":"","options":[],"pairs":[["",""]],"answer":"short answer for the teacher, or empty"}.
+Reply with ONLY: {"words":["",""],"questions":[ ... ]}`;
+    const d=await askAI(sys,"HOMEWORK:\n"+text+(L&&L.text?"\n\nCHAPTER TEXT:\n"+L.text.slice(0,20000):""),4000);
+    const words=((d&&d.words)||[]).map(w=>String(w||"").trim()).filter(Boolean);
+    HWQ=((d&&d.questions)||[]).filter(q=>q&&q.type&&(q.q||q.text)).map(q=>Object.assign({on:true},q));
+    if(words.length){
+      words.forEach(w=>{if(!WP.some(x=>x.w.toLowerCase()===w.toLowerCase()))WP.push({w,group:"Today's homework",on:true})});
+      $("useWP").checked=true;wpSetInst();renderWP();wpPicStatus()}
+    if(HWQ.length)$("useHW").checked=true;
+    if(!words.length&&!HWQ.length)throw new Error("Nothing could be made from this homework. Correct the text and try again.");
+    renderHW(words.length);
+  }catch(e){$("hwBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
+  finally{idle(btn);count()}}
+function renderHW(nWords){
+  $("hwBody").innerHTML=(nWords?`<p class="hint" style="margin:10px 0 0">✍️ ${nWords} word(s) added to <b>Writing practice</b> below — choose how many times and the style there.</p>`:"")+
+  (HWQ.length?`<p class="hint" style="margin:10px 0 0">${HWQ.length} homework question(s). Untick any you don't want, or click to correct.</p><div class="qlist">`+
+    HWQ.map((q,i)=>`<div class="q${q.on?"":" off"}"><input type="checkbox" data-hq="${i}"${q.on?" checked":""} aria-label="Use this question"><div><span class="tag">${esc(TAG[q.type]||q.type)}</span>`+
+    `<div class="ed" contenteditable="true" data-hqt="${i}">${esc(q.q||q.text||"")}</div>`+
+    (q.type==="mcq"&&q.options&&q.options.length?`<div class="sub">${q.options.map((o,k)=>"("+"abcd"[k]+") "+esc(o)).join("   ")}</div>`:"")+
+    (q.type==="match"&&q.pairs&&q.pairs.length?`<div class="sub">${q.pairs.map(p=>esc(p[0])+" — "+esc(p[1])).join("<br>")}</div>`:"")+
+    (q.type!=="match"?`<div class="ans">Key: <span class="ed" contenteditable="true" data-hqa="${i}">${esc(q.answer||"")}</span></div>`:"")+
+    `</div></div>`).join("")+`</div>`:"")}
+$("hwBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.hq!=null){HWQ[+d.hq].on=e.target.checked;e.target.closest(".q").classList.toggle("off",!e.target.checked);if(e.target.checked)$("useHW").checked=true;count()}});
+$("hwBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.hqt!=null){HWQ[+d.hqt].q=e.target.innerText.trim();delete HWQ[+d.hqt].text}if(d.hqa!=null)HWQ[+d.hqa].answer=e.target.innerText.trim()});
+$("hwBtn").onclick=makeHW;
+
 /* ---------- D. writing practice ---------- */
 // Words the child writes N times. "Write only": the word printed once, then N lines.
 // "Picture + trace + write": a picture from the Picture Library (or a box to draw in),
@@ -802,11 +853,11 @@ wpSetInst();
 
 /* ---------- count ---------- */
 function count(){const b=$("useBB").checked?BB.filter(q=>q.on).length:0,l=$("useLQ").checked?LQ.filter(q=>q.on).length:0,a=$("useAC").checked?ACTS.filter(x=>x.on).length:0;
-  const w=$("useWP").checked?wpWords().length:0;
-  const p=[];if(b)p.push(b+" book back");if(l)p.push(l+" lesson question"+(l>1?"s":""));if(a)p.push(a+" activity sheet"+(a>1?"s":""));if(w)p.push(w+" word"+(w>1?"s":"")+" to write");
+  const w=$("useWP").checked?wpWords().length:0,hq=$("useHW").checked?HWQ.filter(q=>q.on).length:0;
+  const p=[];if(hq)p.push(hq+" homework question"+(hq>1?"s":""));if(b)p.push(b+" book back");if(l)p.push(l+" lesson question"+(l>1?"s":""));if(a)p.push(a+" activity sheet"+(a>1?"s":""));if(w)p.push(w+" word"+(w>1?"s":"")+" to write");
   $("countHint").textContent=p.length?"On the sheet: "+p.join(" · "):"Nothing picked yet — tick something in step 2.";
   const c=$("acCount");if(c)c.textContent=ACTS.filter(x=>x.on).length}
-["useBB","useLQ","useAC","useWP"].forEach(id=>$(id).addEventListener("change",count));
+["useBB","useLQ","useAC","useWP","useHW"].forEach(id=>$(id).addEventListener("change",count));
 
 /* ---------- building the printed sheet ---------- */
 let seed=1;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646};
@@ -888,21 +939,23 @@ async function actPage(a,n){
   return{page:`<div class="pg act-pg">${head(a.title||KIND[a.type])}${ins}${body}${FOOT}</div>`,key:key?`<h4>Activity ${n}: ${esc(a.title||KIND[a.type])}</h4>${key}`:""}}
 async function build(){
   const useBB=$("useBB").checked&&BB.some(q=>q.on),useLQ=$("useLQ").checked&&LQ.some(q=>q.on),acts=$("useAC").checked?ACTS.filter(a=>a.on):[];
-  const useWP=$("useWP").checked&&wpWords().length>0;
-  if(!useBB&&!useLQ&&!acts.length&&!useWP){toast("Pick something for the sheet in step 2 first.",true);return}
+  const useWP=$("useWP").checked&&wpWords().length>0,useHW=$("useHW").checked&&HWQ.some(q=>q.on);
+  if(!useBB&&!useLQ&&!acts.length&&!useWP&&!useHW){toast("Pick something for the sheet in step 2 first.",true);return}
   const btn=$("makeBtn");busy(btn,"Making the sheet…");
   try{
     seed=Math.abs([...lessonId()].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,7))%2147483646+1;
     const title=$("fTitle").value.trim()||"Worksheet";let pages="",keyHtml="";
-    if(useBB||useLQ){let h=`<div class="pg">${head(title)}`,n=0,kb="";
+    if(useBB||useLQ||useHW){let h=`<div class="pg">${head(title)}`,n=0,kb="";
+      if(useHW){const qs=HWQ.filter(q=>q.on);h+=`<div class="sec"><h4>Homework</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;
+        kb+=`<h4>Homework</h4><ol>`+qs.map(q=>`<li>${q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—")}</li>`).join("")+`</ol>`}
       if(useBB){const qs=BB.filter(q=>q.on);h+=`<div class="sec"><h4>Book back questions</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;
-        kb+=`<h4>Book back questions</h4><ol>`+qs.map(q=>`<li>${esc(q.answer||"—")}</li>`).join("")+`</ol>`}
+        kb+=`<h4>Book back questions</h4><ol start="${n-qs.length+1}">`+qs.map(q=>`<li>${esc(q.answer||"—")}</li>`).join("")+`</ol>`}
       if(useLQ){const qs=LQ.filter(q=>q.on);const groups={};qs.forEach(q=>{(groups[q.type]=groups[q.type]||[]).push(q)});
         const start=n;const order=["mcq","fill","tf","match","oneword","short","long"];const names={mcq:"Choose the correct answer",fill:"Fill in the blanks",tf:"Write True or False",match:"Match the following",oneword:"Answer in one word",short:"Answer in one or two sentences",long:"Answer in detail"};
-        h+=`<div class="sec"><h4>${useBB?"Questions from the lesson":"Answer the questions"}</h4>`;let kq=[];
+        h+=`<div class="sec"><h4>${useBB||useHW?"Questions from the lesson":"Answer the questions"}</h4>`;let kq=[];
         order.concat(Object.keys(groups).filter(k=>!order.includes(k))).forEach(t=>{if(!groups[t])return;h+=`<div style="font-weight:600;margin:6px 0 3px">${esc(names[t]||t)}</div>`;
           groups[t].forEach(q=>{h+=qHtml(q,++n);kq.push(q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—"))})});
-        h+=`</div>`;kb+=`<h4>${useBB?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
+        h+=`</div>`;kb+=`<h4>${useBB||useHW?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
       pages+=h+FOOT+`</div>`;keyHtml+=kb}
     if(useWP){try{const wp=await wpPage();if(wp)pages+=wp}catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
     let k=0;for(const a of acts){try{const r=await actPage(a,++k);if(r){pages+=r.page;keyHtml+=r.key}}catch(e){console.warn(e);toast("One activity could not be drawn ("+e.message+") and was left out.",true)}}
@@ -980,7 +1033,7 @@ $("fChapter").addEventListener("change",chapterPicked);
 ["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
 
 /* ---------- opened from the Term Planner ---------- */
-const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:600)})}catch(e){}
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus","hw"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:k==="hw"?1500:600)})}catch(e){}
 (async function start(){
   $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
   fillSubjects(PARAMS.subject||lsGet("tws_subject"));
@@ -995,6 +1048,7 @@ const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subje
     if(!$("fTopic").value&&t)$("fTopic").value=String(PARAMS.chapter).replace(/^Ch\s*\d+\.\s*/i,"");
     if(PARAMS.from&&!$("fFrom").value)$("fFrom").value=PARAMS.from;if(PARAMS.to&&!$("fTo").value)$("fTo").value=PARAMS.to;
     const trim=t=>String(t||"").trim().replace(/[.\s]+$/,"");
+    if(PARAMS.hw){$("hwText").value=PARAMS.hw;$("hwPart").hidden=false}
     $("fromPlan").innerHTML="Opened from the Term Planner."+(PARAMS.focus?" Today's part: <i>"+esc(trim(PARAMS.focus))+"</i>. New questions and activities will stay on it.":"")+(PARAMS.act?" Activity ideas will build on the lesson's class activity: <i>"+esc(trim(PARAMS.act))+"</i>.":"");$("fromPlan").hidden=false}
   count()})();
 })();
