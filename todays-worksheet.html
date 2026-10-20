@@ -165,6 +165,15 @@ table.tbl td.blank{height:11mm}
 .labels div{display:flex;gap:2mm;align-items:flex-end;height:8mm}
 .labels div i{flex:1;border-bottom:1px solid #666}
 .places{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1mm 6mm;margin-top:3mm}
+.wp-row{display:flex;align-items:center;gap:4mm;padding:2.5mm 0;border-bottom:1px dotted #ccc;break-inside:avoid}
+.wp-lines{flex:1;min-width:0;display:grid;gap:2mm 3mm}
+.wp-pic{width:16mm;height:16mm;border:1px solid #999;border-radius:2mm;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:none;font-size:7pt;color:#999;text-align:center}
+.wp-pic img{max-width:100%;max-height:100%;object-fit:contain}
+.wp-w{font-size:1.6em;font-weight:700;line-height:1.1;flex:none;min-width:24mm}
+.wp-slot{height:11mm;border-bottom:1.2px solid #555;display:flex;align-items:flex-end;font-size:1.6em;line-height:1.1;padding-left:1mm;overflow:hidden;white-space:nowrap}
+.wp-tr{color:#c2c2c2;font-weight:600}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.chips label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:400;color:var(--ink);font-size:.88rem;background:#fff}
 .key-pg{break-before:page}
 .key-pg h3{font-family:"Marcellus",Georgia,serif;font-weight:400;color:#6B1A1A;font-size:1.2em;margin:0 0 2px}
 .key-pg .kn{font-size:.85em;color:#666;margin-bottom:8px}
@@ -233,7 +242,7 @@ table.tbl td.blank{height:11mm}
   <!-- 2. what goes on the sheet -->
   <section class="card">
     <h2>2. What goes on today's sheet</h2>
-    <p class="hint" style="margin-top:4px">Tick one, two or all three. Click any question to correct it before printing.</p>
+    <p class="hint" style="margin-top:4px">Tick one or more. Click any question to correct it before printing.</p>
 
     <div class="part">
       <div class="ph">
@@ -266,6 +275,24 @@ table.tbl td.blank{height:11mm}
         <div class="hint">AI reads the lesson and suggests creative sheets — label a picture, mark a map, sort, match, word search and more. Pick as many as you like; each one prints on its own page.</div>
       </div>
       <div class="pb" id="acBody"><p class="hint" style="margin:0">Press “Suggest activities”.</p></div>
+    </div>
+
+    <div class="part">
+      <div class="ph">
+        <input type="checkbox" id="useWP" aria-label="Put writing practice in">
+        <h3>✍️ Writing practice</h3>
+        <button class="btn small" id="wpBtn">Pick words from today's part</button>
+        <div class="hint">For homework like “write each word 5 times”. AI picks the words taught today (new words, letter-sound words, spellings); untick any you don't want or add your own. Prints on its own page on plain lines.</div>
+      </div>
+      <div class="pb">
+        <div class="row">
+          <label>Write each word<select id="wpTimes"><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option></select></label>
+          <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option></select></label>
+          <label>Add your own words (comma between)<input id="wpOwn" placeholder="e.g. fox, gift, hen"></label>
+        </div>
+        <label style="margin-top:10px">Instruction on the sheet<input id="wpInst" value=""></label>
+        <div id="wpBody"></div>
+      </div>
     </div>
   </section>
 
@@ -658,12 +685,79 @@ $("acBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.acc!=nul
 $("acBody").addEventListener("input",e=>{const d=e.target.dataset;if(d.aci!=null)ACTS[+d.aci].instruction=e.target.innerText.trim()});
 $("acBtn").onclick=suggestAC;
 
+/* ---------- D. writing practice ---------- */
+// Words the child writes N times. "Write only": the word printed once, then N lines.
+// "Picture + trace + write": a picture from the Picture Library (or a box to draw in),
+// the word once in light grey to trace, then the remaining lines.
+let WP=[];   // {w, group, on}
+function wpInstDefault(){const n=+$("wpTimes").value||5;return $("wpStyle").value==="pic"?`Look at the picture, trace the word, then write it ${n} times.`:`Read each word aloud, then write it ${n} times.`}
+let wpInstTouched=false;
+function wpSetInst(){if(!wpInstTouched)$("wpInst").value=wpInstDefault()}
+$("wpInst").addEventListener("input",()=>{wpInstTouched=true});
+["wpTimes","wpStyle"].forEach(id=>$(id).addEventListener("change",()=>{wpSetInst();count()}));
+$("wpOwn").addEventListener("change",count);
+async function pickWP(){
+  const btn=$("wpBtn");busy(btn,"Picking…");
+  try{
+    const L=await getLesson();
+    if(!PARAMS.focus&&!L.text&&!$("fTopic").value.trim()){toast("Choose the chapter first — or type your own words.",true);return}
+    $("wpBody").innerHTML='<p class="hint"><span class="spin"></span>Finding the words taught today…</p>';
+    const plan=PARAMS.focus?`TODAY'S PART (from the teacher's term plan — take the words from here first):\n${PARAMS.focus}\n\n`:"";
+    const src=plan+(L.text?"CHAPTER TEXT:\n"+L.text.slice(0,20000):"CHAPTER: "+$("fTopic").value.trim());
+    const sys=`You pick words for a handwriting / spelling practice sheet for ${$("fClass").value} ${$("fSubject").value}. ${langRule()}
+Pick the words a child should learn to write from ${PARAMS.focus?"TODAY'S PART only":"this lesson"}: new words, letter-sound words, spelling words, key words. Copy each word exactly as written in the plan or book (keep its script). Single words or very short phrases only (at most 3 words). No sentences. No duplicates.
+Put them in groups the way they were taught (e.g. "New words", "Letter sounds f, g, h, i, j", "Action words"), at most 25 words in all.
+Reply with ONLY: {"groups":[{"name":"","words":["",""]}]}`;
+    const d=await askAI(sys,src,1500);
+    const got=[];((d&&d.groups)||[]).forEach(g=>(g.words||[]).forEach(w=>{w=String(w||"").trim();if(w&&w.length<=40&&!got.some(x=>x.w.toLowerCase()===w.toLowerCase()))got.push({w,group:String(g.name||"Words"),on:true})}));
+    if(!got.length)throw new Error("No words came back. Type your own words in the box above.");
+    WP=got;$("useWP").checked=true;wpSetInst();renderWP();
+  }catch(e){$("wpBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
+  finally{idle(btn);count()}}
+function renderWP(){
+  const groups=[];WP.forEach(x=>{if(!groups.includes(x.group))groups.push(x.group)});
+  $("wpBody").innerHTML=`<p class="hint" style="margin:10px 0 0">${WP.length} words. Untick any you don't want.</p>`+
+    groups.map(g=>`<div style="margin-top:8px"><b style="font-size:.85rem;color:var(--accent)">${esc(g)}</b> <button class="btn ghost small" data-wpg="${esc(g)}" data-on="1">Tick all</button> <button class="btn ghost small" data-wpg="${esc(g)}" data-on="0">Untick all</button>`+
+      `<div class="chips">${WP.map((x,i)=>x.group!==g?"":`<label><input type="checkbox" data-wp="${i}"${x.on?" checked":""}>${esc(x.w)}</label>`).join("")}</div></div>`).join("")}
+$("wpBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.wp!=null){WP[+d.wp].on=e.target.checked;if(e.target.checked)$("useWP").checked=true;count()}});
+$("wpBody").addEventListener("click",e=>{const d=e.target.dataset;if(d.wpg!=null){WP.forEach(x=>{if(x.group===d.wpg)x.on=d.on==="1"});renderWP();count()}});
+$("wpBtn").onclick=pickWP;
+function wpWords(){
+  const out=[];const add=w=>{w=String(w||"").trim();if(w&&!out.some(x=>x.toLowerCase()===w.toLowerCase()))out.push(w)};
+  WP.filter(x=>x.on).forEach(x=>add(x.w));
+  $("wpOwn").value.split(/[,\n،]+/).forEach(add);return out}
+// The Picture Library (same one the KG worksheets use), read once
+let PICS=null;
+async function loadPics(){if(PICS)return PICS;PICS={};
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"kg_pictures",params:"select=word,en,colour_url,outline_url"})});
+    const rows=await r.json();if(Array.isArray(rows))rows.forEach(p=>{const u=p.colour_url||p.outline_url;if(!u)return;[p.word,p.en].forEach(k=>{k=String(k||"").trim().toLowerCase();if(k&&!PICS[k])PICS[k]=u})})}
+  catch(e){console.warn("Picture library could not be read",e)}
+  return PICS}
+async function wpPage(){
+  const words=wpWords();if(!words.length)return null;
+  const n=Math.max(1,+$("wpTimes").value||5),pic=$("wpStyle").value==="pic";
+  const pics=pic?await loadPics():{};let missing=0;
+  // as many equal lines in a row as fit a child's handwriting of the word; the rest go on the next row, lined up
+  const ww=Math.min(55,Math.max(24,Math.max(...words.map(w=>[...w].length))*4.2+4));   // one word column for every row, so the lines line up
+  const rows=words.map(w=>{const len=[...w].length;let h=`<div class="wp-row">`;
+    let room=165;   // mm across the page after the picture or the word
+    if(pic){const u=pics[w.toLowerCase()];if(!u)missing++;h+=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="">`:"draw<br>it here"}</div>`;room=158}
+    else{h+=`<div class="wp-w" style="width:${ww}mm">${esc(w)}</div>`;room=176-ww}
+    let per=Math.max(1,Math.min(n,Math.floor((room+3)/(Math.max(20,len*5+6)+3))));per=Math.ceil(n/Math.ceil(n/per));   // even rows, no line left alone
+    let cells="";for(let i=0;i<n;i++)cells+=(pic&&i===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
+    return h+`<div class="wp-lines" style="grid-template-columns:repeat(${per},minmax(0,1fr))">${cells}</div></div>`}).join("");
+  if(pic&&missing)toast(missing+" word(s) have no picture in the Picture Library yet — the sheet gives a box for the child to draw it.");
+  const title="Writing practice";
+  return`<div class="pg act-pg">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}</div>`}
+wpSetInst();
+
 /* ---------- count ---------- */
 function count(){const b=$("useBB").checked?BB.filter(q=>q.on).length:0,l=$("useLQ").checked?LQ.filter(q=>q.on).length:0,a=$("useAC").checked?ACTS.filter(x=>x.on).length:0;
-  const p=[];if(b)p.push(b+" book back");if(l)p.push(l+" lesson question"+(l>1?"s":""));if(a)p.push(a+" activity sheet"+(a>1?"s":""));
+  const w=$("useWP").checked?wpWords().length:0;
+  const p=[];if(b)p.push(b+" book back");if(l)p.push(l+" lesson question"+(l>1?"s":""));if(a)p.push(a+" activity sheet"+(a>1?"s":""));if(w)p.push(w+" word"+(w>1?"s":"")+" to write");
   $("countHint").textContent=p.length?"On the sheet: "+p.join(" · "):"Nothing picked yet — tick something in step 2.";
   const c=$("acCount");if(c)c.textContent=ACTS.filter(x=>x.on).length}
-["useBB","useLQ","useAC"].forEach(id=>$(id).addEventListener("change",count));
+["useBB","useLQ","useAC","useWP"].forEach(id=>$(id).addEventListener("change",count));
 
 /* ---------- building the printed sheet ---------- */
 let seed=1;const rnd=()=>{seed=(seed*16807)%2147483647;return(seed-1)/2147483646};
@@ -744,7 +838,8 @@ async function actPage(a,n){
   return{page:`<div class="pg act-pg">${head(a.title||KIND[a.type])}${ins}${body}</div>`,key:key?`<h4>Activity ${n}: ${esc(a.title||KIND[a.type])}</h4>${key}`:""}}
 async function build(){
   const useBB=$("useBB").checked&&BB.some(q=>q.on),useLQ=$("useLQ").checked&&LQ.some(q=>q.on),acts=$("useAC").checked?ACTS.filter(a=>a.on):[];
-  if(!useBB&&!useLQ&&!acts.length){toast("Pick something for the sheet in step 2 first.",true);return}
+  const useWP=$("useWP").checked&&wpWords().length>0;
+  if(!useBB&&!useLQ&&!acts.length&&!useWP){toast("Pick something for the sheet in step 2 first.",true);return}
   const btn=$("makeBtn");busy(btn,"Making the sheet…");
   try{
     seed=Math.abs([...lessonId()].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,7))%2147483646+1;
@@ -759,6 +854,7 @@ async function build(){
           groups[t].forEach(q=>{h+=qHtml(q,++n);kq.push(q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—"))})});
         h+=`</div>`;kb+=`<h4>${useBB?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
       pages+=h+`</div>`;keyHtml+=kb}
+    if(useWP){try{const wp=await wpPage();if(wp)pages+=wp}catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
     let k=0;for(const a of acts){try{const r=await actPage(a,++k);if(r){pages+=r.page;keyHtml+=r.key}}catch(e){console.warn(e);toast("One activity could not be drawn ("+e.message+") and was left out.",true)}}
     if($("fKey").value==="1"&&keyHtml)pages+=`<div class="pg key-pg"><h3>Answer key — for the teacher</h3><div class="kn">${esc(lessonLabel())} · Not for children. Please check answers before correcting.</div>${keyHtml}</div>`;
     $("sheets").innerHTML=pages;$("sheets").style.setProperty("--wfs",$("fFs").value);
@@ -777,7 +873,7 @@ $("fChapter").addEventListener("change",chapterPicked);
 ["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
 
 /* ---------- opened from the Term Planner ---------- */
-const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,600)})}catch(e){}
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:600)})}catch(e){}
 (async function start(){
   $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
   fillSubjects(PARAMS.subject||lsGet("tws_subject"));
