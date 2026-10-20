@@ -263,6 +263,9 @@ body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
       <div id="ta-cls-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:24px;"></div>
       <div style="font-size:.75rem;font-weight:700;color:#6B0F1A;margin-bottom:4px;">What she can see</div>
       <div id="ta-access" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin-bottom:12px;"></div>
+      <div style="font-size:.75rem;font-weight:700;color:#6B0F1A;margin-bottom:4px;">Her name in the school timetable <span style="font-weight:400;color:#777;">(for My timetable)</span></div>
+      <select id="ta-erp" style="width:100%;padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;margin-bottom:4px;"><option value="">— Not linked —</option></select>
+      <div id="ta-erp-note" style="font-size:.75rem;color:#777;margin-bottom:12px;"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
         <button type="button" id="ta-save" style="flex:1;min-width:160px;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:.95rem;cursor:pointer;">&#x2795; Add to app</button>
         <button type="button" id="ta-cancel" style="display:none;padding:10px 16px;background:#fff;border:1.5px solid #ccc;border-radius:9px;font-weight:800;cursor:pointer;">Cancel</button>
@@ -761,7 +764,8 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     {key:'today',label:"Today's plan (what to teach)"},
     {key:'hw_check',label:"Yesterday's homework check"},
     {key:'submit_day',label:'Submit my day'},
-    {key:'notices',label:'Notices from principal (coming soon)'}
+    {key:'notices',label:'Notices from principal (coming soon)'},
+    {key:'timetable',label:'My timetable'}
   ];
   var $=function(id){return document.getElementById(id);};
   function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
@@ -786,6 +790,7 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
       picked.push({class_name:c,subject:s}); drawPicked();
     };
     $('ta-save').onclick=save;
+    loadNames();
     $('ta-cancel').onclick=resetForm;
     setAccess(['today','hw_check','submit_day']);
   }
@@ -794,6 +799,28 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
       return '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;font-weight:700;color:#333;background:#fff;border:1px solid #EDD9A3;border-radius:8px;padding:7px 9px;cursor:pointer;">'
         +'<input type="checkbox" class="ta-acc" value="'+a.key+'"'+(on.indexOf(a.key)!==-1?' checked':'')+' style="width:18px;height:18px;"/>'+h(a.label)+'</label>';
     }).join('');
+  }
+  // names as written in the school timetable (ERP master / sent to staff) — Oct 2026
+  var ttNames=[];
+  async function loadNames(){
+    try{
+      var r=await fetch('/api/timetable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'staff_names'})});
+      var d=await r.json();
+      if(d&&d.success){ ttNames=d.names||[];
+        $('ta-erp-note').textContent=!ttNames.length?'No teacher names in the school timetable yet.'
+          :(d.source==='erp'?(d.sent_at?'Teachers see the timetable last sent from ERP (Send to staff).':'Not sent to staff yet — press "Send to staff" in ERP → Timetable → Master timetable.'):''); }
+      else $('ta-erp-note').textContent=(d&&d.error)||'Could not load timetable names.';
+    }catch(e){ $('ta-erp-note').textContent='Could not load timetable names.'; }
+    setErp($('ta-erp').value);
+  }
+  function setErp(v){
+    var names=ttNames.slice(); if(v&&names.indexOf(v)===-1)names.unshift(v);
+    $('ta-erp').innerHTML='<option value="">— Not linked —</option>'+names.map(function(n){return '<option'+(n===v?' selected':'')+'>'+h(n)+'</option>';}).join('');
+  }
+  function guessErp(name){
+    var k=String(name||'').trim().toLowerCase(); if(!k)return '';
+    var hit=ttNames.filter(function(n){return n.toLowerCase()===k;});
+    return hit.length===1?hit[0]:'';
   }
   function drawPicked(){
     var box=$('ta-cls-list');
@@ -806,13 +833,13 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     box.querySelectorAll('.ta-unpick').forEach(function(b){ b.onclick=function(){ picked.splice(+b.getAttribute('data-i'),1); drawPicked(); }; });
   }
   function resetForm(){
-    editing=null; picked=[]; $('ta-name').value=''; $('ta-phone').value='';
+    editing=null; picked=[]; $('ta-name').value=''; $('ta-phone').value=''; setErp('');
     setAccess(['today','hw_check','submit_day']); drawPicked();
     $('ta-form-title').innerHTML='&#x2795; Add a teacher to the app';
     $('ta-save').innerHTML='&#x2795; Add to app'; $('ta-cancel').style.display='none'; msg('');
   }
   function editTeacher(t){
-    editing=t.id; picked=(t.classes||[]).slice(); $('ta-name').value=t.name||''; $('ta-phone').value=t.phone||'';
+    editing=t.id; picked=(t.classes||[]).slice(); $('ta-name').value=t.name||''; $('ta-phone').value=t.phone||''; setErp(t.erp_name||guessErp(t.name));
     setAccess(t.access||[]); drawPicked();
     $('ta-form-title').innerHTML='&#9999;&#65039; Edit &mdash; '+h(t.name);
     $('ta-save').textContent='Save changes'; $('ta-cancel').style.display='inline-block'; msg('');
@@ -825,7 +852,8 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     if(!access.length){ msg('Tick at least one thing she can see.'); return; }
     if(!picked.length && !confirm('No classes added. Her Today screen will be empty until you add her classes. Save anyway?')) return;
     $('ta-save').disabled=true; msg('Saving...',true);
-    var d=await call('save',{id:editing||undefined,name:name,phone:$('ta-phone').value.trim(),access:access,classes:picked});
+    if(access.indexOf('timetable')!==-1&&!$('ta-erp').value&&!confirm('"My timetable" is ticked but her name in the school timetable is not chosen, so her timetable will be empty. Save anyway?')) return;
+    var d=await call('save',{id:editing||undefined,name:name,phone:$('ta-phone').value.trim(),access:access,classes:picked,erp_name:$('ta-erp').value});
     $('ta-save').disabled=false;
     if(!d.success){ msg(d.error||'Could not save.'); return; }
     var wasNew=!editing; resetForm(); msg(wasNew?'Added. Now tap "Set PIN" for her.':'Saved.',true);

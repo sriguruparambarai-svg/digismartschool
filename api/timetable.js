@@ -13,6 +13,10 @@
 //   get                    teacher or principal → { source:'erp'|'photo'|'', periods, days, classes, grid, ai_room, ... }
 //                          grid = { Mon: { "0": { "Class 3": { subject, teacher, ai } } } }   ("0" = first period)
 //   save { periods, days, classes, grid, ai_room }   principal, schools without ERP only
+//   staff_names            principal → { names:[…] }  teacher names in the timetable (the copy sent to
+//                          staff, plus the current master) — for linking each staff-app teacher (Oct 2026)
+// getStaffTimetable(schoolId) — the copy SENT to staff (ERP's Send to staff button); for schools
+// without ERP, the saved photo timetable. Used by api/teacher-app.js (staff app My timetable).
 
 const https = require('https');
 const crypto = require('crypto');
@@ -149,6 +153,33 @@ async function loadTimetable(school) {
   if (!t) return { source: '', periods: [], days: [], classes: [], grid: {}, ai_room: false };
   return { source: 'photo', periods: t.periods || [], days: t.days || [], classes: t.classes || [], grid: t.grid || {}, ai_room: !!t.ai_room, updated_at: t.updated_at };
 }
+// The copy SENT to staff (ERP: Send to staff). Schools without ERP: the saved timetable itself.
+async function loadStaffTimetable(school) {
+  if (school.has_erp === true && school.erp_school_id) {
+    const r = await erpDoor({ school_id: school.erp_school_id, which: 'staff' });
+    if (!ok(r) || !r.data || r.data.ok !== true) return { source: 'erp', error: 'Could not read the ERP timetable: ' + why(r) };
+    const d = r.data;
+    if (!d.grid) return { source: 'erp', sent_at: null, periods: cleanPeriods(d.periods), days: cleanDays(d.working_days), grid: {}, ai_room: !!d.ai_class };
+    const grid = cleanGrid(d.grid, true);
+    let days = cleanDays(d.working_days);
+    if (!days.length) days = Object.keys(grid);
+    return { source: 'erp', academic_year: d.academic_year || '', periods: cleanPeriods(d.periods), days: days,
+      grid: grid, ai_room: !!d.ai_class, sent_at: d.staff_sent_at || null };
+  }
+  const t = await loadTimetable(school);
+  if (!t.error) t.sent_at = t.updated_at || null;
+  return t;
+}
+async function getStaffTimetable(schoolId) {
+  const r = await db('GET', '/rest/v1/schools?id=eq.' + enc(schoolId) + '&select=id,name,school_code,has_erp,erp_school_id&limit=1');
+  if (!ok(r) || !r.data.length) return { error: 'School not found.' };
+  return loadStaffTimetable(r.data[0]);
+}
+function teacherNames(grid, into) {
+  Object.keys(grid || {}).forEach(function (d) { Object.keys(grid[d] || {}).forEach(function (p) {
+    Object.keys(grid[d][p] || {}).forEach(function (c) { const n = clip(grid[d][p][c] && grid[d][p][c].teacher, 120); if (n && into.indexOf(n) === -1) into.push(n); }); }); });
+  return into;
+}
 async function getTimetable(schoolId) {
   const r = await db('GET', '/rest/v1/schools?id=eq.' + enc(schoolId) + '&select=id,name,school_code,has_erp,erp_school_id&limit=1');
   if (!ok(r) || !r.data.length) return { error: 'School not found.' };
@@ -179,6 +210,14 @@ module.exports = async function handler(req, res) {
       return res.json(Object.assign({ success: true, principal: principal }, t));
     }
 
+    if (action === 'staff_names') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can do this.' });
+      const [a, b] = await Promise.all([loadStaffTimetable(school), loadTimetable(school)]);
+      const names = teacherNames(b.grid, teacherNames(a.grid, []));
+      names.sort(function (x, y) { return x.localeCompare(y); });
+      return res.json({ success: true, names: names, sent_at: a.sent_at || null, source: a.source || b.source || '' });
+    }
+
     if (action === 'save') {
       if (!principal) return res.status(403).json({ error: 'Only the principal can change the timetable.' });
       if (viaErp) return res.json({ error: 'This school\'s timetable comes from ERP. Change it in ERP → Timetable → Master timetable.' });
@@ -200,3 +239,4 @@ module.exports = async function handler(req, res) {
 };
 
 module.exports.getTimetable = getTimetable;
+module.exports.getStaffTimetable = getStaffTimetable;

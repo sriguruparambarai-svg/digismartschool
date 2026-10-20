@@ -62,6 +62,12 @@ textarea{width:100%;min-height:80px;border:1.5px solid var(--sd);border-radius:1
 .banner.yellow{background:var(--warnbg);border:1px solid #D9A13B;color:#4E3D33;}
 .banner.green{background:#EAF6EE;border:1px solid var(--ok);color:#164A2C;}
 .empty{text-align:center;color:var(--mut);padding:26px 10px;font-size:.92rem;line-height:1.5;}
+/* My timetable (Oct 2026) */
+.ttday{margin-bottom:12px}.ttday h3{margin:0 0 8px;font-size:.95rem;color:var(--mar,#6B0F1A)}
+.ttday.now{border:2px solid #C9A84C}
+.ttrow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-top:1px solid #F1E1C6}.ttrow:first-of-type{border-top:none}
+.ttp{min-width:76px;font-weight:900;font-size:.82rem;color:#4E3D33}.ttp small{display:block;font-weight:600;color:#8a7a6a}
+.ttc{flex:1;font-size:.9rem}.ttc b{display:block}
 .h2{font-family:"Cinzel",serif;color:var(--m);font-size:1.05rem;margin:6px 2px 10px;}
 .nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:2px solid var(--sd);display:flex;padding-bottom:env(safe-area-inset-bottom);z-index:10;}
 .nav button{flex:1;min-height:62px;background:none;border:none;font-weight:900;font-size:.8rem;color:var(--mut);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;}
@@ -120,6 +126,7 @@ var marks={};          // "planId|index" → {status:'done'|'not', reason}
 var checks={};         // hw_id → {corrected, missing:[]}
 var watch='';
 var tab='today';
+var TT=null;           // my timetable from the server (Oct 2026)
 var PT={teachbot:'🤖 TeachBot class — take the class to the AI room',teach:'Teaching',read:'📖 Reading in class',practice:'✏️ Exercises in class',classwork:'📝 Class work writing',catchup:'⏳ Catch-up',revision:'🔁 Revision',test:'✅ Class test'};
 var REASONS=["Children needed more time on the last lesson","Event / assembly took the period","I was on other duty","I was absent","Other"];
 
@@ -184,9 +191,45 @@ async function loadDay(){
   if(has('today')) tabs.push('today');
   if(has('hw_check')) tabs.push('hw');
   if(has('submit_day')) tabs.push('submit');
+  if(has('timetable')) tabs.push('tt');
   if(tabs.indexOf(tab)===-1) tab=tabs[0]||'none';
   drawNav(tabs); draw();
+  if(has('timetable')) loadTT();
 }
+// ── MY TIMETABLE (Oct 2026): the copy the principal last sent to staff ──
+var TT_SEEN_KEY='ta_ttseen_'+CODE;
+function ttNew(){ return !!(TT&&TT.sent_at&&lsGet(TT_SEEN_KEY)!==TT.sent_at); }
+async function loadTT(){
+  var d=await api('my_timetable');
+  TT=d&&d.success?d:{error:(d&&d.error)||'Could not load your timetable.'};
+  // first time ever: just remember it, no "updated" note
+  if(TT.sent_at&&!lsGet(TT_SEEN_KEY)&&!TT._shown) lsSet(TT_SEEN_KEY,TT.sent_at);
+  redrawNav(); if(tab==='tt') draw();
+}
+function ttHTML(){
+  if(!TT) return '<div class="empty">Loading your timetable…</div>';
+  if(TT.error) return '<div class="banner red">'+h(TT.error)+'</div>';
+  if(TT.unlinked) return '<div class="empty">Your timetable is not linked yet. Please ask your principal to choose your name in My Teachers.</div>';
+  if(TT.not_sent) return '<div class="empty">The school timetable has not been sent to staff yet.</div>';
+  var html='';
+  if(ttNew()) html+='<div class="banner yellow">🔔 <b>Your timetable was updated</b> on '+h(niceStamp(TT.sent_at))+'. Please check your periods.</div>';
+  var DAYN={Mon:'Monday',Tue:'Tuesday',Wed:'Wednesday',Thu:'Thursday',Fri:'Friday',Sat:'Saturday',Sun:'Sunday'};
+  var any=false, days=(TT.days||[]).slice();
+  var ti=days.indexOf(TT.today); if(ti>0) days=days.slice(ti).concat(days.slice(0,ti));   // today first
+  days.forEach(function(d){ var list=(TT.week||{})[d]||[]; any=any||list.length>0;
+    html+='<div class="card ttday'+(d===TT.today?' now':'')+'"><h3>'+h(DAYN[d]||d)+(d===TT.today?' · Today':'')+' <span class="small">('+list.length+' period'+(list.length===1?'':'s')+')</span></h3>'
+      +(list.length?list.map(function(x){
+        return '<div class="ttrow"><div class="ttp">'+h(x.label)+(x.start?'<small>'+h(nice12(x.start))+(x.end?' – '+h(nice12(x.end)):'')+'</small>':'')+'</div>'
+          +'<div class="ttc"><b>'+h(x.classes.join(', '))+' · '+h(x.subject||'')+'</b>'
+          +(x.ai?'<span class="tag" style="background:#6B0F1A;color:#fff;margin-top:4px">🤖 AI class room</span> ':'')
+          +(x.common?'<span class="tag" style="background:#F1E1C6;color:#4E3D33;margin-top:4px">Common class</span>':'')+'</div></div>';
+      }).join(''):'<div class="small">No periods</div>')+'</div>'; });
+  if(!any) html+='<div class="empty">No periods are given to you in the school timetable.</div>';
+  html+='<div class="small" style="text-align:center;margin-top:6px">Sent by the school on '+h(niceStamp(TT.sent_at))+'</div>';
+  if(ttNew()){ TT._shown=true; lsSet(TT_SEEN_KEY,TT.sent_at); setTimeout(redrawNav,0); }   // seen now
+  return html;
+}
+function niceStamp(s){ try{ return new Date(s).toLocaleString('en-IN',{day:'numeric',month:'short',hour:'numeric',minute:'2-digit'}); }catch(e){ return s; } }
 function has(k){ return D && (D.access||[]).indexOf(k)!==-1; }
 function niceDate(s){ try{ var x=new Date(s+'T00:00:00'); return x.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'}); }catch(e){ return s; } }
 function nice12(t){ var p=String(t||'').split(':'),H=parseInt(p[0],10),M=p[1]||'00'; if(isNaN(H)) return t; return ((H%12)||12)+':'+M+' '+(H<12?'AM':'PM'); }
@@ -198,14 +241,16 @@ function hwFor(x){ return (D.hw_today||[]).filter(function(hw){ return hw.class_
 var ICON={
   today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
   hw:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 13l3 3 5-6"/></svg>',
-  submit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>'
+  submit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>',
+  tt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>'
 };
 function drawNav(tabs){
-  var label={today:'Today',hw:'Homework',submit:'Submit my day'};
+  var label={today:'Today',hw:'Homework',submit:'Submit my day',tt:'Timetable'};
   if(tabs.length<2){ $('nav').style.display='none'; document.body.style.paddingBottom='24px'; }
   $('nav').innerHTML=tabs.map(function(t){
     var dot='';
     if(t==='submit' && !(D.report&&D.report.submitted_at)) dot=' <span class="dot">!</span>';
+    if(t==='tt' && ttNew()) dot=' <span class="dot">!</span>';
     if(t==='hw'){ var n=(D.hw_check||[]).filter(function(x){return !(checks[x.id]&&checks[x.id].corrected);}).length; if(n) dot=' <span class="dot">'+n+'</span>'; }
     return '<button type="button" data-t="'+t+'" class="'+(tab===t?'on':'')+'" aria-current="'+(tab===t?'page':'false')+'">'+ICON[t]+'<span>'+label[t]+dot+'</span></button>';
   }).join('');
@@ -219,6 +264,7 @@ function draw(){
   if(tab==='today') m.innerHTML=todayHTML();
   else if(tab==='hw') m.innerHTML=hwHTML();
   else if(tab==='submit') m.innerHTML=submitHTML();
+  else if(tab==='tt') m.innerHTML=ttHTML();
   else m.innerHTML='<div class="empty">Your principal has not given you anything to see yet.</div>';
   wire();
 }

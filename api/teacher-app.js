@@ -12,7 +12,8 @@
 //
 // Principal (School Admin login, x-dss-session):
 //   list                                       → { teachers:[ {id,name,phone,link_code,has_pin,access,classes,active,locked,last_login_at} ] }
-//   save     { id?, name, phone, access[], classes[{class_name,subject}], active? }  → { teacher }
+//   save     { id?, name, phone, access[], classes[{class_name,subject}], active?, erp_name? }  → { teacher }
+//            erp_name = this teacher's name as written in the school timetable (for My timetable, Oct 2026)
 //   set_pin  { id, pin? }                      → { pin }   pin left empty = a random one is made; shown ONCE
 //   new_link { id }                            → { link_code }   old link stops working, phones are logged out
 //   remove   { id }
@@ -32,6 +33,9 @@
 //   my_day                                     → today's lessons from the Term Planner (+ up to 3 left from
 //                                                earlier per subject), today's homework, the last school day's
 //                                                homework to check, roll numbers, deadline, today's saved report
+//   my_timetable                               → the teacher's own week from the timetable SENT to staff
+//                                                (ERP: Send to staff) — { days, periods, week:{Mon:[…]}, sent_at }
+//                                                needs the 'timetable' tick and erp_name (step7-staff-timetable.sql)
 //   save_day { items, hw_checks, watch, submit? }  saves what she marked; Done/Not done ticks the Term Planner;
 //                                                submit:true stamps the time once (late if after the deadline)
 // Tables (Step 2): teacher_day_reports, teacher_app_settings (step2-teacher-day.sql).
@@ -47,7 +51,8 @@ module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
-const ACCESS_KEYS = ['today', 'hw_check', 'submit_day', 'notices'];
+const ACCESS_KEYS = ['today', 'hw_check', 'submit_day', 'notices', 'timetable'];
+const timetableApi = require('./timetable.js');
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
 const APP_DAYS = 30;
@@ -178,7 +183,7 @@ function forPrincipal(t) {
     id: t.id, name: t.name, phone: t.phone || '', link_code: t.link_code,
     has_pin: !!t.pin_hash, access: t.access || [], classes: t.classes || [], active: t.active !== false,
     locked: !!(t.locked_until && new Date(t.locked_until) > new Date()),
-    last_login_at: t.last_login_at || null
+    last_login_at: t.last_login_at || null, erp_name: t.erp_name || ''
   };
 }
 function forTeacher(t, school) {
@@ -335,6 +340,34 @@ module.exports = async function handler(req, res) {
       const me = await readTeacher(req.headers['x-teacher-app']);
       if (me.error) return res.status(401).json({ error: me.error });
       return res.json({ success: true, teacher: forTeacher(me.teacher, me.school) });
+    }
+
+    // ── MY TIMETABLE (Oct 2026): the teacher's own periods from the copy sent to staff ──
+    if (action === 'my_timetable') {
+      const me = await readTeacher(req.headers['x-teacher-app']);
+      if (me.error) return res.status(401).json({ error: me.error });
+      const t = me.teacher;
+      if ((t.access || []).indexOf('timetable') === -1) return res.json({ error: 'Your principal has not switched on My timetable for you.' });
+      const who = clip(t.erp_name, 120).toLowerCase();
+      if (!who) return res.json({ success: true, unlinked: true });
+      const TT = await timetableApi.getStaffTimetable(me.school.id);
+      if (TT.error) return res.json({ error: TT.error });
+      if (!TT.sent_at) return res.json({ success: true, not_sent: true });
+      const week = {};
+      (TT.days || []).forEach(function (d) {
+        const row = (TT.grid || {})[d] || {};
+        week[d] = Object.keys(row).map(Number).sort(function (a, b) { return a - b; }).map(function (p) {
+          const cells = row[String(p)] || {};
+          const classes = Object.keys(cells).filter(function (c) { return clip(cells[c].teacher, 120).toLowerCase() === who; });
+          if (!classes.length) return null;
+          const c0 = cells[classes[0]], per = (TT.periods || [])[p] || {};
+          return { p: p, label: per.label || ('Period ' + (p + 1)), start: per.start || '', end: per.end || '',
+                   classes: classes, subject: c0.subject || '', ai: classes.some(function (c) { return cells[c].ai; }),
+                   common: classes.length > 1 || classes.some(function (c) { return cells[c].common; }) };
+        }).filter(Boolean);
+      });
+      return res.json({ success: true, days: TT.days || [], periods: TT.periods || [], week: week,
+                        sent_at: TT.sent_at, academic_year: TT.academic_year || '', today: istWeekday() });
     }
 
     // ── MY DAY (Step 2): what to teach today, yesterday's homework, submit my day ──
@@ -512,17 +545,18 @@ module.exports = async function handler(req, res) {
       const fields = { name: name, phone: clip(body.phone, 20), access: access, classes: cleanClasses(body.classes),
                        updated_at: new Date().toISOString() };
       if (Object.prototype.hasOwnProperty.call(body, 'active')) fields.active = !!body.active;
+      if (Object.prototype.hasOwnProperty.call(body, 'erp_name')) fields.erp_name = clip(body.erp_name, 120);
       if (body.id) {
         const t = await teacherOfSchool(body.id, school);
         if (!t) return res.json({ error: 'Teacher not found in your school.' });
         const r = await db('PATCH', '/rest/v1/teacher_app?id=eq.' + enc(t.id) + '&school_id=eq.' + enc(school.id), fields);
-        if (!ok(r)) return res.json({ error: 'Could not save: ' + why(r) });
+        if (!ok(r)) return res.json({ error: 'Could not save: ' + why(r) + (/erp_name/.test(why(r)) ? ' (Please run step7-staff-timetable.sql in Supabase.)' : '') });
         return res.json({ success: true, teacher: forPrincipal(r.data[0]) });
       }
       fields.school_id = school.id;
       fields.link_code = newLinkCode();
       const r = await db('POST', '/rest/v1/teacher_app', fields);
-      if (!ok(r)) return res.json({ error: 'Could not add the teacher: ' + why(r) });
+      if (!ok(r)) return res.json({ error: 'Could not add the teacher: ' + why(r) + (/erp_name/.test(why(r)) ? ' (Please run step7-staff-timetable.sql in Supabase.)' : '') });
       return res.json({ success: true, teacher: forPrincipal(r.data[0]) });
     }
 
