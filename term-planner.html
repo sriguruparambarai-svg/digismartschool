@@ -1383,14 +1383,25 @@ $("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));
 $("fHwStyle").addEventListener("change",()=>{if(isHand()){S.settings=S.settings?Object.assign({},S.settings,{chapters:[]}):null;renderUnits()}});$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
 
 /* ---------- the school's plans ---------- */
+let LSEL=null;
 async function loadList(){
-  try{const d=await tp("list",{term:$("fTermList").value});const ps=d.plans||[];
+  try{const d=await tp("list",{term:$("fTermList").value});let ps=d.plans||[];
     const order={waiting:0,returned:1,draft:2,approved:3};ps.sort((a,b)=>(order[a.status]-order[b.status])||a.class_name.localeCompare(b.class_name,undefined,{numeric:true}));
     $("listHint").textContent=ps.length?(PRINCIPAL?ps.filter(p=>p.status==="waiting").length+" waiting for you. ":"")+"Tap a plan to open it.":"No term plans yet for Term "+$("fTermList").value+". Make one below.";
-    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th>${PRINCIPAL?"<th></th>":""}</tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span>${p.behind_count?`<span class="behind">${p.behind_count} behind</span>`:""}</div></td>${PRINCIPAL?`<td style="text-align:right"><button class="del" data-id="${esc(p.id)}" data-name="${esc(p.class_name+" "+p.subject+" (Term "+p.term+")")}" data-done="${p.done_count}" title="Delete this plan">🗑 Delete</button></td>`:""}</tr>`).join("")}</tbody></table>`:""}
+    // Oct 2026: class buttons on top — one class at a time (classes with plans waiting come first)
+    const CO=["Pre KG","LKG","UKG"],cOrd=x=>{const i=CO.indexOf(x);return i>=0?i:3+(parseInt(String(x).replace(/\D/g,""))||0)};
+    const cls=[...new Set(ps.map(p=>p.class_name))].sort((a,b)=>cOrd(a)-cOrd(b));
+    const need=k=>ps.some(p=>p.class_name===k&&(p.status==="waiting"||p.status==="returned"));
+    if(LSEL!=="all"&&!cls.includes(LSEL))LSEL=cls.find(need)||(cls.includes($("fClass").value)?$("fClass").value:cls[0]);
+    const chips=cls.length>1?`<div class="lchips" style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px">${cls.concat(["all"]).map(k=>{const on=LSEL===k,n=k==="all"?ps.length:ps.filter(p=>p.class_name===k).length,
+        dot=k==="all"?"":need(k)?"#C9A84C":ps.some(p=>p.class_name===k&&p.behind_count)?"#A3241B":"#2E7D4F";
+        return `<button type="button" data-lc="${esc(k)}" style="display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:999px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.88rem;min-height:40px;${on?"background:#6B0F1A;color:#E8C96A;border:1.5px solid #6B0F1A":"background:#FFFBF4;color:#6B0F1A;border:1.5px solid #EDD9A3"}">${dot?`<span style="width:9px;height:9px;border-radius:50%;background:${dot}"></span>`:""}${k==="all"?"All classes":esc(k)} <span style="font-weight:600;opacity:.8">${n}</span></button>`}).join("")}</div>`:"";
+    const allPs=ps;ps=LSEL==="all"||cls.length<2?allPs:allPs.filter(p=>p.class_name===LSEL);
+    $("plist").innerHTML=chips+(ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th>${PRINCIPAL?"<th></th>":""}</tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span>${p.behind_count?`<span class="behind">${p.behind_count} behind</span>`:""}</div></td>${PRINCIPAL?`<td style="text-align:right"><button class="del" data-id="${esc(p.id)}" data-name="${esc(p.class_name+" "+p.subject+" (Term "+p.term+")")}" data-done="${p.done_count}" title="Delete this plan">🗑 Delete</button></td>`:""}</tr>`).join("")}</tbody></table>`:"")}
   catch(e){$("plist").innerHTML=`<div class="banner err">Could not load plans: ${esc(e.message)}</div>`}}
 $("fTermList").onchange=loadList;
-$("plist").addEventListener("click",async e=>{const del=e.target.closest("button.del");
+$("plist").addEventListener("click",async e=>{const lc=e.target.closest("[data-lc]");if(lc){LSEL=lc.dataset.lc;loadList();return}
+  const del=e.target.closest("button.del");
   if(del){e.stopPropagation();if(!PRINCIPAL)return;const n=+del.dataset.done||0;
     if(!confirm("Delete the term plan for "+del.dataset.name+"?"+(n?"\n\n"+n+" lesson"+(n>1?"s are":" is")+" already ticked as taught — that record will be lost too.":"")+"\n\nThis cannot be undone."))return;
     try{await tp("delete",{id:del.dataset.id});toast("Plan deleted");
