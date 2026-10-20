@@ -200,7 +200,7 @@ function cleanSettings(s) {
              from: parseInt(c && c.from, 10) || null, to: parseInt(c && c.to, 10) || null };
   }) : [];
   return { start: isDate(s.start) ? s.start : '', end: isDate(s.end) ? s.end : '', days: days,
-           ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), chapters: chapters, note: clip(s.note, 500),
+           ppw: Math.max(1, Math.min(14, parseInt(s.ppw, 10) || 5)), ppw_own: !!s.ppw_own, chapters: chapters, note: clip(s.note, 500),
            tb: ['auto', '0', '1', '2', '3'].indexOf(String(s.tb)) !== -1 ? String(s.tb) : 'auto',
            use_wb: !!s.use_wb, wb_map: cleanMap(s.wb_map), acts: cleanActs(s.acts) };
 }

@@ -190,7 +190,7 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
       <label>Class<select id="fClass"></select></label>
       <label>Subject<select id="fSubject"></select></label>
       <label>Term<select id="fTerm"><option>I</option><option selected>II</option><option>III</option></select></label>
-      <label>Periods per week for this subject<input type="number" id="fPpw" min="1" max="14" value="5"></label>
+      <label>Periods per week for this subject<input type="number" id="fPpw" min="1" max="14" value="5"><span class="hint" id="ppwNote" style="display:block;margin-top:3px"></span><span style="display:flex;gap:6px;align-items:center;font-weight:400;font-size:.85rem;margin-top:3px"><input type="checkbox" id="fPpwOwn" style="width:auto">Type my own (don't follow the timetable)</span></label>
     </div>
     <div class="row" style="margin-top:10px">
       <label>Term starts<input type="date" id="fStart"></label>
@@ -388,16 +388,21 @@ function ttSlots(cls,subject,start,end){
       if(HOL[ds])return;
       out.push({date:ds,p,label:((TT.periods||[])[p]||{}).label||"P"+(p+1),ai:!!(TT.ai_room&&c.ai)})})}
   return any?out:null}
+const ownPpw=()=>!!($("fPpwOwn")&&$("fPpwOwn").checked);
+function useSlots(){return ownPpw()?null:ttSlots($("fClass").value,$("fSubject").value,$("fStart").value,$("fEnd").value)}
 function ttInfo(){const sl=ttSlots($("fClass").value,$("fSubject").value,$("fStart").value,$("fEnd").value);
+  const own=ownPpw(),note=$("ppwNote");if(note)note.textContent="";
+  if(own&&sl){const el0=$("ttHint");if(el0)el0.innerHTML="✏ Your own periods per week are used — the school timetable is not followed for "+esc($("fClass").value+" "+$("fSubject").value)+". Untick “Type my own” to follow it again.";$("fPpw").disabled=false;return null}
   const el=$("ttHint");if(!el)return sl;
   if(!TT){el.innerHTML="🕒 No school timetable yet — lessons are spread evenly over the school days. "+(PRINCIPAL?'<a href="dashboard.html">Add it in School Admin → School Timetable</a>':"Your principal can add it in School Admin.");$("fPpw").disabled=false;return null}
   if(!sl){el.innerHTML="🕒 "+esc($("fClass").value+" "+$("fSubject").value)+" is not in the school timetable"+(TT.source==="erp"?" (ERP)":"")+" — lessons are spread evenly over the school days.";$("fPpw").disabled=false;return null}
-  const ai=sl.filter(x=>x.ai).length;$("fPpw").disabled=true;
+  const ai=sl.filter(x=>x.ai).length;$("fPpw").disabled=true;{const a=parse($("fStart").value),b=parse($("fEnd").value),wk=Math.max(1,(b-a)/(7*864e5));$("fPpw").value=Math.max(1,Math.min(14,Math.round(sl.length/wk)));if(note)note.textContent="🔒 From the school timetable";}
   el.innerHTML="🕒 Following the school timetable"+(TT.source==="erp"?" from ERP":"")+": <b>"+sl.length+" periods</b> this term for "+esc($("fClass").value+" "+$("fSubject").value)+(TT.ai_room?", <b>"+ai+" in the 🤖 AI class room</b>"+(ai?" — TeachBot lessons go only on those.":" — none marked, so TeachBot lessons cannot be placed. Tick AI periods in the timetable."):"")+" Periods per week is taken from the timetable.";
   return sl}
 function slotHint(){holHint();const tsl=ttInfo();const n=tsl?tsl.length:periodDates($("fStart").value,$("fEnd").value,getDays(),+$("fPpw").value||5).length,c=pickedChapters().length;
   $("slotHint").textContent=n?`${n} lesson periods in this term${c?" for "+c+" chapter"+(c>1?"s":"")+" — about "+Math.round(n/Math.max(1,c))+" each":""}.`:"Choose the term dates."}
 ["fStart","fEnd","fPpw"].forEach(id=>$(id).addEventListener("input",slotHint));$("fDays").addEventListener("change",slotHint);
+$("fPpwOwn").addEventListener("change",()=>{slotHint();if(S.rows.length)queueSave()});
 
 /* ---------- reading a chapter from the book PDF ---------- */
 async function pdfFor(b){
@@ -959,7 +964,7 @@ async function planChapter(ch,n,ct,note,progress,wbCh,aiPat){
 
 $("makeBtn").onclick=async()=>{
   const chs=pickedChapters(),days=getDays(),ppw=+$("fPpw").value||5;
-  const TS=ttSlots($("fClass").value,$("fSubject").value,$("fStart").value,$("fEnd").value);
+  const TS=useSlots();
   const dates=TS?TS.map(x=>x.date):periodDates($("fStart").value,$("fEnd").value,days,ppw);
   if(!chs.length){toast("Tick at least one chapter.",true);return}
   if(!dates.length){toast("Choose the term start and end dates and the school days.",true);return}
@@ -990,7 +995,7 @@ $("makeBtn").onclick=async()=>{
   catch(e){P.innerHTML=`<span style="color:var(--bad)">AI could not finish the plan: ${esc(e.message)}</span>`+(rows.length?" — the chapters done so far are kept below.":"");
     if(rows.length){rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
-function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),acts:S.acts||{},
+function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),acts:S.acts||{},
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
 
 /* redo one chapter with AI, keeping its dates */
@@ -1054,7 +1059,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(PRINCIPAL&&S.plan&&st==="waiting")a.push(`<button class="btn ghost" id="aBack">Send back</button>`);
   if(PRINCIPAL&&S.plan&&st==="approved")a.push(`<button class="btn ghost" id="aReopen">Open again for changes</button>`);
   if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
-  if(!locked()&&S.plan&&TT&&S.rows.length)a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
+  if(!locked()&&S.plan&&TT&&S.rows.length&&!ownPpw())a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -1135,10 +1140,10 @@ window.addEventListener("beforeunload",e=>{if(S.dirty){e.preventDefault();e.retu
 /* ---------- open a plan ---------- */
 async function openPlan(){
   const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;lsSet("tp_class",c);lsSet("tp_subject",sb);
-  S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;
+  S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;$("fPpwOwn").checked=false;
   try{const d=await tp("get",{class_name:c,subject:sb,term:t});
     if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
-      const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fNote").value=st.note||"";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
+      const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fPpwOwn").checked=!!st.ppw_own;$("fNote").value=st.note||"";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
   catch(e){showErr("Could not open the plan: "+e.message)}
   $("prog").hidden=true;renderChapters().then(renderWbBox).then(modelHint);renderPlan();modelHint();loadHolidays().then(loadTimetable)}
