@@ -1074,6 +1074,45 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     };
   }
 
+  /* Oct 2026: Today's parent update, class by class — class buttons on top, opens on the first
+     class with something waiting for approval; the approve button approves the class shown. */
+  var puList=[], puSel=null;
+  function clsSort(a,b){ return CLS_ORDER.indexOf(a)-CLS_ORDER.indexOf(b) || String(a).localeCompare(b); }
+  function puItem(x,withClass){
+    var st=x.sent?pill('ok','Sent to parents'):x.status==='added'?pill('ok','Approved — goes at 4 PM'):pill('slow','Waiting for you');
+    return '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px dashed #EEDDC2;">'
+      +'<div style="flex:0 0 150px;">'+(withClass?'<b>'+h(x.class_name)+'</b><div style="font-size:.78rem;color:#6E5A4E;">'+h(x.subject)+' &middot; ':'<b>'+h(x.subject)+'</b><div style="font-size:.78rem;color:#6E5A4E;">')+(x.type==='classwork'?'Class work':'Homework')+'</div></div>'
+      +'<div style="flex:1 1 280px;font-size:.86rem;white-space:pre-line;">'+h(x.text)+(x.teacher?'<div style="font-size:.74rem;color:#6E5A4E;margin-top:3px;">by '+h(x.teacher)+'</div>':'')+'</div>'
+      +'<div style="flex:0 0 auto;">'+st+'</div></div>';
+  }
+  function drawPu(){
+    var box=$('ac-pu'); if(!box) return;
+    var cls=[]; puList.forEach(function(x){ if(cls.indexOf(x.class_name)<0) cls.push(x.class_name); }); cls.sort(clsSort);
+    function wait(k){ return puList.filter(function(x){ return (k==='all'||x.class_name===k) && x.status==='waiting'; }).length; }
+    if(puSel!=='all' && cls.indexOf(puSel)<0) puSel=cls.filter(function(k){ return wait(k); })[0]||cls[0];
+    if(cls.length<2) puSel='all';
+    var out='';
+    if(cls.length>1) out+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+cls.concat(['all']).map(function(k){
+        var on=puSel===k, w=wait(k), n=puList.filter(function(x){ return k==='all'||x.class_name===k; }).length;
+        return '<button type="button" data-pu-cls="'+h(k)+'" style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;cursor:pointer;font-family:inherit;font-weight:900;font-size:.85rem;min-height:40px;'
+          +(on?'background:#6B0F1A;color:#E8C96A;border:1.5px solid #6B0F1A;':'background:#FFFBF4;color:#6B0F1A;border:1.5px solid #EDD9A3;')+'">'
+          +(k==='all'?'':'<span style="width:9px;height:9px;border-radius:50%;background:'+(w?'#E0A82E':'#2E7D4F')+';display:inline-block;"></span>')
+          +h(k==='all'?'All classes':k)+' <span style="font-weight:700;opacity:.8;">'+(w?w+' waiting':n)+'</span></button>';
+      }).join('')+'</div>';
+    var shown=puList.filter(function(x){ return puSel==='all'||x.class_name===puSel; });
+    if(puSel==='all'){
+      out+=cls.map(function(k){ var l=shown.filter(function(x){ return x.class_name===k; }); if(!l.length) return '';
+        return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;margin-bottom:10px;overflow:hidden;"><div style="background:#F1E1C6;padding:9px 14px;font-family:Cinzel,serif;color:#6B0F1A;font-weight:700;">'+h(k)+'</div><div style="padding:2px 14px;">'+l.map(function(x){ return puItem(x,false); }).join('')+'</div></div>';
+      }).join('');
+    } else out+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:6px 14px;">'+shown.map(function(x){ return puItem(x,false); }).join('')+'</div>';
+    box.innerHTML=out;
+    var w=wait(puSel), b=$('ac-approve');
+    if(b){ b.style.display=w?'':'none'; b.textContent=(puSel==='all'?'Approve all '+w:'Approve '+puSel+' · '+w)+' and send to parents'; }
+    var aa=$('ac-approve-all');
+    if(aa) aa.innerHTML=(puSel!=='all'&&wait('all')>w)?'<span style="font-size:.8rem;color:#6E5A4E;">'+wait('all')+' waiting in all classes &mdash; tap All classes to approve them together</span>':'';
+    box.onclick=function(e){ var t=e.target.closest('[data-pu-cls]'); if(t){ puSel=t.getAttribute('data-pu-cls'); drawPu(); } };
+  }
+
   async function load(){
     var body=$('ac-body'), day=$('ac-date').value||istToday();
     body.innerHTML='<div style="text-align:center;padding:30px;color:#888;">Loading&hellip;</div>';
@@ -1130,15 +1169,10 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
     if(d.parent_update_error) puHtml+='<div style="background:#FBE7E3;border:1px solid #A3241B;color:#5E120C;border-radius:12px;padding:12px;font-weight:700;margin-bottom:8px;">'+h(d.parent_update_error)+'</div>';
     if(!pu.length) puHtml+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">Nothing for parents yet. When teachers submit their day, the lessons they marked Done appear here as class work.</div>';
     else {
-      puHtml+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:6px 14px;">'+pu.map(function(x){
-          var st=x.sent?pill('ok','Sent to parents'):x.status==='added'?pill('ok','Approved — goes at 4 PM'):pill('slow','Waiting for you');
-          return '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px dashed #EEDDC2;">'
-            +'<div style="flex:0 0 150px;"><b>'+h(x.class_name)+'</b><div style="font-size:.78rem;color:#6E5A4E;">'+h(x.subject)+' &middot; '+(x.type==='classwork'?'Class work':'Homework')+'</div></div>'
-            +'<div style="flex:1 1 280px;font-size:.86rem;white-space:pre-line;">'+h(x.text)+(x.teacher?'<div style="font-size:.74rem;color:#6E5A4E;margin-top:3px;">by '+h(x.teacher)+'</div>':'')+'</div>'
-            +'<div style="flex:0 0 auto;">'+st+'</div></div>';
-        }).join('')+'</div>';
+      puHtml+='<div id="ac-pu"></div>';
+      puList=pu;
       puHtml+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center;">'
-        +(waiting.length?'<button type="button" id="ac-approve" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:10px;padding:11px 18px;font-weight:900;cursor:pointer;min-height:46px;">Approve all '+waiting.length+' and send to parents</button>':'')
+        +(waiting.length?'<button type="button" id="ac-approve" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:10px;padding:11px 18px;font-weight:900;cursor:pointer;min-height:46px;">Approve all '+waiting.length+' and send to parents</button>':'')+'<span id="ac-approve-all"></span>'
         +'<a href="homework-planner.html" style="font-weight:800;font-size:.86rem;">Change or send back in the Homework Planner &rarr;</a>'
         +'<span id="ac-approve-msg" style="font-weight:800;font-size:.86rem;"></span></div>';
     }
@@ -1167,8 +1201,10 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
 
     body.innerHTML=out;
     drawClasses();
+    drawPu();
     if($('ac-approve')) $('ac-approve').onclick=async function(){
-      var ids=waiting.map(function(x){return x.id;}), m=$('ac-approve-msg'), b=this;
+      var ids=waiting.filter(function(x){return puSel==='all'||x.class_name===puSel;}).map(function(x){return x.id;}), m=$('ac-approve-msg'), b=this;
+      if(!ids.length) return;
       if(!confirm('Approve '+ids.length+' class work / homework for parents?\n\nThey go to parents at 4 PM (straight away if it is already past 4 PM).')) return;
       b.disabled=true; m.style.color='#6E5A4E'; m.textContent='Approving…';
       var r; try{ r=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add',ids:ids})}).then(function(x){return x.json();}); }
