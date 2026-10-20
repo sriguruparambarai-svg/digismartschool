@@ -18,6 +18,7 @@
 //   new_link { id }                            → { link_code }   old link stops working, phones are logged out
 //   remove   { id }
 //   get_settings / save_settings { deadline:'HH:MM' }   the school's Submit-my-day deadline (Step 3)
+//                  save_settings { tomorrow_at:'HH:MM' } when teachers see tomorrow's portion (Oct 2026, default 2:30 PM)
 //   live     { date? }                         Academic Control: stats, needs-attention list, every class+subject
 //                                              (today's lessons, Done/Not done, homework, portion, behind) and each
 //                                              teacher's day (submitted / late / missing, what she marked)
@@ -51,7 +52,7 @@ module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
-const ACCESS_KEYS = ['today', 'hw_check', 'submit_day', 'notices', 'timetable'];
+const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable'];
 const timetableApi = require('./timetable.js');
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -95,6 +96,13 @@ const istTime = function () { return istNowIso().slice(11, 16); };          // "
 const istWeekday = function () { return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(istToday() + 'T00:00:00Z').getUTCDay()]; };
 const addDays = function (d, n) { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 // The school's "Submit my day" deadline (principal's choice, default 3:30 PM)
+// When teachers see TOMORROW's portion (principal's choice, default 2:30 PM) — Oct 2026.
+// Read on its own so the deadline keeps working even before step8-tomorrow-portion.sql is run.
+async function readTomorrowAt(school) {
+  const r = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=tomorrow_at&limit=1');
+  const d = ok(r) && r.data.length ? String(r.data[0].tomorrow_at || '') : '';
+  return /^\d{2}:\d{2}$/.test(d) ? d : '14:30';
+}
 async function readDeadline(school) {
   const r = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=deadline&limit=1');
   const d = ok(r) && r.data.length ? String(r.data[0].deadline || '') : '';
@@ -491,6 +499,34 @@ module.exports = async function handler(req, res) {
         });
       }
 
+      // ── TOMORROW's portion (Oct 2026): her lessons on the next school day in the Term Planner
+      // (Sundays and holidays are already skipped there). Shown only from the school's time (default 2:30 PM),
+      // so teachers can prepare. The server holds it back before that time — not just the screen.
+      if (access.indexOf('tomorrow') !== -1) {
+        const at = await readTomorrowAt(school);
+        let next = '';
+        plans.forEach(function (p) {
+          (Array.isArray(p.rows) ? p.rows : []).forEach(function (row) {
+            if (row && isDate(row.date) && row.date > today && (!next || row.date < next)) next = row.date;
+          });
+        });
+        const open = istTime() >= at;
+        const tm = { at: at, open: open, date: next, items: [] };
+        if (open && next) {
+          plans.forEach(function (p) {
+            (Array.isArray(p.rows) ? p.rows : []).forEach(function (row, i) {
+              if (!row || row.date !== next) return;
+              tm.items.push({ plan_id: p.id, index: i, class_name: p.class_name, subject: p.subject, date: row.date,
+                              chapter: row.chapter || '', pages: row.pages || '', teach: row.teach || '',
+                              class_act: row.class_act || '', ground_act: row.ground_act || '', homework: row.homework || '',
+                              home_act: row.home_act || '', type: row.type || '', workbook: row.workbook || '',
+                              period: row.period || '', room: row.room || '' });
+            });
+          });
+        }
+        out.tomorrow = tm;
+      }
+
       // homework of her classes: today (to give) and the last school day before today (to check)
       if (myClasses.length) {
         const from = addDays(today, -7);
@@ -594,7 +630,21 @@ module.exports = async function handler(req, res) {
 
     // ── ACADEMIC CONTROL (Step 3): the principal's Live School screen ──
     if (action === 'get_settings') {
-      return res.json({ success: true, deadline: await readDeadline(school) });
+      return res.json({ success: true, deadline: await readDeadline(school), tomorrow_at: await readTomorrowAt(school) });
+    }
+    // Oct 2026: save only the "tomorrow's portion" time
+    if (action === 'save_settings' && Object.prototype.hasOwnProperty.call(body, 'tomorrow_at') && !body.deadline) {
+      const ta = String(body.tomorrow_at || '');
+      if (!/^\d{2}:\d{2}$/.test(ta) || ta < '06:00' || ta > '22:00') return res.json({ error: 'Choose a time between 6:00 AM and 10:00 PM.' });
+      const sqlHint = ' (Please run step8-tomorrow-portion.sql in Supabase.)';
+      const now = new Date().toISOString();
+      const e = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=school_id&limit=1');
+      if (!ok(e)) return res.json({ error: 'Could not read the settings: ' + why(e) });
+      const w = e.data.length
+        ? await db('PATCH', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id), { tomorrow_at: ta, updated_at: now })
+        : await db('POST', '/rest/v1/teacher_app_settings', { school_id: school.id, deadline: await readDeadline(school), tomorrow_at: ta, updated_at: now });
+      if (!ok(w)) return res.json({ error: 'Could not save the time: ' + why(w) + (/tomorrow_at/.test(why(w)) ? sqlHint : '') });
+      return res.json({ success: true, tomorrow_at: ta });
     }
     if (action === 'save_settings') {
       const dl = String(body.deadline || '');
@@ -749,6 +799,7 @@ module.exports = async function handler(req, res) {
         detail: 'Approve them in "Today\'s parent update" below so parents get them at 4 PM.' });
       flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
       return res.json({ success: true, date: day, is_today: isToday, deadline: deadline, past_deadline: pastDeadline,
+        tomorrow_at: await readTomorrowAt(school),
         parent_update: parentUpdate, parent_update_error: ok(wt) ? '' : 'Could not read class work: ' + why(wt),
         stats: { lessons_today: lessonsToday, lessons_done: lessonsDone, homework_today: hwToday.length,
                  submitted: submitTeachers.filter(function (t) { return reportOf[t.id] && reportOf[t.id].submitted_at; }).length,
