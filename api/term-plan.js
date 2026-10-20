@@ -16,6 +16,7 @@
 //   approve   { id }                            principal: → approved
 //   send_back { id, note }                      principal: → returned
 //   reopen    { id }                            principal: approved → draft
+//   delete    { id }                            principal only: removes the whole plan (Oct 2026)
 //   mark_done { id, index, done }               anyone of the school: tick a row as taught (even when approved)
 //   for_day   { class_name, date }              the term-plan rows of one class on one day, all subjects
 //                                               (the Homework Planner fills class work and homework ideas from them)
@@ -523,6 +524,12 @@ module.exports = async function handler(req, res) {
     if (action === 'approve') return res.json(await setStatus(p, school, { status: 'approved', return_note: '', approved_at: new Date().toISOString() }));
     if (action === 'send_back') return res.json(await setStatus(p, school, { status: 'returned', return_note: clip(body.note, 300) }));
     if (action === 'reopen') return res.json(await setStatus(p, school, { status: 'draft' }));
+    if (action === 'delete') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can delete a plan.' });
+      const r = await db('DELETE', '/rest/v1/term_plans?id=eq.' + enc(p.id) + '&school_id=eq.' + enc(school.id));
+      if (!ok(r)) return res.json({ error: 'Could not delete: ' + why(r) });
+      return res.json({ success: true });
+    }
 
     return res.status(400).json({ error: 'Unknown action: ' + action });
   } catch (e) {

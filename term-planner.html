@@ -73,6 +73,8 @@ input,select,textarea{border:1px solid var(--line);border-radius:8px;padding:8px
 .plist th,.plist td{border-bottom:1px solid var(--line);padding:7px 8px;text-align:left}
 .plist th{font-size:.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 .plist tr.go{cursor:pointer} .plist tr.go:hover td{background:var(--surface-2)}
+.plist .del{border:1px solid var(--bad);background:transparent;color:var(--bad);border-radius:6px;padding:3px 9px;font-size:.78rem;font-weight:600;cursor:pointer}
+.plist .del:hover{background:var(--bad-bg)}
 .meter{height:6px;background:var(--surface-2);border-radius:4px;overflow:hidden;min-width:80px}
 .meter i{display:block;height:100%;background:var(--ok)}
 .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:12px}
@@ -1149,10 +1151,15 @@ async function loadList(){
   try{const d=await tp("list",{term:$("fTermList").value});const ps=d.plans||[];
     const order={waiting:0,returned:1,draft:2,approved:3};ps.sort((a,b)=>(order[a.status]-order[b.status])||a.class_name.localeCompare(b.class_name,undefined,{numeric:true}));
     $("listHint").textContent=ps.length?(PRINCIPAL?ps.filter(p=>p.status==="waiting").length+" waiting for you. ":"")+"Tap a plan to open it.":"No term plans yet for Term "+$("fTermList").value+". Make one below.";
-    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th></tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span>${p.behind_count?`<span class="behind">${p.behind_count} behind</span>`:""}</div></td></tr>`).join("")}</tbody></table>`:""}
+    $("plist").innerHTML=ps.length?`<table class="plist"><thead><tr><th>Class</th><th>Subject</th><th>Status</th><th>Teacher</th><th>Lessons done</th>${PRINCIPAL?"<th></th>":""}</tr></thead><tbody>${ps.map(p=>`<tr class="go" data-c="${esc(p.class_name)}" data-s="${esc(p.subject)}" data-t="${esc(p.term)}"><td>${esc(p.class_name)}</td><td>${esc(p.subject)}</td><td><span class="status st-${p.status}">${STAT[p.status]||p.status}</span></td><td>${esc(p.teacher_name||"")}</td><td><div style="display:flex;gap:8px;align-items:center"><div class="meter"><i style="width:${p.rows_count?Math.round(100*p.done_count/p.rows_count):0}%"></i></div><span class="hint">${p.done_count}/${p.rows_count}</span>${p.behind_count?`<span class="behind">${p.behind_count} behind</span>`:""}</div></td>${PRINCIPAL?`<td style="text-align:right"><button class="del" data-id="${esc(p.id)}" data-name="${esc(p.class_name+" "+p.subject+" (Term "+p.term+")")}" data-done="${p.done_count}" title="Delete this plan">🗑 Delete</button></td>`:""}</tr>`).join("")}</tbody></table>`:""}
   catch(e){$("plist").innerHTML=`<div class="banner err">Could not load plans: ${esc(e.message)}</div>`}}
 $("fTermList").onchange=loadList;
-$("plist").addEventListener("click",e=>{const tr=e.target.closest("tr.go");if(!tr)return;
+$("plist").addEventListener("click",async e=>{const del=e.target.closest("button.del");
+  if(del){e.stopPropagation();if(!PRINCIPAL)return;const n=+del.dataset.done||0;
+    if(!confirm("Delete the term plan for "+del.dataset.name+"?"+(n?"\n\n"+n+" lesson"+(n>1?"s are":" is")+" already ticked as taught — that record will be lost too.":"")+"\n\nThis cannot be undone."))return;
+    try{await tp("delete",{id:del.dataset.id});toast("Plan deleted");
+      if(S.plan&&String(S.plan.id)===del.dataset.id){clearTimeout(saveT);S.dirty=false;openPlan()}loadList()}catch(err){toast(err.message,true)}return}
+  const tr=e.target.closest("tr.go");if(!tr)return;
   if(S.dirty)saveNow().catch(()=>{});$("fClass").value=tr.dataset.c;fillSubjects(tr.dataset.s);$("fSubject").value=tr.dataset.s;$("fTerm").value=tr.dataset.t;
   openPlan().then(()=>$("planCard").scrollIntoView({behavior:"smooth"}))});
 
