@@ -117,7 +117,7 @@ body.preview #sheetArea{display:block}
 .pbar{position:sticky;top:0;background:#6B1A1A;color:#FFF3DF;padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;z-index:4}
 .pbar .btn.ghost{color:#FFF3DF;border-color:#C9A84C}
 #sheets{padding:16px 0 40px;background:#d9d2c7}
-.pg{width:210mm;min-height:297mm;margin:0 auto 14px;background:#fff;padding:12mm 13mm;box-shadow:0 2px 10px rgba(0,0,0,.18);color:#111;
+.pg{width:210mm;min-height:297mm;margin:0 auto 14px;background:#fff;padding:12mm 13mm;box-shadow:0 2px 10px rgba(0,0,0,.18);color:#111;display:flex;flex-direction:column;
   font-family:"Hind Madurai","Noto Sans Tamil","Noto Sans Devanagari",Arial,sans-serif;font-size:var(--wfs,12.5pt);line-height:1.45}
 .ws-head{display:flex;gap:10px;align-items:center;border-bottom:2.5px solid #6B1A1A;padding-bottom:6px}
 .ws-head img{width:15mm;height:15mm;object-fit:contain}
@@ -175,6 +175,15 @@ table.tbl td.blank{height:11mm}
 .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
 .chips label{display:flex;align-items:center;gap:5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;font-weight:400;color:var(--ink);font-size:.88rem;background:#fff}
 .key-pg{break-before:page}
+/* teacher's sign sits at the bottom of every page */
+.ws-foot{margin-top:auto;padding-top:6mm;display:flex;justify-content:flex-end;gap:2mm;align-items:flex-end;font-size:.92em}
+.ws-foot i{display:inline-block;width:45mm;border-bottom:1px solid #444;height:1em}
+/* pages are cut to one A4 height each, so the sign is always at the foot */
+#sheets.paged .pg{height:297mm;min-height:0;overflow:hidden}
+/* half A4: each page shrunk to A5 and printed twice, side by side, on a landscape A4 */
+.duo{display:flex;width:297mm;height:210mm;margin:0 auto 14px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18)}
+.duo .pg{zoom:.7071;margin:0;box-shadow:none;flex:none}
+.duo .pg+.pg{border-left:1.4px dashed #aaa}
 .key-pg h3{font-family:"Marcellus",Georgia,serif;font-weight:400;color:#6B1A1A;font-size:1.2em;margin:0 0 2px}
 .key-pg .kn{font-size:.85em;color:#666;margin-bottom:8px}
 .key-pg ol{margin:0 0 8px;padding-left:7mm}
@@ -188,6 +197,10 @@ table.tbl td.blank{height:11mm}
   #sheets{padding:0;background:#fff}
   .pg{margin:0;box-shadow:none;min-height:auto;break-after:page}
   .pg:last-child{break-after:auto}
+  #sheets.paged .pg{height:296.5mm}
+  .duo{margin:0;box-shadow:none;break-after:page;height:209.5mm}
+  .duo:last-child{break-after:auto}
+  .duo .pg{break-after:auto;height:296.5mm}
   body.nokey .key-pg{display:none}
 }
 </style>
@@ -292,6 +305,7 @@ table.tbl td.blank{height:11mm}
         </div>
         <label style="margin-top:10px">Instruction on the sheet<input id="wpInst" value=""></label>
         <div id="wpBody"></div>
+        <div id="wpPics" class="hint" style="margin-top:10px" hidden></div>
       </div>
     </div>
   </section>
@@ -304,7 +318,9 @@ table.tbl td.blank{height:11mm}
       <label>Date on the sheet<input type="date" id="fDate"></label>
       <label>Letter size<select id="fFs"><option value="11.5pt">Small</option><option value="12.5pt" selected>Normal</option><option value="14pt">Large (little classes)</option></select></label>
       <label>Answer key for the teacher<select id="fKey"><option value="1" selected>Print it at the end</option><option value="0">Leave it out</option></select></label>
+      <label>Paper<select id="fPaper"><option value="full" selected>Full A4 (portrait)</option><option value="half">Half A4 — two copies on one landscape A4</option></select></label>
     </div>
+    <p class="hint" id="paperHint" hidden>Half A4: each page is printed twice, side by side, on a landscape A4 — cut along the dotted line. Choose <b>Large</b> letter size for little classes. In the print window, keep Margins: None and Scale: 100%.</p>
   </section>
 
   <div class="sticky">
@@ -694,8 +710,34 @@ function wpInstDefault(){const n=+$("wpTimes").value||5;return $("wpStyle").valu
 let wpInstTouched=false;
 function wpSetInst(){if(!wpInstTouched)$("wpInst").value=wpInstDefault()}
 $("wpInst").addEventListener("input",()=>{wpInstTouched=true});
-["wpTimes","wpStyle"].forEach(id=>$(id).addEventListener("change",()=>{wpSetInst();count()}));
-$("wpOwn").addEventListener("change",count);
+["wpTimes","wpStyle"].forEach(id=>$(id).addEventListener("change",()=>{wpSetInst();count();wpPicStatus()}));
+$("wpOwn").addEventListener("change",()=>{count();wpPicStatus()});
+// With "Picture + trace + write": say which words have no picture yet, and offer to draw them
+async function wpPicStatus(){
+  const box=$("wpPics");
+  if($("wpStyle").value!=="pic"){box.hidden=true;return}
+  const words=wpWords();if(!words.length){box.hidden=true;return}
+  await loadPics();
+  const miss=words.filter(w=>!picFor(w));
+  box.hidden=false;
+  if(!miss.length){box.innerHTML="🖼 All "+words.length+" words have a picture.";return}
+  box.innerHTML=`🖼 ${words.length-miss.length} of ${words.length} words have a picture. No picture yet for: <b>${miss.map(esc).join(", ")}</b>.<br>`+
+    `<button class="btn small" id="wpDraw" style="margin-top:6px">🎨 Draw these ${miss.length} with AI</button> `+
+    `<span>Each costs a few rupees (OpenAI) and is drawn only once — after that every school gets it free. Or leave them: the sheet gives a box for the child to draw.</span>`;
+  $("wpDraw").onclick=()=>drawMissing(miss)}
+async function drawMissing(miss){
+  const btn=$("wpDraw");busy(btn,"Drawing 0 of "+miss.length+"…");let done=0,failed=[];
+  for(const w of miss){
+    try{const r=await fetch("/api/gen-image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({query:picKey(w),context:"",mode:"kg-colour"})});
+      let d=null;try{d=await r.json()}catch(e){}
+      const u=d&&d.images&&d.images[0]&&d.images[0].url;
+      if(!r.ok||!u)throw new Error((d&&(d.note||d.error))||("the server said "+r.status));
+      DRAWN[picKey(w)]=u}
+    catch(e){failed.push(w+" ("+e.message+")")}
+    done++;btn.innerHTML='<span class="spin"></span>Drawing '+done+" of "+miss.length+"…"}
+  idle(btn);
+  if(failed.length)toast("Could not draw: "+failed.join(", "),true);else toast("Pictures drawn. Press Make the worksheet again.");
+  wpPicStatus()}
 async function pickWP(){
   const btn=$("wpBtn");busy(btn,"Picking…");
   try{
@@ -711,7 +753,7 @@ Reply with ONLY: {"groups":[{"name":"","words":["",""]}]}`;
     const d=await askAI(sys,src,1500);
     const got=[];((d&&d.groups)||[]).forEach(g=>(g.words||[]).forEach(w=>{w=String(w||"").trim();if(w&&w.length<=40&&!got.some(x=>x.w.toLowerCase()===w.toLowerCase()))got.push({w,group:String(g.name||"Words"),on:true})}));
     if(!got.length)throw new Error("No words came back. Type your own words in the box above.");
-    WP=got;$("useWP").checked=true;wpSetInst();renderWP();
+    WP=got;$("useWP").checked=true;wpSetInst();renderWP();wpPicStatus();
   }catch(e){$("wpBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
   finally{idle(btn);count()}}
 function renderWP(){
@@ -719,8 +761,8 @@ function renderWP(){
   $("wpBody").innerHTML=`<p class="hint" style="margin:10px 0 0">${WP.length} words. Untick any you don't want.</p>`+
     groups.map(g=>`<div style="margin-top:8px"><b style="font-size:.85rem;color:var(--accent)">${esc(g)}</b> <button class="btn ghost small" data-wpg="${esc(g)}" data-on="1">Tick all</button> <button class="btn ghost small" data-wpg="${esc(g)}" data-on="0">Untick all</button>`+
       `<div class="chips">${WP.map((x,i)=>x.group!==g?"":`<label><input type="checkbox" data-wp="${i}"${x.on?" checked":""}>${esc(x.w)}</label>`).join("")}</div></div>`).join("")}
-$("wpBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.wp!=null){WP[+d.wp].on=e.target.checked;if(e.target.checked)$("useWP").checked=true;count()}});
-$("wpBody").addEventListener("click",e=>{const d=e.target.dataset;if(d.wpg!=null){WP.forEach(x=>{if(x.group===d.wpg)x.on=d.on==="1"});renderWP();count()}});
+$("wpBody").addEventListener("change",e=>{const d=e.target.dataset;if(d.wp!=null){WP[+d.wp].on=e.target.checked;if(e.target.checked)$("useWP").checked=true;count();wpPicStatus()}});
+$("wpBody").addEventListener("click",e=>{const d=e.target.dataset;if(d.wpg!=null){WP.forEach(x=>{if(x.group===d.wpg)x.on=d.on==="1"});renderWP();count();wpPicStatus()}});
 $("wpBtn").onclick=pickWP;
 function wpWords(){
   const out=[];const add=w=>{w=String(w||"").trim();if(w&&!out.some(x=>x.toLowerCase()===w.toLowerCase()))out.push(w)};
@@ -728,9 +770,16 @@ function wpWords(){
   $("wpOwn").value.split(/[,\n،]+/).forEach(add);return out}
 // The Picture Library (same one the KG worksheets use), read once
 let PICS=null;
+// "Fox", "a fox", "foxes" and "fox." all find the picture saved as "fox"
+function picKey(w){return String(w||"").toLowerCase().replace(/[^a-z\u0B80-\u0BFF\u0900-\u097F ]/g," ").replace(/^\s*(a|an|the)\s+/,"").replace(/\s+/g," ").trim()}
+function picFor(w){if(!PICS)return"";const k=picKey(w);if(!k)return"";
+  const tries=[k,k.replace(/ies$/,"y"),k.replace(/es$/,""),k.replace(/s$/,""),k+"s"];
+  for(const t of tries)if(PICS[t])return PICS[t];
+  return DRAWN[k]||""}
+const DRAWN={};   // pictures drawn by AI on this page (also saved on the server, so never drawn twice)
 async function loadPics(){if(PICS)return PICS;PICS={};
   try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"kg_pictures",params:"select=word,en,colour_url,outline_url"})});
-    const rows=await r.json();if(Array.isArray(rows))rows.forEach(p=>{const u=p.colour_url||p.outline_url;if(!u)return;[p.word,p.en].forEach(k=>{k=String(k||"").trim().toLowerCase();if(k&&!PICS[k])PICS[k]=u})})}
+    const rows=await r.json();if(Array.isArray(rows))rows.forEach(p=>{const u=p.colour_url||p.outline_url;if(!u)return;[p.word,p.en].forEach(k=>{k=picKey(k);if(k&&!PICS[k])PICS[k]=u})})}
   catch(e){console.warn("Picture library could not be read",e)}
   return PICS}
 async function wpPage(){
@@ -741,14 +790,14 @@ async function wpPage(){
   const ww=Math.min(55,Math.max(24,Math.max(...words.map(w=>[...w].length))*4.2+4));   // one word column for every row, so the lines line up
   const rows=words.map(w=>{const len=[...w].length;let h=`<div class="wp-row">`;
     let room=165;   // mm across the page after the picture or the word
-    if(pic){const u=pics[w.toLowerCase()];if(!u)missing++;h+=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="">`:"draw<br>it here"}</div>`;room=158}
+    if(pic){const u=picFor(w);if(!u)missing++;h+=`<div class="wp-pic">${u?`<img src="${esc(u)}" alt="" onerror="this.parentNode.innerHTML='draw<br>it here'">`:"draw<br>it here"}</div>`;room=158}
     else{h+=`<div class="wp-w" style="width:${ww}mm">${esc(w)}</div>`;room=176-ww}
     let per=Math.max(1,Math.min(n,Math.floor((room+3)/(Math.max(20,len*5+6)+3))));per=Math.ceil(n/Math.ceil(n/per));   // even rows, no line left alone
     let cells="";for(let i=0;i<n;i++)cells+=(pic&&i===0)?`<div class="wp-slot"><span class="wp-tr">${esc(w)}</span></div>`:`<div class="wp-slot"></div>`;
     return h+`<div class="wp-lines" style="grid-template-columns:repeat(${per},minmax(0,1fr))">${cells}</div></div>`}).join("");
-  if(pic&&missing)toast(missing+" word(s) have no picture in the Picture Library yet — the sheet gives a box for the child to draw it.");
+  if(pic&&missing)toast(missing+" word(s) have no picture — the sheet gives a box for the child to draw it. You can draw them with AI in the Writing practice box.");
   const title="Writing practice";
-  return`<div class="pg act-pg">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}</div>`}
+  return`<div class="pg act-pg">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}${FOOT}</div>`}
 wpSetInst();
 
 /* ---------- count ---------- */
@@ -768,7 +817,8 @@ const L4=["(a)","(b)","(c)","(d)","(e)"];
 function head(title){
   const d=$("fDate").value;const dd=d?d.split("-").reverse().join("-"):"";
   return`<div class="ws-head">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div class="t"><div class="sn">${esc(SCHOOL_NAME||"")}</div><div class="st"><b>${esc(title)}</b> · ${esc($("fClass").value)} · ${esc($("fSubject").value)}${$("fTopic").value.trim()?" · "+esc($("fTopic").value.trim()):""}</div></div></div>`+
-  `<div class="ws-meta"><span>Name: <i></i></span><span>Roll No: <i></i></span><span>Date: ${dd?"<b>"+esc(dd)+"</b>":"<i></i>"}</span><span>Teacher's sign: <i></i></span></div>`}
+  `<div class="ws-meta"><span>Name: <i></i></span><span>Roll No: <i></i></span><span>Date: ${dd?"<b>"+esc(dd)+"</b>":"<i></i>"}</span></div>`}
+const FOOT=`<div class="ws-foot">Teacher's sign: <i></i></div>`;
 function qHtml(q,n){
   const t=q.type;let body=`<div>${esc(q.text||q.q||"")}`;
   if(q.needsFigure)body+=` <span class="figref">(see the picture on book page ${esc(q.page||"")})</span>`;
@@ -835,7 +885,7 @@ async function actPage(a,n){
       body=`<table class="tbl"><tr><th style="width:9mm">#</th>${cols.map(c=>`<th>${esc(c)}</th>`).join("")}</tr>${Array.from({length:nr},(_,i)=>`<tr><td>${i+1}</td>${cols.map(()=>`<td class="blank" style="height:14mm"></td>`).join("")}</tr>`).join("")}</table>`;key="";break}
     case"creative":{body=(a.draw?`<div class="box" style="height:95mm;margin-bottom:3mm"></div>`:"")+lines(Math.max(4,Math.min(16,+a.lines||8)));key="";break}
   }
-  return{page:`<div class="pg act-pg">${head(a.title||KIND[a.type])}${ins}${body}</div>`,key:key?`<h4>Activity ${n}: ${esc(a.title||KIND[a.type])}</h4>${key}`:""}}
+  return{page:`<div class="pg act-pg">${head(a.title||KIND[a.type])}${ins}${body}${FOOT}</div>`,key:key?`<h4>Activity ${n}: ${esc(a.title||KIND[a.type])}</h4>${key}`:""}}
 async function build(){
   const useBB=$("useBB").checked&&BB.some(q=>q.on),useLQ=$("useLQ").checked&&LQ.some(q=>q.on),acts=$("useAC").checked?ACTS.filter(a=>a.on):[];
   const useWP=$("useWP").checked&&wpWords().length>0;
@@ -853,15 +903,72 @@ async function build(){
         order.concat(Object.keys(groups).filter(k=>!order.includes(k))).forEach(t=>{if(!groups[t])return;h+=`<div style="font-weight:600;margin:6px 0 3px">${esc(names[t]||t)}</div>`;
           groups[t].forEach(q=>{h+=qHtml(q,++n);kq.push(q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—"))})});
         h+=`</div>`;kb+=`<h4>${useBB?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
-      pages+=h+`</div>`;keyHtml+=kb}
+      pages+=h+FOOT+`</div>`;keyHtml+=kb}
     if(useWP){try{const wp=await wpPage();if(wp)pages+=wp}catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
     let k=0;for(const a of acts){try{const r=await actPage(a,++k);if(r){pages+=r.page;keyHtml+=r.key}}catch(e){console.warn(e);toast("One activity could not be drawn ("+e.message+") and was left out.",true)}}
     if($("fKey").value==="1"&&keyHtml)pages+=`<div class="pg key-pg"><h3>Answer key — for the teacher</h3><div class="kn">${esc(lessonLabel())} · Not for children. Please check answers before correcting.</div>${keyHtml}</div>`;
-    $("sheets").innerHTML=pages;$("sheets").style.setProperty("--wfs",$("fFs").value);
-    $("sheetInfo").textContent=$("sheets").querySelectorAll(".pg").length+" sheet page(s) before printing — long sections may flow onto an extra page.";
+    $("sheets").classList.remove("paged");$("sheets").innerHTML=pages;$("sheets").style.setProperty("--wfs",$("fFs").value);
     document.body.classList.add("preview");window.scrollTo(0,0);
+    await layoutPages();
   }catch(e){toast(e.message,true)}finally{idle(btn)}}
 $("makeBtn").onclick=build;
+$("fPaper").addEventListener("change",()=>{$("paperHint").hidden=$("fPaper").value!=="half"});
+
+// Cut the sheet into A4 pages so every page has the name line at the top and the
+// teacher's sign at the bottom. Then, for Half A4, put two copies of each page
+// side by side on a landscape sheet.
+function waitPics(box){return Promise.all([...box.querySelectorAll("img")].map(im=>im.complete?0:new Promise(r=>{im.onload=im.onerror=r;setTimeout(r,6000)})))}
+const fits=pg=>pg.scrollHeight<=pg.clientHeight+1;
+function splitPage(pg){
+  const foot=pg.querySelector(":scope>.ws-foot");
+  const keep=new Set([...pg.querySelectorAll(":scope>.ws-head,:scope>.ws-meta,:scope>.inst,:scope>h3,:scope>.kn,:scope>.ws-foot")]);
+  const blocks=()=>[...pg.children].filter(c=>!keep.has(c));
+  if(fits(pg)||blocks().length===0)return null;
+  const nx=document.createElement("div");nx.className=pg.className.replace(/\bkey-pg\b/,"key-pg key-more");
+  pg.querySelectorAll(":scope>.ws-head,:scope>.ws-meta").forEach(h=>nx.appendChild(h.cloneNode(true)));
+  const ins=pg.querySelector(":scope>.inst");if(ins)nx.appendChild(ins.cloneNode(true));
+  const firstBlock=()=>nx.querySelector(":scope>.ws-foot")||null;
+  if(foot)nx.appendChild(foot.cloneNode(true));
+  const put=el=>nx.insertBefore(el,firstBlock()?firstBlock():null);
+  let guard=0;
+  while(!fits(pg)&&guard++<400){
+    const bl=blocks();if(bl.length===0)break;
+    const last=bl[bl.length-1];
+    // a section or a list that is too long is split item by item
+    const splittable=(last.classList.contains("sec")||last.tagName==="OL")&&last.children.length>(last.tagName==="OL"?1:2);
+    if(splittable){
+      let cont=nx.querySelector(":scope>[data-cont]");
+      if(!cont||cont.dataset.cont!==String(bl.length)){cont=last.cloneNode(false);cont.dataset.cont=String(bl.length);
+        if(last.tagName==="OL"){cont.start=(+last.getAttribute("start")||1)+last.children.length}
+        else{const h=last.querySelector(":scope>h4");if(h)cont.appendChild(h.cloneNode(true))}
+        put(cont)}
+      const item=last.lastElementChild;
+      const at=cont.tagName==="OL"?cont.firstChild:(cont.querySelector(":scope>h4")?cont.querySelector(":scope>h4").nextSibling:cont.firstChild);
+      cont.insertBefore(item,at);if(cont.tagName==="OL")cont.start=cont.start-1;
+      // never leave a small heading alone at the bottom
+      const tail=last.lastElementChild;if(tail&&last.tagName!=="OL"&&!tail.classList.contains("wq")&&tail.tagName!=="H4")cont.insertBefore(tail,cont.querySelector(":scope>h4")?cont.querySelector(":scope>h4").nextSibling:cont.firstChild);
+      if(last.children.length<=1)last.remove()}
+    else{if(bl.length===1)break;put(last)}
+  }
+  nx.querySelectorAll("[data-cont]").forEach(c=>c.removeAttribute("data-cont"));
+  return nx}
+async function layoutPages(){
+  const box=$("sheets");await waitPics(box);
+  box.classList.add("paged");
+  let pages=[...box.querySelectorAll(".pg")];
+  for(let i=0;i<pages.length;i++){const nx=splitPage(pages[i]);if(nx){pages[i].after(nx);pages.splice(i+1,0,nx)}}
+  pages=[...box.querySelectorAll(".pg")];
+  const half=$("fPaper").value==="half";
+  document.getElementById("pageSize")?.remove();
+  const st=document.createElement("style");st.id="pageSize";st.textContent=half?"@page{size:A4 landscape;margin:0}":"@page{size:A4;margin:0}";document.head.appendChild(st);
+  if(half){
+    // two copies of each worksheet page; answer key pages are put two to a sheet instead
+    const work=pages.filter(p=>!p.classList.contains("key-pg")),keys=pages.filter(p=>p.classList.contains("key-pg"));
+    work.forEach(p=>{const d=document.createElement("div");d.className="duo";p.before(d);d.appendChild(p);d.appendChild(p.cloneNode(true))});
+    for(let i=0;i<keys.length;i+=2){const d=document.createElement("div");d.className="duo";keys[i].before(d);d.appendChild(keys[i]);if(keys[i+1])d.appendChild(keys[i+1])}
+    $("sheetInfo").textContent=box.querySelectorAll(".duo").length+" landscape A4 sheet(s), two half-A4 copies on each — cut along the dotted line."}
+  else $("sheetInfo").textContent=pages.length+" A4 page(s).";
+}
 $("backBtn").onclick=()=>{document.body.classList.remove("preview")};
 $("printBtn").onclick=()=>window.print();
 
