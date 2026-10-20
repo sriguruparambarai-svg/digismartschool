@@ -94,6 +94,8 @@ const istNowIso = function () { return new Date(Date.now() + 5.5 * 3600 * 1000).
 const istToday = function () { return istNowIso().slice(0, 10); };
 const istTime = function () { return istNowIso().slice(11, 16); };          // "15:05"
 const istWeekday = function () { return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(istToday() + 'T00:00:00Z').getUTCDay()]; };
+// "15:30" -> "3:30 PM" for messages people read (Oct 2026)
+const t12 = function (s) { const p = String(s || '').split(':'), H = parseInt(p[0], 10); if (isNaN(H)) return String(s || ''); return ((H % 12) || 12) + ':' + (p[1] || '00') + ' ' + (H < 12 ? 'AM' : 'PM'); };
 const addDays = function (d, n) { const x = new Date(d + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
 // The school's "Submit my day" deadline (principal's choice, default 3:30 PM)
 // When teachers see TOMORROW's portion (principal's choice, default 2:30 PM) — Oct 2026.
@@ -724,10 +726,10 @@ module.exports = async function handler(req, res) {
         const r = reportOf[t.id];
         if (!(r && r.submitted_at) && pastDeadline) {
           flags.push({ level: 'bad', kind: 'Not submitted', title: t.name + ' has not submitted ' + (isToday ? 'today' : 'that day'),
-                       detail: 'Deadline was ' + deadline + '. Parents of those classes are waiting for the day\'s update.' });
+                       detail: 'Deadline was ' + t12(deadline) + '. Parents of those classes are waiting for the day\'s update.' });
         } else if (r && r.late) {
           flags.push({ level: 'slow', kind: 'Late', title: t.name + ' submitted after the deadline',
-                       detail: 'Submitted at ' + new Date(new Date(r.submitted_at).getTime() + 5.5 * 3600e3).toISOString().slice(11, 16) + ' (deadline ' + deadline + ').' });
+                       detail: 'Submitted at ' + t12(new Date(new Date(r.submitted_at).getTime() + 5.5 * 3600e3).toISOString().slice(11, 16)) + ' (deadline ' + t12(deadline) + ').' });
         }
       });
       // 2. classes behind the term plan
