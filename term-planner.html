@@ -988,6 +988,7 @@ $("makeBtn").onclick=async()=>{
       if(modelOn()){P.innerHTML=`<span class="spin"></span>Activity ideas for ${esc(chs[i].title)}…`;
         try{ACTS_NEW[chs[i].title]=await suggestActs(chs[i],ct)}catch(e){notes.push(chs[i].title+": activity ideas could not be made ("+e.message+") — use “🎯 Activities” in the plan.")}}}
     rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});
+    await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.")}
     S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);
     await saveNow(true);renderPlan();
     P.innerHTML=`✓ ${rows.length} lessons planned.`+(modelOn()&&Object.keys(S.acts).length?(PRINCIPAL?" Pick each chapter's activities with “🎯 Activities”.":" The principal picks each chapter's activities."):"")+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
@@ -997,6 +998,56 @@ $("makeBtn").onclick=async()=>{
   finally{btn.disabled=false}};
 function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,...wbSettings(),acts:S.acts||{},
   chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
+
+/* ---------- homework timetable (Oct 2026) ----------
+   The principal's homework timetable (Homework Planner) fixes which subjects get homework on which day.
+   Homework the plan puts on a day that is NOT a fixed day for this subject moves to the next fixed day
+   of the same subject (nothing is lost). The lesson it came from says where it went. If there is no
+   fixed day left in the plan, it stays and the teacher is told to give it as "Extra".
+   Only lessons from today on, not done, are touched. No timetable for the class/subject → no change. */
+let HWTT=null;
+const HW_MOVED_RE=/ ?Homework for this lesson is given on [^.]*\(homework timetable\)\./;
+const HW_EXTRA_NOTE=" Not a homework day for this subject and no later homework day in this plan — give it as Extra if needed.";
+async function loadHwTT(){if(HWTT)return HWTT;
+  try{const t=iso(new Date());const r=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"list",from:t,to:t})});
+    const d=await r.json();if(d&&d.success)HWTT=d.timetable||{}}catch(e){}
+  return HWTT||{}}
+function hwDaysFor(cls,subj){const T=HWTT||{},keys=Object.keys(T);
+  const ck=keys.find(k=>k===cls)||(num(cls)?keys.find(k=>num(k)===num(cls)):null);if(!ck)return null;
+  const want=sk(subj),out=[];Object.keys(T[ck]||{}).forEach(d=>{if((T[ck][d]||[]).some(s=>sk(s)===want))out.push(d)});
+  return out.length?out:null}
+function matchHwTT(rows,cls,subj){
+  const days=hwDaysFor(cls,subj);if(!days)return{moved:0,extra:0,none:true};
+  const today=iso(new Date());
+  const idx=rows.map((r,i)=>i).filter(i=>rows[i].date&&rows[i].date>=today&&!rows[i].done)
+    .sort((a,b)=>rows[a].date<rows[b].date?-1:rows[a].date>rows[b].date?1:a-b);
+  // revision ("revise for the class test") and test days stay where they are
+  const FIXED_TYPES=["test","revision"];
+  let moved=0,extra=0,pending=[];const hwOf={};
+  idx.forEach(i=>{const r=rows[i];
+    if(FIXED_TYPES.includes(r.type))return;
+    if(days.includes(dow(r.date))){
+      if(pending.length){
+        r.homework=pending.map(x=>hwOf[x]).concat(r.homework?[r.homework]:[]).join("\n");
+        pending.forEach(x=>{const s=rows[x];
+          s.teach=String(s.teach||"").replace(/ ?Before giving homework: go through each homework question with the class\./,"").replace(HW_EXTRA_NOTE,"")
+            +" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).";moved++});
+        pending=[]}
+      return}
+    if(!r.homework)return;
+    hwOf[i]=r.homework;r.homework="";pending.push(i)});
+  // no homework day left in this plan: the homework stays on its own lesson, given as Extra
+  pending.forEach(x=>{const s=rows[x];s.homework=hwOf[x];
+    if(String(s.teach||"").indexOf(HW_EXTRA_NOTE.trim())<0){s.teach=(s.teach||"")+HW_EXTRA_NOTE;extra++}});
+  return{moved,extra}}
+async function hwTTButton(){
+  await loadHwTT();
+  const cls=$("fClass").value,subj=$("fSubject").value;
+  if(!hwDaysFor(cls,subj)){toast("The homework timetable has no "+subj+" days for "+cls+". Set it in the Homework Planner first.",true);return}
+  const copy=JSON.parse(JSON.stringify(S.rows)),res=matchHwTT(copy,cls,subj);
+  if(!res.moved&&!res.extra){toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
+  if(!confirm(res.moved+" homework will move to the next "+subj+" homework day ("+hwDaysFor(cls,subj).join(", ")+")."+(res.extra?"\n"+res.extra+" have no later homework day and will be marked to give as Extra.":"")+"\n\nOnly lessons from today on are changed. Go ahead?"))return;
+  S.rows=copy;renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.extra?", "+res.extra+" marked Extra":"")+".")}
 
 /* redo one chapter with AI, keeping its dates */
 async function redoChapter(title){
@@ -1009,6 +1060,7 @@ async function redoChapter(title){
     const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{},wi!=null&&wi>=0?wl.find(x=>x.i===wi):null,idx.map(i=>S.rows[i].room==="ai"));
     idx.forEach((ri,k)=>{const d=S.rows[ri].date,pd=S.rows[ri].period||"";S.rows[ri]=Object.assign(got[k],{date:d,period:pd})});
     if(modelOn()){if(!S.acts[title]){try{S.acts[title]=await suggestActs(ch,ct)}catch(e){}}if(S.acts[title])applyActs(title)}
+    await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
     renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
 
@@ -1058,8 +1110,9 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(PRINCIPAL&&S.plan&&st!=="approved")a.push(`<button class="btn ok" id="aApprove">Approve</button>`);
   if(PRINCIPAL&&S.plan&&st==="waiting")a.push(`<button class="btn ghost" id="aBack">Send back</button>`);
   if(PRINCIPAL&&S.plan&&st==="approved")a.push(`<button class="btn ghost" id="aReopen">Open again for changes</button>`);
-  if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
+  if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)&&!HW_MOVED_RE.test(r.teach||"")))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
   if(!locked()&&S.plan&&TT&&S.rows.length&&!ownPpw())a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
+  if(!locked()&&S.rows.length)a.push(`<button class="btn ghost" id="aHwTT" title="Move homework that falls on a day this subject has no homework (Homework Planner → Homework timetable) to the next homework day. Only lessons from today on.">📅 Match homework timetable</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -1069,6 +1122,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aBack",()=>{const n=prompt("Note for the teacher (what to change):","");if(n!==null)act("send_back","Sent back to the teacher",{note:n})});
   on("aPrint",()=>window.print());
   on("aHw",suggestHomework);
+  on("aHwTT",hwTTButton);
   on("aRefit",async()=>{if(!confirm("Put the lessons not yet done (from today) on the class's timetable periods again?\n\nTeachBot lessons go only on AI-room periods; a classroom period before one becomes a catch-up period."))return;
     try{if(S.dirty)await saveNow();const d=await tp("refit",{id:S.plan.id});S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];renderPlan();loadList();
       toast(d.fitted+" lessons placed on the timetable."+(d.over_term?" "+d.over_term+" lesson"+(d.over_term>1?"s go":" goes")+" past the term end — add an extra period or merge two lessons.":""),!!d.over_term)}
@@ -1080,7 +1134,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
 const NOHW={includes:t=>t==="teach"?!(modelOn()&&!(groupOf()==="maths"&&wbOn())):["teachbot","catchup","activity"].includes(t)};
 async function suggestHomework(){
   if(locked())return;const btn=$("aHw");if(btn)btn.disabled=true;
-  const todo=S.rows.map((r,i)=>r.homework||NOHW.includes(r.type)?-1:i).filter(i=>i>=0);
+  const todo=S.rows.map((r,i)=>r.homework||NOHW.includes(r.type)||HW_MOVED_RE.test(r.teach||"")?-1:i).filter(i=>i>=0);
   const byCh={};todo.forEach(i=>{(byCh[S.rows[i].chapter]=byCh[S.rows[i].chapter]||[]).push(i)});
   let done=0;
   try{for(const title of Object.keys(byCh)){
@@ -1094,6 +1148,7 @@ async function suggestHomework(){
         const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${title}\nSuggest ONLY the "homework" for these lessons (already planned — do not change them):\n${part.map((i,k)=>"Lesson "+(k+1)+" (p. "+(S.rows[i].pages||"?")+"): "+S.rows[i].teach).join("\n")}\n${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":""}\nReply with JSON only: {"rows":[{"homework":""}]} with exactly ${part.length} rows in the same order.`,Math.min(4000,300*part.length+400));
         (res.rows||[]).slice(0,part.length).forEach((x,k)=>{if(x&&x.homework)S.rows[part[k]].homework=String(x.homework)});
         done+=part.length}}
+    await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
     renderPlan();queueSave();toast("Homework suggested for "+todo.length+" lessons. Change or clear any you don't want.")}
   catch(e){renderPlan();queueSave();toast("AI could not finish: "+e.message+(done?" — the ones done so far are kept.":""),true)}
   finally{const b=$("aHw");if(b)b.disabled=false}}
