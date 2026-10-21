@@ -1007,14 +1007,31 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
   var acSubs=[], acSel=null, acOpen={};
   var RANK={bad:3,slow:2,ok:1,info:0};
   function worst(list){ var w='ok'; list.forEach(function(r){ if((RANK[r.level]||0)>(RANK[w]||0)) w=r.level; }); return w; }
+  /* Oct 2026: tidy text for the Live School screen only.
+     acChap: "Ch 1. E N G L I S H – Poem" -> "Ch 1. English – Poem".
+     acSteps: put each numbered step ("1. p. 16: ...  2. p. 16: ...") on its own line. */
+  var AC_WORDS={SOCIALSCIENCE:'Social Science',MATHEMATICS:'Mathematics',MATHS:'Maths',ENGLISH:'English',SCIENCE:'Science',HINDI:'Hindi',TAMIL:'Tamil',EVS:'EVS'};
+  function acChap(t){
+    return String(t||'').replace(/(?:\b[A-Z] ){2,}[A-Z]\b/g,function(m){
+      var w=m.replace(/ /g,''); return AC_WORDS[w]||(w.charAt(0)+w.slice(1).toLowerCase());
+    });
+  }
+  function acSteps(t){ return String(t||'').replace(/\s+(?=\d{1,2}\.\s+(?:p\.|pp\.|[A-Z]))/g,'\n'); }
   function rowHtml(r){
     var c=COL[r.level]||COL.info;
     var lesson=r.today.length? r.today.map(function(x){
         var st=x.state==='done'?' <span style="color:#2E7D4F;font-weight:900;">&#10003; Done</span>':x.state==='not'?' <span style="color:#A3241B;font-weight:900;">Not done</span>'+(x.reason?' <span style="color:#6E5A4E;">('+h(x.reason)+')</span>':''):' <span style="color:#8A6418;font-weight:800;">Not marked</span>';
-        return '<div><b>'+h(x.chapter)+'</b>'+st+(x.teach?'<div style="color:#6E5A4E;font-size:.78rem;">'+h(x.teach.slice(0,120))+'</div>':'')+'</div>';
+        /* Oct 2026: principal can open the full lesson — short preview stays, "See full lesson" shows every step */
+        var full=x.teach?String(x.teach):'', more=full.length>120;
+        var tb=full?(more
+          ? '<div style="color:#6E5A4E;font-size:.78rem;">'+h(full.slice(0,120))+'&hellip;</div>'
+            +'<details style="margin-top:4px;"><summary style="cursor:pointer;color:#6B0F1A;font-weight:800;font-size:.78rem;list-style:none;padding:4px 0;">See full lesson &#9662;</summary>'
+            +'<div style="margin-top:6px;padding:10px 12px;background:#FAF1E2;border:1px solid #EDD9A3;border-radius:10px;color:#3A2A22;font-size:.84rem;line-height:1.55;white-space:pre-line;">'+h(acSteps(full))+'</div></details>'
+          : '<div style="color:#6E5A4E;font-size:.78rem;white-space:pre-line;">'+h(acSteps(full))+'</div>'):'';
+        return '<div style="margin-bottom:6px;"><b>'+h(acChap(x.chapter))+'</b>'+st+tb+'</div>';
       }).join(''):'<span style="color:#999;">No lesson planned</span>';
     var act=r.today.map(function(x){return h(x.activity);}).filter(Boolean).join('<br>')||'<span style="color:#999;">—</span>';
-    var hw=r.hw.length? r.hw.map(function(x){return h(x.text.slice(0,120))+(x.status==='waiting'?' <span style="color:#8A6418;font-size:.75rem;">(waiting for you)</span>':'');}).join('<br>'):'<span style="color:#999;">—</span>';
+    var hw=r.hw.length? r.hw.map(function(x){return '<span style="white-space:pre-line;">'+h(acSteps(String(x.text||'')))+'</span>'+(x.status==='waiting'?' <span style="color:#8A6418;font-size:.75rem;">(waiting for you)</span>':'');}).join('<br>'):'<span style="color:#999;">—</span>';
     var pct=r.total?Math.round(100*r.done/r.total):0;
     return '<tr style="border-top:1px solid #EEDDC2;vertical-align:top;">'
       +'<td style="padding:10px 12px;"><div style="font-weight:800;">'+h(r.subject)+'</div><div style="color:#6E5A4E;font-size:.78rem;">'+h(r.teacher||'No teacher set')+'</div></td>'
