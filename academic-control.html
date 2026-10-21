@@ -21,6 +21,7 @@
 :root{--m:#6B0F1A;--md:#4A0A12;--g:#C9A84C;--gl:#E8C96A;--s:#F5E6C8;--sd:#EDD9A3;--bg:#F6EEE1;--card:#FFFBF4;--line:#EDD9A3;--soft:#F1E1C6;
   --fg:#2A1A14;--mut:#6E5A4E;--ok:#2E7D4F;--slow:#F2CC74;--slowfg:#3A2A00;--bad:#A3241B;--cw:#2F5D8A;--cwbg:#E7EFF8;--hw:#8A6418;--hwbg:#FBF0D6;--now:#FFF3C4}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;font-family:"Nunito",sans-serif;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.5}
 button,input,select{font:inherit}
 button{cursor:pointer}
@@ -224,12 +225,20 @@ table.w th{background:var(--soft);color:var(--m)}
   async function load(){
     S.day=$("day").value||istToday();
     $("title").textContent=(S.day===istToday()?"Today · ":"")+nice(S.day);
-    $("loaderr").innerHTML="";
-    var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);
-    var res=await Promise.all([call("/api/teacher-app",{action:"live",date:S.day}),call("/api/teacher-app",{action:"live",date:y}),
-      call("/api/teacher-app",{action:"live",date:n}),call("/api/timetable",{action:"get"})]);
-    if(!res[0].success){$("loaderr").innerHTML='<div class="err">'+h(res[0].error||"Could not load.")+'</div>';return}
-    S.L=res[0];S.Y=res[1].success?res[1]:null;S.N=res[2].success?res[2]:null;S.TT=res[3].success?res[3]:null;S.yday=y;S.nday=n;
+    $("loaderr").innerHTML='<div class="panel empty">Loading the school\'s day&hellip;</div>';
+    var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);S.yday=y;S.nday=n;
+    var safe=function(p){return p.catch(function(e){return{error:"No internet or the server did not answer ("+(e&&e.message||e)+")."}})};
+    var pT=safe(call("/api/timetable",{action:"get"})),pY=safe(call("/api/teacher-app",{action:"live",date:y})),pN=safe(call("/api/teacher-app",{action:"live",date:n}));
+    var L=await safe(call("/api/teacher-app",{action:"live",date:S.day}));
+    if(!L.success){$("loaderr").innerHTML='<div class="err">Could not load the day: '+h(L.error||"no answer")+'</div>';return}
+    var T=await pT;S.L=L;S.TT=T.success?T:null;S.Y=null;S.N=null;
+    $("loaderr").innerHTML=T.success?"":'<div class="err">Timetable could not be read: '+h(T.error||"no answer")+'</div>';
+    drawAll();
+    Promise.all([pY,pN]).then(function(r){S.Y=r[0].success?r[0]:null;S.N=r[1].success?r[1]:null;
+      try{drawHomeworkBody()}catch(e){showErr(e)}});
+  }
+  function showErr(e){$("loaderr").innerHTML+='<div class="err">Something went wrong on this page: '+h(e&&e.message||e)+'. Please send a screenshot.</div>'}
+  function drawAll(){try{
     var s=S.L.stats;
     $("stats").innerHTML='<span><b>'+s.lessons_done+'/'+s.lessons_today+'</b>lessons done</span><span><b>'+s.submitted+'/'+s.teachers+'</b>teachers submitted · deadline '+h(t12(S.L.deadline))+'</span><span><b>'+s.homework_today+'</b>homework today</span>';
     var waitN=(S.L.parent_update||[]).filter(function(x){return x.status==="waiting"}).length;
@@ -244,7 +253,7 @@ table.w th{background:var(--soft);color:var(--m)}
     if(!S.cls||classes.indexOf(S.cls)===-1)S.cls=classes[0]||"";
     if(!S.ccls)S.ccls="all";
     drawPeriods();drawHomework();drawClasswork();drawPortion();drawTeachers();drawWatch();drawNeeds();drawApprove();
-  }
+  }catch(e){showErr(e)}}
   function allClasses(){var set={};(S.L.subjects||[]).forEach(function(x){set[x.class_name]=1});(S.L.parent_update||[]).forEach(function(x){set[x.class_name]=1});
     ttClasses().forEach(function(c){set[c]=1});return Object.keys(set).sort(cord)}
   function ttClasses(){if(!S.TT)return[];var out={};Object.keys(S.TT.grid||{}).forEach(function(d){Object.keys(S.TT.grid[d]||{}).forEach(function(p){Object.keys(S.TT.grid[d][p]||{}).forEach(function(c){out[c]=1})})});
@@ -298,6 +307,7 @@ table.w th{background:var(--soft);color:var(--m)}
     $("h-y").textContent="Yesterday · "+nice(S.yday);$("h-t").textContent="Today · "+nice(S.day);$("h-n").textContent="Class work · "+nice(S.nday);
     // yesterday + today's checks of it
     var checks=[];(S.L.teachers||[]).forEach(function(t){(t.hw_checks||[]).forEach(function(k){if(k.class_name===c)checks.push(Object.assign({by:t.name},k))})});
+    if(!S.Y&&!S.N){$("h-yb").innerHTML=$("h-nb").innerHTML='<div class="empty">Loading&hellip;</div>'}
     var yh=hwOf(S.Y,c);
     var yb=yh.map(function(x){var k=checks.find(function(k){return sameSub(k.subject,x.subject)});
       var cp=!k?pill("p-w","Not checked"):k.corrected==="yes"?pill("p-ok","Corrected"):k.corrected==="some"?pill("p-slow","Some corrected"):k.corrected==="no"?pill("p-bad","Not corrected"):pill("p-w","Not answered");
