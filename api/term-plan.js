@@ -159,6 +159,42 @@ const why = function (r) {
 const enc = encodeURIComponent;
 const clip = function (s, n) { return String(s == null ? '' : s).trim().substring(0, n); };
 const isDate = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); };
+// ── Oct 2026: homework timetable helpers for "Fill this week" (same rules as the Term Planner's Match button) ──
+const WK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const FIXED_HW = ['test', 'revision'];
+const TAUGHT = ['teach', 'teachbot', 'classwork', 'practice', 'hwday', 'read', 'worksheet', 'writing', 'speaking'];
+const SUBJ_AL = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social' };
+const skey = function (s) { s = String(s || '').toLowerCase().trim(); return SUBJ_AL[s] || s; };
+const clsNum = function (c) { const m = /Class (\d+)/.exec(String(c || '')); return m ? +m[1] : 0; };
+const wkday = function (s) { return WK[new Date(s + 'T00:00:00Z').getUTCDay()]; };
+const dayAfter = function (s) { const t = new Date(s + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); };
+const dayBefore = function (s) { const t = new Date(s + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
+const niceD = function (s) { const t = new Date(s + 'T00:00:00Z'); return t.getUTCDate() + ' ' + MONS[t.getUTCMonth()]; };
+function ttDays(T, cls, subj) {
+  const keys = Object.keys(T || {});
+  const ck = keys.find(function (k) { return k === cls; }) || (clsNum(cls) ? keys.find(function (k) { return clsNum(k) === clsNum(cls); }) : null);
+  if (!ck) return null;
+  const want = skey(subj), out = [];
+  Object.keys(T[ck] || {}).forEach(function (d) { if ((T[ck][d] || []).some(function (x) { return skey(x) === want; })) out.push(d); });
+  return out.length ? out : null;
+}
+// the subject's previous homework-timetable day before d (up to 2 weeks back)
+function prevHwDay(d, days) { let x = dayBefore(d); for (let i = 0; i < 14; i++, x = dayBefore(x)) if (days.indexOf(wkday(x)) !== -1) return x; return x; }
+// "Practise at home what was taught on …" from the last lesson taught on or before d
+function practiceOf(all, d) {
+  let src = null;
+  all.forEach(function (x) { if (x.date <= d && TAUGHT.indexOf(x.type) !== -1 && String(x.teach || '').trim() && (!src || x.date >= src.date)) src = x; });
+  if (!src) return '';
+  let what = String(src.homework || '').split('\n').filter(function (l) { return l.trim() && !/^Practise at home what was taught on /.test(l.trim()); }).join(' ').trim();
+  if (!what) {
+    what = String(src.teach || '').replace(/^[^A-Za-z0-9\u0900-\u0DFF]*(TeachBot class|Maths Class|English Class|Teaching Mode|Science Class|Hindi Class)?:?\s*/, '')
+      .replace(/^\s*1\.\s*/, '').split(/\s2\.\s/)[0].split(' How:')[0].trim();
+    const m = what.match(/^(.{20,}?\.)\s/); if (m) what = m[1];
+    if (what.length > 160) what = what.slice(0, 157).replace(/\s+\S*$/, '') + '…';
+  }
+  return what ? 'Practise at home what was taught on ' + niceD(src.date) + ': ' + what : '';
+}
 const istToday = function () { return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); };
 
 // ── Signed login (same check as auth.js / homework.js) ──
@@ -312,7 +348,48 @@ module.exports = async function handler(req, res) {
       if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
       const out = [], seen = {};
       let notApproved = 0;
+      // Oct 2026 (B): follow the CURRENT homework timetable, even if a plan still has homework on old days.
+      const tt = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan&limit=1');
+      const TT = (ok(tt) && tt.data.length && tt.data[0].plan) || {};
+      const hol = await db('GET', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=gte.' + from + '&date=lte.' + to + '&select=date');
+      const HOL = {}; if (ok(hol)) hol.data.forEach(function (x) { HOL[x.date] = 1; });
+      const done = {};   // plans handled by the timetable way
       r.data.forEach(function (p) {
+        const days = ttDays(TT, p.class_name, p.subject);
+        if (!days) return;
+        const all = (Array.isArray(p.rows) ? p.rows : []).concat(p.settings && Array.isArray(p.settings.hw_only) ? p.settings.hw_only : [])
+          .filter(function (x) { return x && isDate(x.date); });
+        if (!all.length) return;
+        const any = all.some(function (x) { return x.date >= from && x.date <= to; }) ||
+                    (all.some(function (x) { return x.date < from; }) && all.some(function (x) { return x.date > to; }));
+        if (!any) return;
+        if (p.status !== 'approved') { notApproved++; done[p.class_name + '|' + String(p.subject).toLowerCase()] = 1; return; }
+        const k0 = p.class_name + '|' + String(p.subject).toLowerCase();
+        if (done[k0]) return;            // the newest plan for this class+subject wins
+        done[k0] = 1;
+        const dates = all.map(function (x) { return x.date; }).sort();
+        const first = dates[0], last = dates[dates.length - 1];
+        for (let d = from; d <= to; d = dayAfter(d)) {
+          if (d < first || d > last || HOL[d]) continue;
+          const w = wkday(d);
+          const lines = [];
+          const add = function (t) { String(t || '').split('\n').forEach(function (l) { l = l.trim(); if (l && lines.indexOf(l) === -1) lines.push(l); }); };
+          if (days.indexOf(w) !== -1) {
+            const prev = prevHwDay(d, days);
+            all.forEach(function (x) {
+              if (x.date === d) add(x.homework);
+              else if (x.date > prev && x.date < d && days.indexOf(wkday(x.date)) === -1 && FIXED_HW.indexOf(x.type) === -1) add(x.homework);
+            });
+            if (!lines.length) add(practiceOf(all, d));
+          } else {
+            // not a homework day: only class test / revision homework stays on its own day
+            all.forEach(function (x) { if (x.date === d && FIXED_HW.indexOf(x.type) !== -1) add(x.homework); });
+          }
+          if (lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, homework: lines.join('\n') });
+        }
+      });
+      r.data.forEach(function (p) {
+        if (done[p.class_name + '|' + String(p.subject).toLowerCase()]) return;
         const hits = (Array.isArray(p.rows) ? p.rows : []).concat(p.settings && Array.isArray(p.settings.hw_only) ? p.settings.hw_only : []).filter(function (row) {
           return row && isDate(row.date) && row.date >= from && row.date <= to && String(row.homework || '').trim();
         });
