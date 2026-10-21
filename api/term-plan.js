@@ -139,6 +139,7 @@ function db(method, path, body) {
     if (data) opts.headers['Content-Length'] = Buffer.byteLength(data);
     const r = https.request(opts, function (res) {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', function (c) { d += c; });
       res.on('end', function () {
         try { resolve({ status: res.statusCode, data: d ? JSON.parse(d) : [] }); }
@@ -181,18 +182,33 @@ function ttDays(T, cls, subj) {
 }
 // the subject's previous homework-timetable day before d (up to 2 weeks back)
 function prevHwDay(d, days) { let x = dayBefore(d); for (let i = 0; i < 14; i++, x = dayBefore(x)) if (days.indexOf(wkday(x)) !== -1) return x; return x; }
+/* Oct 2026: practice homework a child can follow — no "TeachBot teaches … in Teaching Mode", no cut-off "…".
+   Picks the lesson's title in quotes, its pages, its new words and its topics (1.1 …, 1.2 …). */
+function hpKid(src){
+  const t=String(src.teach||"");
+  const tm=t.match(/'([A-Z][^']{2,50})'/),title=tm?tm[1]:"";
+  let pg=String(src.pages||"").trim();if(!/^\d+(\s*[–-]\s*\d+)?$/.test(pg)){const pm=t.match(/pages?\s+(\d+\s*[–-]\s*\d+|\d+)/i);pg=pm?pm[1]:""}
+  pg=pg.replace(/\s*[–-]\s*/,"–");
+  const wm=t.match(/new words\s*(?:\(|—|–|-|:)\s*([^)\n]+?)(?:\)|\.|$)/i);
+  const words=wm?wm[1].split(/\s*,\s*/).map(w=>w.trim()).filter(w=>w&&w.length<25).join(", "):"";
+  const topics=[];t.replace(/\b\d+\.\d+\s+([^,—–)(]+?)(?=\s*(?:,|—|–|\)|$))/g,function(m,x){if(topics.length<4)topics.push(x.trim());return m});
+  const out=[];
+  const pgs=pg?"page"+(/–/.test(pg)?"s ":" ")+pg:"";
+  if(title||pg)out.push("Read "+(title?"'"+title+"' "+(pgs?"("+pgs+") ":""):pgs+" ")+"again at home"+(topics.length?" ("+topics.join(", ")+")":"")+(words?".":" and tell your parents what you learned."));
+  if(words)out.push("Learn the new words: "+words+" — read each word aloud and write it 3 times.");
+  if(out.length)return out.join(" ");
+  let w=t.replace(/[^\x20-\x7E -ɏऀ-෿\n–—’']/g,"").replace(/^\s*(TeachBot class|Maths Class|English Class|Teaching Mode|Science Class|Hindi Class)?:?\s*/i,"")
+    .replace(/TeachBot teaches\s*/i,"").replace(/\s*in Teaching Mode/ig,"").replace(/^\s*1\.\s*/,"").split(/\s2\.\s/)[0].split(" How:")[0].trim();
+  if(w.length>250){const c=w.slice(0,250).lastIndexOf(". ");w=c>40?w.slice(0,c+1):w.slice(0,250).replace(/\s+\S*$/,"")}
+  return w;
+}
 // "Practise at home what was taught on …" from the last lesson taught on or before d
 function practiceOf(all, d) {
   let src = null;
   all.forEach(function (x) { if (x.date <= d && TAUGHT.indexOf(x.type) !== -1 && String(x.teach || '').trim() && (!src || x.date >= src.date)) src = x; });
   if (!src) return '';
   let what = String(src.homework || '').split('\n').filter(function (l) { return l.trim() && !/^Practise at home what was taught on /.test(l.trim()); }).join(' ').trim();
-  if (!what) {
-    what = String(src.teach || '').replace(/^[^A-Za-z0-9\u0900-\u0DFF]*(TeachBot class|Maths Class|English Class|Teaching Mode|Science Class|Hindi Class)?:?\s*/, '')
-      .replace(/^\s*1\.\s*/, '').split(/\s2\.\s/)[0].split(' How:')[0].trim();
-    const m = what.match(/^(.{20,}?\.)\s/); if (m) what = m[1];
-    if (what.length > 160) what = what.slice(0, 157).replace(/\s+\S*$/, '') + '…';
-  }
+  if (!what) what = hpKid(src);
   return what ? 'Practise at home what was taught on ' + niceD(src.date) + ': ' + what : '';
 }
 const istToday = function () { return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); };
@@ -373,7 +389,7 @@ module.exports = async function handler(req, res) {
           if (d < first || d > last || HOL[d]) continue;
           const w = wkday(d);
           const lines = [];
-          const add = function (t) { String(t || '').split('\n').forEach(function (l) { l = l.trim(); if (l && lines.indexOf(l) === -1) lines.push(l); }); };
+          const add = function (t) { String(t || '').split('\n').forEach(function (l) { l = l.trim(); if (l && !/^Practise at home what was taught on /.test(l) && lines.indexOf(l) === -1) lines.push(l); }); };
           if (days.indexOf(w) !== -1) {
             const prev = prevHwDay(d, days);
             all.forEach(function (x) {

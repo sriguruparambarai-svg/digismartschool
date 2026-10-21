@@ -69,6 +69,7 @@ function db(method, path, body) {
     if (data) opts.headers['Content-Length'] = Buffer.byteLength(data);
     const r = https.request(opts, function (res) {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', function (c) { d += c; });
       res.on('end', function () {
         try { resolve({ status: res.statusCode, data: d ? JSON.parse(d) : [] }); }

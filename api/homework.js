@@ -71,6 +71,7 @@ function postErpHomework(row) {
       headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-teachbot-key': key }
     }, function (res) {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', function (c) { d += c; });
       res.on('end', function () {
         let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; }
@@ -131,6 +132,7 @@ function req(host, key, method, path, body, minimal) {
     if (data) opts.headers['Content-Length'] = Buffer.byteLength(data);
     const r = https.request(opts, function (res) {
       let d = '';
+      res.setEncoding('utf8');
       res.on('data', function (c) { d += c; });
       res.on('end', function () {
         try { resolve({ status: res.statusCode, data: d ? JSON.parse(d) : [] }); }
