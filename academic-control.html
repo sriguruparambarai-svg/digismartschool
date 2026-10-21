@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<script>
+  // Principal's page. Teachers go to Teacher Tools; not logged in goes to login.
+  try {
+    var _r = localStorage.getItem('dss_role');
+    if (_r === 'teacher') location.replace('/index.html');
+    else if (!_r) location.replace('/login.html');
+  } catch (e) {}
+</script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Academic Control — DigiSmartSchool</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+/* Academic Control (new, Oct 2026) — the same data as the Live School screen in School Admin,
+   laid out as tabs under a fixed header so nothing needs long scrolling.
+   The old Live School screen in dashboard.html is left as it is, so both can be compared. */
+:root{--m:#6B0F1A;--md:#4A0A12;--g:#C9A84C;--gl:#E8C96A;--s:#F5E6C8;--sd:#EDD9A3;--bg:#F6EEE1;--card:#FFFBF4;--line:#EDD9A3;--soft:#F1E1C6;
+  --fg:#2A1A14;--mut:#6E5A4E;--ok:#2E7D4F;--slow:#F2CC74;--slowfg:#3A2A00;--bad:#A3241B;--cw:#2F5D8A;--cwbg:#E7EFF8;--hw:#8A6418;--hwbg:#FBF0D6;--now:#FFF3C4}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Nunito",sans-serif;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.5}
+button,input,select{font:inherit}
+button{cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:3px solid var(--g);outline-offset:2px}
+.in{max-width:1200px;margin:0 auto;padding:0 16px}
+/* fixed header */
+header{position:sticky;top:0;z-index:20;background:linear-gradient(90deg,var(--md),var(--m));color:var(--s);box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.hr{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 0 4px}
+.back{background:var(--g);color:var(--md);border:none;border-radius:10px;padding:8px 14px;font-weight:900;min-height:40px;text-decoration:none}
+.ttl small{display:block;color:var(--gl);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;font-weight:900}
+.ttl h1{margin:0;font-family:"Cinzel",serif;font-size:1.15rem;color:#fff}
+.hctl{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hctl input{padding:7px 10px;border-radius:8px;border:none;font-weight:800;min-height:40px}
+.hctl button{background:transparent;color:#fff;border:1.5px solid var(--g);border-radius:8px;padding:7px 14px;font-weight:900;min-height:40px}
+.stats{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;padding:2px 0 4px}
+.stats b{color:var(--gl);font-size:1rem;margin-right:3px}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:thin}
+.tab{background:transparent;border:none;color:var(--s);opacity:.8;padding:10px 13px;border-bottom:3px solid transparent;white-space:nowrap;font-weight:800;min-height:44px}
+.tab[aria-selected="true"]{opacity:1;color:#fff;border-bottom-color:var(--gl)}
+.bd{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:var(--bad);color:#fff;font-size:.7rem;font-weight:900;margin-left:5px;text-align:center}
+.bd.g{background:var(--g);color:var(--md)}
+main{padding:16px 0 40px}
+.view{display:flex;flex-direction:column;gap:12px}
+.lead{margin:0;color:var(--mut);font-size:.88rem}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 13px;font-weight:800;min-height:38px}
+.chip small{font-weight:600;color:var(--mut);margin-left:4px}
+.chip[aria-pressed="true"]{background:var(--m);color:#fff;border-color:var(--m)}
+.chip[aria-pressed="true"] small{color:var(--s)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0}
+.ph{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap;padding:10px 14px;background:var(--soft)}
+.ph h3{margin:0;font-family:"Cinzel",serif;font-size:1rem;color:var(--m)}
+.ph span{font-size:.78rem;color:var(--mut)}
+.it{padding:10px 14px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:3px}
+.it:first-of-type{border-top:none}
+.it .t{display:flex;justify-content:space-between;gap:8px;align-items:center}
+.it p{margin:0;font-size:.9rem;white-space:pre-line}
+.it .m{font-size:.78rem;color:var(--mut)}
+.empty{padding:14px;color:var(--mut);font-size:.88rem}
+.pill{display:inline-block;padding:3px 10px;border-radius:999px;font-size:.7rem;font-weight:900;white-space:nowrap}
+.p-ok{background:var(--ok);color:#fff}.p-slow{background:var(--slow);color:var(--slowfg)}.p-bad{background:var(--bad);color:#fff}.p-w{border:1px solid var(--line);color:var(--mut);background:transparent}
+.kind{display:inline-block;font-size:.66rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:4px}
+.k-cw{background:var(--cwbg);color:var(--cw)}.k-hw{background:var(--hwbg);color:var(--hw)}
+/* periods */
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}
+.pc{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.pc .c{display:flex;justify-content:space-between;align-items:center;gap:6px}
+.pc .c b{font-family:"Cinzel",serif;color:var(--m)}
+.pc .who{font-weight:800}
+.pc .por{font-size:.85rem;color:var(--mut)}
+.pc.ai{border-color:#3B4A8C}
+.pc.none{border-style:dashed}
+.pc details summary{cursor:pointer;color:var(--m);font-weight:800;font-size:.8rem;list-style:none;margin-top:2px}
+.steps{margin:4px 0 0;padding-left:18px;font-size:.84rem}
+/* homework */
+.cols3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
+@media (max-width:1000px){.cols3{grid-template-columns:1fr}}
+.plist button{width:100%;text-align:left;background:transparent;border:none;border-top:1px solid var(--line);padding:9px 14px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;color:var(--fg)}
+.plist button:first-child{border-top:none}
+.plist button[aria-pressed="true"]{background:var(--now)}
+.plist .pn{font-family:"Cinzel",serif;color:var(--m);font-weight:700}
+.plist .ps{font-size:.8rem;color:var(--mut)}
+.sidebody{padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.bx{border-radius:10px;padding:10px 12px}
+.bx.cw{background:var(--cwbg)}.bx.hw{background:var(--hwbg)}
+.bx h4{margin:0 0 4px;font-size:.74rem;letter-spacing:.06em;text-transform:uppercase}
+.bx.cw h4{color:var(--cw)}.bx.hw h4{color:var(--hw)}
+.bx p{margin:0;font-size:.9rem;white-space:pre-line}
+table.w{width:100%;border-collapse:collapse;font-size:.88rem}
+table.w th,table.w td{text-align:left;padding:8px 12px;border-top:1px solid var(--line);vertical-align:top}
+table.w th{background:var(--soft);color:var(--m)}
+.scroll{overflow-x:auto}
+.warn{background:var(--hwbg);border:1px solid var(--g);border-radius:12px;padding:11px 14px;font-size:.88rem}
+.err{background:#FBE7E3;border:1px solid var(--bad);color:#5E120C;border-radius:12px;padding:12px 14px;font-weight:700}
+.btn{background:var(--m);color:var(--gl);border:none;border-radius:10px;padding:10px 16px;font-weight:900;min-height:44px}
+.btn:disabled{opacity:.5}
+.flag{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--line)}
+.flag:first-of-type{border-top:none}
+.flag .fd{flex:1 1 280px;min-width:0}
+.flag .fd b{display:block}
+.flag .fd div{font-size:.84rem;color:var(--mut);white-space:pre-line}
+</style>
+</head>
+<body>
+<header>
+  <div class="in">
+    <div class="hr">
+      <a class="back" href="dashboard.html">&larr; Back</a>
+      <div class="ttl"><small>Academic Control</small><h1 id="title">Loading…</h1></div>
+      <div class="hctl"><label for="day" style="font-weight:800;font-size:.85rem">Day</label><input type="date" id="day"/><button type="button" id="refresh">Refresh</button></div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="tabs" role="tablist" id="tabs">
+      <button class="tab" role="tab" data-v="periods" aria-selected="true">Periods</button>
+      <button class="tab" role="tab" data-v="homework" aria-selected="false">Homework</button>
+      <button class="tab" role="tab" data-v="classwork" aria-selected="false">Class work</button>
+      <button class="tab" role="tab" data-v="portion" aria-selected="false">Portion</button>
+      <button class="tab" role="tab" data-v="teachers" aria-selected="false">Teachers<span id="b-teachers"></span></button>
+      <button class="tab" role="tab" data-v="watch" aria-selected="false">Children to watch<span id="b-watch"></span></button>
+      <button class="tab" role="tab" data-v="needs" aria-selected="false">Needs you<span id="b-needs"></span></button>
+      <button class="tab" role="tab" data-v="approve" aria-selected="false">Approve<span id="b-approve"></span></button>
+    </div>
+  </div>
+</header>
+
+<main class="in">
+  <div id="loaderr"></div>
+  <section class="view" id="v-periods">
+    <p class="lead">For rounds. Pick a period to see every class: subject, teacher and the portion being taught. On today it opens on the period running now.</p>
+    <div class="chips" id="pchips"></div>
+    <div class="pgrid" id="pgrid"></div>
+  </section>
+
+  <section class="view" id="v-homework" hidden>
+    <p class="lead">One class at a time: yesterday's homework and its check, today's homework in full, and the next day's class work by period. Tap a period to open it below.</p>
+    <div class="chips" id="hchips"></div>
+    <div class="cols3">
+      <div class="panel"><div class="ph"><h3 id="h-y">Yesterday</h3><span>Checked by teachers today</span></div><div id="h-yb"></div></div>
+      <div class="panel"><div class="ph"><h3 id="h-t">Today</h3><span>Goes to parents at 4 PM</span></div><div id="h-tb"></div></div>
+      <div class="panel"><div class="ph"><h3 id="h-n">Next day's class work</h3><span>Tap a period</span></div><div class="plist" id="h-nb"></div></div>
+    </div>
+    <div class="panel" id="side"><div class="ph"><h3 id="s-t">Pick a period</h3><span id="s-s"></span></div><div class="sidebody" id="s-b"><div class="empty">Tap a period in "Next day's class work" to see its class work and homework here.</div></div></div>
+  </section>
+
+  <section class="view" id="v-classwork" hidden>
+    <p class="lead">What goes to parents as "In class today", kept apart from homework. Blue = class work, gold = homework.</p>
+    <div class="chips" id="cchips"></div>
+    <div id="cwb" class="view"></div>
+  </section>
+
+  <section class="view" id="v-portion" hidden>
+    <p class="lead">Is every class keeping to its Term Plan? Subjects behind come first.</p>
+    <div class="panel scroll"><table class="w"><thead><tr><th>Class</th><th>Subject · Teacher</th><th>Done</th><th>Today</th><th>Status</th></tr></thead><tbody id="porb"></tbody></table></div>
+  </section>
+
+  <section class="view" id="v-teachers" hidden>
+    <p class="lead">Who submitted their day, what they marked, and their homework check.</p>
+    <div class="panel scroll"><table class="w"><thead><tr><th>Teacher</th><th>Day</th><th>Lessons</th><th>Homework check</th></tr></thead><tbody id="teab"></tbody></table></div>
+  </section>
+
+  <section class="view" id="v-watch" hidden>
+    <div id="watchwarn"></div>
+    <div class="panel" id="watchb"></div>
+  </section>
+
+  <section class="view" id="v-needs" hidden>
+    <p class="lead">Only the things that need you.</p>
+    <div class="panel" id="needsb"></div>
+  </section>
+
+  <section class="view" id="v-approve" hidden>
+    <p class="lead">Read and approve before 4 PM. Class work and homework are shown separately.</p>
+    <div class="chips" id="achips"></div>
+    <div id="apb" class="view"></div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><button class="btn" type="button" id="approve" hidden>Approve</button><span id="apmsg" style="font-weight:800"></span><a href="homework-planner.html" style="font-weight:800;color:var(--m)">Change or send back in the Homework Planner &rarr;</a></div>
+  </section>
+</main>
+
+<script>
+(function(){
+  var $=function(id){return document.getElementById(id)};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
+  var CLS=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+  var WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  var MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  function istToday(){return new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10)}
+  function istNow(){return new Date(Date.now()+5.5*3600e3).toISOString().slice(11,16)}
+  function pd(s){return new Date(s+"T00:00:00Z")}
+  function wd(s){return WD[pd(s).getUTCDay()]}
+  function add(s,n){var d=pd(s);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
+  function schoolDay(s,dir){var x=add(s,dir);for(var i=0;i<7&&wd(x)==="Sun";i++)x=add(x,dir);return x}
+  function nice(s){var d=pd(s);return WD[d.getUTCDay()]+" "+d.getUTCDate()+" "+MON[d.getUTCMonth()]}
+  function t12(t){var p=String(t||"").split(":"),H=parseInt(p[0],10);if(isNaN(H))return t||"";return((H%12)||12)+":"+(p[1]||"00")+" "+(H<12?"AM":"PM")}
+  var AL={maths:"mathematics",math:"mathematics",mat:"mathematics","social science":"social",sst:"social","social studies":"social",social:"social",eng:"english",sci:"science",tam:"tamil",hin:"hindi"};
+  function sk(s){s=String(s||"").toLowerCase().trim();return AL[s]||s}
+  function sameSub(a,b){a=sk(a);b=sk(b);return a===b||(a.length>=3&&b.length>=3&&(a.indexOf(b)===0||b.indexOf(a)===0))}
+  function cord(a,b){return CLS.indexOf(a)-CLS.indexOf(b)}
+  function steps(t){return String(t||"").split(/\s+(?=\d{1,2}\.\s+(?:p\.|pp\.|[A-Z]))/).map(function(x){return x.trim()}).filter(Boolean)}
+  function chap(t){return String(t||"").replace(/(?:\b[A-Z] ){2,}[A-Z]\b/g,function(m){var w=m.replace(/ /g,"");return({SOCIALSCIENCE:"Social Science",MATHEMATICS:"Mathematics"})[w]||(w.charAt(0)+w.slice(1).toLowerCase())})}
+  function pill(cls,txt){return '<span class="pill '+cls+'">'+h(txt)+'</span>'}
+  function stPill(st){return st==="done"?pill("p-ok","Done"):st==="not"?pill("p-bad","Not done"):pill("p-w","Not marked")}
+  function lvl(l){return l==="bad"?pill("p-bad","Needs action"):l==="slow"?pill("p-slow","Slightly behind"):pill("p-ok","On track")}
+
+  async function call(url,body){
+    var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    var d;try{d=await r.json()}catch(e){d={error:"The server did not answer properly (status "+r.status+")."}}
+    if(r.status===401)d.error=(d.error||"Please log in again.")+" Your login may have ended.";
+    return d;
+  }
+
+  var S={day:istToday(),L:null,Y:null,N:null,TT:null,period:null,cls:null,ccls:null,acls:"all",sideI:-1};
+
+  // ── tabs ──
+  $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;
+    document.querySelectorAll(".tab").forEach(function(t){t.setAttribute("aria-selected",t===b?"true":"false");$("v-"+t.dataset.v).hidden=t!==b});
+    window.scrollTo(0,0)});
+  function chips(el,list,sel,cb){el.innerHTML=list.map(function(x){return '<button type="button" class="chip" data-k="'+h(x.k)+'" aria-pressed="'+(x.k===sel)+'">'+h(x.label||x.k)+(x.sub?' <small>'+h(x.sub)+'</small>':'')+'</button>'}).join("");
+    el.onclick=function(e){var b=e.target.closest(".chip");if(!b)return;el.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed",c===b?"true":"false")});cb(b.dataset.k)}}
+
+  // ── load ──
+  async function load(){
+    S.day=$("day").value||istToday();
+    $("title").textContent=(S.day===istToday()?"Today · ":"")+nice(S.day);
+    $("loaderr").innerHTML="";
+    var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);
+    var res=await Promise.all([call("/api/teacher-app",{action:"live",date:S.day}),call("/api/teacher-app",{action:"live",date:y}),
+      call("/api/teacher-app",{action:"live",date:n}),call("/api/timetable",{action:"get"})]);
+    if(!res[0].success){$("loaderr").innerHTML='<div class="err">'+h(res[0].error||"Could not load.")+'</div>';return}
+    S.L=res[0];S.Y=res[1].success?res[1]:null;S.N=res[2].success?res[2]:null;S.TT=res[3].success?res[3]:null;S.yday=y;S.nday=n;
+    var s=S.L.stats;
+    $("stats").innerHTML='<span><b>'+s.lessons_done+'/'+s.lessons_today+'</b>lessons done</span><span><b>'+s.submitted+'/'+s.teachers+'</b>teachers submitted · deadline '+h(t12(S.L.deadline))+'</span><span><b>'+s.homework_today+'</b>homework today</span>';
+    var waitN=(S.L.parent_update||[]).filter(function(x){return x.status==="waiting"}).length;
+    var bad=(S.L.flags||[]).filter(function(f){return f.level==="bad"}).length;
+    var notSub=(S.L.teachers||[]).filter(function(t){return t.state==="missing"}).length;
+    var watchN=(S.L.teachers||[]).filter(function(t){return t.watch}).length;
+    $("b-approve").innerHTML=waitN?'<span class="bd g">'+waitN+'</span>':"";
+    $("b-needs").innerHTML=bad?'<span class="bd">'+bad+'</span>':"";
+    $("b-teachers").innerHTML=notSub?'<span class="bd">'+notSub+'</span>':"";
+    $("b-watch").innerHTML=watchN?'<span class="bd g">'+watchN+'</span>':"";
+    var classes=allClasses();
+    if(!S.cls||classes.indexOf(S.cls)===-1)S.cls=classes[0]||"";
+    if(!S.ccls)S.ccls="all";
+    drawPeriods();drawHomework();drawClasswork();drawPortion();drawTeachers();drawWatch();drawNeeds();drawApprove();
+  }
+  function allClasses(){var set={};(S.L.subjects||[]).forEach(function(x){set[x.class_name]=1});(S.L.parent_update||[]).forEach(function(x){set[x.class_name]=1});
+    ttClasses().forEach(function(c){set[c]=1});return Object.keys(set).sort(cord)}
+  function ttClasses(){if(!S.TT)return[];var out={};Object.keys(S.TT.grid||{}).forEach(function(d){Object.keys(S.TT.grid[d]||{}).forEach(function(p){Object.keys(S.TT.grid[d][p]||{}).forEach(function(c){out[c]=1})})});
+    (S.TT.classes||[]).forEach(function(c){out[c]=1});return Object.keys(out)}
+
+  // lesson of a class+subject on a day (L = live data), preferring the one in this period
+  function lessonFor(L,cls,subj,plabel){
+    if(!L)return null;var s=(L.subjects||[]).find(function(x){return x.class_name===cls&&sameSub(x.subject,subj)});
+    if(!s||!s.today.length)return s?{sub:s,les:null}:null;
+    var les=s.today.find(function(x){return x.period&&plabel&&x.period===plabel})||(s.today.length===1?s.today[0]:null)||s.today[0];
+    return{sub:s,les:les};
+  }
+
+  // ── PERIODS ──
+  function periodsOf(dayStr){
+    if(!S.TT)return[];var w=wd(dayStr),g=(S.TT.grid||{})[w]||{},per=S.TT.periods||[];
+    var n=Math.max(per.length,Object.keys(g).reduce(function(m,p){return Math.max(m,+p+1)},0)),out=[];
+    for(var i=0;i<n;i++){var p=per[i]||{label:"P"+(i+1)};if(p.isBreak)continue;out.push({i:i,label:p.label||("P"+(i+1)),start:p.start||"",end:p.end||"",row:g[String(i)]||{}})}
+    return out}
+  function drawPeriods(){
+    var ps=periodsOf(S.day);
+    if(!ps.length){$("pchips").innerHTML="";$("pgrid").innerHTML='<div class="panel empty">'+(S.TT?"No timetable for "+h(wd(S.day))+". Set it in ERP → Timetable → Master timetable (or School Admin → Timetable).":"The school timetable could not be read.")+'</div>';return}
+    if(S.period==null||!ps.some(function(p){return p.i===S.period})){
+      var now=istNow(),cur=S.day===istToday()?ps.find(function(p){return p.start&&p.end&&now>=p.start&&now<p.end}):null;S.period=(cur||ps[0]).i}
+    var now2=istNow();
+    chips($("pchips"),ps.map(function(p){var isNow=S.day===istToday()&&p.start&&p.end&&now2>=p.start&&now2<p.end;
+      return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(isNow?" · now":"")}}),String(S.period),function(k){S.period=+k;drawPgrid()});
+    drawPgrid()}
+  function shortP(l,i){var m=/(\d+)/.exec(l||"");return m?"P"+m[1]:(l||"P"+(i+1))}
+  function drawPgrid(){
+    var p=periodsOf(S.day).find(function(x){return x.i===S.period});if(!p)return;
+    var classes=allClasses();
+    $("pgrid").innerHTML=classes.map(function(c){
+      var cell=p.row[c];
+      if(!cell||(!cell.subject&&!cell.teacher))return '<div class="pc none"><div class="c"><b>'+h(c)+'</b>'+pill("p-bad","Nothing set")+'</div><div class="por">No subject or teacher in the timetable for this period.</div></div>';
+      var lf=lessonFor(S.L,c,cell.subject,p.label),les=lf&&lf.les,teacher=cell.teacher||(lf&&lf.sub&&lf.sub.teacher)||"No teacher";
+      var por=les?h(chap(les.chapter))+(les.pages?" · p. "+h(les.pages):""):'<i>No lesson planned for this subject today</i>';
+      var st=les?stPill(les.state):"";
+      var det=les&&les.teach?'<details><summary>What to teach ▾</summary><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></details>':"";
+      return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")}
+
+  // ── HOMEWORK ──
+  function hwOf(L,cls){return(L&&L.parent_update||[]).filter(function(x){return x.class_name===cls&&x.type==="homework"})}
+  function statusPill(x){return x.sent?pill("p-ok","Sent to parents"):x.status==="added"?pill("p-ok","Approved"):pill("p-slow","Waiting for you")}
+  function drawHomework(){
+    var classes=allClasses();
+    chips($("hchips"),classes.map(function(c){return{k:c}}),S.cls,function(k){S.cls=k;S.sideI=-1;drawHomeworkBody()});
+    drawHomeworkBody()}
+  function drawHomeworkBody(){
+    var c=S.cls;
+    $("h-y").textContent="Yesterday · "+nice(S.yday);$("h-t").textContent="Today · "+nice(S.day);$("h-n").textContent="Class work · "+nice(S.nday);
+    // yesterday + today's checks of it
+    var checks=[];(S.L.teachers||[]).forEach(function(t){(t.hw_checks||[]).forEach(function(k){if(k.class_name===c)checks.push(Object.assign({by:t.name},k))})});
+    var yh=hwOf(S.Y,c);
+    var yb=yh.map(function(x){var k=checks.find(function(k){return sameSub(k.subject,x.subject)});
+      var cp=!k?pill("p-w","Not checked"):k.corrected==="yes"?pill("p-ok","Corrected"):k.corrected==="some"?pill("p-slow","Some corrected"):k.corrected==="no"?pill("p-bad","Not corrected"):pill("p-w","Not answered");
+      return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+cp+'</div><p>'+h(x.text)+'</p><div class="m">'+(k&&k.missing&&k.missing.length?"Didn't bring: roll "+h(k.missing.join(", "))+(k.by?" · checked by "+h(k.by):""):(k&&k.by?"Checked by "+h(k.by):"Teacher has not marked the check yet"))+'</div></div>'}).join("");
+    // checks for subjects without a listed homework
+    checks.filter(function(k){return!yh.some(function(x){return sameSub(x.subject,k.subject)})}).forEach(function(k){
+      yb+='<div class="it"><div class="t"><b>'+h(k.subject)+'</b>'+(k.corrected==="yes"?pill("p-ok","Corrected"):k.corrected==="no"?pill("p-bad","Not corrected"):pill("p-slow","Some corrected"))+'</div><p>'+h(k.homework||"")+'</p><div class="m">'+(k.missing&&k.missing.length?"Didn't bring: roll "+h(k.missing.join(", ")):"")+'</div></div>'});
+    $("h-yb").innerHTML=yb||'<div class="empty">No homework went to '+h(c)+' yesterday.</div>';
+    var th=hwOf(S.L,c);
+    $("h-tb").innerHTML=th.length?th.map(function(x){return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?("By "+x.teacher):"")+'</div></div>'}).join(""):'<div class="empty">No homework for '+h(c)+' today yet. Add it in the Homework Planner.</div>';
+    // next day's periods for this class
+    var ps=periodsOf(S.nday),list=[];
+    ps.forEach(function(p){var cell=p.row[c];if(!cell||!cell.subject)return;var lf=lessonFor(S.N,c,cell.subject,p.label);list.push({p:p,cell:cell,lf:lf})});
+    if(!list.length&&S.N)(S.N.subjects||[]).filter(function(x){return x.class_name===c&&x.today.length}).forEach(function(x){list.push({p:{label:"—"},cell:{subject:x.subject,teacher:x.teacher},lf:{sub:x,les:x.today[0]}})});
+    S.nlist=list;
+    $("h-nb").innerHTML=list.length?list.map(function(x,i){var les=x.lf&&x.lf.les;
+      return '<button type="button" data-i="'+i+'" aria-pressed="'+(i===S.sideI)+'"><span class="pn">'+h(shortP(x.p.label,0))+'</span><span><b>'+h(x.cell.subject)+'</b> · '+h(x.cell.teacher||(x.lf&&x.lf.sub&&x.lf.sub.teacher)||"")+'<br><span class="ps">'+(les?h(chap(les.chapter))+(les.pages?" · p. "+h(les.pages):""):"No lesson planned")+'</span></span></button>'}).join(""):'<div class="empty">Nothing planned for '+h(c)+' on '+h(nice(S.nday))+'.</div>';
+    $("h-nb").onclick=function(e){var b=e.target.closest("button");if(!b)return;S.sideI=+b.dataset.i;
+      $("h-nb").querySelectorAll("button").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});drawSide();
+      if(window.innerWidth<1000)$("side").scrollIntoView({behavior:"smooth",block:"start"})};
+    drawSide()}
+  function drawSide(){
+    var x=S.nlist&&S.nlist[S.sideI];
+    if(!x){$("s-t").textContent="Pick a period";$("s-s").textContent="";$("s-b").innerHTML='<div class="empty">Tap a period in the class work list to see its class work and planned homework here, next to today\'s homework.</div>';return}
+    var les=x.lf&&x.lf.les;
+    $("s-t").textContent=shortP(x.p.label,0)+" · "+S.cls+" · "+x.cell.subject+(x.cell.teacher?" · "+x.cell.teacher:"");
+    $("s-s").textContent=les?chap(les.chapter)+(les.pages?" · p. "+les.pages:"")+" · "+nice(S.nday):nice(S.nday);
+    if(!les){$("s-b").innerHTML='<div class="empty">No lesson in the Term Planner for this subject on that day.</div>';return}
+    $("s-b").innerHTML='<div class="bx cw"><h4>Class work — what to teach</h4><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></div>'
+      +(les.activity?'<div class="bx cw"><h4>Activity</h4><p>'+h(les.activity)+'</p></div>':'')
+      +'<div class="bx hw"><h4>Homework planned</h4><p>'+h(les.homework||"None in the Term Planner for this day.")+'</p></div>'}
+
+  // ── CLASS WORK ──
+  function drawClasswork(){
+    var pu=S.L.parent_update||[],classes=allClasses().filter(function(c){return pu.some(function(x){return x.class_name===c})});
+    chips($("cchips"),[{k:"all",label:"All classes",sub:String(pu.length)}].concat(classes.map(function(c){return{k:c,sub:String(pu.filter(function(x){return x.class_name===c}).length)}})),S.ccls,function(k){S.ccls=k;drawCwBody()});
+    drawCwBody()}
+  function drawCwBody(){
+    var pu=(S.L.parent_update||[]).filter(function(x){return S.ccls==="all"||x.class_name===S.ccls}).sort(function(a,b){return cord(a.class_name,b.class_name)||(a.type<b.type?-1:1)});
+    if(!pu.length){$("cwb").innerHTML='<div class="panel empty">Nothing for parents yet today. Class work appears when teachers submit their day.</div>';return}
+    var groups={};pu.forEach(function(x){(groups[x.class_name]=groups[x.class_name]||[]).push(x)});
+    $("cwb").innerHTML=Object.keys(groups).sort(cord).map(function(c){var g=groups[c];
+      var part=function(type,label,k){var list=g.filter(function(x){return x.type===type});if(!list.length)return"";
+        return '<div class="it" style="background:var('+(type==="classwork"?"--cwbg":"--hwbg")+')"><span class="kind '+k+'">'+label+'</span></div>'+list.map(function(x){
+          var long=type==="classwork"&&String(x.text||"").length>400;
+          return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?"By "+x.teacher:"")+(long?' · <b style="color:var(--bad)">Long — parents get all of this text</b>':'')+'</div></div>'}).join("")};
+      return '<div class="panel"><div class="ph"><h3>'+h(c)+'</h3><span>'+g.length+' item'+(g.length>1?"s":"")+'</span></div>'+part("classwork","Class work · in class today","k-cw")+part("homework","Homework · to do at home","k-hw")+'</div>'}).join("")}
+
+  // ── PORTION ──
+  function drawPortion(){
+    var rank={bad:0,slow:1,ok:2},subs=(S.L.subjects||[]).slice().sort(function(a,b){return(rank[a.level]-rank[b.level])||(b.behind-a.behind)||cord(a.class_name,b.class_name)});
+    $("porb").innerHTML=subs.length?subs.map(function(s){var td=s.today.length?s.today.map(function(x){return h(chap(x.chapter))+" "+stPill(x.state)+(x.state==="not"&&x.reason?' <small>('+h(x.reason)+')</small>':"")}).join("<br>"):'<span style="color:var(--mut)">No lesson today</span>';
+      return '<tr><td><b>'+h(s.class_name)+'</b></td><td>'+h(s.subject)+'<br><small style="color:var(--mut)">'+h(s.teacher||"No teacher set")+'</small></td><td style="white-space:nowrap">'+s.done+' of '+s.total+(s.behind?'<br><b style="color:var(--bad)">'+s.behind+' behind</b>':'')+'</td><td>'+td+'</td><td>'+lvl(s.level)+'</td></tr>'}).join(""):'<tr><td colspan="5" class="empty">No term plans yet.</td></tr>'}
+
+  // ── TEACHERS ──
+  function drawTeachers(){
+    var ord={missing:0,waiting:1,late:2,ok:3},ts=(S.L.teachers||[]).slice().sort(function(a,b){return ord[a.state]-ord[b.state]});
+    $("teab").innerHTML=ts.length?ts.map(function(t){
+      var st=t.state==="ok"?pill("p-ok","Submitted"):t.state==="late"?pill("p-slow","Late"):t.state==="missing"?pill("p-bad","Not submitted"):pill("p-w","Not yet");
+      var les=t.items.length?t.items.map(function(x){return(x.status==="done"?"✓":x.status==="not"?"✗":"?")+" "+h(x.class_name)+" "+h(x.subject)+(x.status==="not"&&x.reason?" ("+h(x.reason)+")":"")}).join("<br>"):'<span style="color:var(--mut)">Nothing marked</span>';
+      var ck=t.hw_checks.length?t.hw_checks.map(function(c){return h(c.class_name+" "+c.subject)+": "+(c.corrected==="yes"?"corrected":c.corrected==="some"?"some corrected":c.corrected==="no"?'<b style="color:var(--bad)">not corrected</b>':"not answered")+(c.missing&&c.missing.length?" · roll "+h(c.missing.join(", "))+" didn't bring":"")}).join("<br>"):'<span style="color:var(--mut)">—</span>';
+      return '<tr><td><b>'+h(t.name)+'</b></td><td>'+st+'<br><small style="color:var(--mut)">'+t.done+' done · '+t.not+' not done</small></td><td>'+les+'</td><td>'+ck+'</td></tr>'}).join(""):'<tr><td colspan="4" class="empty">No teachers in the Teacher App yet.</td></tr>'}
+
+  // ── CHILDREN TO WATCH ──
+  var HWLIKE=/\b(h\/?w|homework|home work|work ?sheet|write|subject\s*:|class\s*:|date\s*:)/i;
+  function drawWatch(){
+    var ts=(S.L.teachers||[]).filter(function(t){return t.watch});
+    var wrong=ts.filter(function(t){return HWLIKE.test(t.watch)});
+    $("watchwarn").innerHTML=wrong.length?'<div class="warn"><b>'+wrong.length+' of '+ts.length+' teacher'+(ts.length>1?'s':'')+' wrote homework here</b> instead of children to watch ('+h(wrong.map(function(t){return t.name}).join(", "))+'). This box is only for a child who needs attention, e.g. "Roll 12 — no homework 3 days", "Roll 4 — sleepy, fever".</div>':"";
+    $("watchb").innerHTML='<div class="ph"><h3>Children to watch · '+h(nice(S.day))+'</h3><span>Written by teachers when they submit their day</span></div>'
+      +(ts.length?ts.map(function(t){var bad=HWLIKE.test(t.watch);
+        return '<div class="it"><div class="t"><b>'+h(t.name)+'</b>'+(bad?pill("p-slow","Looks like homework"):pill("p-w","Child to watch"))+'</div><p>'+h(t.watch)+'</p></div>'}).join(""):'<div class="empty">No teacher wrote a child to watch today.</div>')}
+
+  // ── NEEDS YOU ──
+  function drawNeeds(){
+    var f=(S.L.flags||[]).filter(function(x){return x.kind!=="Watch"&&x.kind!=="Approve"});
+    $("needsb").innerHTML=f.length?f.map(function(x){return '<div class="flag"><div>'+(x.level==="bad"?pill("p-bad",x.kind):x.level==="slow"?pill("p-slow",x.kind):pill("p-w",x.kind))+'</div><div class="fd"><b>'+h(x.title)+'</b><div>'+h(x.detail)+'</div></div></div>'}).join(""):'<div class="empty">Nothing needs you right now.</div>'}
+
+  // ── APPROVE ──
+  function drawApprove(){
+    var w=(S.L.parent_update||[]).filter(function(x){return x.status==="waiting"}),classes=allClasses().filter(function(c){return w.some(function(x){return x.class_name===c})});
+    if(S.acls!=="all"&&classes.indexOf(S.acls)===-1)S.acls="all";
+    chips($("achips"),[{k:"all",label:"All classes",sub:String(w.length)}].concat(classes.map(function(c){return{k:c,sub:String(w.filter(function(x){return x.class_name===c}).length)}})),S.acls,function(k){S.acls=k;drawApBody()});
+    drawApBody()}
+  function drawApBody(){
+    var w=(S.L.parent_update||[]).filter(function(x){return x.status==="waiting"&&(S.acls==="all"||x.class_name===S.acls)}).sort(function(a,b){return cord(a.class_name,b.class_name)});
+    var part=function(type,label,k){var list=w.filter(function(x){return x.type===type});if(!list.length)return"";
+      return '<div class="panel"><div class="ph"><h3><span class="kind '+k+'">'+label+'</span> '+list.length+' waiting</h3></div>'+list.map(function(x){return '<div class="it"><div class="t"><b>'+h(x.class_name)+' · '+h(x.subject)+'</b>'+pill("p-slow","Waiting")+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?"By "+x.teacher:"")+'</div></div>'}).join("")+'</div>'};
+    $("apb").innerHTML=w.length?part("classwork","Class work","k-cw")+part("homework","Homework","k-hw"):'<div class="panel empty">Nothing waiting for your approval.</div>';
+    var b=$("approve");b.hidden=!w.length;b.disabled=false;b.textContent="Approve "+(S.acls==="all"?"all ":S.acls+" · ")+w.length+" and send to parents";
+    b.onclick=async function(){
+      if(b.dataset.sure!=="1"){b.dataset.sure="1";b.textContent="Tap again to approve "+w.length;$("apmsg").textContent="They go to parents at 4 PM (straight away if it is past 4 PM).";return}
+      b.dataset.sure="";b.disabled=true;$("apmsg").textContent="Approving…";
+      var r=await call("/api/homework",{action:"add",ids:w.map(function(x){return x.id})});
+      if(!r.success){b.disabled=false;$("apmsg").style.color="var(--bad)";$("apmsg").textContent=r.error||"Could not approve.";return}
+      $("apmsg").style.color="var(--ok)";$("apmsg").textContent="Approved "+(r.added||w.length)+"."+(r.sent&&r.sent.sent?" Sent to parents now.":"");
+      await load()}}
+
+  $("day").value=istToday();
+  $("day").onchange=function(){S.period=null;load()};
+  $("refresh").onclick=load;
+  load();
+})();
+</script>
+</body>
+</html>

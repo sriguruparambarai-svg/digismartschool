@@ -705,7 +705,9 @@ module.exports = async function handler(req, res) {
           if (x && x.date === day) {
             const m = marked[p.id + '|' + i];
             todays.push({ chapter: x.chapter || '', teach: x.teach || '', activity: x.class_act || '',
-                          state: m ? m.status : (x.done ? 'done' : ''), reason: m ? (m.reason || '') : '' });
+                          state: m ? m.status : (x.done ? 'done' : ''), reason: m ? (m.reason || '') : '',
+                          // Oct 2026: for the new Academic Control page (period-by-period view)
+                          period: x.period || '', pages: x.pages || '', type: x.type || '', room: x.room || '', homework: x.homework || '' });
           }
         });
         subjects.push({ class_name: p.class_name, subject: p.subject, term: p.term, plan_status: p.status,
