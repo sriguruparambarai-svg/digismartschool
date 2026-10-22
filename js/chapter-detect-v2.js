@@ -212,6 +212,9 @@
                       pStart: parseInt(m[3], 10) });
           return;
         }
+        // Oct 2026: a subject name with its start page ("SCIENCE 54", "Social Science 80")
+        var sm = /^(english|mathematics|maths|science|social science|social studies|evs|environmental studies|hindi|tamil|computer science|computer|general knowledge|gk)\s+\d{1,3}$/i.exec(clean);
+        if (sm) { subject = sm[1].toLowerCase().replace(/\b[a-z]/g, function (c) { return c.toUpperCase(); }).replace(/^(Evs|Gk)$/, function (x) { return x.toUpperCase(); }); return; }
         // a short line with no page number is a subject name ("Mathematics")
         if (clean.indexOf('|') !== -1) return;                 // running header
         if (/^\d+$/.test(clean)) return;                      // page number
