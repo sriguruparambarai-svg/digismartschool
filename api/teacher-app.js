@@ -411,7 +411,9 @@ module.exports = async function handler(req, res) {
           myClasses.map(function (c) { return '"' + c.replace(/"/g, '') + '"'; }).map(enc).join(',') +
           ')&status=neq.returned&select=id,class_name,subject,term,status,rows&order=updated_at.desc');
         if (!ok(pr)) return res.json({ error: 'Could not read the term plans: ' + why(pr) });
-        plans = pr.data.filter(function (p) { return isMine(p.class_name, p.subject); });
+        // Oct 2026: Reading / Writing Practice plans stay in the Term Planner and Homework Planner only —
+        // the principal allots those periods herself, so they never reach a teacher's My Day / Tomorrow
+        plans = pr.data.filter(function (p) { return isMine(p.class_name, p.subject) && !/(Reading|Writing) Practice$/i.test(String(p.subject || '')); });
       }
 
       const repR = await db('GET', '/rest/v1/teacher_day_reports?teacher_app_id=eq.' + enc(t.id) + '&report_date=eq.' + today + '&select=*&limit=1');
