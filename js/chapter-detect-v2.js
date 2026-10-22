@@ -184,8 +184,8 @@
   // the chapter numbers start again at 1 for every subject. Strategy 1
   // misses these: the line starts with the word "Chapter", there is only a
   // start page, and a repeated "Chapter 1" looked like a duplicate.
-  // Oct 2026: Hindi lines too — "पाठ 1 Lesson 1 स्वर (Vowels) 50" or "पाठ 1 स्वर (Vowels) 50"
-  var TOC_WORD = /^\s*(?:\u092A\u093E\u0920\s*\d{1,2}\s*[-\u2013\u2014:.]?\s*(?=(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson)\s*[-\u2013\u2014:.]?\s*\d))?(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson|\u0BAA\u0BBE\u0B9F\u0BAE\u0BCD|\u0B85\u0BB2\u0B95\u0BC1|\u092A\u093E\u0920)\s*[-\u2013\u2014:.]?\s*(\d{1,2})\s*[-\u2013\u2014:.]?\s+(.+?)\s+(\d{1,3})\s*$/;
+  // Oct 2026: Hindi lines too — "पाठ 1 Lesson 1 स्वर (Vowels) 50" (the पाठ may arrive garbled from the PDF, so any short word + number before "Lesson N" is allowed) or "पाठ 1 स्वर (Vowels) 50"
+  var TOC_WORD = /^\s*(?:\S{1,10}\s*\d{1,2}\s*[-\u2013\u2014:.]?\s*(?=(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson)\s*[-\u2013\u2014:.]?\s*\d))?(?:CHAPTER|Chapter|UNIT|Unit|LESSON|Lesson|\u0BAA\u0BBE\u0B9F\u0BAE\u0BCD|\u0B85\u0BB2\u0B95\u0BC1|\u092A\u093E\u0920)\s*[-\u2013\u2014:.]?\s*(\d{1,2})\s*[-\u2013\u2014:.]?\s+(.+?)\s+(\d{1,3})\s*$/;
 
   function plainText(t) {
     return String(t || '').replace(/[\u0000-\u001F\u007F]/g, ' ')
