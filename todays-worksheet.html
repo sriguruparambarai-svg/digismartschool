@@ -338,7 +338,7 @@ table.tbl td.blank{height:11mm}
         <div class="row">
           <label>Write each word<select id="wpTimes"><option>2</option><option>3</option><option>4</option><option selected>5</option><option>6</option><option>8</option><option>10</option></select></label>
           <label>Layout<select id="wpLayout"><option value="box2">Boxes — word on top, lines below, 2 in a row</option><option value="box3">Boxes — word on top, lines below, 3 in a row</option><option value="box1">Boxes — 1 in a row (for sentences)</option><option value="beside">Word beside the lines</option></select></label>
-          <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option><option value="trace">Trace once, then write</option></select></label>
+          <label>How each word looks<select id="wpStyle"><option value="write">Write only — word printed once, then the lines</option><option value="pic">Picture + trace + write</option><option value="picwrite">Picture + write</option><option value="trace">Trace once, then write</option></select></label>
           <label>Ruling<select id="wpRule"><option value="single">Single line</option><option value="four">Four-line (letter height)</option></select></label>
           <label>Letters<select id="wpFont"><option value="print">Print</option><option value="cursive">Cursive (joined)</option></select></label>
           <label>Add your own words (comma between)<input id="wpOwn" placeholder="e.g. fox, gift, hen"></label>
@@ -502,7 +502,7 @@ async function getLesson(){
   t=t.trim();const real=t.replace(/----- Book page \d+ -----/g,"").trim();
   LESSON={id,text:real.length>200?t:"",scanned:real.length<=200};return LESSON}
 function lessonLabel(){return $("fClass").value+" "+$("fSubject").value+(($("fTopic").value.trim())?" — “"+$("fTopic").value.trim()+"”":"")}
-function langRule(){const s=$("fSubject").value;
+function langRule(subj){const s=subj||$("fSubject").value;
   if(/tamil/i.test(s))return"Write everything for the child in Tamil script, as in the book.";
   if(/hindi/i.test(s))return"Write everything for the child in Hindi (Devanagari script), as in the book. Keep instructions very simple.";
   return"Write in simple English suited to the class."}
@@ -745,33 +745,63 @@ $("acBtn").onclick=suggestAC;
 
 /* ---------- 0. today's homework from the Term Planner ---------- */
 let HWQ=[];
+let HWSUBJ=[];   // subjects on one combined "Today's homework" sheet (from the Homework Planner)
+// "[English]" on its own line starts that subject's homework (the planner's one-sheet-for-all link)
+function hwBlocks(text){const out=[];let cur={subj:"",lines:[]};
+  String(text||"").split("\n").forEach(l=>{const m=/^\s*\[([^\]]{1,40})\]\s*$/.exec(l);if(m){if(cur.lines.join("").trim())out.push(cur);cur={subj:m[1].trim(),lines:[]}}else cur.lines.push(l)});
+  if(cur.lines.join("").trim())out.push(cur);
+  return out.map(b=>({subj:b.subj,text:b.lines.join("\n").trim()}))}
+// Homework that is only word lists ("New words to read and write: food, energy, grow (write each word 3 times)")
+// is read here, with no AI. Anything else returns null and goes to the AI.
+function readWordHW(text){const words=[];let times=0;
+  const lines=String(text||"").split(/\n+/).map(x=>x.trim()).filter(Boolean);if(!lines.length)return null;
+  for(const line of lines){
+    const m=/^([^:]{0,80}\b(?:words?|spellings?|letters?)\b[^:]{0,60}):\s*(.+)$/i.exec(line);if(!m)return null;
+    const t=/(\d{1,2})\s*times/i.exec(line);if(t)times=+t[1];
+    const body=m[2].replace(/\([^)]*\)/g," ").replace(/[.\s]+$/,"");
+    const got=body.split(/\s*[,;،]\s*/).map(w=>w.trim()).filter(Boolean);
+    if(!got.length||got.some(w=>w.length>40||w.split(/\s+/).length>4))return null;
+    got.forEach(w=>{if(!words.some(x=>x.toLowerCase()===w.toLowerCase()))words.push(w)})}
+  return words.length?{words,times}:null}
+function setTimes(v){const el=$("wpTimes");v=String(v);if(![...el.options].some(o=>o.value===v)){const o=document.createElement("option");o.value=o.textContent=v;el.appendChild(o)}el.value=v}
 async function makeHW(){
   const text=$("hwText").value.trim();if(!text){toast("There is no homework text to use.",true);return}
   const btn=$("hwBtn");busy(btn,"Making…");
   try{
     $("hwBody").innerHTML='<p class="hint"><span class="spin"></span>Turning the homework into a worksheet…</p>';
-    const L=await getLesson().catch(()=>({text:""}));
-    const sys=`You turn a teacher's homework into a printable worksheet for ${$("fClass").value} ${$("fSubject").value}. ${langRule()}
+    const blocks=hwBlocks(text);HWSUBJ=blocks.filter(b=>b.subj).map(b=>b.subj).filter((x,i,a)=>a.indexOf(x)===i);
+    HWQ=[];let nWords=0;const timesSeen=[];
+    const addWords=(ws,group,times)=>{ws.forEach(w=>{if(!WP.some(x=>x.w.toLowerCase()===w.toLowerCase()&&x.group===group)){WP.push({w,group,on:true,n:times||0});nWords++}})};
+    for(const b of blocks){
+      const group=b.subj||"Today's homework";
+      const quick=readWordHW(b.text);
+      if(quick){addWords(quick.words,group,quick.times);if(quick.times)timesSeen.push(quick.times);continue}
+      const d=await hwAI(b.text,b.subj);
+      const words=((d&&d.words)||[]).map(w=>String(w||"").trim()).filter(Boolean);
+      const t=/(\d{1,2})\s*times/i.exec(b.text);if(t&&words.length)timesSeen.push(+t[1]);
+      addWords(words,group,t&&words.length?+t[1]:0);
+      ((d&&d.questions)||[]).filter(q=>q&&q.type&&(q.q||q.text)).forEach(q=>HWQ.push(Object.assign({on:true,subj:b.subj},q)))}
+    if(nWords){if(timesSeen.length&&!HWSUBJ.length)setTimes(timesSeen[0]);
+      $("useWP").checked=true;wpSetInst();renderWP();wpPicStatus()}
+    if(HWQ.length)$("useHW").checked=true;
+    if(!nWords&&!HWQ.length)throw new Error("Nothing could be made from this homework. Correct the text and try again.");
+    renderHW(nWords);
+  }catch(e){$("hwBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
+  finally{idle(btn);count()}}
+async function hwAI(text,subj){
+    const sub=subj||$("fSubject").value;
+    const L=subj&&HWSUBJ.length>1?{text:""}:await getLesson().catch(()=>({text:""}));
+    const sys=`You turn a teacher's homework into a printable worksheet for ${$("fClass").value} ${sub}. ${langRule(sub)}
 Use ONLY what the homework asks — do not add other work. Split it into:
 - "words": words or short phrases the child must read and write / memorise / copy (copy them exactly, keep their script), or [] if none;
 - "questions": every question, exercise, sum or task in the homework, written as worksheet questions, or [] if none. If the homework names book exercises (e.g. "Exercise B p. 9", "Ex 2.1 sums 1–5"), write those questions out from the chapter text when it is given; if the chapter text does not have them, write the task as one "other" question.
 Each question: {"type":"mcq|fill|tf|match|oneword|short|long|other","q":"","options":[],"pairs":[["",""]],"answer":"short answer for the teacher, or empty"}.
 Reply with ONLY: {"words":["",""],"questions":[ ... ]}`;
-    const d=await askAI(sys,"HOMEWORK:\n"+text+(L&&L.text?"\n\nCHAPTER TEXT:\n"+L.text.slice(0,20000):""),4000);
-    const words=((d&&d.words)||[]).map(w=>String(w||"").trim()).filter(Boolean);
-    HWQ=((d&&d.questions)||[]).filter(q=>q&&q.type&&(q.q||q.text)).map(q=>Object.assign({on:true},q));
-    if(words.length){
-      words.forEach(w=>{if(!WP.some(x=>x.w.toLowerCase()===w.toLowerCase()))WP.push({w,group:"Today's homework",on:true})});
-      $("useWP").checked=true;wpSetInst();renderWP();wpPicStatus()}
-    if(HWQ.length)$("useHW").checked=true;
-    if(!words.length&&!HWQ.length)throw new Error("Nothing could be made from this homework. Correct the text and try again.");
-    renderHW(words.length);
-  }catch(e){$("hwBody").innerHTML=`<div class="banner err">${esc(e.message)}</div>`}
-  finally{idle(btn);count()}}
+    return await askAI(sys,"HOMEWORK:\n"+text+(L&&L.text?"\n\nCHAPTER TEXT:\n"+L.text.slice(0,20000):""),4000)}
 function renderHW(nWords){
   $("hwBody").innerHTML=(nWords?`<p class="hint" style="margin:10px 0 0">✍️ ${nWords} word(s) added to <b>Writing practice</b> below — choose how many times and the style there.</p>`:"")+
   (HWQ.length?`<p class="hint" style="margin:10px 0 0">${HWQ.length} homework question(s). Untick any you don't want, or click to correct.</p><div class="qlist">`+
-    HWQ.map((q,i)=>`<div class="q${q.on?"":" off"}"><input type="checkbox" data-hq="${i}"${q.on?" checked":""} aria-label="Use this question"><div><span class="tag">${esc(TAG[q.type]||q.type)}</span>`+
+    HWQ.map((q,i)=>`<div class="q${q.on?"":" off"}"><input type="checkbox" data-hq="${i}"${q.on?" checked":""} aria-label="Use this question"><div>${q.subj&&HWSUBJ.length>1?`<span class="tag">${esc(q.subj)}</span> `:""}<span class="tag">${esc(TAG[q.type]||q.type)}</span>`+
     `<div class="ed" contenteditable="true" data-hqt="${i}">${esc(q.q||q.text||"")}</div>`+
     (q.type==="mcq"&&q.options&&q.options.length?`<div class="sub">${q.options.map((o,k)=>"("+"abcd"[k]+") "+esc(o)).join("   ")}</div>`:"")+
     (q.type==="match"&&q.pairs&&q.pairs.length?`<div class="sub">${q.pairs.map(p=>esc(p[0])+" — "+esc(p[1])).join("<br>")}</div>`:"")+
@@ -786,18 +816,23 @@ $("hwBtn").onclick=makeHW;
 // "Picture + trace + write": a picture from the Picture Library (or a box to draw in),
 // the word once in light grey to trace, then the remaining lines.
 let WP=[];   // {w, group, on}
-function wpInstDefault(){const n=+$("wpTimes").value||5;return $("wpStyle").value==="pic"?`Look at the picture, trace the word, then write it ${n} times.`:`Read each word aloud, then write it ${n} times.`}
+function wpInstDefault(){const n=+$("wpTimes").value||5,st=$("wpStyle").value;return st==="pic"?`Look at the picture, trace the word, then write it ${n} times.`:st==="picwrite"?`Look at the picture, read the word, then write it ${n} times.`:`Read each word aloud, then write it ${n} times.`}
+// "Picture + trace + write" and "Picture + write" both put a picture beside each word
+function wpHasPic(){return $("wpStyle").value==="pic"||$("wpStyle").value==="picwrite"}
 let wpInstTouched=false;
 function wpSetInst(){if(!wpInstTouched)$("wpInst").value=wpInstDefault()}
 $("wpInst").addEventListener("input",()=>{wpInstTouched=true});
 ["wpTimes","wpStyle"].forEach(id=>$(id).addEventListener("change",()=>{wpSetInst();count();wpPicStatus()}));
+// remember the writing style the school last used
+{const sv=lsGet("tws_wp_style");if(sv&&[...$("wpStyle").options].some(o=>o.value===sv))$("wpStyle").value=sv}
+$("wpStyle").addEventListener("change",()=>{if(!PARAMS.hand)lsSet("tws_wp_style",$("wpStyle").value)});
 {const lv=lsGet("tws_wp_layout");if(lv&&[...$("wpLayout").options].some(o=>o.value===lv))$("wpLayout").value=lv}
 $("wpLayout").addEventListener("change",()=>lsSet("tws_wp_layout",$("wpLayout").value));
 $("wpOwn").addEventListener("change",()=>{count();wpPicStatus()});
 // With "Picture + trace + write": say which words have no picture yet, and offer to draw them
 async function wpPicStatus(){
   const box=$("wpPics");
-  if($("wpStyle").value!=="pic"){box.hidden=true;return}
+  if(!wpHasPic()){box.hidden=true;return}
   const words=wpWords();if(!words.length){box.hidden=true;return}
   await loadPics();
   const miss=words.filter(w=>!picFor(w));
@@ -864,9 +899,9 @@ async function loadPics(){if(PICS)return PICS;PICS={};
     const rows=await r.json();if(Array.isArray(rows))rows.forEach(p=>{const u=p.colour_url||p.outline_url;if(!u)return;[p.word,p.en].forEach(k=>{k=picKey(k);if(k&&!PICS[k])PICS[k]=u})})}
   catch(e){console.warn("Picture library could not be read",e)}
   return PICS}
-async function wpPage(){
-  const words=wpWords();if(!words.length)return null;
-  const n=Math.max(1,+$("wpTimes").value||5),pic=$("wpStyle").value==="pic",trace=pic||$("wpStyle").value==="trace";
+async function wpPage(only,label,times){
+  const words=only||wpWords();if(!words.length)return null;
+  const n=Math.max(1,+times||+$("wpTimes").value||5),pic=wpHasPic(),trace=$("wpStyle").value==="pic"||$("wpStyle").value==="trace";
   const pics=pic?await loadPics():{};let missing=0;
   let rows="";
   // a handwriting sheet of letters fills the page: about 10 rows (four-line) or 14 (single line) shared by the letters
@@ -904,7 +939,8 @@ async function wpPage(){
   if(pic&&missing)toast(missing+" word(s) have no picture — the sheet gives a box for the child to draw it. You can draw them with AI in the Writing practice box.");
   const title=PARAMS.hand?"Handwriting":"Writing practice";
   const wcls=($("wpRule").value==="four"?" four":"")+($("wpFont").value==="cursive"?" cur":"")+(/tamil/i.test($("fSubject").value)?" ta":"");
-  return`<div class="pg act-pg wp-pg${wcls}">${head(title)}<div class="inst">${esc($("wpInst").value.trim()||wpInstDefault())}</div>${rows}${FOOT}</div>`}
+  const inst=times&&!wpInstTouched?wpInstDefault().replace(/\d+ times/,n+" times"):($("wpInst").value.trim()||wpInstDefault());
+  return`<div class="pg act-pg wp-pg${wcls}">${head(title,label)}<div class="inst">${esc(inst)}</div>${rows}${FOOT}</div>`}
 wpSetInst();
 
 /* ---------- count ---------- */
@@ -921,9 +957,9 @@ function shuffle(arr){const a=arr.slice();for(let i=a.length-1;i>0;i--){const j=
   if(a.length>2&&a.every((x,i)=>x===arr[i]))a.push(a.shift());return a}
 const lines=(n,cls)=>n>0?`<div class="lines${cls?" "+cls:""}">${"<div></div>".repeat(n)}</div>`:"";
 const L4=["(a)","(b)","(c)","(d)","(e)"];
-function head(title){
+function head(title,subj){
   const d=$("fDate").value;const dd=d?d.split("-").reverse().join("-"):"";
-  return`<div class="ws-head">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div class="t"><div class="sn">${esc(SCHOOL_NAME||"")}</div><div class="st"><b>${esc(title)}</b> · ${esc($("fClass").value)} · ${esc($("fSubject").value)}${$("fTopic").value.trim()?" · "+esc($("fTopic").value.trim()):""}</div></div></div>`+
+  return`<div class="ws-head">${LOGO?`<img src="${esc(LOGO)}" alt="">`:""}<div class="t"><div class="sn">${esc(SCHOOL_NAME||"")}</div><div class="st"><b>${esc(title)}</b> · ${esc($("fClass").value)} · ${esc(subj||(HWSUBJ.length>1?HWSUBJ.join(", "):$("fSubject").value))}${$("fTopic").value.trim()?" · "+esc($("fTopic").value.trim()):""}</div></div></div>`+
   `<div class="ws-meta"><span>Name: <i></i></span><span>Roll No: <i></i></span><span>Date: ${dd?"<b>"+esc(dd)+"</b>":"<i></i>"}</span></div>`}
 const FOOT=`<div class="ws-foot">Teacher's sign: <i></i></div>`;
 function qHtml(q,n){
@@ -1002,7 +1038,10 @@ async function build(){
     seed=Math.abs([...lessonId()].reduce((h,c)=>(h*31+c.charCodeAt(0))|0,7))%2147483646+1;
     const title=$("fTitle").value.trim()||"Worksheet";let pages="",keyHtml="";
     if(useBB||useLQ||useHW){let h=`<div class="pg">${head(title)}`,n=0,kb="";
-      if(useHW){const qs=HWQ.filter(q=>q.on);h+=`<div class="sec"><h4>Homework</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;
+      if(useHW&&HWSUBJ.length>1){const qs=HWQ.filter(q=>q.on);const subs=[];qs.forEach(q=>{if(!subs.includes(q.subj||""))subs.push(q.subj||"")});
+        subs.forEach(sb=>{const part=qs.filter(q=>(q.subj||"")===sb);h+=`<div class="sec"><h4>${esc(sb?sb+" — homework":"Homework")}</h4>`+part.map(q=>qHtml(q,++n)).join("")+`</div>`})}
+      else if(useHW){const qs=HWQ.filter(q=>q.on);h+=`<div class="sec"><h4>Homework</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;}
+      if(useHW){const qs=HWQ.filter(q=>q.on);
         kb+=`<h4>Homework</h4><ol>`+qs.map(q=>`<li>${q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—")}</li>`).join("")+`</ol>`}
       if(useBB){const qs=BB.filter(q=>q.on);h+=`<div class="sec"><h4>Book back questions</h4>`+qs.map(q=>qHtml(q,++n)).join("")+`</div>`;
         kb+=`<h4>Book back questions</h4><ol start="${n-qs.length+1}">`+qs.map(q=>`<li>${esc(q.answer||"—")}</li>`).join("")+`</ol>`}
@@ -1013,7 +1052,15 @@ async function build(){
           groups[t].forEach(q=>{h+=qHtml(q,++n);kq.push(q.type==="match"&&q.pairs?q.pairs.map(p=>esc(p[0])+" → "+"abcdefgh"[(q._right||[]).indexOf(p[1])]+") "+esc(p[1])).join("; "):esc(q.answer||"—"))})});
         h+=`</div>`;kb+=`<h4>${useBB||useHW?"Questions from the lesson":"Answers"}</h4><ol start="${start+1}">`+kq.map(x=>`<li>${x}</li>`).join("")+`</ol>`}
       pages+=h+FOOT+`</div>`;keyHtml+=kb}
-    if(useWP){try{const wp=await wpPage();if(wp)pages+=wp}catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
+    if(useWP&&HWSUBJ.length>1){try{
+      // one writing page for each subject; the teacher's own extra words go on the last page
+      const on=WP.filter(x=>x.on),groups=[];on.forEach(x=>{if(!groups.includes(x.group))groups.push(x.group)});
+      const own=$("wpOwn").value.split(/[,\n،]+/).map(w=>w.trim()).filter(Boolean);
+      for(let gi=0;gi<groups.length;gi++){const g=groups[gi];let ws=on.filter(x=>x.group===g).map(x=>x.w);if(gi===groups.length-1)ws=ws.concat(own.filter(w=>!ws.includes(w)));
+        const nn=(on.find(x=>x.group===g&&x.n)||{}).n||0;const wp=await wpPage(ws,g,nn);if(wp)pages+=wp}
+      if(!groups.length&&own.length){const wp=await wpPage(own);if(wp)pages+=wp}
+    }catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
+    else if(useWP){try{const wp=await wpPage();if(wp)pages+=wp}catch(e){console.warn(e);toast("The writing practice page could not be made ("+e.message+").",true)}}
     let k=0;for(const a of acts){try{const r=await actPage(a,++k);if(r){pages+=r.page;keyHtml+=r.key}}catch(e){console.warn(e);toast("One activity could not be drawn ("+e.message+") and was left out.",true)}}
     if($("fKey").value==="1"&&keyHtml)pages+=`<div class="pg key-pg"><h3>Answer key — for the teacher</h3><div class="kn">${esc(lessonLabel())} · Not for children. Please check answers before correcting.</div>${keyHtml}</div>`;
     $("sheets").classList.remove("paged");$("sheets").innerHTML=pages;$("sheets").style.setProperty("--wfs",$("fFs").value);
@@ -1139,7 +1186,7 @@ $("fChapter").addEventListener("change",chapterPicked);
 ["fFrom","fTo","fPaste","fFile"].forEach(id=>$(id).addEventListener("change",resetLesson));
 
 /* ---------- opened from the Term Planner ---------- */
-const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus","hw","hand","wp","wpt","wpr","wpf","wpl","wpk"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:(k==="hw"||k==="wp")?1500:600)})}catch(e){}
+const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subject","chapter","from","to","act","focus","hw","hand","wp","wpt","wpr","wpf","wpl","wpk","src","date"].forEach(k=>{const v=u.get(k);if(v)PARAMS[k]=v.slice(0,k==="focus"?2500:k==="hw"&&u.get("src")==="hw"?6000:(k==="hw"||k==="wp")?1500:600)})}catch(e){}
 (async function start(){
   $("fClass").value=CLASSES.includes(PARAMS.class)?PARAMS.class:(lsGet("tws_class")||"Class 1");
   fillSubjects(PARAMS.subject||lsGet("tws_subject"));
@@ -1158,6 +1205,17 @@ const PARAMS={};try{const u=new URLSearchParams(location.search);["class","subje
     $("fTitle").value="Handwriting";$("fTopic").value=String(PARAMS.chapter||"").replace(/^Unit \d+\.\s*/,"").slice(0,80);
     $("fromPlan").innerHTML="Opened from the Term Planner — today's handwriting ("+items.length+" item"+(items.length>1?"s":"")+") is ready in <b>✍️ Writing practice</b> below. Press <b>Make the worksheet</b>.";$("fromPlan").hidden=false;
     count();setTimeout(()=>$("useWP").closest(".part").scrollIntoView({behavior:"smooth",block:"center"}),300)}
+  // opened from the Homework Planner or Academic Control: that day's homework becomes the sheet
+  else if(PARAMS.src==="hw"&&PARAMS.hw){
+    if(/^\d{4}-\d{2}-\d{2}$/.test(PARAMS.date||""))$("fDate").value=PARAMS.date;
+    $("hwText").value=PARAMS.hw;$("hwPart").hidden=false;
+    $("hwPart").querySelector("h3").textContent="📝 Today's homework from the Homework Planner";
+    const multi=hwBlocks(PARAMS.hw).filter(b=>b.subj).length>1;
+    $("fTitle").value=multi?"Today's Homework":"Homework";
+    if(num($("fClass").value)<=2&&$("fFs").value!=="14pt")$("fFs").value="14pt";
+    $("fromPlan").innerHTML="Opened from the Homework Planner — "+(multi?"all of today's homework on one sheet":"this subject's homework")+". Choose the writing style in <b>✍️ Writing practice</b>, then press <b>Make the worksheet</b>.";$("fromPlan").hidden=false;
+    await makeHW();
+    setTimeout(()=>($("useWP").checked?$("useWP"):$("hwPart")).closest(".part").scrollIntoView({behavior:"smooth",block:"center"}),300)}
   else if(PARAMS.chapter||PARAMS.from){
     const t=String(PARAMS.chapter||"").replace(/^Ch\s*\d+\.\s*/i,"").trim().toLowerCase();
     // the term plan stores the chapter title and its book pages — find the same chapter
