@@ -13,6 +13,7 @@
 <script src="js/speaking-ladder.js"></script>
 <script src="js/spoken-syllabus.js"></script>
 <script src="js/handwriting-syllabus.js"></script>
+<script src="js/practice-syllabus.js"></script>
 <!--
   Term Planner (Oct 2026)
   Teacher: picks class, subject and term, ticks chapters from the school's uploaded books,
@@ -279,13 +280,16 @@ const CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Cla
 const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
 function subjectsFor(c){const n=num(c);
   if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS","Spoken English","English Handwriting","Tamil Handwriting"];
-  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer","Spoken English","English Handwriting","Tamil Handwriting"];
-  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer","Spoken English","English Handwriting","Tamil Handwriting"]}
+  // Oct 2026: Reading / Writing Practice for Class 1–8 (js/practice-syllabus.js)
+  const PR=window.PRACTICE_SYLLABUS&&n<=8?PRACTICE_SYLLABUS.subjects:[];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer","Spoken English","English Handwriting","Tamil Handwriting"].concat(PR);
+  return["English","Tamil","Hindi","Maths","Science","Social Science","Computer","Spoken English","English Handwriting","Tamil Handwriting"].concat(PR)}
 // Spoken English has no book: its units come from js/spoken-syllabus.js and the plan is made without AI
 const isSpokenOnly=()=>$("fSubject").value==="Spoken English"&&!!window.SPOKEN_SYLLABUS;
 const isHand=()=>/^(English|Tamil) Handwriting$/.test($("fSubject").value)&&!!window.HANDWRITING_SYLLABUS;
 // the no-book subjects (Spoken English, English / Tamil Handwriting): units from a syllabus file, plan made without AI
-const isSpoken=()=>isSpokenOnly()||isHand();
+const isPractice=()=>!!window.PRACTICE_SYLLABUS&&PRACTICE_SYLLABUS.isPractice($("fSubject").value);
+const isSpoken=()=>isSpokenOnly()||isHand()||isPractice();
 const DAYS=["Mon","Tue","Wed","Thu","Fri","Sat"],DAYFULL=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
 const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 const pad=n=>String(n).padStart(2,"0");
@@ -397,8 +401,9 @@ async function spokenDone(){const c=$("fClass").value,t=$("fTerm").value,sb=$("f
   return done}
 function ladderUnits(c){const sb=$("fSubject").value;
   if(isHand())return HANDWRITING_SYLLABUS.units(c,sb,hwStyle());
+  if(isPractice())return PRACTICE_SYLLABUS.units(c,sb);
   return SPOKEN_SYLLABUS.units(c)}
-function ladderBand(c){return isHand()?HANDWRITING_SYLLABUS.bandName(c):SPOKEN_SYLLABUS.bands[SPOKEN_SYLLABUS.bandOf(c)].name}
+function ladderBand(c){return isPractice()?PRACTICE_SYLLABUS.bandName(c):isHand()?HANDWRITING_SYLLABUS.bandName(c):SPOKEN_SYLLABUS.bands[SPOKEN_SYLLABUS.bandOf(c)].name}
 async function renderUnits(){
   const c=$("fClass").value,sb=$("fSubject").value;$("addOwn").hidden=true;spokenUI();
   $("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading the ${esc(sb)} syllabus…</div>`;
@@ -410,7 +415,9 @@ async function renderUnits(){
     const n=termPeriods();let used=0;
     for(const o of CHOPTS){if(done[o.key])continue;if(n&&used+o.unit.periods>n)break;picked.add(o.key);used+=o.unit.periods;if(!n&&picked.size>=6)break}}
   $("chaps").innerHTML=CHOPTS.map((o,i)=>`<label class="chk"><input type="checkbox" data-i="${i}" data-key="${esc(o.key)}"${picked.has(o.key)?" checked":""}><span>${esc(o.title)}<br><span class="hint">${esc(o.book)}</span></span><span class="pg">${o.unit.periods} period${o.unit.periods>1?"s":""}</span></label>`).join("");
-  $("chapHint").textContent=isHand()
+  $("chapHint").textContent=isPractice()
+    ?"The "+sb+" syllabus for "+c+" — starts with a level check (groups A Letters, B Words, C Sentences, D Fluent). A and B practise each unit's "+(/^Tamil/.test(sb)?"letters, words and sentences":"sounds, sight words and sentences")+"; C and D read pages of this week's "+(/^Tamil/.test(sb)?"Tamil":"English")+" lesson."+(/Writing/.test(sb)?" 4-line notebook, model on the board — no printouts.":"")+" The plan is made without AI."
+    :isHand()
     ?"The "+sb+" syllabus for "+c+" — "+(/^English/.test(sb)?"written from the Spoken English words":"உயிர் → மெய் → உயிர்மெய் → words → sentences")+". Four-line up to Class 2. The next units not done yet are ticked; the plan is made without AI."
     :"The Spoken English syllabus for "+c+" — every class starts at Level 1. The next units not done yet are ticked. No book needed; the plan is made without AI.";
   slotHint()}
@@ -418,6 +425,7 @@ function termPeriods(){const tsl=ttInfo();return tsl?tsl.length:periodDates($("f
 // The rows of the plan: each ticked unit's periods in order (a unit only if all of it fits); spare periods are revision
 function spokenRows(chs,n){const hand=isHand(),c=$("fClass").value,sb=$("fSubject").value,rows=[],fitted=[];let cut=0;
   const blank={class_act:"",home_act:"",ground_act:"",homework:"",workbook:"",act:"",done:false,room:""};
+  if(isPractice())return practiceRows(chs,n,c,sb,blank);
   for(const ch of chs){const o=CHOPTS.find(x=>x.key===ch.key);if(!o)continue;
     if(cut||rows.length+o.unit.periods>n){cut++;continue}fitted.push(ch);
     if(hand)HANDWRITING_SYLLABUS.lessons(o.unit,c,sb).forEach((l,j)=>rows.push(Object.assign({},blank,{chapter:o.title,type:"writing",
@@ -428,6 +436,25 @@ function spokenRows(chs,n){const hand=isHand(),c=$("fClass").value,sb=$("fSubjec
     ?{chapter:"Revision",type:"writing",pages:"",teach:"✍️ Handwriting revision: each child rewrites the letters or words they found hardest this term; the teacher checks size, spacing and neatness.",homework:"Rewrite at home, neatly, the words you found hardest this term.",write:""}
     :{chapter:"Revision",type:"speaking",pages:"",teach:SPOKEN_SYLLABUS.revisePeriod().teach,speak:""}));
   return{rows,cut,fitted}}
+
+/* Oct 2026: Reading / Writing Practice rows — each ticked unit's periods, a monthly level check
+   about every 12th period, spare periods are revision. C and D read this week's book pages
+   ({{BOOK}}, filled by practiceBook from the class's English / Tamil term plan). */
+function practiceRows(chs,n,c,sb,blank){const rows=[],fitted=[],wr=PRACTICE_SYLLABUS.isWriting(sb);let cut=0;
+  for(const ch of chs){const o=CHOPTS.find(x=>x.key===ch.key);if(!o)continue;
+    if(cut||rows.length+o.unit.periods>n){cut++;continue}fitted.push(ch);
+    PRACTICE_SYLLABUS.lessons(o.unit,c,sb).forEach((l,j)=>rows.push(Object.assign({},blank,{chapter:o.title,type:wr?"writing":"read",
+      pages:o.unit.kind==="check"?"Level check":o.unit.periods>1?"period "+(j+1)+" of "+o.unit.periods:"",teach:l.teach,homework:l.homework,write:""})))}
+  while(rows.length<n){const rv=PRACTICE_SYLLABUS.revise(sb);rows.push(Object.assign({},blank,{chapter:"Revision",type:wr?"writing":"read",pages:"",teach:rv.teach,homework:rv.homework,write:""}))}
+  rows.forEach((r,i)=>{if(i&&i%12===0&&r.pages!=="Level check")r.teach=(wr?"📋 Monthly check today: during own writing, look at each child's notebook and move children up a group when they are ready. ":PRACTICE_SYLLABUS.monthly)+r.teach});
+  return{rows,cut,fitted}}
+async function practiceBook(rows){const ta=PRACTICE_SYLLABUS.isTamil($("fSubject").value),sb=ta?"Tamil":"English";let pr=[];
+  try{const d=await tp("get",{class_name:$("fClass").value,subject:sb,term:$("fTerm").value});
+    pr=(d.plan&&Array.isArray(d.plan.rows)?d.plan.rows:[]).filter(r=>r.date&&["teach","teachbot","read"].includes(r.type)&&/\d/.test(String(r.pages||""))&&!/part|period/i.test(String(r.pages||""))).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0)}catch(e){}
+  rows.forEach(r=>{if(String(r.teach||"").indexOf("{{BOOK}}")<0)return;let src=null;pr.forEach(x=>{if(x.date<=r.date)src=x});if(!src&&pr.length)src=pr[0];
+    const txt=src?"pages "+String(src.pages).replace(/^p+\.?\s*/i,"")+" of “"+String(src.chapter||"").replace(/^Ch \d+\.\s*/,"")+"” (this week's "+sb+" lesson)":"the pages of this week's "+sb+" lesson";
+    r.teach=r.teach.split("{{BOOK}}").join(txt)});
+  return pr.length}
 
 /* ---------- lesson periods across the term ---------- */
 // For each week, the subject's periods are spread over that week's school days
@@ -475,7 +502,7 @@ async function loadTimetable(){
     const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null;if(d&&d.error)console.warn("timetable:",d.error)}
   catch(e){TT=null}
   slotHint();if(S.rows.length)renderActs()}
-const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
+const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{readingpractice:"englishreadingpractice",reading:"englishreadingpractice",englishreading:"englishreadingpractice",writingpractice:"englishwritingpractice",writing:"englishwritingpractice",englishwriting:"englishwritingpractice",tamilreading:"tamilreadingpractice",tamilwriting:"tamilwritingpractice",mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
 // → [{date, p, label, ai}] for one class + subject between two dates
 function ttSlots(cls,subject,start,end){
   if(!TT||!start||!end)return null;const want=subjKey(subject),out=[];let any=false;
@@ -1078,8 +1105,10 @@ $("makeBtn").onclick=async()=>{
   const btn=$("makeBtn");btn.disabled=true;const P=$("prog");P.hidden=false;
   if(isSpoken()){try{const{rows,cut,fitted}=spokenRows(chs,dates.length);
       rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:"";r.room=TS&&TS[k]&&TS[k].ai?"ai":""});
+      let bookNote="";if(isPractice()&&!PRACTICE_SYLLABUS.isWriting($("fSubject").value)){const ta=PRACTICE_SYLLABUS.isTamil($("fSubject").value);
+        if(!(await practiceBook(rows)))bookNote=` No ${ta?"Tamil":"English"} term plan for ${esc($("fClass").value)} yet — Groups C and D are told to read “this week's lesson”. Make that plan first to get exact pages.`}
       S.rows=rows;S.acts={};S.settings=collectSettings(fitted);await saveNow(true);renderPlan();renderUnits();
-      P.innerHTML=`✓ ${rows.length} ${esc($("fSubject").value)} periods planned (${fitted.length} unit${fitted.length>1?"s":""}).`+(cut?` ${cut} ticked unit${cut>1?"s":""} did not fit this term — ${cut>1?"they carry":"it carries"} on in the next term's plan.`:"");
+      P.innerHTML=`✓ ${rows.length} ${esc($("fSubject").value)} periods planned (${fitted.length} unit${fitted.length>1?"s":""}).`+(cut?` ${cut} ticked unit${cut>1?"s":""} did not fit this term — ${cut>1?"they carry":"it carries"} on in the next term's plan.`:"")+(typeof bookNote==="string"?bookNote:"");
       $("planCard").scrollIntoView({behavior:"smooth"})}
     catch(e){P.innerHTML=`<span style="color:var(--bad)">Could not make the plan: ${esc(e.message)}</span>`}
     finally{btn.disabled=false}return}
