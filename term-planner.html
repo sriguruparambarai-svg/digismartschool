@@ -877,7 +877,10 @@ function applyActs(title){
   S.rows.forEach(r=>{if(r.chapter!==title)return;
     if(r.act==="class"){r.class_act=cl[c]?cl[c].t:"";
       if(r.type==="activity")r.teach=cl[c]?"🎯 Class activity day — do the activity in the Activity column with the class. Take photos for the parents' app.":"🎯 Class activity day — the principal picks the activity.";c++}
-    if(r.act==="home"){r.home_act=hm[h]?hm[h].t:"";h++}});
+    if(r.act==="home"){r.home_act=hm[h]?hm[h].t:"";
+      if(r.type==="teachbot"){const cur=String(r.homework||"").trim();
+        if(r.home_act)r.homework=HOME_HW+r.home_act;else if(!cur||cur.indexOf(HOME_HW)===0)r.homework=hoPractice(r)}
+      h++}});
   if(S.settings)S.settings.acts=S.acts}
 function actCounts(title){const rs=S.rows.filter(r=>r.chapter===title);return{cls:rs.filter(r=>r.act==="class").length,home:rs.filter(r=>r.act==="home").length}}
 function actPanel(title,cols){const A=S.acts[title]||{opts:[],pick:[]},n=actCounts(title);
@@ -997,6 +1000,7 @@ Each row needs:
 - "teach": FIRST the order of work as numbered steps, each starting with the page — the heading or passage, which paragraphs / examples / poem lines, new words, the exercise numbers exactly as printed. e.g. "1. p. 24: Read 'The Little Bird' paras 1–3. 2. p. 24: New words — nest, feather. 3. p. 25: Exercise A Q1–3 orally." THEN, only if it helps, one short line starting "How:" with the way to do it. Keep it short and specific.
 - "activity": ONE simple, low-cost activity ONLY where it really helps (introducing the chapter, a hard idea, a revision game). Most periods get "". Start with where it happens: "(Class) …", "(Ground) …" (10–15 minutes outdoors) or "(Home) …". Never more than the number of activities you are told is still allowed.
 - "homework": a SUGGESTED written homework ONLY from what has been taught so far — the book's exercise / question numbers as printed (e.g. "p. 25: Exercise B Q1–4 in notebook"). Small: about 10–15 minutes for LKG–Class 2, 15–20 for Class 3–5, 20–30 for Class 6 and above. Use "" ONLY for TEACHBOT and TEACH periods and CATCH-UP — every READING, EXERCISES, CLASS WORK, REVISE + HOMEWORK and WORKSHEET period gets a homework. For REVISION: "Revise the chapter for the class test" with the pages. The school may use it or skip it.
+- Every "homework" is ONE short line a parent understands at a glance, starting with where it is done — "Workbook: …", "Homework note: …", "Worksheet: …", "New words: …", "Map work: …" or "Reading: …". No teaching steps, no dates, never two homework in one.
 Write in simple English a new teacher can follow.${modelRules()}
 Reply with JSON only.`}
 async function askAI(prompt,maxTokens){
@@ -1073,6 +1077,7 @@ $("makeBtn").onclick=async()=>{
     await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.");if(hm.filled)notes.push(hm.filled+" homework day"+(hm.filled>1?"s":"")+" with no homework got practice of the last lesson taught.")}
     S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);S.settings.hw_only=[];
     P.innerHTML=`<span class="spin"></span>Homework for days without a class…`;try{const ho=await refreshHwOnly();if(ho.count)notes.push(ho.count+" homework day"+(ho.count>1?"s":"")+" without a "+$("fSubject").value+" class got homework (see “Homework-only days” below the plan).")}catch(e){notes.push("Homework-only days could not be made: "+e.message)}
+    tidyHw(false);
     await saveNow(true);renderPlan();
     P.innerHTML=`✓ ${rows.length} lessons planned.`+(modelOn()&&Object.keys(S.acts).length?(PRINCIPAL?" Pick each chapter's activities with “🎯 Activities”.":" The principal picks each chapter's activities."):"")+(notes.length?"<br>"+notes.map(esc).join("<br>"):"");
     $("planCard").scrollIntoView({behavior:"smooth"})}
@@ -1089,7 +1094,7 @@ function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value
    fixed day left in the plan, it stays and the teacher is told to give it as "Extra".
    Only lessons from today on, not done, are touched. No timetable for the class/subject → no change. */
 let HWTT=null;
-const HW_MOVED_RE=/ ?Homework for this lesson is given on [^.]*\(homework timetable\)\./;
+const HW_MOVED_RE=/ ?(Homework for this lesson is given on [^.]*\(homework timetable\)|No homework for this lesson \(homework timetable\))\./;
 const HW_EXTRA_NOTE=" Not a homework day for this subject and no later homework day in this plan — give it as Extra if needed.";
 async function loadHwTT(){if(HWTT)return HWTT;
   try{const t=iso(new Date());const r=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"list",from:t,to:t})});
@@ -1111,10 +1116,12 @@ function matchHwTT(rows,cls,subj){
     if(FIXED_TYPES.includes(r.type))return;
     if(days.includes(dow(r.date))){
       if(pending.length){
-        r.homework=pending.map(x=>hwOf[x]).concat(r.homework?[r.homework]:[]).join("\n");
+        // Oct 2026: one homework a day — the day's own homework, else the latest one moved here (never stacked)
+        const keep=String(r.homework||"").trim()?null:pending[pending.length-1];
+        if(keep!=null)r.homework=hwOf[keep];
         pending.forEach(x=>{const s=rows[x];
           s.teach=String(s.teach||"").replace(/ ?Before giving homework: go through each homework question with the class\./,"").replace(HW_EXTRA_NOTE,"")
-            +" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).";moved++});
+            +(x===keep?" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).":" No homework for this lesson (homework timetable).");moved++});
         pending=[]}
       return}
     if(!r.homework)return;
@@ -1125,7 +1132,7 @@ function matchHwTT(rows,cls,subj){
   // Oct 2026: a homework day with no homework (e.g. a TeachBot or activity day) gets practice of the last lesson taught
   const filled=fillEmptyHwDays(rows,days,today);
   return{moved,extra,filled}}
-const HW_PRACTICE_RE=/^Practise at home what was taught on /;
+const HW_PRACTICE_RE=/^(Practise at home what was taught on |Reading: read .* aloud to a parent\.$|Homework note: redo 3 sums from )/;
 const TAUGHT_TYPES=["teach","classwork","practice","hwday","read","worksheet"];
 function fillEmptyHwDays(rows,days,today){
   // Oct 2026: a lesson day's homework practises THAT day's lesson (homework is given after class);
@@ -1198,10 +1205,44 @@ function hpKid(src){
   if(w.length>250){const c=w.slice(0,250).lastIndexOf(". ");w=c>40?w.slice(0,c+1):w.slice(0,250).replace(/\s+\S*$/,"")}
   return w;
 }
-function hoPractice(src){
-  let what=String(src.homework||"").split("\n").filter(l=>l.trim()&&!/^Practise at home what was taught on /.test(l.trim())).join(" ").trim();
-  if(!what)what=hpKid(src);
-  return what?"Practise at home what was taught on "+nice(src.date)+": "+what:""}
+/* Oct 2026: a day with no new homework gets ONE short line — reading the last lesson's pages
+   (Maths: a few sums again) — never a copy of another day's homework. */
+function pgOf(src){let pg=String(src.pages||"").trim();
+  if(!/^\d+(\s*[–-]\s*\d+)?$/.test(pg)){const pm=String(src.teach||"").match(/pages?\s+(\d+\s*[–-]\s*\d+|\d+)/i);pg=pm?pm[1]:""}
+  return pg.replace(/\s*[–-]\s*/,"–")}
+function hoPractice(src){if(!src)return"";const pg=pgOf(src),pgs=pg?"page"+(/–/.test(pg)?"s ":" ")+pg:"";
+  if(groupOf()==="maths"||/math/i.test($("fSubject").value))return"Homework note: redo 3 sums from "+(pgs||"the last lesson")+".";
+  const tm=String(src.teach||"").match(/'([A-Z][^']{2,50})'/),title=tm?tm[1]:String(src.chapter||"");
+  return"Reading: read "+(pgs||(title?"'"+title+"'":"the last lesson"))+" aloud to a parent."}
+/* Oct 2026: LKG / UKG homework is just where it is: "Homework given in English note" (or the workbook) */
+const isKG=()=>!num($("fClass").value)&&!isSpoken();
+function kgHw(t){t=String(t||"").trim();if(!t||/^Homework given in /.test(t))return t;
+  const wb=wbOn()&&/workbook/i.test(t),pm=t.match(/\bp(?:ages?|\.)?\s*\d+(?:\s*[–-]\s*\d+)?/i);
+  return"Homework given in "+(wb?"workbook":$("fSubject").value+" note")+(wb&&pm?" – "+pm[0]:"")}
+/* Oct 2026: TeachBot class days get one of the chapter's home activities (picked by the principal)
+   as homework — moved from a later homework period, so each home activity is still given once. */
+const HOME_HW="Home activity (with parents): ";
+function homeOnTb(rows,days){const today=iso(new Date()),by=(a,b)=>a.date<b.date?-1:a.date>b.date?1:0;
+  const ok=r=>r.date&&r.date>=today&&!r.done&&(!days||days.includes(dow(r.date)));
+  [...new Set(rows.map(r=>r.chapter).filter(Boolean))].forEach(ch=>{const rs=rows.filter(r=>r.chapter===ch).sort(by);
+    const tb=rs.filter(r=>r.type==="teachbot"&&!r.act&&ok(r)),hm=rs.filter(r=>r.act==="home"&&r.type!=="teachbot"&&r.date&&r.date>=today&&!r.done);
+    for(let i=0;i<Math.min(tb.length,hm.length);i++){tb[i].act="home";hm[i].act="";hm[i].home_act="";
+      hm[i].teach=String(hm[i].teach||"").replace(/ ?Give the home activity \(done with parents\)\.?/,"")}})}
+/* Oct 2026: tidy the homework of the lessons from today on (new plans, and the 🧹 button for old ones) */
+function tidyHw(full){const today=iso(new Date()),days=hwDaysFor($("fClass").value,$("fSubject").value),live=r=>r.date&&r.date>=today&&!r.done;
+  if(full)S.rows.forEach(r=>{if(!live(r))return;const ls=String(r.homework||"").split("\n").map(x=>x.trim()).filter(Boolean);
+    let h=ls.length?ls[ls.length-1]:"";if(/^Practise at home what was taught on /.test(h))h="";r.homework=h});
+  if(modelOn())homeOnTb(S.rows,days);Object.keys(S.acts||{}).forEach(applyActs);
+  if(days)fillEmptyHwDays(S.rows,days,today);
+  S.rows.forEach(r=>{if(r.type==="teachbot"&&live(r)&&!String(r.homework||"").trim()&&(!days||days.includes(dow(r.date))))r.homework=hoPractice(r)});
+  if(isKG()){S.rows.forEach(r=>{if(live(r)&&r.homework)r.homework=kgHw(r.homework)});
+    ((S.settings&&S.settings.hw_only)||[]).forEach(x=>{if(x.date>=today&&x.homework)x.homework=kgHw(x.homework)})}}
+async function tidyButton(){if(locked())return;
+  if(!confirm("Tidy the homework of the lessons from today on?\n\n• one short homework a day\n• TeachBot class days get the chapter's home activity (or reading)\n• the long “Practise at home…” lines go"+(isKG()?"\n• LKG/UKG: “Homework given in "+$("fSubject").value+" note”":"")+"\n\nLessons already done are not touched."))return;
+  await loadHwTT();const today=iso(new Date());
+  ((S.settings&&S.settings.hw_only)||[]).forEach(x=>{if(x.date>=today&&HW_PRACTICE_RE.test(String(x.homework||"").trim()))x.homework=""});
+  tidyHw(true);try{if(S.settings)await refreshHwOnly()}catch(e){}if(isKG())tidyHw(false);
+  renderPlan();queueSave();toast("Homework tidied.")}
 // homework-timetable days of this subject, from today to the plan's end, with no class of it that day
 function hoDates(){
   const days=hwDaysFor($("fClass").value,$("fSubject").value);if(!days)return[];
@@ -1317,6 +1358,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(!locked()&&S.rows.length&&S.rows.some(r=>!r.homework&&!NOHW.includes(r.type)&&!HW_MOVED_RE.test(r.teach||"")))a.push(`<button class="btn ghost" id="aHw" title="AI suggests homework for every lesson that has none. Nothing else changes.">✨ Suggest homework</button>`);
   if(!locked()&&S.plan&&TT&&S.rows.length&&!ownPpw())a.push(`<button class="btn ghost" id="aRefit" title="Put the lessons not yet done (from today) on this class's real timetable periods again — TeachBot lessons only on AI-room periods. Use it after the timetable changes.">🕒 Re-fit to timetable</button>`);
   if(!locked()&&S.rows.length)a.push(`<button class="btn ghost" id="aHwTT" title="Move homework that falls on a day this subject has no homework (Homework Planner → Homework timetable) to the next homework day. Only lessons from today on.">📅 Match homework timetable</button>`);
+  if(!locked()&&S.rows.length&&!isSpoken())a.push(`<button class="btn ghost" id="aTidy" title="One short homework a day; TeachBot days get the chapter's home activity; LKG/UKG: Homework given in the note. Only lessons from today on.">🧹 Tidy homework</button>`);
   if(isHand()&&S.rows.some(r=>r.type==="writing"&&r.write))a.push(`<button class="btn gold" id="aBook" title="Every period's handwriting sheet in order, as one book — cover, contents, page numbers. Print once and bind.">📒 Print the term's handwriting book</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
@@ -1329,6 +1371,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aBook",openBook);
   on("aHw",suggestHomework);
   on("aHwTT",hwTTButton);
+  on("aTidy",tidyButton);
   on("aRefit",async()=>{if(!confirm("Put the lessons not yet done (from today) on the class's timetable periods again?\n\nTeachBot lessons go only on AI-room periods; a classroom period before one becomes a catch-up period."))return;
     try{if(S.dirty)await saveNow();const d=await tp("refit",{id:S.plan.id});S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];renderPlan();loadList();
       toast(d.fitted+" lessons placed on the timetable."+(d.over_term?" "+d.over_term+" lesson"+(d.over_term>1?"s go":" goes")+" past the term end — add an extra period or merge two lessons.":""),!!d.over_term)}

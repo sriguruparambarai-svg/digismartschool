@@ -203,14 +203,27 @@ function hpKid(src){
   return w;
 }
 // "Practise at home what was taught on …" from the last lesson taught on or before d
-function practiceOf(all, d) {
+function practiceOf(all, d, subject) {
   let src = null;
   all.forEach(function (x) { if (x.date <= d && TAUGHT.indexOf(x.type) !== -1 && String(x.teach || '').trim() && (!src || x.date >= src.date)) src = x; });
   if (!src) return '';
-  let what = String(src.homework || '').split('\n').filter(function (l) { return l.trim() && !/^Practise at home what was taught on /.test(l.trim()); }).join(' ').trim();
-  if (!what) what = hpKid(src);
-  return what ? 'Practise at home what was taught on ' + niceD(src.date) + ': ' + what : '';
+  // Oct 2026: one short line — reading the last lesson's pages (Maths: a few sums again), never a copy of other homework
+  let pg = String(src.pages || '').trim();
+  if (!/^\d+(\s*[–-]\s*\d+)?$/.test(pg)) { const pm = String(src.teach || '').match(/pages?\s+(\d+\s*[–-]\s*\d+|\d+)/i); pg = pm ? pm[1] : ''; }
+  pg = pg.replace(/\s*[–-]\s*/, '–');
+  const pgs = pg ? 'page' + (/–/.test(pg) ? 's ' : ' ') + pg : '';
+  if (/math/i.test(String(subject || ''))) return 'Homework note: redo 3 sums from ' + (pgs || 'the last lesson') + '.';
+  const tm = String(src.teach || '').match(/'([A-Z][^']{2,50})'/), title = tm ? tm[1] : String(src.chapter || '');
+  return 'Reading: read ' + (pgs || (title ? "'" + title + "'" : 'the last lesson')) + ' aloud to a parent.';
 }
+// Oct 2026: LKG / UKG homework is just where it is done — "Homework given in English note" (or the workbook)
+function kgLine(cls, subject, t, wb) {
+  t = String(t || '').trim();
+  if (!t || /Class \d+/.test(String(cls)) || /spoken|handwriting/i.test(String(subject)) || /^Homework given in /.test(t)) return t;
+  const isWb = wb && /workbook/i.test(t), pm = t.match(/\bp(?:ages?|\.)?\s*\d+(?:\s*[–-]\s*\d+)?/i);
+  return 'Homework given in ' + (isWb ? 'workbook' : subject + ' note') + (isWb && pm ? ' – ' + pm[0] : '');
+}
+const lastLine = function (t) { const ls = String(t || '').split('\n').map(function (l) { return l.trim(); }).filter(Boolean); return ls.length ? ls[ls.length - 1] : ''; };
 const istToday = function () { return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10); };
 
 // ── Signed login (same check as auth.js / homework.js) ──
@@ -392,16 +405,21 @@ module.exports = async function handler(req, res) {
           const add = function (t) { String(t || '').split('\n').forEach(function (l) { l = l.trim(); if (l && !/^Practise at home what was taught on /.test(l) && lines.indexOf(l) === -1) lines.push(l); }); };
           if (days.indexOf(w) !== -1) {
             const prev = prevHwDay(d, days);
+            // Oct 2026: ONE homework a day — the day's own, else the latest one moved here, else short practice
+            let own = '', moved = null;
             all.forEach(function (x) {
-              if (x.date === d) add(x.homework);
-              else if (x.date > prev && x.date < d && days.indexOf(wkday(x.date)) === -1 && FIXED_HW.indexOf(x.type) === -1) add(x.homework);
+              const h = String(x.homework || '').split('\n').filter(function (l) { return l.trim() && !/^Practise at home what was taught on /.test(l.trim()); }).join('\n');
+              if (!h.trim()) return;
+              if (x.date === d) own = h;
+              else if (x.date > prev && x.date < d && days.indexOf(wkday(x.date)) === -1 && FIXED_HW.indexOf(x.type) === -1 && (!moved || x.date >= moved.date)) moved = { date: x.date, h: h };
             });
-            if (!lines.length) add(practiceOf(all, d));
+            if (own) add(lastLine(own)); else if (moved) add(lastLine(moved.h));
+            if (!lines.length) add(practiceOf(all, d, p.subject));
           } else {
             // not a homework day: only class test / revision homework stays on its own day
             all.forEach(function (x) { if (x.date === d && FIXED_HW.indexOf(x.type) !== -1) add(x.homework); });
           }
-          if (lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, homework: lines.join('\n') });
+          if (lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, homework: kgLine(p.class_name, p.subject, lastLine(lines.join('\n')), !!(p.settings && p.settings.use_wb)) });
         }
       });
       r.data.forEach(function (p) {
@@ -415,8 +433,10 @@ module.exports = async function handler(req, res) {
           // one plan per class+subject wins (the newest); several lessons the same day are joined
           const k = p.class_name + '|' + String(p.subject).toLowerCase() + '|' + row.date;
           if (seen[k] && seen[k].plan !== p) return;
-          if (seen[k]) { seen[k].item.homework += '\n' + String(row.homework).trim(); return; }
-          const item = { class_name: p.class_name, subject: p.subject, date: row.date, homework: String(row.homework).trim() };
+          // Oct 2026: one homework a day — a later lesson the same day replaces it (never stacked)
+          const one = kgLine(p.class_name, p.subject, lastLine(row.homework), !!(p.settings && p.settings.use_wb));
+          if (seen[k]) { seen[k].item.homework = one; return; }
+          const item = { class_name: p.class_name, subject: p.subject, date: row.date, homework: one };
           seen[k] = { plan: p, item: item }; out.push(item);
         });
       });
