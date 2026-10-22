@@ -393,6 +393,11 @@ module.exports = async function handler(req, res) {
       };
       const today = istToday();
       const deadline = await readDeadline(school);
+      // Oct 2026: homework in the Homework Planner may say "Maths" while the class list says "Mathematics"
+      const HSK = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social' };
+      const hsk = function (x) { x = String(x || '').toLowerCase().trim(); return HSK[x] || x; };
+      const isMineHw = function (cls, sub) { return mine.some(function (c) { return c.class_name === cls && hsk(c.subject) === hsk(sub); }); };
+      let nextDay = '';
 
       // the school's labels (diary students are saved under the id or the code)
       const labels = [String(school.id)];
@@ -514,6 +519,7 @@ module.exports = async function handler(req, res) {
           });
         });
         const open = istTime() >= at;
+        nextDay = open ? next : '';
         const tm = { at: at, open: open, date: next, items: [] };
         if (open && next) {
           plans.forEach(function (p) {
@@ -534,11 +540,13 @@ module.exports = async function handler(req, res) {
       if (myClasses.length) {
         const from = addDays(today, -7);
         const hr = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) +
-          '&entry_type=eq.homework&status=neq.returned&hw_date=gte.' + from + '&hw_date=lte.' + today +
+          '&entry_type=eq.homework&status=neq.returned&hw_date=gte.' + from + '&hw_date=lte.' + (nextDay > today ? nextDay : today) +
           '&select=id,class_name,subject,homework,hw_date,status&order=hw_date.asc');
         if (ok(hr)) {
-          const mineHw = hr.data.filter(function (h) { return isMine(h.class_name, h.subject); });
+          const mineHw = hr.data.filter(function (h) { return isMineHw(h.class_name, h.subject); });
           out.hw_today = mineHw.filter(function (h) { return h.hw_date === today; });
+          // Oct 2026: the Homework Planner is the one place homework is edited — the Tomorrow card shows it too
+          if (nextDay && out.tomorrow) out.tomorrow.hw = mineHw.filter(function (h) { return h.hw_date === nextDay; });
           if (access.indexOf('hw_check') !== -1) {
             const before = mineHw.filter(function (h) { return h.hw_date < today && h.status === 'added'; });
             const last = before.reduce(function (m, h) { return h.hw_date > m ? h.hw_date : m; }, '');

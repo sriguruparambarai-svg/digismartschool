@@ -252,7 +252,11 @@ function nice12(t){ var p=String(t||'').split(':'),H=parseInt(p[0],10),M=p[1]||'
 function allItems(){ return (D.earlier||[]).concat(D.items||[]); }
 function key(x){ return x.plan_id+'|'+x.index; }
 function unmarked(){ return allItems().filter(function(x){ return !(marks[key(x)]&&marks[key(x)].status); }).length; }
-function hwFor(x){ return (D.hw_today||[]).filter(function(hw){ return hw.class_name===x.class_name && String(hw.subject).toLowerCase()===String(x.subject).toLowerCase(); }); }
+/* Oct 2026: "Maths" in the Homework Planner matches "Mathematics" in the Term Plan */
+var HSK={maths:'mathematics',math:'mathematics','social science':'social',sst:'social','social studies':'social'};
+function hsk(v){ v=String(v||'').toLowerCase().trim(); return HSK[v]||v; }
+function hwFor(x){ return (D.hw_today||[]).filter(function(hw){ return hw.class_name===x.class_name && hsk(hw.subject)===hsk(x.subject); }); }
+function hwNextFor(x){ return ((D.tomorrow&&D.tomorrow.hw)||[]).filter(function(hw){ return hw.class_name===x.class_name && hsk(hw.subject)===hsk(x.subject); }); }
 
 var ICON={
   today:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
@@ -325,7 +329,8 @@ function tmSeen(){ return D && D.tomorrow && lsGet(TM_SEEN_KEY)===D.tomorrow.dat
 function tmMarkSeen(){ if(D && D.tomorrow && D.tomorrow.open && D.tomorrow.date){ lsSet(TM_SEEN_KEY,D.tomorrow.date); redrawNav(); } }
 function tmCard(x){
   var act=[x.class_act,x.ground_act?('Ground: '+x.ground_act):''].filter(Boolean).map(h).join('<br>');
-  var hw=x.homework?h(x.homework):x.home_act?h(x.home_act):'';
+  var hwp=hwNextFor(x);
+  var hw=hwp.length?hwp.map(function(z){return h(z.homework);}).join('<br>'):(x.homework?h(x.homework):x.home_act?h(x.home_act):'');
   return '<div class="card">'
     +'<div class="row"><div class="cls">'+h(x.class_name)+' · '+h(x.subject)+'</div>'+(x.period?'<span class="tag" style="background:#fff;border:1px solid #C9A84C;color:#4E3D33;">'+h(x.period)+'</span>':'')+'</div>'
     +(PT[x.type]?'<div style="margin-top:6px;"><span class="tag" style="background:'+(x.room==='ai'?'#6B0F1A;color:#fff':'#F5E6C8;color:#4E3D33')+';">'+h(PT[x.type])+'</span></div>':'')
