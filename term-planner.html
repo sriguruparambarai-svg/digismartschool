@@ -340,7 +340,16 @@ async function renderChapters(){
   if(!CHOPTS.length||CHOPTS._for!==c+"|"+sb)$("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading this class's books…</div>`;
   const books=(await loadBooks()).filter(b=>normCls(b.class_name)===normCls(c)&&(!b.subject||sk(b.subject)===sk(sb)));
   const sameList=CHOPTS._for===c+"|"+sb;CHOPTS=[];CHOPTS._for=c+"|"+sb;
-  for(const b of books){const chs=await bookChapters(b);chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),book:b.book_name+(b.term?" · Term "+b.term:""),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+  // Oct 2026: a combined term book (English + Maths + EVS + Hindi in one) saves chapters as "Hindi – स्वर (Vowels)";
+  // show only the chosen subject's chapters from it, without the subject name in front
+  const SUB_PRE=/^\s*([A-Za-z][A-Za-z .&]{1,30}?)\s+\u2013\s+(.+)$/,subKey=x=>{x=sk(x).replace(/\s+/g," ");return /^(environmental|e\.?v\.?s)/.test(x)?"evs":x};
+  for(const b of books){let chs=await bookChapters(b);
+    const known=new Set(subjectsFor(c).concat(["Mathematics","EVS","Science","Social Science","GK"]).map(subKey)),
+      pre=new Set(chs.map(ch=>{const m=SUB_PRE.exec(String(ch.chapter_title||""));return m?subKey(m[1]):""}).filter(x=>x&&known.has(x)));
+    if(pre.size>=2){   // only a real combined book: two or more subject names in front
+      chs=chs.filter(ch=>{const m=SUB_PRE.exec(String(ch.chapter_title||""));return m&&subKey(m[1])===subKey(sb)})
+        .map(ch=>Object.assign({},ch,{chapter_title:SUB_PRE.exec(String(ch.chapter_title))[2]}))}
+    chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),book:b.book_name+(b.term?" · Term "+b.term:""),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
   if($("fClass").value!==c||$("fSubject").value!==sb)return;
   const picked=new Set(((S.settings&&S.settings.chapters)||[]).map(x=>x.key));
   if(sameList)Object.keys(onScreen).forEach(k=>{if(onScreen[k])picked.add(k);else picked.delete(k)});   // keep ticks made on screen
