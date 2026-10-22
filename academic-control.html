@@ -98,6 +98,8 @@ table.w th{background:var(--soft);color:var(--m)}
 .err{background:#FBE7E3;border:1px solid var(--bad);color:#5E120C;border-radius:12px;padding:12px 14px;font-weight:700}
 .btn{background:var(--m);color:var(--gl);border:none;border-radius:10px;padding:10px 16px;font-weight:900;min-height:44px}
 .btn:disabled{opacity:.5}
+.wsb{background:transparent;border:1.5px solid var(--g,#C9A84C);color:var(--m,#6B1A1A);border-radius:8px;padding:4px 10px;font-weight:700;font-size:.8rem;margin-top:6px}
+.wsall{padding:10px 14px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.8rem;opacity:.85}
 .flag{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:11px 14px;border-top:1px solid var(--line)}
 .flag:first-of-type{border-top:none}
 .flag .fd{flex:1 1 280px;min-width:0}
@@ -296,6 +298,7 @@ table.w th{background:var(--soft);color:var(--m)}
       return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")}
 
   // ── HOMEWORK ──
+  function wsLink(cls,date,list){var q=new URLSearchParams({src:"hw",class:cls,date:date,subject:list[0].subject});q.set("hw",list.length===1?list[0].text:list.map(function(x){return "["+x.subject+"]\n"+x.text}).join("\n\n"));return "todays-worksheet.html?"+q.toString()}
   function hwOf(L,cls){return(L&&L.parent_update||[]).filter(function(x){return x.class_name===cls&&x.type==="homework"})}
   function statusPill(x){return x.sent?pill("p-ok","Sent to parents"):x.status==="added"?pill("p-ok","Approved"):pill("p-slow","Waiting for you")}
   function drawHomework(){
@@ -317,7 +320,11 @@ table.w th{background:var(--soft);color:var(--m)}
       yb+='<div class="it"><div class="t"><b>'+h(k.subject)+'</b>'+(k.corrected==="yes"?pill("p-ok","Corrected"):k.corrected==="no"?pill("p-bad","Not corrected"):pill("p-slow","Some corrected"))+'</div><p>'+h(k.homework||"")+'</p><div class="m">'+(k.missing&&k.missing.length?"Didn't bring: roll "+h(k.missing.join(", ")):"")+'</div></div>'});
     $("h-yb").innerHTML=yb||'<div class="empty">No homework went to '+h(c)+' yesterday.</div>';
     var th=hwOf(S.L,c);
-    $("h-tb").innerHTML=th.length?th.map(function(x){return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?("By "+x.teacher):"")+'</div></div>'}).join(""):'<div class="empty">No homework for '+h(c)+' today yet. Add it in the Homework Planner.</div>';
+    $("h-tb").innerHTML=th.length?(th.length>1?'<div class="wsall"><button type="button" class="wsb" data-wsall="1" style="margin:0">📝 One worksheet for all '+th.length+' subjects</button><span>or one subject below</span></div>':'')+th.map(function(x,i){return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?("By "+x.teacher):"")+'</div><button type="button" class="wsb" data-ws="'+i+'">📝 Worksheet</button></div>'}).join(""):'<div class="empty">No homework for '+h(c)+' today yet. Add it in the Homework Planner.</div>';
+    // 📝 Worksheet: this homework (or all of today's) opens as a ready worksheet
+    $("h-tb").onclick=function(e){var b=e.target.closest("button[data-ws],button[data-wsall]");if(!b)return;
+      var list=b.dataset.wsall?th:[th[+b.dataset.ws]];if(!list.length||!list[0])return;
+      window.open(wsLink(c,S.day,list.map(function(x){return{subject:x.subject,text:x.text}})),"_blank","noopener")};
     // next day's periods for this class
     var ps=periodsOf(S.nday),list=[];
     ps.forEach(function(p){var cell=p.row[c];if(!cell||!cell.subject)return;var lf=lessonFor(S.N,c,cell.subject,p.label);list.push({p:p,cell:cell,lf:lf})});

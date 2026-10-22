@@ -137,6 +137,8 @@ button.chip:hover{border-color:var(--accent)}
 .iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:3px 10px;font-size:.8rem;color:var(--muted)}
 .iconbtn:hover{color:var(--ink);border-color:var(--muted)}
 .iconbtn.go{background:var(--accent);color:var(--on-accent);border-color:var(--accent);font-weight:600}
+.iconbtn.ws{border-color:var(--gold,#C9A84C);color:var(--accent);font-weight:600}
+.wsall{padding:8px 16px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.8rem;color:var(--muted)}
 .iconbtn.danger{color:var(--bad);border-color:var(--bad)}
 .iconbtn:disabled{opacity:.5;cursor:default}
 .noitems{padding:14px 16px;color:var(--muted);font-size:.92rem}
@@ -367,6 +369,7 @@ textarea{resize:vertical;min-height:70px}
       <div class="cwhead" id="pBbHead"></div>
       <ul class="items cwlist" id="pBb"></ul>
       <div class="cwhead" id="pHwHead"></div>
+      <div class="wsall" id="pWsAll" hidden></div>
       <ul class="items" id="pItems"></ul>
       <div class="modes" role="group" aria-label="What are you writing?">
         <button class="mode" id="mode-cw" aria-pressed="false">📖 Class work<small>What was done in class today</small></button>
@@ -641,12 +644,16 @@ function renderPanel(scroll){
     }else if(i.status!=="added"){
       acts=`<button class="iconbtn" data-edit="${i.id}">${i.status==="returned"?"Fix and resend":"Edit"}</button><button class="iconbtn${armed===i.id?" danger":""}" data-del="${i.id}">${armed===i.id?"Tap again to remove":"Remove"}</button>`;
     }
+    if(PRINCIPAL)acts=`<button class="iconbtn ws" data-ws="${i.id}" title="Make this homework into a printable worksheet">📝 Worksheet</button>`+acts;
     const back=returning===i.id?`<div class="back"><input id="retNote" maxlength="300" placeholder="Note for the teacher, e.g. too long, make it 5 sums"><button class="iconbtn go" data-retsend="${i.id}">Send back</button><button class="iconbtn" data-retcancel="1">Cancel</button></div>`:"";
     const pill=i.sent_at?`<span class="pill sent">${esc(sentLabel(i))}</span>`:`<span class="pill ${i.status}">${STATUS[i.status]}</span>`;
     const rp=i.status!=="returned"?findRepeat(c,i.subject,i.homework,i.id):null;
     const tags=(isExtra(i)?`<span class="pill extra">Extra</span>`:"")+(rp?`<span class="pill rep" title="${esc(rp.homework)}">Similar to ${nice(rp.hw_date)}</span>`:"");
     return `<li class="${S.sel.focus===i.id?"focus":""}" id="it-${i.id}"><span class="subj">${esc(i.subject)}</span><div><div class="txt">${esc(i.homework)}</div><div class="meta">${pill}${tags}${esc(i.kind)} · ${byLabel(i)}${i.teacher_name?" · "+esc(i.teacher_name):""}</div></div>`+
       (i.status==="returned"&&i.return_note?`<div class="rnote">Principal: ${esc(i.return_note)}</div>`:"")+(acts?`<div class="acts">${acts}</div>`:"")+back+`</li>`}).join(""):`<li class="noitems" style="display:block;border:none">No homework yet for ${esc(c)} on this day. Add some below.</li>`;
+  // one sheet with all of the day's homework (what is in the week; if nothing is yet, everything listed)
+  {const W=$("pWsAll"),inWeek=its.filter(added),use=inWeek.length?inWeek:its;W.hidden=!(PRINCIPAL&&use.length>1);
+    if(!W.hidden)W.innerHTML=`<button class="iconbtn ws" data-wsall="1">📝 One worksheet for all ${use.length} subjects</button><span>or tap 📝 Worksheet on one subject below</span>`}
   const pk=c+"|"+ds,same=pk===lastPanelKey;lastPanelKey=pk;
   fillSubj($("tSubj"),c,ds,same?$("tSubj").value:"");
   fillSubj($("aSubj"),c,ds,same?$("aSubj").value:"");
@@ -984,8 +991,12 @@ $("thisWk").onclick=()=>{S.week=mondayOf(new Date());S.sel.date=defaultDate();S.
 function moveWeek(n){S.week=addDays(S.week,n);S.sel.date=S.week;S.sel.focus=null;load()}
 ["type","ai","week"].forEach(t=>$("tab-"+t).onclick=()=>{S.tab=t;showTab()});
 function showTab(){["type","ai","week"].forEach(t=>{$("tab-"+t).setAttribute("aria-selected",S.tab===t);$("body-"+t).hidden=S.tab!==t})}
+function wsLink(cls,date,list){const q=new URLSearchParams({src:"hw",class:cls,date:date,subject:list[0].subject});q.set("hw",list.length===1?list[0].text:list.map(x=>"["+x.subject+"]\n"+x.text).join("\n\n"));return "todays-worksheet.html?"+q.toString()}
+function openWs(list){if(!PRINCIPAL||!list.length)return;window.open(wsLink(S.sel.cls,S.sel.date,list.map(i=>({subject:i.subject,text:i.homework}))),"_blank","noopener")}
+$("pWsAll").addEventListener("click",e=>{if(!e.target.closest("[data-wsall]"))return;const its=itemsFor(S.sel.cls,S.sel.date),inWeek=its.filter(added);openWs(inWeek.length?inWeek:its)});
 $("pItems").addEventListener("click",e=>{
   const t=e.target.dataset;const it=id=>S.items.find(x=>x.id===id);
+  if(t.ws){const i=it(t.ws);if(i)openWs([i]);return}
   if(t.add){S.sel.focus=t.add;act("add",{ids:[t.add]},"Added to the week")}
   if(t.unadd)act("take_out",{id:t.unadd},"Taken out of the week. It is waiting again.");
   if(t.ret){returning=t.ret;renderPanel()}
