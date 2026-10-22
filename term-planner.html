@@ -152,6 +152,11 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .actopt .where{font-size:.75rem;font-weight:700;padding:1px 8px;border-radius:999px;white-space:nowrap}
 .actopt .where.class{background:#DCE8F5;color:#184C80}.actopt .where.home{background:#F3E2BD;color:#6A4A0C}
 .tp .shift{display:block;margin-top:4px;border:1px solid var(--gold);background:#FFF6DD;color:var(--accent);border-radius:6px;font-size:.72rem;font-weight:700;padding:2px 6px;white-space:nowrap}
+/* Oct 2026: a plan opened from the list shows as its own screen */
+#focusBar{display:none;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
+body.focus #focusBar{display:flex}
+body.focus #listCard,body.focus #modelCard{display:none}
+body.focus:not(.focus-set) #setupCard{display:none}
 </style>
 </head>
 <body>
@@ -225,6 +230,12 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
     </div>
     <div class="prog" id="prog" hidden></div>
   </section>
+
+  <!-- Oct 2026: shown when a plan is opened from the list -->
+  <div class="noprint" id="focusBar">
+    <button type="button" class="btn ghost small" id="fbBack">← All plans</button>
+    <button type="button" class="btn ghost small" id="fbSet">⚙ Plan settings</button>
+  </div>
 
   <!-- 3. the plan -->
   <section class="card" id="planCard" hidden>
@@ -1429,8 +1440,11 @@ $("plist").addEventListener("click",async e=>{const lc=e.target.closest("[data-l
     try{await tp("delete",{id:del.dataset.id});toast("Plan deleted");
       if(S.plan&&String(S.plan.id)===del.dataset.id){clearTimeout(saveT);S.dirty=false;openPlan()}loadList()}catch(err){toast(err.message,true)}return}
   const tr=e.target.closest("tr.go");if(!tr)return;
+  document.body.classList.add("focus");document.body.classList.remove("focus-set");$("fbSet").textContent="⚙ Plan settings";window.scrollTo(0,0);
   if(S.dirty)saveNow().catch(()=>{});$("fClass").value=tr.dataset.c;fillSubjects(tr.dataset.s);$("fSubject").value=tr.dataset.s;$("fTerm").value=tr.dataset.t;
-  openPlan().then(()=>$("planCard").scrollIntoView({behavior:"smooth"}))});
+  openPlan().then(()=>window.scrollTo(0,0))});
+$("fbBack").onclick=()=>{document.body.classList.remove("focus","focus-set");loadList();$("listCard").scrollIntoView()};
+$("fbSet").onclick=()=>{const on=document.body.classList.toggle("focus-set");$("fbSet").textContent=on?"✕ Hide settings":"⚙ Plan settings";if(on)$("setupCard").scrollIntoView({behavior:"smooth"})};
 
 /* ---------- start ---------- */
 if(!SCHOOL_ID)showErr("Your school was not found in this login. Please log out and log in again.");
