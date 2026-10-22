@@ -213,6 +213,7 @@ body.focus:not(.focus-set) #setupCard{display:none}
     <div class="hint" id="ttHint" style="margin-top:4px"></div>
     <div style="margin-top:14px">
       <div class="toolbar"><b style="font-size:.9rem">Chapters for this term</b><span class="hint" id="chapHint"></span></div>
+      <label style="margin:6px 0 8px;max-width:340px;font-size:.85rem">Book to plan from <select id="fBookCls"><option value="">This class's books</option></select><span class="hint" style="display:block;font-weight:400;margin-top:3px">Use another class's book when this class has none (e.g. Hindi basics for every class).</span></label>
       <div class="chaps" id="chaps"></div>
       <div class="btnrow" style="margin-top:8px"><button class="btn ghost small" id="addOwn">+ Add a chapter by name</button></div>
     </div>
@@ -332,14 +333,19 @@ async function bookChapters(b){
 const SUBJ_ALIAS={maths:"mathematics",math:"mathematics","social science":"social",sst:"social","social studies":"social"};
 const sk=s=>{s=String(s||"").toLowerCase().trim();return SUBJ_ALIAS[s]||s};
 let CHOPTS=[];   // [{key,title,book,bookObj,from,to}]
+let BOOK_CLS="";  // Oct 2026: plan from another class's book ("" = this class)
 async function renderChapters(){
   if(isSpoken())return renderUnits();
   $("addOwn").hidden=false;spokenUI();
   const c=$("fClass").value,sb=$("fSubject").value;
   const onScreen={};$("chaps").querySelectorAll("input[data-key]").forEach(i=>onScreen[i.dataset.key]=i.checked);
   if(!CHOPTS.length||CHOPTS._for!==c+"|"+sb)$("chaps").innerHTML=`<div class="hint"><span class="spin"></span>Loading this class's books…</div>`;
-  const books=(await loadBooks()).filter(b=>normCls(b.class_name)===normCls(c)&&(!b.subject||sk(b.subject)===sk(sb)));
-  const sameList=CHOPTS._for===c+"|"+sb;CHOPTS=[];CHOPTS._for=c+"|"+sb;
+  const allB=await loadBooks(),bc=BOOK_CLS||c;
+  {const others=[...new Set(allB.filter(b=>normCls(b.class_name)!==normCls(c)).map(b=>b.class_name))].sort((x,y)=>(num(x)||0)-(num(y)||0)),sel=$("fBookCls");
+    if(BOOK_CLS&&!others.includes(BOOK_CLS))others.push(BOOK_CLS);
+    sel.innerHTML=`<option value="">This class's books</option>`+others.map(x=>`<option value="${esc(x)}">${esc(x)}'s book</option>`).join("");sel.value=BOOK_CLS}
+  const books=allB.filter(b=>normCls(b.class_name)===normCls(bc)&&(!b.subject||sk(b.subject)===sk(sb)));
+  const sameList=CHOPTS._for===c+"|"+sb+"|"+bc;CHOPTS=[];CHOPTS._for=c+"|"+sb+"|"+bc;
   // Oct 2026: a combined term book (English + Maths + EVS + Hindi in one) saves chapters as "Hindi – स्वर (Vowels)";
   // show only the chosen subject's chapters from it, without the subject name in front
   const SUB_PRE=/^\s*([A-Za-z][A-Za-z .&]{1,30}?)\s+\u2013\s+(.+)$/,subKey=x=>{x=sk(x).replace(/\s+/g," ");return /^(environmental|e\.?v\.?s)/.test(x)?"evs":x};
@@ -349,22 +355,30 @@ async function renderChapters(){
     if(pre.size>=2){   // only a real combined book: two or more subject names in front
       chs=chs.filter(ch=>{const m=SUB_PRE.exec(String(ch.chapter_title||""));return m&&subKey(m[1])===subKey(sb)})
         .map(ch=>Object.assign({},ch,{chapter_title:SUB_PRE.exec(String(ch.chapter_title))[2]}))}
-    chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),book:b.book_name+(b.term?" · Term "+b.term:""),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+    chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),book:b.book_name+(b.term?" · Term "+b.term:"")+(BOOK_CLS?" · from "+BOOK_CLS:""),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
   if($("fClass").value!==c||$("fSubject").value!==sb)return;
   const picked=new Set(((S.settings&&S.settings.chapters)||[]).map(x=>x.key));
   if(sameList)Object.keys(onScreen).forEach(k=>{if(onScreen[k])picked.add(k);else picked.delete(k)});   // keep ticks made on screen
   $("chaps").innerHTML=(CHOPTS.length?CHOPTS.map((o,i)=>`<label class="chk"><input type="checkbox" data-i="${i}" data-key="${esc(o.key)}"${picked.has(o.key)?" checked":""}><span>${esc(o.title)}<br><span class="hint">${esc(o.book)}</span></span><span class="pg">pp ${o.from}–${o.to}</span></label>`).join(""):"")+
     S.own.map((o,i)=>`<label class="chk own"><input type="checkbox" data-own="${i}" checked><input data-ot="${i}" value="${esc(o.title)}" placeholder="Chapter name"><input type="number" data-of="${i}" value="${o.from||""}" placeholder="from p."><input type="number" data-oto="${i}" value="${o.to||""}" placeholder="to p."><button type="button" class="btn ghost small" data-odel="${i}">✕</button></label>`).join("");
-  $("chapHint").textContent=CHOPTS.length?"From the books uploaded for "+c+". Tick the ones taught this term.":"No chapters marked in uploaded books for "+c+" "+sb+". Add chapters by name below — AI then plans from the names.";
+  $("chapHint").textContent=CHOPTS.length?"From the books uploaded for "+bc+". Tick the ones taught this term.":"No chapters marked in uploaded books for "+c+" "+sb+". Add chapters by name below — AI then plans from the names.";
   slotHint()}
 $("chaps").addEventListener("input",e=>{const t=e.target,d=t.dataset;
   if(d.ot!=null)S.own[+d.ot].title=t.value;if(d.of!=null)S.own[+d.of].from=+t.value||null;if(d.oto!=null)S.own[+d.oto].to=+t.value||null;slotHint()});
 $("chaps").addEventListener("change",()=>{slotHint();renderWbBox()});
 $("chaps").addEventListener("click",e=>{const d=e.target.dataset;if(d.odel!=null){e.preventDefault();S.own.splice(+d.odel,1);renderChapters()}});
+$("fBookCls").onchange=()=>{BOOK_CLS=$("fBookCls").value;if(S.settings)S.settings.book_cls=BOOK_CLS;
+  const n=num($("fClass").value);
+  // Oct 2026: Hindi basics for Classes 3–8 — the same letters as Class 2, then barakhadi (and simple words for 6–8)
+  if(BOOK_CLS&&sk($("fSubject").value)==="hindi"&&n>=3&&!S.own.length){
+    S.own.push({title:"बारहखड़ी (Barakhadi) – क का कि की … with every consonant",from:null,to:null,frac:0.5});
+    if(n>=6)S.own.push({title:"Simple words – reading and writing 2–3 letter words (घर, कमल, नमक …)",from:null,to:null,frac:0.5});
+    toast(n>=6?"Added barakhadi and simple words after the letters — letters take about half the term.":"Added barakhadi after the letters — letters take about two-thirds of the term.")}
+  renderChapters()};
 $("addOwn").onclick=()=>{S.own.push({title:"",from:null,to:null});renderChapters().then(()=>{const l=$("chaps").querySelectorAll("[data-ot]");l.length&&l[l.length-1].focus()})};
 function pickedChapters(){const out=[];
   $("chaps").querySelectorAll("input[data-i]:checked").forEach(i=>{const o=CHOPTS[+i.dataset.i];out.push({key:o.key,title:o.title,book:o.book,from:o.from,to:o.to,bookObj:o.bookObj})});
-  S.own.forEach((o,i)=>{const cb=$("chaps").querySelector(`[data-own="${i}"]`);if(cb&&cb.checked&&o.title.trim())out.push({key:"O:"+i+":"+o.title.trim(),title:o.title.trim(),book:"",from:o.from,to:o.to})});
+  S.own.forEach((o,i)=>{const cb=$("chaps").querySelector(`[data-own="${i}"]`);if(cb&&cb.checked&&o.title.trim())out.push({key:"O:"+i+":"+o.title.trim(),title:o.title.trim(),book:"",from:o.from,to:o.to,frac:o.frac||0})});
   return out}
 
 /* ---------- Spoken English and Handwriting units (no book) ---------- */
@@ -426,7 +440,10 @@ function periodDates(start,end,days,ppw){
     m.setDate(m.getDate()+7)}
   return out}
 function share(chs,total){   // periods per chapter, by pages (at least 2 each when possible)
-  const pages=chs.map(c=>c.from&&c.to&&c.to>=c.from?c.to-c.from+1:6);const sum=pages.reduce((a,b)=>a+b,0);
+  let pages=chs.map(c=>c.from&&c.to&&c.to>=c.from?c.to-c.from+1:6);
+  // Oct 2026: a chapter with a set share ("frac" × the book chapters' pages), e.g. Hindi barakhadi after the letters
+  {const bookSum=pages.filter((p,i)=>!chs[i].frac).reduce((a,b)=>a+b,0)||6;pages=pages.map((p,i)=>chs[i].frac?Math.max(1,Math.round(bookSum*chs[i].frac)):p)}
+  const sum=pages.reduce((a,b)=>a+b,0);
   const min=total>=chs.length*2?2:1;let base=pages.map(p=>Math.max(min,Math.floor(total*p/sum)));
   let diff=total-base.reduce((a,b)=>a+b,0);const order=pages.map((p,i)=>[total*p/sum-Math.floor(total*p/sum),i]).sort((a,b)=>b[0]-a[0]).map(x=>x[1]);
   let k=0;while(diff>0){base[order[k%order.length]]++;diff--;k++}
@@ -1094,7 +1111,7 @@ $("makeBtn").onclick=async()=>{
     if(rows.length){rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);await saveNow(true).catch(()=>{});renderPlan()}}
   finally{btn.disabled=false}};
 function collectSettings(chs){return{start:$("fStart").value,end:$("fEnd").value,days:getDays(),ppw:+$("fPpw").value||5,ppw_own:ownPpw(),note:$("fNote").value.trim(),tb:$("fTb").value,hw_style:hwStyle(),...wbSettings(),acts:S.acts||{},hw_only:(S.settings&&S.settings.hw_only)||[],
-  chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to}))}}
+  book_cls:BOOK_CLS,chapters:(chs||pickedChapters()).map(c=>({key:c.key,title:c.title,book:c.book,from:c.from,to:c.to,frac:c.frac||0}))}}
 
 /* ---------- homework timetable (Oct 2026) ----------
    The principal's homework timetable (Homework Planner) fixes which subjects get homework on which day.
@@ -1454,11 +1471,11 @@ window.addEventListener("beforeunload",e=>{if(S.dirty){e.preventDefault();e.retu
 /* ---------- open a plan ---------- */
 async function openPlan(){
   const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;lsSet("tp_class",c);lsSet("tp_subject",sb);
-  S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;$("fPpwOwn").checked=false;
+  S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;$("fPpwOwn").checked=false;BOOK_CLS="";
   try{const d=await tp("get",{class_name:c,subject:sb,term:t});
     if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
       const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fPpwOwn").checked=!!st.ppw_own;$("fNote").value=st.note||"";if($("fHwStyle"))$("fHwStyle").value=st.hw_style==="cursive"?"cursive":"print";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
-      S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to}))}}
+      S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to,frac:x.frac||0}));BOOK_CLS=st.book_cls||""}}
   catch(e){showErr("Could not open the plan: "+e.message)}
   $("prog").hidden=true;renderChapters().then(renderWbBox).then(modelHint);renderPlan();modelHint();loadHolidays().then(loadTimetable)}
 ["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
