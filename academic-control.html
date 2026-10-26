@@ -8,6 +8,12 @@
     var _r = localStorage.getItem('dss_role');
     if (_r === 'teacher') location.replace('/index.html');
     else if (!_r) location.replace('/login.html');
+    else {
+      // Login ended (12 hours) or never saved -> go to login instead of showing a red error (Oct 2026)
+      var _s = localStorage.getItem('dss_session') || '', _exp = 0;
+      try { _exp = JSON.parse(atob(_s.split('.')[0])).exp || 0; } catch (e2) {}
+      if (!_s || !_exp || Date.now() > _exp) location.replace('/login.html?next=' + encodeURIComponent('/academic-control.html'));
+    }
   } catch (e) {}
 </script>
 <meta charset="UTF-8"/>
@@ -113,7 +119,7 @@ table.w th{background:var(--soft);color:var(--m)}
     <div class="hr">
       <a class="back" href="dashboard.html">&larr; Back</a>
       <div class="ttl"><small>Academic Control</small><h1 id="title">Loading…</h1></div>
-      <div class="hctl"><label for="day" style="font-weight:800;font-size:.85rem">Day</label><input type="date" id="day"/><button type="button" id="refresh">Refresh</button></div>
+      <div class="hctl"><label for="day" style="font-weight:800;font-size:.85rem">Day</label><input type="date" id="day"/><span id="sabox" hidden style="display:inline-flex;gap:6px;align-items:center"><label for="saschool" style="font-weight:800;font-size:.85rem">School code</label><input type="text" id="saschool" placeholder="e.g. ARK2024" style="width:110px"/></span><button type="button" id="refresh">Refresh</button></div>
     </div>
     <div class="stats" id="stats"></div>
     <div class="tabs" role="tablist" id="tabs">
@@ -207,10 +213,14 @@ table.w th{background:var(--soft);color:var(--m)}
   function stPill(st){return st==="done"?pill("p-ok","Done"):st==="not"?pill("p-bad","Not done"):pill("p-w","Not marked")}
   function lvl(l){return l==="bad"?pill("p-bad","Needs action"):l==="slow"?pill("p-slow","Slightly behind"):pill("p-ok","On track")}
 
+  var ROLE="";try{ROLE=localStorage.getItem("dss_role")||""}catch(e){}
+  function saSchool(){try{return localStorage.getItem("ac_sa_school")||""}catch(e){return""}}
   async function call(url,body){
+    if(ROLE==="super_admin")body=Object.assign({school_id:saSchool()},body||{});
     var r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
     var d;try{d=await r.json()}catch(e){d={error:"The server did not answer properly (status "+r.status+")."}}
-    if(r.status===401)d.error=(d.error||"Please log in again.")+" Your login may have ended.";
+    if(r.status===401){d.error=(d.error||"Please log in again.")+" Taking you to the login page…";
+      setTimeout(function(){location.href="/login.html?next="+encodeURIComponent("/academic-control.html")},2500)}
     return d;
   }
 
@@ -226,6 +236,7 @@ table.w th{background:var(--soft);color:var(--m)}
   // ── load ──
   async function load(){
     S.day=$("day").value||istToday();
+    if(ROLE==="super_admin"&&!saSchool()){$("title").textContent="Choose a school";$("loaderr").innerHTML='<div class="panel empty">You are logged in as Super Admin. Type the school code at the top (for example ARK2024) and press Refresh.</div>';return}
     $("title").textContent=(S.day===istToday()?"Today · ":"")+nice(S.day);
     $("loaderr").innerHTML='<div class="panel empty">Loading the school\'s day&hellip;</div>';
     var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);S.yday=y;S.nday=n;
@@ -415,7 +426,10 @@ table.w th{background:var(--soft);color:var(--m)}
 
   $("day").value=istToday();
   $("day").onchange=function(){S.period=null;load()};
-  $("refresh").onclick=load;
+  if(ROLE==="super_admin"){$("sabox").hidden=false;$("sabox").style.display="inline-flex";$("saschool").value=saSchool();
+    $("saschool").onchange=function(){try{localStorage.setItem("ac_sa_school",this.value.trim())}catch(e){}S.period=null;load()}}
+  else $("sabox").style.display="none";
+  $("refresh").onclick=function(){if(ROLE==="super_admin"){try{localStorage.setItem("ac_sa_school",$("saschool").value.trim())}catch(e){}}load()};
   load();
 })();
 </script>
