@@ -674,7 +674,12 @@ $("viewSwitch").onclick=()=>{MYCLASS=!MYCLASS;lsSet("hwp_view",MYCLASS?"teacher"
 
 /* ---------- subject lists follow the timetable ---------- */
 let lastPanelKey="";
-function fillSubj(el,c,ds,keep){const subs=subjectsFor(c),fx=fixedFor(c,ds);
+/* Term Plan subjects (e.g. English Writing Practice) are not timetable subjects, but they must be
+   pickable in the dropdown, and editing such a homework must keep its own subject. */
+function extraSubjectsFor(c){return num(c)?["English Writing Practice","English Reading Practice"]:[]}
+function fillSubj(el,c,ds,keep){const subs=subjectsFor(c).concat(extraSubjectsFor(c).filter(s=>!subjectsFor(c).includes(s)));
+  if(keep&&!subs.includes(keep))subs.push(keep);
+  const fx=fixedFor(c,ds);
   if(!fx){fillSelect(el,subs,subs.includes(keep)?keep:subs[0]);return}
   const others=subs.filter(s=>!fx.includes(s)),fixedList=fx.concat([]);
   const live=itemsFor(c,ds,x=>x.status!=="returned");
@@ -1003,7 +1008,7 @@ $("pItems").addEventListener("click",e=>{
   if(t.retcancel){returning=null;renderPanel()}
   if(t.retsend){const note=($("retNote").value||"").trim();returning=null;act("send_back",{id:t.retsend,note},"Sent back to the "+S.sel.cls+" teacher")}
   if(t.del){if(armed!==t.del){armed=t.del;renderPanel();setTimeout(()=>{if(armed===t.del){armed=null;renderPanel()}},4000);return}armed=null;act("remove",{id:t.del},"Removed")}
-  if(t.edit){const i=it(t.edit);editing=i.id;S.tab="type";showTab();$("tSubj").value=i.subject;$("tKind").value=i.kind;$("tText").value=i.homework;renderTop();$("tCancel").hidden=false;$("tText").focus()}
+  if(t.edit){const i=it(t.edit);editing=i.id;S.tab="type";showTab();fillSubj($("tSubj"),S.sel.cls,S.sel.date,i.subject);$("tSubj").value=i.subject;$("tKind").value=i.kind;$("tText").value=i.homework;renderTop();$("tCancel").hidden=false;$("tText").focus()}
 });
 function cancelEdit(quiet){editing=null;if(!quiet)$("tText").value="";$("tCancel").hidden=true;renderTop()}
 $("tCancel").onclick=()=>{$("tText").value="";cancelEdit()};
