@@ -267,6 +267,14 @@ textarea{resize:vertical;min-height:70px}
 .tt td.n{font-size:.75rem;color:var(--muted);white-space:nowrap}
 .tt input{width:18px;height:18px;accent-color:var(--accent);cursor:pointer}
 .ttwrap{overflow-x:auto}
+/* fixed homework lines (Oct 2026) */
+.fxbox{border-top:1px dashed var(--line);padding-top:10px;display:grid;gap:6px}
+.fxbox h3{margin:0;font-size:1rem;color:var(--maroon)}
+.fxrow{display:grid;grid-template-columns:170px 1fr 1fr;gap:6px;align-items:center}
+.fxrow input{margin:0}
+@media(max-width:760px){.fxrow{grid-template-columns:1fr}}
+.quick{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.iconbtn.qk{border-color:var(--gold)}
 .ttsaved{font-size:.8rem;color:var(--ok)}
 .ttdirty{font-size:.8rem;color:var(--warn);font-weight:600}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
@@ -313,6 +321,7 @@ textarea{resize:vertical;min-height:70px}
         </div>
         <p class="hint" style="margin:0">Tick the subjects that get homework on each day. Teachers see this on their page. It also sets the daily limit. Teachers can still send other subjects — they come to you marked "Extra".</p>
         <div class="ttwrap"><table class="tt" id="ttTable"></table></div>
+        <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — from the Term Plans, in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills only empty boxes. Check them, then Save.</span></div></div>
         <div class="btnrow">
           <button class="btn" id="ttSave">Save timetable</button>
           <label style="display:flex;align-items:center;gap:6px">Copy this class to <select id="ttCopyTo"></select></label>
@@ -494,13 +503,36 @@ function subjectsFor(c){const n=num(c);
   return["English","Tamil","Hindi","Maths","Science","Social Science","Computer"]}
 const defaultLimit=c=>{const n=num(c);return !n?1:n<=2?2:n<=5?3:4};
 /* ---------- fixed homework timetable (set by the principal) ---------- */
-let TT={},TT_ERR="";
+let TT={},TT_ERR="",FX={};   // FX = fixed homework lines {class:{subject:{en,ta}}} (Oct 2026)
 const dayKey=ds=>DAYS[(parse(ds).getDay()+6)%7];
 const hasTT=c=>!!(TT[c]&&DAYS.some(d=>(TT[c][d]||[]).length));
 const fixedFor=(c,ds)=>hasTT(c)?(TT[c][dayKey(ds)]||[]):null;          // null = no timetable for this class
 const isExtra=i=>{const f=fixedFor(i.class_name,i.hw_date);return !!f&&!f.includes(i.subject)};
 const limitFor=(c,ds)=>{const f=ds?fixedFor(c,ds):null;return f?f.length:defaultLimit(c)};
 const SHORT={English:"ENG",Maths:"MAT",Tamil:"TAM",Hindi:"HIN",EVS:"EVS",Science:"SCI","Social Science":"SST","Rhymes/GK":"RHY",Computer:"CMP"};
+/* ---------- fixed homework lines (Oct 2026) ----------
+   A standing line per class + subject ("Homework given in Hindi Workbook." + Tamil line) set once by the
+   principal. LKG/UKG get one-tap Workbook / Note / Worksheet. "From classwork" adds that day's class work. */
+const isKG=c=>!num(c);
+const TA_SUBJ={English:"ஆங்கில",Maths:"கணக்கு",Tamil:"தமிழ்",Hindi:"ஹிந்தி",EVS:"சுற்றுச்சூழல்",Science:"அறிவியல்","Social Science":"சமூக அறிவியல்",Computer:"கணினி","Rhymes/GK":"பாடல்/பொது அறிவு","English Writing Practice":"ஆங்கில எழுத்துப் பயிற்சி","English Reading Practice":"ஆங்கில வாசிப்புப் பயிற்சி"};
+const KG_WAYS={workbook:["Workbook","பயிற்சிப் புத்தகத்தில்"],note:["Note","நோட்டில்"],worksheet:["Worksheet","பயிற்சித் தாளில்"]};
+function kgLine(sb,w){const k=KG_WAYS[w];return{en:"Homework given in "+sb+" "+k[0]+".",ta:(TA_SUBJ[sb]||sb)+" "+k[1]+" வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது."}}
+const lineText=f=>f&&f.en?f.en+(f.ta?"\n"+f.ta:""):"";
+function fixedLine(c,sb){const f=FX[c]&&FX[c][sb];return f&&f.en?f:null}
+function fixedText(c,sb){return lineText(fixedLine(c,sb))}
+function isStanding(c,sb,t){t=String(t||"").trim();if(/^Homework given in /i.test(t))return true;const f=fixedLine(c,sb);return !!(f&&t.startsWith(f.en))}
+function suggestedLine(c,sb){const n=num(c);if(!n)return kgLine(sb,"workbook");
+  if(sb==="Hindi"&&n<=4)return{en:"Homework given in Hindi Workbook.",ta:"ஹிந்தி பயிற்சிப் புத்தகத்தில் வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது."};
+  if(sb==="Hindi"&&n<=8)return{en:"Homework given in Hindi Note.",ta:"ஹிந்தி நோட்டில் வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது."};
+  if(sb==="English Writing Practice"&&n<=8)return{en:"Homework given in English Communication Note. Write only one page.",ta:"ஆங்கில கம்யூனிகேஷன் நோட்டில் வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது. ஒரு பக்கம் மட்டும் எழுதவும்."};
+  return null}
+// Term Plan homework sometimes starts with a label ("Reading:", "Homework note:") — take it off
+function cleanTpText(t){t=String(t||"").trim().replace(/^(homework\s*note|homework|reading|writing|note)\s*[:：\-–]\s*/i,"");return t.charAt(0).toUpperCase()+t.slice(1)}
+// one line from that day's class work for this subject ("" if none yet)
+function cwLineFor(c,ds,sb){const l=(S.cw||[]).filter(x=>x.class_name===c&&x.hw_date===ds&&x.subject===sb&&x.status!=="returned").map(x=>String(x.homework||"").trim()).filter(Boolean);
+  if(!l.length)return"";let t=l.join(" ");if(t.length>220)t=t.slice(0,218)+"…";return"Today's lesson: "+t}
+function quickHTML(c,mk){return (isKG(c)?Object.keys(KG_WAYS).map(w=>`<button type="button" class="iconbtn qk" ${mk(w)}>${KG_WAYS[w][0]}</button>`).join(""):"")+`<button type="button" class="iconbtn qk" ${mk("cw")} title="Add one line from today's class work in this subject">📖 From classwork</button>`}
+
 const KINDS=["Written","Learn by heart","Read aloud","Activity","Drawing/Colouring"];
 
 /* ---------- dates ---------- */
@@ -544,7 +576,7 @@ async function load(){
     S.items=all.filter(i=>i.entry_type!=="classwork"&&i.entry_type!=="bookback");   // homework (all older rows)
     S.bb=all.filter(i=>i.entry_type==="bookback");       // book back answers (from Teacher Tools → Book Back Answers)
     S.cw=all.filter(i=>i.entry_type==="classwork");      // class work
-    TT=d.timetable||{};TT_ERR=d.timetable_error||"";
+    TT=d.timetable||{};FX=d.fixed||{};TT_ERR=d.timetable_error||"";
     if(TT_ERR){$("topInfo").textContent="The homework timetable could not load: "+TT_ERR;$("topInfo").hidden=false}else $("topInfo").hidden=true;
     if(PRINCIPAL)ttSummary();
     if(d.school){SCHOOL=Object.assign(SCHOOL,d.school)}
@@ -645,6 +677,7 @@ function renderPanel(scroll){
       acts=`<button class="iconbtn" data-edit="${i.id}">${i.status==="returned"?"Fix and resend":"Edit"}</button><button class="iconbtn${armed===i.id?" danger":""}" data-del="${i.id}">${armed===i.id?"Tap again to remove":"Remove"}</button>`;
     }
     if(PRINCIPAL)acts=`<button class="iconbtn ws" data-ws="${i.id}" title="Make this homework into a printable worksheet">📝 Worksheet</button>`+acts;
+    if(!i.sent_at&&(PRINCIPAL?(i.status==="waiting"||i.status==="added"):i.status!=="added"))acts+=quickHTML(c,w=>`data-qk="${i.id}|${w}"`);
     const back=returning===i.id?`<div class="back"><input id="retNote" maxlength="300" placeholder="Note for the teacher, e.g. too long, make it 5 sums"><button class="iconbtn go" data-retsend="${i.id}">Send back</button><button class="iconbtn" data-retcancel="1">Cancel</button></div>`:"";
     const pill=i.sent_at?`<span class="pill sent">${esc(sentLabel(i))}</span>`:`<span class="pill ${i.status}">${STATUS[i.status]}</span>`;
     const rp=i.status!=="returned"?findRepeat(c,i.subject,i.homework,i.id):null;
@@ -709,7 +742,7 @@ function similar(a,b){const A=words(a),B=words(b);if(!A.length||!B.length)return
   const sa=new Set(A),sb=new Set(B);let n=0;sa.forEach(w=>{if(sb.has(w))n++});
   return n/(sa.size+sb.size-n)>=0.7}
 function poolFor(c){const m=new Map();(PAST[c]||[]).forEach(x=>m.set(x.id,x));S.items.filter(x=>x.class_name===c&&x.status!=="returned").forEach(x=>m.set(x.id,x));return[...m.values()]}
-function findRepeat(c,subj,text,exceptId){return poolFor(c).filter(x=>x.id!==exceptId&&x.subject===subj&&similar(x.homework,text)).sort((a,b)=>b.hw_date.localeCompare(a.hw_date))[0]||null}
+function findRepeat(c,subj,text,exceptId){if(isStanding(c,subj,text))return null;return poolFor(c).filter(x=>x.id!==exceptId&&x.subject===subj&&similar(x.homework,text)).sort((a,b)=>b.hw_date.localeCompare(a.hw_date))[0]||null}
 function pastFor(c,subj,n){return poolFor(c).filter(x=>x.subject===subj).sort((a,b)=>b.hw_date.localeCompare(a.hw_date)).slice(0,n)}
 function pastPrompt(c,subj,n){const p=pastFor(c,subj,n);return p.length?`Homework already given earlier in ${subj} (do NOT repeat any of these; move on to new exercises, questions or pages):\n${p.map(x=>"- "+nice(x.hw_date)+": "+x.homework).join("\n")}\n`:""}
 // Shows a warning in `box` if the text looks like earlier homework. Returns true when it is fine to send.
@@ -731,20 +764,33 @@ function renderTT(){if(!TTD)return;const c=ttCls(),subs=subjectsFor(c),row=TTD[c
   DAYS.forEach((d,i)=>{const on=row[d]||[];h+=`<tr><th class="d">${DAYFULL[i]}</th>${subs.map(s=>`<td><input type="checkbox" data-tt="${d}|${esc(s)}" aria-label="${DAYFULL[i]} ${esc(s)}"${on.includes(s)?" checked":""}></td>`).join("")}<td class="n">${on.length?on.length+" a day":"—"}</td></tr>`});
   $("ttTable").innerHTML=h+"</tbody>";
   $("ttState").innerHTML=ttDirty?`<span class="ttdirty">Not saved yet</span>`:"";
+  renderFx();
 }
+function fxSubsFor(c){const a=subjectsFor(c);return a.concat(extraSubjectsFor(c).filter(s=>!a.includes(s)))}
+function renderFx(){if(!TTD)return;const c=ttCls(),F=(TTD._fixed||{})[c]||{};
+  $("fxRows").innerHTML=fxSubsFor(c).map(s=>{const v=F[s]||{};return `<div class="fxrow"><b>${esc(s)}</b><input data-fx="${esc(s)}|en" maxlength="300" value="${esc(v.en||"")}" placeholder="English line, e.g. Homework given in ${esc(s)} Workbook." aria-label="${esc(s)} fixed line"><input data-fx="${esc(s)}|ta" maxlength="300" value="${esc(v.ta||"")}" placeholder="Tamil line for parents" aria-label="${esc(s)} Tamil line"></div>`}).join("")}
+$("fxRows").addEventListener("input",e=>{const v=e.target.dataset.fx;if(!v)return;const i=v.lastIndexOf("|"),s=v.slice(0,i),k=v.slice(i+1),c=ttCls();
+  TTD._fixed=TTD._fixed||{};const F=TTD._fixed[c]=TTD._fixed[c]||{};F[s]=Object.assign({en:"",ta:""},F[s]);F[s][k]=e.target.value;
+  ttDirty=true;$("ttState").innerHTML=`<span class="ttdirty">Not saved yet</span>`});
+$("fxSuggest").onclick=()=>{const c=ttCls();TTD._fixed=TTD._fixed||{};const F=TTD._fixed[c]=TTD._fixed[c]||{};let n=0;
+  fxSubsFor(c).forEach(s=>{if(F[s]&&F[s].en)return;const g=suggestedLine(c,s);if(g){F[s]={en:g.en,ta:g.ta};n++}});
+  if(!n){toast("No suggested lines for "+c+" — type your own, or leave them empty.");return}
+  ttDirty=true;renderTT();toast(n+" suggested line"+(n>1?"s":"")+" filled for "+c+". Check them, then press Save timetable.")};
 function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=classesShown().map(c=>`<option${c===cur?" selected":""}>${c}</option>`).join("");
   const c=ttCls();$("ttCopyTo").innerHTML=`<option value="">— choose —</option>`+classesShown().filter(x=>x!==c).map(x=>`<option>${x}</option>`).join("")}
-$("ttToggle").onclick=()=>{const b=$("ttBox");if(b.hidden){if(!TTD||!ttDirty)TTD=JSON.parse(JSON.stringify(TT));ttFill();renderTT()}b.hidden=!b.hidden};
+$("ttToggle").onclick=()=>{const b=$("ttBox");if(b.hidden){if(!TTD||!ttDirty){TTD=JSON.parse(JSON.stringify(TT));TTD._fixed=JSON.parse(JSON.stringify(FX))}ttFill();renderTT()}b.hidden=!b.hidden};
 $("ttCls").onchange=()=>{ttFill();renderTT()};
 $("ttTable").addEventListener("change",e=>{const v=e.target.dataset.tt;if(!v)return;const[d,s]=v.split("|"),c=ttCls();
   const subs=subjectsFor(c);const row=TTD[c]=TTD[c]||{};const set=new Set(row[d]||[]);e.target.checked?set.add(s):set.delete(s);
   row[d]=subs.filter(x=>set.has(x));ttDirty=true;renderTT()});
 $("ttCopy").onclick=()=>{const to=$("ttCopyTo").value,c=ttCls();if(!to){toast("Choose the class to copy to.",true);return}
   const from=TTD[c]||{},subs=subjectsFor(to),row={};DAYS.forEach(d=>{row[d]=(from[d]||[]).filter(s=>subs.includes(s))});
-  TTD[to]=row;ttDirty=true;renderTT();toast(c+"'s timetable copied to "+to+" (subjects "+to+" does not have were left out). Press Save.")};
+  TTD[to]=row;
+  {const F=(TTD._fixed||{})[c];if(F){const ok=fxSubsFor(to),o={};Object.keys(F).forEach(s=>{if(ok.includes(s))o[s]=Object.assign({},F[s])});TTD._fixed[to]=o}}
+  ttDirty=true;renderTT();toast(c+"'s timetable copied to "+to+" (subjects "+to+" does not have were left out). Press Save.")};
 $("ttClear").onclick=()=>{const c=ttCls();TTD[c]={};ttDirty=true;renderTT()};
 $("ttSave").onclick=async()=>{const btn=$("ttSave");btn.disabled=true;
-  try{const d=await hw("save_timetable",{plan:TTD});TT=d.timetable||{};TTD=JSON.parse(JSON.stringify(TT));ttDirty=false;renderTT();
+  try{const d=await hw("save_timetable",{plan:TTD});TT=d.timetable||{};FX=d.fixed||{};TTD=JSON.parse(JSON.stringify(TT));TTD._fixed=JSON.parse(JSON.stringify(FX));ttDirty=false;renderTT();
     $("ttState").innerHTML=`<span class="ttsaved">Saved ✓ Teachers will see it.</span>`;ttSummary();renderAll()}
   catch(e){toast("Could not save the timetable: "+e.message,true)}finally{btn.disabled=false}};
 
@@ -1002,6 +1048,11 @@ $("pWsAll").addEventListener("click",e=>{if(!e.target.closest("[data-wsall]"))re
 $("pItems").addEventListener("click",e=>{
   const t=e.target.dataset;const it=id=>S.items.find(x=>x.id===id);
   if(t.ws){const i=it(t.ws);if(i)openWs([i]);return}
+  if(t.qk){const[id,w]=t.qk.split("|");const i=it(id);if(!i)return;let text;
+    if(w==="cw"){const l=cwLineFor(i.class_name,i.hw_date,i.subject);if(!l){toast("No class work for "+i.subject+" on "+nice(i.hw_date)+" yet. Add it under 📖 Class work first, or tap Edit.",true);return}
+      if(i.homework.includes(l)){toast("Today's class work is already in this homework.");return}text=i.homework.trim()+"\n"+l}
+    else text=lineText(kgLine(i.subject,w));
+    act("save",{id:i.id,class_name:i.class_name,subject:i.subject,kind:i.kind,homework:text,hw_date:i.hw_date,teacher_name:TEACHER_NAME},"Homework changed");return}
   if(t.add){S.sel.focus=t.add;act("add",{ids:[t.add]},"Added to the week")}
   if(t.unadd)act("take_out",{id:t.unadd},"Taken out of the week. It is waiting again.");
   if(t.ret){returning=t.ret;renderPanel()}
@@ -1112,6 +1163,9 @@ async function askAI(prompt,maxTokens){
 const errBox=(el,m)=>el.innerHTML=`<div class="err">${esc(m)}</div>`;
 
 $("aGo").onclick=async()=>{const out=$("aOut"),btn=$("aGo");const c=S.sel.cls,subj=$("aSubj").value,m=chapChoice(c,subj,false);const name=chapName(c,subj,m);
+  {const fl=fixedText(c,subj);if(fl){out.innerHTML=`<div class="hint">${esc(subj)} has a fixed homework line, so AI does not write it. You can add to it before saving.</div><label class="opt"><input type="radio" name="aPick" value="0" checked><span><textarea data-i="0" rows="3" maxlength="1000" style="min-height:60px">${esc(fl)}</textarea></span></label><div id="aWarn"></div><div class="btnrow"><button class="btn" id="aAdd">${PRINCIPAL?"Add to week":"Send to principal"}</button></div>`;
+    $("aAdd").onclick=async()=>{const t=out.querySelector('textarea[data-i="0"]').value.trim();if(!t)return;
+      const d=await act("save",{class_name:c,subject:subj,kind:$("aKind").value,homework:t,hw_date:S.sel.date,made_by:"ai",teacher_name:TEACHER_NAME},PRINCIPAL?"Added to the week":"Sent to the principal");if(d)out.innerHTML=""};return}}
   if(!name){$("aTopic").hidden=false;$("aTopic").focus();errBox(out,"Choose or type the chapter first.");return}
   btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapter…';out.innerHTML="";
   try{const ct=await chapterText(c,subj,m);btn.innerHTML='<span class="spin"></span>Writing…';
@@ -1126,8 +1180,9 @@ $("aGo").onclick=async()=>{const out=$("aOut"),btn=$("aGo");const c=S.sel.cls,su
   }catch(e){errBox(out,"AI could not write homework: "+e.message)}finally{btn.disabled=false;btn.textContent="Write 3 choices"}};
 
 $("wGo").onclick=async()=>{const out=$("wOut"),btn=$("wGo"),c=S.sel.cls;if(!CLASS_OPTS[c])return;
-  const chosen=subjectsFor(c).map(s=>({s,m:chapChoice(c,s,true)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
-  if(!chosen.length){errBox(out,"Choose a chapter for at least one subject.");return}
+  const chosen=subjectsFor(c).filter(s=>!fixedText(c,s)).map(s=>({s,m:chapChoice(c,s,true)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
+  const fxPlan=hasTT(c)?DAYS.flatMap(d=>(TT[c][d]||[]).filter(s=>fixedText(c,s)).map(s=>({day:d,subject:s,kind:"Written",text:fixedText(c,s)}))):[];
+  if(!chosen.length&&!fxPlan.length){errBox(out,"Choose a chapter for at least one subject.");return}
   btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapters…';out.innerHTML="";
   try{const notes=[];let pages="";const per=Math.floor(12000/chosen.length);
     for(const x of chosen){const ct=await chapterText(c,x.s,x.m);if(ct.text)pages+=`\n${x.s} — ${x.name}:\n<<<\n${ct.text.slice(0,per)}\n>>>\n`;if(ct.note)notes.push(x.s+": "+ct.note)}
@@ -1137,9 +1192,10 @@ $("wGo").onclick=async()=>{const out=$("wOut"),btn=$("wGo"),c=S.sel.cls;if(!CLAS
     const already=DAYS.map((d,i)=>{const its=itemsFor(c,addDays(S.week,i),x=>x.status!=="returned");return{day:d,count:its.length,subs:its.map(x=>x.subject)}});
     const ttLines=hasTT(c)?"Fixed homework timetable — give homework ONLY in these subjects on these days, one homework per subject per day:\n"+DAYS.map(d=>"- "+d+": "+((TT[c][d]||[]).filter(s=>chosen.some(x=>x.s===s)).join(", ")||"no homework")).join("\n")+"\n":"";
     const pastLines=chosen.map(x=>pastPrompt(c,x.s,8)).join("");
-    const r=await askAI(`Plan one school week (Mon to Sat) of homework for ${c}.\nSubjects and chapters this week:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\n${ttLines}${pastLines}Maximum homework per day in total: ${hasTT(c)?DAYS.map(d=>d+"="+limOf(d)).join(", "):lim}. Homework already on each day (count toward the limit; do not give these subjects again that day): ${already.map(a=>a.day+"="+a.count+(a.subs.length?" ("+a.subs.join(", ")+")":"")).join(", ")}.\nRules: spread subjects fairly across the week; avoid the same subject two days in a row; Saturday can be lighter; build day by day on the chapter (read → practise → revise). Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"plan":[{"day":"Mon","subject":"English","kind":"Written","text":"..."}]}`,3000);
+    const r=!chosen.length?{plan:[]}:await askAI(`Plan one school week (Mon to Sat) of homework for ${c}.\nSubjects and chapters this week:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\n${ttLines}${pastLines}Maximum homework per day in total: ${hasTT(c)?DAYS.map(d=>d+"="+limOf(d)).join(", "):lim}. Homework already on each day (count toward the limit; do not give these subjects again that day): ${already.map(a=>a.day+"="+a.count+(a.subs.length?" ("+a.subs.join(", ")+")":"")).join(", ")}.\nRules: spread subjects fairly across the week; avoid the same subject two days in a row; Saturday can be lighter; build day by day on the chapter (read → practise → revise). Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"plan":[{"day":"Mon","subject":"English","kind":"Written","text":"..."}]}`,3000);
     const subs=chosen.map(x=>x.s);let plan=(r.plan||[]).filter(p=>DAYS.includes(p.day)&&p.text&&subs.includes(p.subject));
     if(hasTT(c))plan=plan.filter(p=>(TT[c][p.day]||[]).includes(p.subject));
+    plan=fxPlan.concat(plan);   // fixed lines first, so they keep their place in the day's limit
     const have={};already.forEach(a=>have[a.day]=new Set(a.subs));plan=plan.filter(p=>{if(have[p.day].has(p.subject))return false;have[p.day].add(p.subject);return true});
     const cnt={};already.forEach(a=>cnt[a.day]=a.count);plan=plan.filter(p=>(cnt[p.day]=(cnt[p.day]||0)+1)<=limOf(p.day));
     if(!plan.length)throw new Error("The plan came back empty — the week may already be full.");
@@ -1161,12 +1217,14 @@ function tRowHTML(){return `<div class="mrow"><div class="mhead"><select data-f=
   <div class="extrahint" data-f="extra" hidden></div>
   <textarea data-f="text" maxlength="1000" rows="2" placeholder="Homework"></textarea>
   <button type="button" class="srcbtn" data-f="src">📚 From book / workbook</button>
+  <div class="quick" data-f="quick"></div>
   <div class="tpidea" data-f="tp" hidden></div><div data-f="warn"></div></div>`}
 function fillTRow(r,c,ds,v){const sel=r.querySelector('[data-f="subj"]');fillSubj(sel,c,ds,v.subj);if(v.subj&&sel.value!==v.subj){const o=document.createElement("option");o.value=o.textContent=v.subj;sel.appendChild(o);sel.value=v.subj}
   fillSelect(r.querySelector('[data-f="kind"]'),KINDS,KINDS.includes(v.kind)?v.kind:KINDS[0]);
-  const ta=r.querySelector('[data-f="text"]');ta.value=v.text||"";ta.placeholder="Homework for "+sel.value+", e.g. Write the new words from page 34 two times each.";
+  const ta=r.querySelector('[data-f="text"]');ta.value=v.text||fixedText(c,sel.value);ta.placeholder="Homework for "+sel.value+", e.g. Write the new words from page 34 two times each.";
   tRowExtras(r,c,ds)}
 function tRowExtras(r,c,ds){const sb=r.querySelector('[data-f="subj"]').value,m=extraMsg(c,ds,sb),ex=r.querySelector('[data-f="extra"]');ex.textContent=m;ex.hidden=!m;
+  const qk=r.querySelector('[data-f="quick"]');if(qk)qk.innerHTML=quickHTML(c,w=>`data-f="qk" data-w="${w}"`);
   const live=liveSubs(c,ds).includes(sb);if(live&&!m){ex.textContent=sb+" already has homework on this day. This will be a second one.";ex.hidden=false}
   const tp=r.querySelector('[data-f="tp"]');tp.hidden=true;
   tpFor(c,ds).then(rows=>{if(S.sel.cls!==c||S.sel.date!==ds||r.querySelector('[data-f="subj"]').value!==sb)return;
@@ -1174,7 +1232,7 @@ function tRowExtras(r,c,ds){const sb=r.querySelector('[data-f="subj"]').value,m=
     tp.innerHTML=(x.homework?`<span><b>📘 Term plan homework:</b> ${esc(x.homework)}</span><button type="button" class="iconbtn go" data-f="tphw">Use this</button>`:"")+
       (x.home_act?`<span><b>📘 Term plan home activity:</b> ${esc(x.home_act)}</span><button type="button" class="iconbtn go" data-f="tpuse">Use this</button>`:"");tp.hidden=false;
     const add=(txt,kind)=>{const ta=r.querySelector('[data-f="text"]');ta.value=(ta.value.trim()?ta.value.trim()+" ":"")+txt;r.querySelector('[data-f="kind"]').value=kind;ta.focus()};
-    const bh=tp.querySelector('[data-f="tphw"]');if(bh)bh.onclick=()=>add(x.homework,KINDS[0]);
+    const bh=tp.querySelector('[data-f="tphw"]');if(bh)bh.onclick=()=>add(cleanTpText(x.homework),KINDS[0]);
     const ba=tp.querySelector('[data-f="tpuse"]');if(ba)ba.onclick=()=>add(x.home_act,KINDS.includes("Activity")?"Activity":KINDS[0])})}
 function defaultTRows(c,ds){const fx=fixedFor(c,ds),live=liveSubs(c,ds);
   if(fx){const todo=fx.filter(s=>!live.includes(s));if(todo.length)return todo.map(s=>({subj:s,kind:KINDS[0],text:""}))}
@@ -1190,9 +1248,13 @@ function renderTRows(same){const c=S.sel.cls,ds=S.sel.date;if(!c||!ds)return;con
 $("tAddRow").onclick=()=>{const c=S.sel.cls,ds=S.sel.date,used=readTRows().map(x=>x.subj).concat(liveSubs(c,ds));
   const subs=(fixedFor(c,ds)||[]).concat(subjectsFor(c)),next=subs.find(s=>!used.includes(s))||subjectsFor(c)[0];
   $("tRows").insertAdjacentHTML("beforeend",tRowHTML());const r=$("tRows").lastElementChild;fillTRow(r,c,ds,{subj:next,kind:KINDS[0],text:""});r.querySelector('[data-f="text"]').focus()};
-$("tRows").addEventListener("change",e=>{const r=e.target.closest(".mrow");if(r&&e.target.dataset.f==="subj"){const ta=r.querySelector('[data-f="text"]');ta.placeholder="Homework for "+e.target.value;tRowExtras(r,S.sel.cls,S.sel.date);const b=r.querySelector(".srcbox");b&&b.remove()}});
+$("tRows").addEventListener("change",e=>{const r=e.target.closest(".mrow");if(r&&e.target.dataset.f==="subj"){const ta=r.querySelector('[data-f="text"]');ta.placeholder="Homework for "+e.target.value;if(!ta.value.trim()||/^Homework given in /i.test(ta.value.trim()))ta.value=fixedText(S.sel.cls,e.target.value);tRowExtras(r,S.sel.cls,S.sel.date);const b=r.querySelector(".srcbox");b&&b.remove()}});
 $("tRows").addEventListener("click",e=>{const b=e.target.closest("[data-f]");if(!b)return;const r=b.closest(".mrow");
   if(b.dataset.f==="del"){r.remove();if(!$("tRows").children.length)$("tAddRow").click();return}
+  if(b.dataset.f==="qk"){const ta=r.querySelector('[data-f="text"]'),sb=r.querySelector('[data-f="subj"]').value,w=b.dataset.w;
+    if(w==="cw"){const l=cwLineFor(S.sel.cls,S.sel.date,sb);if(!l){toast("No class work for "+sb+" on "+nice(S.sel.date)+" yet. Add it under 📖 Class work first.",true);return}
+      if(!ta.value.includes(l))ta.value=(ta.value.trim()?ta.value.trim()+"\n":"")+l}
+    else ta.value=lineText(kgLine(sb,w));ta.focus();return}
   if(b.dataset.f==="src")openSrc(b,r.querySelector('[data-f="text"]'),r.querySelector('[data-f="subj"]').value,false)});
 async function saveTRows(){const c=S.sel.cls,ds=S.sel.date,rows=readTRows(),filled=rows.filter(x=>x.text.trim());
   if(!filled.length){const t=$("tRows").querySelector("textarea");t&&t.focus();toast("Type the homework for at least one subject.",true);return}
@@ -1217,23 +1279,25 @@ function renderAiAll(){const c=S.sel.cls,ds=S.sel.date,subs=aAllSubs(c,ds),day=D
   if(!subs.length){$("aAllHead").innerHTML=(fixedFor(c,ds).length?"All of "+esc(day)+"'s fixed subjects already have homework.":"No homework is fixed for "+esc(day)+".");$("aAllOut").innerHTML="";return}
   $("aAllHead").innerHTML=`<b>All of ${esc(day)}'s subjects:</b> ${subs.map(esc).join(", ")}. Check each chapter, then write.`;
   const box=$("aAllCh");
-  box.innerHTML=subs.map(s=>{const m=chapChoice(c,s,false);
+  box.innerHTML=subs.map(s=>{if(fixedText(c,s))return `<div class="chrow"><b>${esc(s)}</b><span class="hint">Fixed line: ${esc(fixedLine(c,s).en)}</span></div>`;const m=chapChoice(c,s,false);
     return `<div class="chrow"><b>${esc(s)}</b><select data-ach="${esc(s)}" aria-label="${esc(s)} chapter">${chapOptions(c,s,m.ch,true)}</select>`+
       (m.ch==="O"?`<input data-aoth="${esc(s)}" value="${esc(m.other||"")}" placeholder="Type the chapter">`:"")+`<div class="chaptag">${tagHTML(c,s,m)}</div></div>`}).join("");
   box.querySelectorAll("select").forEach(sel=>sel.onchange=()=>{const s=sel.dataset.ach;setChoice(c,s,{ch:sel.value,own:true,other:""});renderChapters();const o=$("aAllCh").querySelector(`[data-aoth="${CSS.escape(s)}"]`);o&&o.focus()});
   box.querySelectorAll("input[data-aoth]").forEach(inp=>inp.oninput=()=>setChoice(c,inp.dataset.aoth,{ch:"O",own:true,other:inp.value}))}
 $("aAllGo").onclick=async()=>{const out=$("aAllOut"),btn=$("aAllGo"),c=S.sel.cls,ds=S.sel.date;if(!CLASS_OPTS[c])return;
-  const chosen=(aAllSubs(c,ds)||[]).map(s=>({s,m:chapChoice(c,s,false)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
-  if(!chosen.length){errBox(out,"Choose or type the chapter for at least one subject.");return}
+  const fxSubs=(aAllSubs(c,ds)||[]).filter(s=>fixedText(c,s));
+  const chosen=(aAllSubs(c,ds)||[]).filter(s=>!fixedText(c,s)).map(s=>({s,m:chapChoice(c,s,false)})).map(x=>Object.assign(x,{name:chapName(c,x.s,x.m)})).filter(x=>x.name);
+  if(!chosen.length&&!fxSubs.length){errBox(out,"Choose or type the chapter for at least one subject.");return}
   btn.disabled=true;btn.innerHTML='<span class="spin"></span>Reading the chapters…';out.innerHTML="";
   try{const notes=[];let pages="";const per=Math.floor(12000/chosen.length);
     for(const x of chosen){const ct=await chapterText(c,x.s,x.m);if(ct.text)pages+=`\n${x.s} — ${x.name}:\n<<<\n${ct.text.slice(0,per)}\n>>>\n`;if(ct.note)notes.push(x.s+": "+ct.note)}
     btn.innerHTML='<span class="spin"></span>Writing…';
     try{await loadPast(c)}catch(e){toast("Could not read earlier homework, so AI may repeat: "+e.message,true)}
     const size={light:"about 10 minutes",normal:"about 20 minutes",more:"about 30 minutes"}[$("aAllSize").value];
-    const r=await askAI(`Class: ${c}\nDay: ${niceLong(ds)}\nWrite ONE homework for EACH of these subjects for this day:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\nTime at home for each subject: ${size}\nTeacher's note: ${$("aAllNote").value||"none"}\n${chosen.map(x=>pastPrompt(c,x.s,8)).join("")}Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"items":[{"subject":"English","kind":"Written","text":"..."}]}`,2000);
+    const r=!chosen.length?{items:[]}:await askAI(`Class: ${c}\nDay: ${niceLong(ds)}\nWrite ONE homework for EACH of these subjects for this day:\n${chosen.map(x=>"- "+x.s+": "+x.name).join("\n")}\n${pages?"Pages from the school's own book (use their exercise and page numbers):"+pages:""}\nTime at home for each subject: ${size}\nTeacher's note: ${$("aAllNote").value||"none"}\n${chosen.map(x=>pastPrompt(c,x.s,8)).join("")}Allowed kinds: ${KINDS.join(", ")}.\nReply with JSON only: {"items":[{"subject":"English","kind":"Written","text":"..."}]}`,2000);
     const subs=chosen.map(x=>x.s),seen={};
     const items=(r.items||[]).filter(p=>p&&p.text&&subs.includes(p.subject)&&!seen[p.subject]&&(seen[p.subject]=1));
+    fxSubs.slice().reverse().forEach(s=>items.unshift({subject:s,kind:"Written",text:fixedText(c,s)}));
     if(!items.length)throw new Error("No homework came back. Please try again.");
     out.innerHTML=(notes.length?`<div class="hint">${notes.map(esc).join("<br>")}</div>`:"")+`<div class="hint">Untick anything you don't want. You can edit the text and kind.</div>`+
       items.map((p,i)=>`<label class="opt"><input type="checkbox" data-aa="${i}" checked><span><span class="k">${esc(p.subject)}</span> <select data-ak="${i}" style="width:auto;display:inline-block;padding:2px 6px;font-size:.8rem;margin:0 0 4px">${KINDS.map(k=>`<option${k===(KINDS.includes(p.kind)?p.kind:"Written")?" selected":""}>${esc(k)}</option>`).join("")}</select><textarea data-at="${i}" rows="2" maxlength="1000" style="min-height:52px">${esc(p.text)}</textarea>${(rp=>rp?`<span class="pill rep">Similar to ${nice(rp.hw_date)} — untick or change it</span>`:"")(findRepeat(c,p.subject,p.text,null))}</span></label>`).join("")+
@@ -1274,7 +1338,7 @@ async function fillFromTp(){
       if(!shown.includes(x.class_name))return false;
       if(x.date<TODAY||(x.date===TODAY&&hr>=SEND_HOUR)){past++;return false}
       if(S.items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned")){have++;return false}
-      return true}).map(x=>({class_name:x.class_name,subject:x.subject,kind:"Written",homework:x.homework,hw_date:x.date,made_by:"principal"}));
+      return true}).map(x=>({class_name:x.class_name,subject:x.subject,kind:"Written",homework:fixedText(x.class_name,x.subject)||cleanTpText(x.homework),hw_date:x.date,made_by:"principal"}));
     const note=(have?" "+have+" already had homework (left as is).":"")+(past?" "+past+(past>1?" were":" was")+" for days already sent.":"")+(d.not_approved?" "+d.not_approved+" Term Plan"+(d.not_approved>1?"s are":" is")+" not approved yet, so "+(d.not_approved>1?"their":"its")+" homework was not taken.":"");
     if(!items.length){toast("Nothing new to add from the Term Plans for this week."+note);return}
     if(!confirm(items.length+" homework from the approved Term Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+"\n\nYou can edit or take out any of them before they are sent. Add them?"))return;
