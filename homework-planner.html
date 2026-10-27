@@ -321,7 +321,7 @@ textarea{resize:vertical;min-height:70px}
         </div>
         <p class="hint" style="margin:0">Tick the subjects that get homework on each day. Teachers see this on their page. It also sets the daily limit. Teachers can still send other subjects — they come to you marked "Extra".</p>
         <div class="ttwrap"><table class="tt" id="ttTable"></table></div>
-        <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — from the Term Plans, in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills only empty boxes. Check them, then Save.</span></div></div>
+        <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — from the Term Plans, in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills empty boxes, and writes the Tamil for English lines you typed. Check them, then Save.</span></div></div>
         <div class="btnrow">
           <button class="btn" id="ttSave">Save timetable</button>
           <label style="display:flex;align-items:center;gap:6px">Copy this class to <select id="ttCopyTo"></select></label>
@@ -526,6 +526,16 @@ function suggestedLine(c,sb){const n=num(c);if(!n)return kgLine(sb,"workbook");
   if(sb==="Hindi"&&n<=8)return{en:"Homework given in Hindi Note.",ta:"ஹிந்தி நோட்டில் வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது."};
   if(sb==="English Writing Practice"&&n<=8)return{en:"Homework given in English Communication Note. Write only one page.",ta:"ஆங்கில கம்யூனிகேஷன் நோட்டில் வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது. ஒரு பக்கம் மட்டும் எழுதவும்."};
   return null}
+// Tamil for an English line the principal typed: "Homework given in <Subject> <Workbook/Note/...>. <extra>"
+const TA_BOOK=[[/^home\s*work\s*note(book)?$/i,"வீட்டுப்பாட நோட்டில்"],[/^communication\s*note(book)?$/i,"கம்யூனிகேஷன் நோட்டில்"],[/^work\s*book$/i,"பயிற்சிப் புத்தகத்தில்"],[/^note(book)?$/i,"நோட்டில்"],[/^work\s*sheet$/i,"பயிற்சித் தாளில்"],[/^(text\s*)?book$/i,"புத்தகத்தில்"]];
+const TA_EXTRA=[[/^write only one page\.?$/i,"ஒரு பக்கம் மட்டும் எழுதவும்."],[/^write one page\.?$/i,"ஒரு பக்கம் எழுதவும்."],[/^write only half a page\.?$/i,"அரை பக்கம் மட்டும் எழுதவும்."]];
+function tamilFor(en,sb){en=String(en||"").trim();const m=/^homework given in (.+?)\s*[.]?\s*$/i.exec(en.split(/(?<=\.)\s+/)[0]||"");if(!m)return"";
+  const words=m[1].trim().split(/\s+/);let ta="",book="";
+  for(let k=Math.min(2,words.length-1);k>=1&&!ta;k--){const bk=words.slice(-k).join(" "),sbj=words.slice(0,-k).join(" ");const hit=TA_BOOK.find(([re])=>re.test(bk));
+    if(hit){const subj=TA_SUBJ[Object.keys(TA_SUBJ).find(x=>x.toLowerCase()===sbj.toLowerCase())||""]||(sbj.toLowerCase()===sb.toLowerCase()?TA_SUBJ[sb]:"");if(!subj)return"";book=hit[1];ta=subj+" "+book+" வீட்டுப்பாடம் கொடுக்கப்பட்டுள்ளது."}}
+  if(!ta)return"";const rest=en.split(/(?<=\.)\s+/).slice(1).join(" ").trim();
+  if(rest){const x=TA_EXTRA.find(([re])=>re.test(rest));if(!x)return"";ta+=" "+x[1]}
+  return ta}
 // Term Plan homework sometimes starts with a label ("Reading:", "Homework note:") — take it off
 function cleanTpText(t){t=String(t||"").trim().replace(/^(homework\s*note|homework|reading|writing|note)\s*[:：\-–]\s*/i,"");return t.charAt(0).toUpperCase()+t.slice(1)}
 // one line from that day's class work for this subject ("" if none yet)
@@ -773,9 +783,13 @@ $("fxRows").addEventListener("input",e=>{const v=e.target.dataset.fx;if(!v)retur
   TTD._fixed=TTD._fixed||{};const F=TTD._fixed[c]=TTD._fixed[c]||{};F[s]=Object.assign({en:"",ta:""},F[s]);F[s][k]=e.target.value;
   ttDirty=true;$("ttState").innerHTML=`<span class="ttdirty">Not saved yet</span>`});
 $("fxSuggest").onclick=()=>{const c=ttCls();TTD._fixed=TTD._fixed||{};const F=TTD._fixed[c]=TTD._fixed[c]||{};let n=0;
-  fxSubsFor(c).forEach(s=>{if(F[s]&&F[s].en)return;const g=suggestedLine(c,s);if(g){F[s]={en:g.en,ta:g.ta};n++}});
-  if(!n){toast("No suggested lines for "+c+" — type your own, or leave them empty.");return}
-  ttDirty=true;renderTT();toast(n+" suggested line"+(n>1?"s":"")+" filled for "+c+". Check them, then press Save timetable.")};
+  const miss=[];
+  fxSubsFor(c).forEach(s=>{const v=F[s];
+    if(v&&v.en){if(!(v.ta||"").trim()){const ta=tamilFor(v.en,s);if(ta){v.ta=ta;n++}else miss.push(s)}return}
+    const g=suggestedLine(c,s);if(g){F[s]={en:g.en,ta:g.ta};n++}});
+  const mm=miss.length?" Type the Tamil yourself for: "+miss.join(", ")+".":"";
+  if(!n){toast("Nothing new to fill for "+c+"."+mm,!!miss.length);return}
+  ttDirty=true;renderTT();toast(n+" line"+(n>1?"s":"")+" filled for "+c+" (Tamil included). Check them, then press Save timetable."+mm,!!miss.length)};
 function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=classesShown().map(c=>`<option${c===cur?" selected":""}>${c}</option>`).join("");
   const c=ttCls();$("ttCopyTo").innerHTML=`<option value="">— choose —</option>`+classesShown().filter(x=>x!==c).map(x=>`<option>${x}</option>`).join("")}
 $("ttToggle").onclick=()=>{const b=$("ttBox");if(b.hidden){if(!TTD||!ttDirty){TTD=JSON.parse(JSON.stringify(TT));TTD._fixed=JSON.parse(JSON.stringify(FX))}ttFill();renderTT()}b.hidden=!b.hidden};
