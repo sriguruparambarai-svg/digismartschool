@@ -422,9 +422,15 @@ module.exports = async function handler(req, res) {
           if (lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, homework: kgLine(p.class_name, p.subject, lastLine(lines.join('\n')), !!(p.settings && p.settings.use_wb)) });
         }
       });
+      // Oct 2026: a class that HAS a homework timetable gets no homework in subjects not ticked in it
+      // (only a class test / revision homework still comes, on its own day)
+      const classHasTT = function (cls) { const keys = Object.keys(TT); const ck = keys.find(function (k) { return k === cls; }) || (clsNum(cls) ? keys.find(function (k) { return clsNum(k) === clsNum(cls); }) : null);
+        return !!(ck && Object.keys(TT[ck] || {}).some(function (d) { return (TT[ck][d] || []).length; })); };
       r.data.forEach(function (p) {
         if (done[p.class_name + '|' + String(p.subject).toLowerCase()]) return;
+        const strict = classHasTT(p.class_name);
         const hits = (Array.isArray(p.rows) ? p.rows : []).concat(p.settings && Array.isArray(p.settings.hw_only) ? p.settings.hw_only : []).filter(function (row) {
+          if (strict && FIXED_HW.indexOf(row && row.type) === -1) return false;
           return row && isDate(row.date) && row.date >= from && row.date <= to && String(row.homework || '').trim();
         });
         if (!hits.length) return;
