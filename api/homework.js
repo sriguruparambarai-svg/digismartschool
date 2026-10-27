@@ -97,7 +97,8 @@ const entryType = function (x) { return ENTRY_TYPES.indexOf(x && x.entry_type) !
 async function readTimetable(school) {
   const r = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan,updated_at&limit=1');
   if (!ok(r)) return { error: 'Could not read the homework timetable: ' + why(r) };
-  return { plan: (r.data.length && r.data[0].plan) || {}, updated_at: r.data.length ? r.data[0].updated_at : null };
+  const sp = splitFixed((r.data.length && r.data[0].plan) || {});
+  return { plan: sp.timetable, fixed: sp.fixed, updated_at: r.data.length ? r.data[0].updated_at : null };
 }
 // Keep only real classes, Mon–Sat, and short subject names (at most 10 a day).
 function cleanTimetable(plan) {
@@ -114,7 +115,28 @@ function cleanTimetable(plan) {
     });
     if (Object.keys(days).length) out[cls] = days;
   });
+  // Oct 2026: fixed homework lines — { "Class 1": { "Hindi": { en, ta } } } — one standing line per class + subject
+  // (e.g. "Homework given in Hindi Workbook." + its Tamil line), written once by the principal.
+  const fx = plan._fixed, fixed = {};
+  if (fx && typeof fx === 'object' && !Array.isArray(fx)) {
+    Object.keys(fx).forEach(function (cls) {
+      if (CLASSES.indexOf(cls) === -1 || !fx[cls] || typeof fx[cls] !== 'object') return;
+      const subs = {};
+      Object.keys(fx[cls]).slice(0, 20).forEach(function (sb) {
+        const v = fx[cls][sb] || {}, en = clip(v.en, 300), ta = clip(v.ta, 300), k = clip(sb, 40);
+        if (k && en) subs[k] = { en: en, ta: ta };
+      });
+      if (Object.keys(subs).length) fixed[cls] = subs;
+    });
+  }
+  if (Object.keys(fixed).length) out._fixed = fixed;
   return out;
+}
+// the timetable without the fixed lines, and the fixed lines on their own
+function splitFixed(plan) {
+  const t = Object.assign({}, plan || {}), f = t._fixed || {};
+  delete t._fixed;
+  return { timetable: t, fixed: f };
 }
 
 // ── Supabase (TeachBot) ──
@@ -414,7 +436,7 @@ module.exports = async function handler(req2, res) {
       if (!ok(r)) return res.json({ error: 'Could not load homework: ' + why(r) });
       const tt = await readTimetable(school);
       return res.json({ success: true, items: r.data, today: istToday(), send_hour: SEND_HOUR_IST,
-                        timetable: tt.plan || {}, timetable_error: tt.error || '',
+                        timetable: tt.plan || {}, fixed: tt.fixed || {}, timetable_error: tt.error || '',
                         school: { name: school.name, code: school.school_code, has_erp: school.has_erp === true } });
     }
 
@@ -440,7 +462,8 @@ module.exports = async function handler(req2, res) {
         r = await db('POST', '/rest/v1/homework_timetable', { school_id: String(school.id), plan: plan, updated_at: now });
         if (!ok(r)) return res.json({ error: 'Could not save the timetable: ' + why(r) });
       }
-      return res.json({ success: true, timetable: plan });
+      const sp = splitFixed(plan);
+      return res.json({ success: true, timetable: sp.timetable, fixed: sp.fixed });
     }
 
     // ── SAVE (new or changed) ──
