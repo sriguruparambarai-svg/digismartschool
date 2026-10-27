@@ -319,7 +319,7 @@ textarea{resize:vertical;min-height:70px}
           <h2 style="flex:1">Homework timetable</h2>
           <label style="display:flex;align-items:center;gap:6px">Class <select id="ttCls"></select></label>
         </div>
-        <p class="hint" style="margin:0">Tick the subjects that get homework on each day. Teachers see this on their page. It also sets the daily limit. Teachers can still send other subjects — they come to you marked "Extra".</p>
+        <p class="hint" style="margin:0">EWP = English Writing Practice, ERP = English Reading Practice. Tick the subjects that get homework on each day. Teachers see this on their page. It also sets the daily limit. Teachers can still send other subjects — they come to you marked "Extra".</p>
         <div class="ttwrap"><table class="tt" id="ttTable"></table></div>
         <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — from the Term Plans, in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills empty boxes, and writes the Tamil for English lines you typed. Check them, then Save.</span></div></div>
         <div class="btnrow">
@@ -332,6 +332,7 @@ textarea{resize:vertical;min-height:70px}
       </div>
       <div class="sechead">
         <h2>Week at a glance</h2>
+        <button class="btn ghost" id="tidyTp" type="button" title="Take out this week's Term Plan homework in subjects not ticked in the homework timetable for that day. Homework already sent is not touched.">🧹 Take out homework not in timetable</button>
         <button class="btn ghost" id="fillTp" type="button" title="Put the homework of the approved Term Plans into this week. Days already passed and subjects that already have homework are left alone. You can edit or take out any of it before it is sent.">📘 Fill this week from Term Plans</button>
         <div class="legend">
           <span style="--c:var(--chip)">In this week (✓ sent)</span>
@@ -509,7 +510,7 @@ const hasTT=c=>!!(TT[c]&&DAYS.some(d=>(TT[c][d]||[]).length));
 const fixedFor=(c,ds)=>hasTT(c)?(TT[c][dayKey(ds)]||[]):null;          // null = no timetable for this class
 const isExtra=i=>{const f=fixedFor(i.class_name,i.hw_date);return !!f&&!f.includes(i.subject)};
 const limitFor=(c,ds)=>{const f=ds?fixedFor(c,ds):null;return f?f.length:defaultLimit(c)};
-const SHORT={English:"ENG",Maths:"MAT",Tamil:"TAM",Hindi:"HIN",EVS:"EVS",Science:"SCI","Social Science":"SST","Rhymes/GK":"RHY",Computer:"CMP"};
+const SHORT={English:"ENG",Maths:"MAT",Tamil:"TAM",Hindi:"HIN",EVS:"EVS",Science:"SCI","Social Science":"SST","Rhymes/GK":"RHY",Computer:"CMP","English Writing Practice":"EWP","English Reading Practice":"ERP"};
 /* ---------- fixed homework lines (Oct 2026) ----------
    A standing line per class + subject ("Homework given in Hindi Workbook." + Tamil line) set once by the
    principal. LKG/UKG get one-tap Workbook / Note / Worksheet. "From classwork" adds that day's class work. */
@@ -769,7 +770,7 @@ async function repeatGate(box,c,subj,text,exceptId,retry){
 let TTD=null,ttDirty=false;
 function ttCls(){return $("ttCls").value||classesShown()[0]}
 function ttSummary(){const n=ALL_CLASSES.filter(hasTT).length;$("ttSummary").textContent=TT_ERR?"":n?"Set for "+n+" class"+(n>1?"es":"")+". Teachers see it on their page.":"Not set yet — fix which subjects get homework on which day."}
-function renderTT(){if(!TTD)return;const c=ttCls(),subs=subjectsFor(c),row=TTD[c]||{};
+function renderTT(){if(!TTD)return;const c=ttCls(),subs=fxSubsFor(c),row=TTD[c]||{};
   let h=`<thead><tr><th></th>${subs.map(s=>`<th>${esc(SHORT[s]||s)}</th>`).join("")}<th></th></tr></thead><tbody>`;
   DAYS.forEach((d,i)=>{const on=row[d]||[];h+=`<tr><th class="d">${DAYFULL[i]}</th>${subs.map(s=>`<td><input type="checkbox" data-tt="${d}|${esc(s)}" aria-label="${DAYFULL[i]} ${esc(s)}"${on.includes(s)?" checked":""}></td>`).join("")}<td class="n">${on.length?on.length+" a day":"—"}</td></tr>`});
   $("ttTable").innerHTML=h+"</tbody>";
@@ -795,10 +796,10 @@ function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=cla
 $("ttToggle").onclick=()=>{const b=$("ttBox");if(b.hidden){if(!TTD||!ttDirty){TTD=JSON.parse(JSON.stringify(TT));TTD._fixed=JSON.parse(JSON.stringify(FX))}ttFill();renderTT()}b.hidden=!b.hidden};
 $("ttCls").onchange=()=>{ttFill();renderTT()};
 $("ttTable").addEventListener("change",e=>{const v=e.target.dataset.tt;if(!v)return;const[d,s]=v.split("|"),c=ttCls();
-  const subs=subjectsFor(c);const row=TTD[c]=TTD[c]||{};const set=new Set(row[d]||[]);e.target.checked?set.add(s):set.delete(s);
+  const subs=fxSubsFor(c);const row=TTD[c]=TTD[c]||{};const set=new Set(row[d]||[]);e.target.checked?set.add(s):set.delete(s);
   row[d]=subs.filter(x=>set.has(x));ttDirty=true;renderTT()});
 $("ttCopy").onclick=()=>{const to=$("ttCopyTo").value,c=ttCls();if(!to){toast("Choose the class to copy to.",true);return}
-  const from=TTD[c]||{},subs=subjectsFor(to),row={};DAYS.forEach(d=>{row[d]=(from[d]||[]).filter(s=>subs.includes(s))});
+  const from=TTD[c]||{},subs=fxSubsFor(to),row={};DAYS.forEach(d=>{row[d]=(from[d]||[]).filter(s=>subs.includes(s))});
   TTD[to]=row;
   {const F=(TTD._fixed||{})[c];if(F){const ok=fxSubsFor(to),o={};Object.keys(F).forEach(s=>{if(ok.includes(s))o[s]=Object.assign({},F[s])});TTD._fixed[to]=o}}
   ttDirty=true;renderTT();toast(c+"'s timetable copied to "+to+" (subjects "+to+" does not have were left out). Press Save.")};
@@ -1363,6 +1364,15 @@ async function fillFromTp(){
   }catch(e){toast("Could not fill from Term Plans: "+e.message,true)}
   finally{btn.disabled=false}}
 if($("fillTp"))$("fillTp").onclick=fillFromTp;
+/* 🧹 (Oct 2026) take out this week's Term Plan homework that is not in the homework timetable for its day */
+async function tidyTp(){if(!PRINCIPAL||busy)return;const shown=classesShown();
+  const list=S.items.filter(i=>!i.sent_at&&i.teacher_name==="Term Plan"&&shown.includes(i.class_name)&&isExtra(i));
+  if(!list.length){toast("All this week's Term Plan homework is in the homework timetable. Nothing to take out.");return}
+  if(!confirm(list.length+" Term Plan homework this week "+(list.length>1?"are":"is")+" in subjects not ticked for that day. Take "+(list.length>1?"them":"it")+" out?\n\nHomework already sent, and homework typed by you or teachers, is not touched."))return;
+  const btn=$("tidyTp");btn.disabled=true;busy=true;let n=0,bad="";
+  try{for(const i of list){try{await hw("remove",{id:i.id});n++}catch(e){bad=e.message}}}finally{busy=false;btn.disabled=false}
+  await load();toast(n+" homework taken out."+(bad?" Some could not be taken out: "+bad:""),!!bad)}
+if($("tidyTp"))$("tidyTp").onclick=tidyTp;
 $("slipAll").onclick=()=>{const ds=S.sel.date;const list=classesShown().filter(c=>itemsFor(c,ds,added).length);if(!list.length){toast("Nothing added to the week on "+nice(ds)+" yet.",true);return}printSlips(list,ds)};
 
 /* ---------- start ---------- */
