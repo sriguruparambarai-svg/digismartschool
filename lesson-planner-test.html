@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lesson Planner Test — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<!--
+  Lesson Planner TEST (Oct 2026) — principal only. SAVES NOTHING.
+  Tries a shorter way of planning beside the real Lesson Planner (term-planner.html):
+   1. each chapter gets a period LIMIT first (like a CBSE split-up syllabus), by its pages
+      and subject — the term is NOT filled up by stretching the chapters;
+   2. every teaching period has one fixed shape: 5 min homework check / recap,
+      25 min teaching (exact book pages), 10 min practice / class work, homework given —
+      so revision and homework checking are inside each period, not separate periods;
+   3. only three other periods per chapter: 1 TeachBot class (optional), 1 class work
+      writing, 1 class test;
+   4. periods come from the ERP timetable, holidays skipped; periods left over are shown
+      as free ("tick the next chapter"), never padded.
+  Reads the same books, timetable, holidays and current plan as the real planner, and shows
+  the current plan beside it. It never calls the save actions, so teachers, My Day, the
+  Homework Planner, Academic Control and parents are not touched.
+-->
+<style>
+:root{
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA; --gold:#C9A84C;
+  --ok:#2F6B3A; --ok-bg:#E3F0E2; --warn:#8A5A00; --warn-bg:#F8EBCB; --bad:#A12A1E; --bad-bg:#F8DEDA;
+  --tb:#5B4A9A; --tb-bg:#ECE7F8;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1360px;margin:0 auto;padding:0 16px 48px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1360px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band img{width:48px;height:48px;border-radius:50%;background:#fff;border:2px solid #C9A84C;object-fit:contain}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a.back{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+.testtag{display:inline-block;background:#C9A84C;color:#3A2A00;font-weight:700;font-size:.72rem;letter-spacing:.06em;border-radius:999px;padding:2px 10px;margin-left:8px;vertical-align:4px}
+h2{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;color:var(--accent)}
+h3{font-size:1rem;margin:0 0 6px;color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:16px}
+.notice{background:var(--warn-bg);border:1px solid #E8CF8E;color:#5A3D00;border-radius:var(--r);padding:12px 14px;margin-top:16px;font-size:.92rem}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-weight:400;font-size:.95rem;width:100%;min-width:0}
+.inl{display:flex;align-items:center;gap:8px;font-size:.9rem;color:var(--ink);font-weight:500}
+.inl input{width:18px;height:18px;padding:0;accent-color:var(--accent)}
+.btn{border:none;border-radius:8px;padding:9px 14px;font-weight:600;background:var(--accent);color:var(--on-accent)}
+.btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btnrow{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.hint{font-size:.82rem;color:var(--muted)}
+.chaps{display:grid;gap:6px;margin-top:8px}
+.chk{display:grid;grid-template-columns:auto minmax(0,1fr) auto 86px;gap:10px;align-items:center;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff;font-weight:400;color:var(--ink);font-size:.92rem}
+.chk input[type=checkbox]{width:16px;height:16px;padding:0;accent-color:var(--accent)}
+.chk .pg{font-size:.78rem;color:var(--muted);white-space:nowrap}
+.chk input[type=number]{padding:5px 8px;text-align:center}
+.chk.done{opacity:.6}
+.fit{margin-top:10px;font-weight:600}
+.fit.ok{color:var(--ok)} .fit.bad{color:var(--bad)}
+.err{color:var(--bad);font-weight:600;margin-top:10px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r);background:var(--surface);margin-top:12px}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:var(--surface-2);color:var(--accent);font-weight:700;font-size:.8rem;position:sticky;top:0}
+table.plan{min-width:980px}
+tr.chrow td{background:#F6EAD6;font-weight:700;color:var(--accent)}
+tr.after td{background:var(--bad-bg)}
+tr.free td{background:var(--ok-bg);color:var(--ok);font-weight:600}
+.kind{display:inline-block;border-radius:999px;padding:2px 9px;font-size:.75rem;font-weight:700;white-space:nowrap}
+.k-teach{background:#F1E2C6;color:#5A2A16} .k-teachbot{background:var(--tb-bg);color:var(--tb)}
+.k-classwork{background:#DCEBF7;color:#185FA5} .k-test{background:var(--bad-bg);color:var(--bad)}
+.shape b{color:var(--accent)}
+.shape div{margin-bottom:3px}
+.small{font-size:.8rem;color:var(--muted)}
+table.cmp td.num,table.cmp th.num{text-align:center}
+.bad{color:var(--bad);font-weight:700} .good{color:var(--ok);font-weight:700}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+details summary{cursor:pointer;font-weight:700;color:var(--accent)}
+@media (max-width:640px){.chk{grid-template-columns:auto minmax(0,1fr) 70px}.chk .pg{display:none}}
+@media print{.band,.noprint{display:none!important}.card{border:none;padding:0}.tablewrap{overflow:visible;border:none}table.plan{min-width:0}}
+</style>
+</head>
+<body>
+<div class="band"><div class="in">
+  <img id="schoolLogo" alt="" hidden>
+  <div class="grow"><div class="sub" id="schoolName">TeachBot</div><h1>Lesson Planner — test <span class="testtag">TEST · NOTHING IS SAVED</span></h1></div>
+  <a class="back" href="dashboard.html">← School Admin</a>
+</div></div>
+
+<div class="wrap">
+  <div class="notice" id="topNote">This page only <b>shows</b> a plan made the new, shorter way, beside your current plan. Nothing here is saved. Teachers, My Day, Tomorrow, the Homework Planner, Academic Control and parents keep using the real Lesson Planner.</div>
+  <div class="err" id="topErr" hidden></div>
+
+  <div class="card" id="formCard">
+    <h2>Make a test plan</h2>
+    <div class="row" style="margin-top:12px">
+      <label>Class<select id="fClass"></select></label>
+      <label>Subject<select id="fSubject"></select></label>
+      <label>Term<select id="fTerm"><option>I</option><option selected>II</option><option>III</option></select></label>
+      <label>Plan from<input type="date" id="fStart"></label>
+      <label>Term ends<input type="date" id="fEnd"></label>
+    </div>
+    <div class="btnrow" style="margin-top:10px">
+      <label class="inl"><input type="checkbox" id="fTb" checked> One TeachBot (AI) class per chapter</label>
+    </div>
+    <p class="hint" id="ttHint" style="margin:8px 0 0"></p>
+    <p class="hint" id="curHint" style="margin:4px 0 0"></p>
+
+    <h3 style="margin-top:16px">Chapters</h3>
+    <p class="hint" style="margin:0">Each chapter gets a period limit from its pages. You can change the number of periods before making the plan. Chapters already finished in the current plan are not ticked.</p>
+    <div class="chaps" id="chaps"></div>
+    <div class="fit" id="fit"></div>
+    <div class="btnrow"><button class="btn" id="makeBtn" type="button">✨ Make the test plan</button><span class="hint" id="makeMsg"></span></div>
+  </div>
+
+  <div class="card" id="cmpCard" hidden>
+    <h2>Current plan and test plan, side by side</h2>
+    <div class="tablewrap"><table class="cmp" id="cmpTable"></table></div>
+    <p class="hint" id="cmpNote" style="margin:8px 0 0"></p>
+  </div>
+
+  <div class="card" id="planCard" hidden>
+    <div class="btnrow noprint" style="margin-top:0;justify-content:space-between"><h2>Test plan</h2><button class="btn ghost" type="button" onclick="window.print()">🖨 Print</button></div>
+    <p class="hint" style="margin:6px 0 0">Each teaching period: <b>5 min</b> homework check / recap · <b>25 min</b> teaching from the book pages · <b>10 min</b> practice · homework given.</p>
+    <div class="tablewrap"><table class="plan" id="planTable"></table></div>
+  </div>
+
+  <div class="card" id="curCard" hidden>
+    <details><summary>Current plan for this subject (from the real Lesson Planner)</summary>
+      <div class="tablewrap"><table id="curTable"></table></div>
+    </details>
+  </div>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function showErr(m){$("topErr").textContent=m;$("topErr").hidden=false}
+
+/* ---------- who: principal only ---------- */
+const ROLE=lsGet("dss_role")||"";
+let USER={};try{USER=JSON.parse(lsGet("dss_user")||"{}")}catch(e){}
+if(!lsGet("dss_session")){location.href="/login.html";return}
+if(ROLE!=="school_admin"){$("formCard").hidden=true;showErr("This test page is for the principal only. Please log in from School Admin.");return}
+const SCHOOL_ID=USER.school_id||USER.id||"";
+const SCHOOL_NAME=(USER.schools&&USER.schools.name)||USER.school_name||USER.name||"";
+const LOGO=USER.logo_url||(USER.schools&&USER.schools.logo_url)||"";
+$("schoolName").textContent=(SCHOOL_NAME?SCHOOL_NAME+" · ":"")+"TeachBot";
+if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
+
+/* ---------- lists and dates ---------- */
+const CLASSES=["LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10"];
+const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
+function subjectsFor(c){const n=num(c);
+  if(!n)return["English","Maths","Tamil","EVS"];
+  if(n<=2)return["English","Tamil","Hindi","Maths","EVS"];
+  return["English","Tamil","Hindi","Maths","Science","Social Science"]}
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const pad=n=>String(n).padStart(2,"0");
+const iso=d=>d.getFullYear()+"-"+pad(d.getMonth()+1)+"-"+pad(d.getDate());
+const parse=s=>{const[y,m,d]=s.split("-").map(Number);return new Date(y,m-1,d)};
+const nice=s=>{if(!s)return"";const d=parse(s);return ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]+" "+d.getDate()+" "+MON[d.getMonth()]};
+const istToday=()=>new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10);
+const tomorrow=()=>{const d=parse(istToday());d.setDate(d.getDate()+1);return iso(d)};
+
+/* ---------- server (read only) ---------- */
+async function tp(action,data){
+  const r=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action},data||{}))});
+  let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly (status "+r.status+").")}
+  if(r.status===401)throw new Error((d.error||"Please log in again.")+" Log out and log in again.");
+  if(d.error)throw new Error(d.error);return d}
+async function authCall(action,data){
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action,school_id:SCHOOL_ID},data||{}))});
+  const d=await r.json();if(d&&d.error)throw new Error(d.error);return d}
+
+/* ---------- books + chapters (same sources as the real Lesson Planner) ---------- */
+const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|\./g,"");
+const SUBJ_ALIAS={maths:"mathematics",math:"mathematics","social science":"social",sst:"social","social studies":"social"};
+const sk=s=>{s=String(s||"").toLowerCase().trim();return SUBJ_ALIAS[s]||s};
+let BOOKS=null;const BOOK_CH={},PDFS={};
+async function loadBooks(){if(BOOKS)return BOOKS;try{const d=await authCall("get_school_books");BOOKS=d.books||[]}catch(e){BOOKS=[]}return BOOKS}
+async function bookChapters(b){
+  if(BOOK_CH[b.id])return BOOK_CH[b.id];
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
+    const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to)}catch(e){BOOK_CH[b.id]=[]}
+  return BOOK_CH[b.id]}
+
+/* ---------- timetable + holidays ---------- */
+let TT=null,HOL={};
+async function loadTimetable(){try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
+  const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null}catch(e){TT=null}}
+async function loadHolidays(){try{const d=await tp("holidays",{});HOL={};(d.holidays||[]).forEach(h=>HOL[h.date]=h)}catch(e){HOL={}}}
+const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
+function ttSlots(cls,subject,start,end){
+  if(!TT||!start||!end)return null;const want=subjKey(subject),out=[];let any=false;
+  const WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  for(let d=parse(start),e=parse(end);d<=e;d.setDate(d.getDate()+1)){
+    const ds=iso(d),day=TT.grid[WD[d.getDay()]];if(!day)continue;
+    Object.keys(day).map(Number).sort((a,b)=>a-b).forEach(p=>{const c=(day[String(p)]||{})[cls];
+      if(!c||subjKey(c.subject)!==want)return;any=true;if(HOL[ds])return;
+      out.push({date:ds,label:((TT.periods||[])[p]||{}).label||"P"+(p+1),ai:!!(TT.ai_room&&c.ai)})})}
+  return any?out:null}
+// no timetable for this subject: the current plan's own days and periods per week
+function evenSlots(start,end,days,ppw){
+  const out=[];if(!start||!end)return out;let d=parse(start),e=parse(end);
+  let m=new Date(d);m.setDate(m.getDate()-((m.getDay()+6)%7));
+  while(m<=e){const wk=[];for(let k=0;k<7;k++){const x=new Date(m);x.setDate(m.getDate()+k);
+      if(x>=d&&x<=e&&days.includes(["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][x.getDay()])&&!HOL[iso(x)])wk.push(iso(x))}
+    if(wk.length){const n=Math.max(1,Math.round(ppw*wk.length/days.length));for(let k=0;k<n;k++)out.push({date:wk[Math.floor(k*wk.length/n)],label:"",ai:false})}
+    m.setDate(m.getDate()+7)}
+  return out}
+
+/* ---------- the period limit per chapter (the split-up syllabus idea) ----------
+   periods = pages × a rate for the subject, kept between a lowest and highest number for the
+   class. It includes the TeachBot class, the class work writing and the class test. */
+function groupOf(sb){const s=subjKey(sb);return s==="maths"?"maths":(s==="science"||s==="social"||s==="evs")?"sci":"lang"}
+function limitFor(sb,cls,pages){const g=groupOf(sb),n=num(cls);
+  const rate={maths:0.6,sci:0.5,lang:0.45}[g];
+  const lo=n<=2?5:6, hi={maths:n<=2?10:12,sci:n<=2?9:12,lang:n<=2?8:10}[g];
+  return Math.max(lo,Math.min(hi,Math.round((pages||8)*rate)+3))}
+
+/* ---------- state ---------- */
+let CHOPTS=[],CUR=null,SLOTS=[],SLOT_SRC="";
+
+function fillClasses(){$("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");$("fClass").value="Class 7"}
+function fillSubjects(){const subs=subjectsFor($("fClass").value),v=$("fSubject").value;$("fSubject").innerHTML=subs.map(s=>`<option>${esc(s)}</option>`).join("");if(subs.includes(v))$("fSubject").value=v;else if(subs.includes("Science"))$("fSubject").value="Science"}
+
+async function loadAll(){
+  $("makeMsg").textContent="";$("cmpCard").hidden=$("planCard").hidden=$("curCard").hidden=true;
+  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;
+  $("chaps").innerHTML='<div class="hint"><span class="spin"></span>Loading the books and the current plan…</div>';
+  // the current plan (real Lesson Planner) — read only
+  CUR=null;try{const d=await tp("get",{class_name:c,subject:sb,term:t});CUR=d.plan||null}catch(e){CUR=null}
+  const st=(CUR&&CUR.settings)||{};
+  if(st.end)$("fEnd").value=st.end;else if(!$("fEnd").value)$("fEnd").value="2026-12-11";
+  const tm=tomorrow();$("fStart").value=st.start&&st.start>tm?st.start:tm;
+  $("curHint").textContent=CUR?"Current plan found: "+(CUR.rows||[]).length+" periods, "+(CUR.rows||[]).filter(r=>r&&r.done).length+" ticked as taught. The test plan starts from "+nice($("fStart").value)+" (lessons not yet taught).":"No current plan for "+c+" "+sb+" Term "+t+" — the test plan is made on its own.";
+  // chapters from this class's books for this term
+  const romanT={"1":"I","2":"II","3":"III",i:"I",ii:"II",iii:"III"},bTerm=b=>{const x=String(b.term||"").trim().toLowerCase().replace(/^term\s*/,"");return x?(romanT[x]||x.toUpperCase()):""};
+  const bookCls=st.book_cls||c;
+  const books=(await loadBooks()).filter(b=>normCls(b.class_name)===normCls(bookCls)&&(!b.subject||sk(b.subject)===sk(sb))&&(!bTerm(b)||bTerm(b)===t));
+  CHOPTS=[];
+  for(const b of books){const chs=await bookChapters(b);
+    chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+  // chapters only in the current plan (typed by name, no book)
+  (st.chapters||[]).forEach(x=>{if(!CHOPTS.some(o=>o.key===x.key||o.title===x.title))CHOPTS.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
+  if($("fClass").value!==c||$("fSubject").value!==sb)return;
+  // finished in the current plan = every period of the chapter ticked
+  const rows=(CUR&&CUR.rows)||[],planned=new Set((st.chapters||[]).map(x=>x.title));
+  const finished=title=>{const rs=rows.filter(r=>r&&r.chapter===title);return rs.length&&rs.every(r=>r.done)};
+  const started=title=>rows.some(r=>r&&r.chapter===title&&r.done);
+  $("chaps").innerHTML=CHOPTS.length?CHOPTS.map((o,i)=>{const pages=o.from&&o.to?o.to-o.from+1:0,fin=finished(o.title),tick=!fin&&(planned.size?planned.has(o.title):true);
+    o.limit=limitFor(sb,c,pages);
+    return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':started(o.title)?' <span class="small">· started — the test plans all of it</span>':""}</span><span class="pg">${pages?"pp "+o.from+"–"+o.to+" · "+pages+" pages":"no pages"}</span><input type="number" min="4" max="30" data-n="${i}" value="${o.limit}" aria-label="Periods for ${esc(o.title)}"></label>`}).join("")
+    :'<div class="hint">No chapters found in the uploaded books for '+esc(c+" "+sb)+' this term.</div>';
+  computeSlots();showFit();renderCurrent()}
+
+function picked(){return[...$("chaps").querySelectorAll("input[data-i]:checked")].map(i=>{const o=CHOPTS[+i.dataset.i];const n=+$("chaps").querySelector(`[data-n="${i.dataset.i}"]`).value||o.limit;return Object.assign({},o,{limit:Math.max(4,Math.min(30,n))})})}
+
+function computeSlots(){
+  const c=$("fClass").value,sb=$("fSubject").value,st=$("fStart").value,en=$("fEnd").value;
+  const tt=ttSlots(c,sb,st,en);
+  if(tt){SLOTS=tt;SLOT_SRC="tt";const ai=tt.filter(x=>x.ai).length;
+    $("ttHint").innerHTML="🕒 From the school timetable"+(TT.source==="erp"?" (ERP)":"")+": <b>"+tt.length+" "+esc(sb)+" periods</b> from "+esc(nice(st))+" to "+esc(nice(en))+", holidays skipped"+(TT.ai_room?" · "+ai+" in the AI class room":"")+"."}
+  else{const s=(CUR&&CUR.settings)||{};SLOTS=evenSlots(st,en,s.days||["Mon","Tue","Wed","Thu","Fri"],+s.ppw||5);SLOT_SRC="even";
+    $("ttHint").innerHTML="🕒 "+esc(c+" "+sb)+" is not in the school timetable, so the current plan's "+(+s.ppw||5)+" periods a week are used: <b>"+SLOTS.length+" periods</b>, holidays skipped."}}
+function showFit(){const ch=picked(),need=ch.reduce((a,x)=>a+x.limit,0),have=SLOTS.length,el=$("fit");
+  if(!ch.length){el.className="fit";el.textContent="Tick at least one chapter.";return}
+  if(need<=have){el.className="fit ok";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${need} periods · ${have} periods left this term`+(have>need?` · ${have-need} free at the end — you could tick the next chapter.`:" · it fits exactly.")}
+  else{el.className="fit bad";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${need} periods but only ${have} are left this term — ${need-have} would go past the term end. Lower some numbers or untick a chapter.`}}
+
+/* ---------- reading the book pages ---------- */
+async function pdfFor(b){
+  if(PDFS[b.id])return PDFS[b.id];
+  if(!b.pdf_url)throw new Error("This book has no stored PDF.");
+  if(typeof pdfjsLib==="undefined")throw new Error("PDF reader did not load. Reload the page.");
+  pdfjsLib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+  PDFS[b.id]=(async()=>{const r=await fetch(b.pdf_url);if(!r.ok)throw new Error("Could not download the book ("+r.status+")");return pdfjsLib.getDocument({data:await r.arrayBuffer()}).promise})();
+  try{return await PDFS[b.id]}catch(e){delete PDFS[b.id];throw e}}
+function printedNumber(items,vh){let best=null;
+  items.forEach(it=>{const t=String(it.str||"").trim();if(!/^\d{1,3}$/.test(t))return;const y=it.transform?it.transform[5]:null;if(y==null||!vh)return;
+    const edge=Math.min(y,vh-y)/vh;if(edge<0.12&&(!best||edge<best.edge))best={n:+t,edge}});return best?best.n:null}
+async function chapterPages(ch){
+  const from=Math.max(1,+ch.from||1),to=Math.max(from,+ch.to||from);
+  if(!ch.bookObj)return{pages:[],scanned:true};
+  try{const doc=await pdfFor(ch.bookObj);const last=Math.min(doc.numPages,to,from+59),pages=[],offs={};
+    for(let p=from;p<=last;p++){const pg=await doc.getPage(p),vp=pg.getViewport({scale:1}),tc=await pg.getTextContent();
+      const n=printedNumber(tc.items,vp.height);if(n!=null){const o=n-p;offs[o]=(offs[o]||0)+1}
+      pages.push({pdf:p,text:tc.items.map(x=>x.str).join(" ").replace(/[ \t]+/g," ").trim()})}
+    let offset=null,cnt=0;Object.keys(offs).forEach(o=>{if(offs[o]>cnt){cnt=offs[o];offset=+o}});
+    if(cnt<Math.max(2,Math.ceil(pages.length*0.3)))offset=null;
+    pages.forEach(p=>p.book=offset!=null?p.pdf+offset:p.pdf);
+    const words=pages.reduce((a,p)=>a+p.text.length,0);
+    return{pages,scanned:words<150*Math.max(1,pages.length*0.3)}}
+  catch(e){return{pages:[],scanned:true}}}
+// share the pages over n teaching periods, in book order, by amount of text
+function splitPages(cp,ch,n){
+  let pages=cp.pages.slice();
+  if(!pages.length){const f=+ch.from||0,t=+ch.to||0;if(f&&t>=f)for(let p=f;p<=t;p++)pages.push({pdf:p,book:p,text:""})}
+  if(!pages.length)return Array.from({length:n},()=>({from:null,to:null,text:""}));
+  const w=pages.map(p=>cp.scanned?1:Math.max(200,p.text.length)),tot=w.reduce((a,b)=>a+b,0),cum=[];w.reduce((a,b,i)=>(cum[i]=a+b),0);
+  const at=x=>{for(let i=0;i<cum.length;i++)if(x<=cum[i]+1e-9)return i;return cum.length-1};
+  const out=[];for(let k=0;k<n;k++){const a=at(tot*k/n+1e-6),b=Math.max(a,at(tot*(k+1)/n));
+    out.push({from:pages[a].book,to:pages[b].book,text:pages.slice(a,b+1).map(p=>"[Page "+p.book+"] "+p.text).join("\n")})}
+  return out}
+const pg=s=>s.from==null?"":(s.from===s.to?"p. "+s.from:"pp. "+s.from+"–"+s.to);
+
+/* ---------- AI ---------- */
+function rules(){const c=$("fClass").value;return `You are an experienced ${c} teacher in Tamil Nadu, India. One period is about 40 minutes. The school teaches from its own textbook: plan each period ONLY from the book pages given for it, in order. Never invent content.
+Every TEACH period has the SAME fixed shape:
+- "recap" (5 minutes): check yesterday's homework and recap the last period in one line — what to ask. For the first teaching period of the chapter, a short starter that links to what children already know.
+- "teach" (25 minutes): numbered steps, each starting with the page — the heading or passage, the examples / sums / paragraphs, new words, exactly as in the book. Short and specific.
+- "practice" (10 minutes): what children do in the class — oral questions, 2–3 book exercise questions on these pages (numbers as printed), board work. This is where homework questions are revised before they are given.
+- "homework": ONE short line a parent understands, only from the pages taught so far, small (10–15 minutes for Class 1–2, 15–20 for Class 3–5, 20–30 for Class 6 and above). Start with "Homework note:", "Workbook:", "New words:" or "Reading:".
+TEACHBOT period: the class goes to the AI class room and TeachBot (the AI teacher on the big screen) teaches the chapter's main ideas. "teach" = which parts TeachBot should cover and what the class teacher does there (asks questions, keeps order). "recap", "practice" and "homework" are "".
+CLASS WORK period: children WRITE the class work in their class work notebook — the exact book exercise / question numbers of the whole chapter. "teach" = the list; "practice" = what the teacher corrects; "homework" = finish the class work if not done.
+CLASS TEST period: a short written test on the whole chapter — "teach" = which questions and total marks; "homework" = "".
+"activity": only ONE period in the chapter gets one simple, low-cost activity (introducing the chapter or a hard idea), starting with "(Class)", "(Ground)" or "(Home)". All other periods: "".
+Write in simple English a new teacher can follow. Reply with JSON only.`}
+async function askAI(prompt){
+  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:6000})});
+  let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
+  if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:JSON.stringify(d.error))||("status "+r.status));
+  const txt=(d.content||[]).map(x=>x.text||"").join("");const a=txt.indexOf("{"),b=txt.lastIndexOf("}");
+  if(a<0||b<a)throw new Error("AI's answer was not in the expected form. Please try again.");
+  try{return JSON.parse(txt.slice(a,b+1))}catch(e){throw new Error("AI's answer could not be read. Please try again.")}}
+
+// the shape of one chapter: fixed by the computer, the AI only fills the words
+function chapterShape(n,tb){const kinds=[];const teachN=Math.max(2,n-(tb?1:0)-2);
+  if(tb)kinds.push("teachbot");for(let i=0;i<teachN;i++)kinds.push("teach");kinds.push("classwork","test");return kinds}
+
+async function planChapter(ch,msg){
+  const tb=$("fTb").checked,kinds=chapterShape(ch.limit,tb),teachN=kinds.filter(k=>k==="teach").length;
+  msg("Reading "+ch.title+" from the book…");
+  const cp=await chapterPages(ch),parts=splitPages(cp,ch,teachN);
+  const all=parts.length&&parts[0].from!=null?{from:parts[0].from,to:parts[parts.length-1].to}:{from:null,to:null};
+  let ti=0;const periods=kinds.map(k=>{if(k==="teach"){const p=parts[ti++];return{kind:k,pages:pg(p),text:p.text}}return{kind:k,pages:pg(all),text:""}});
+  const budget=Math.floor(15000/Math.max(1,teachN));
+  const list=periods.map((p,i)=>`Period ${i+1} — ${{teachbot:"TEACHBOT",teach:"TEACH",classwork:"CLASS WORK",test:"CLASS TEST"}[p.kind]}${p.pages?" — book "+p.pages:""}${p.text?"\nTEXT OF THESE PAGES:\n"+p.text.slice(0,budget):""}`).join("\n\n");
+  msg("Planning "+ch.title+" ("+periods.length+" periods)…");
+  const out=await askAI(`Chapter: ${ch.title}\nClass: ${$("fClass").value} · Subject: ${$("fSubject").value}\n${cp.scanned?"The book pages are pictures, so plan from the chapter name and keep to the page numbers given.\n":""}\nThe ${periods.length} periods, in order:\n\n${list}\n\nReply as {"periods":[{"recap":"","teach":"","practice":"","homework":"","activity":""}, …]} with exactly ${periods.length} items in the same order.`);
+  const got=Array.isArray(out.periods)?out.periods:[];
+  return periods.map((p,i)=>Object.assign({chapter:ch.title,kind:p.kind,pages:p.pages},got[i]||{}))}
+
+/* ---------- make ---------- */
+let BUSY=false;
+$("makeBtn").onclick=async()=>{if(BUSY)return;const chs=picked();if(!chs.length){$("makeMsg").textContent="Tick at least one chapter.";return}
+  BUSY=true;$("makeBtn").disabled=true;$("topErr").hidden=true;const msg=t=>$("makeMsg").innerHTML='<span class="spin"></span>'+esc(t);
+  try{const rows=[];
+    for(const ch of chs){const r=await planChapter(ch,msg);rows.push(...r)}
+    placeRows(rows);renderPlan(rows,chs);renderCompare(rows,chs);$("makeMsg").textContent="Done. Nothing was saved.";
+    $("cmpCard").scrollIntoView({behavior:"smooth",block:"start"})}
+  catch(e){$("makeMsg").textContent="";showErr("Could not make the test plan: "+e.message)}
+  BUSY=false;$("makeBtn").disabled=false};
+
+// put the periods on the real dates. A TeachBot class goes on the next AI-room period if one comes
+// within the next 3 periods (the teaching periods in between move up); otherwise it stays in the classroom.
+function placeRows(rows){
+  const s=SLOTS.slice(),q=rows.slice(),out=[];let i=0;
+  while(q.length){const r=q[0],sl=s[i];
+    if(!sl){q.forEach(x=>{x.date="";x.after=true});out.push(...q);break}
+    if(r.kind==="teachbot"&&TT&&TT.ai_room&&!sl.ai){
+      const ahead=s.slice(i,i+4).findIndex(x=>x.ai);
+      if(ahead>0){const nxt=q.findIndex((x,k)=>k>0&&x.chapter===r.chapter&&x.kind==="teach");
+        if(nxt>0){const t=q.splice(nxt,1)[0];t.date=sl.date;t.period=sl.label;out.push(t);i++;continue}}}
+    q.shift();r.date=sl.date;r.period=sl.label;r.room=sl.ai?"AI room":"";out.push(r);i++}
+  rows.length=0;rows.push(...out);rows.free=s.slice(i)}
+
+const KNAME={teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",classwork:"✍️ Class work",test:"📝 Class test"};
+function renderPlan(rows,chs){
+  const end=$("fEnd").value;let h=`<thead><tr><th style="width:120px">Date</th><th style="width:130px">Period</th><th>What happens</th><th style="width:230px">Homework</th></tr></thead><tbody>`;let last="";
+  rows.forEach(r=>{if(r.chapter!==last){last=r.chapter;const n=rows.filter(x=>x.chapter===r.chapter).length;h+=`<tr class="chrow"><td colspan="4">${esc(r.chapter)} · ${n} periods</td></tr>`}
+    const over=!r.date||r.date>end,shape=r.kind==="teach"
+      ?`<div class="shape"><div><b>5 min:</b> ${esc(r.recap||"")}</div><div><b>25 min:</b> ${esc(r.teach||"").replace(/\n/g,"<br>")}</div><div><b>10 min:</b> ${esc(r.practice||"")}</div></div>`
+      :`<div class="shape"><div>${esc(r.teach||"").replace(/\n/g,"<br>")}</div>${r.practice?`<div class="small">${esc(r.practice)}</div>`:""}</div>`;
+    h+=`<tr${over?' class="after"':""}><td>${r.date?esc(nice(r.date)):'<span class="bad">No period left</span>'}${over&&r.date?'<br><span class="bad">after term end</span>':""}<br><span class="small">${esc(r.period||"")}${r.room?" · "+esc(r.room):""}</span></td>
+      <td><span class="kind k-${r.kind}">${KNAME[r.kind]}</span><br><span class="small">${esc(r.pages||"")}</span></td>
+      <td>${shape}${r.activity?`<div class="small" style="margin-top:4px">🎯 ${esc(r.activity)}</div>`:""}</td><td>${esc(r.homework||"")}</td></tr>`});
+  const free=rows.free||[];if(free.length)h+=`<tr class="free"><td colspan="4">${free.length} free period${free.length>1?"s":""} left this term (${esc(nice(free[0].date))} onward) — time for the next chapter.</td></tr>`;
+  $("planTable").innerHTML=h+"</tbody>";$("planCard").hidden=false}
+
+function renderCompare(rows,chs){
+  const cur=((CUR&&CUR.rows)||[]).filter(r=>r&&r.date&&r.date>=$("fStart").value),end=$("fEnd").value;
+  const kindsNow=rs=>{const t={teach:0,revision:0,hw:0,other:0};rs.forEach(r=>{const k=r.type;if(k==="teach"||k==="teachbot"||k==="read")t.teach++;else if(k==="revision")t.revision++;else if(k==="hwday"||k==="worksheet"||k==="classwork"||k==="practice")t.hw++;else t.other++});return t};
+  let h=`<thead><tr><th>Chapter</th><th class="num">Current plan<br><span class="small">periods from ${esc(nice($("fStart").value))}</span></th><th>Current plan is made of</th><th class="num">Test plan<br><span class="small">periods</span></th><th>Test plan is made of</th></tr></thead><tbody>`;
+  let tc=0,tt=0;
+  chs.forEach(ch=>{const a=cur.filter(r=>r.chapter===ch.title),b=rows.filter(r=>r.chapter===ch.title),k=kindsNow(a);tc+=a.length;tt+=b.length;
+    const nb=x=>b.filter(r=>r.kind===x).length;
+    h+=`<tr><td>${esc(ch.title)}</td><td class="num">${a.length||"—"}</td><td class="small">${a.length?`${k.teach} teaching / TeachBot / reading · ${k.hw} homework, class work, worksheet · ${k.revision} revision · ${k.other} catch-up, activity, test`:"Not in the current plan from this date"}</td><td class="num">${b.length}</td><td class="small">${nb("teach")} teaching (with homework check and practice inside) · ${nb("teachbot")} TeachBot · ${nb("classwork")} class work · ${nb("test")} test</td></tr>`});
+  const curLast=cur.map(r=>r.date).sort().pop(),newLast=rows.filter(r=>r.date).map(r=>r.date).sort().pop();
+  h+=`<tr><td><b>Total</b></td><td class="num"><b>${tc}</b></td><td class="small">Last lesson: ${curLast?esc(nice(curLast)):"—"}${curLast&&curLast>end?' <span class="bad">(after term end)</span>':""}</td><td class="num"><b>${tt}</b></td><td class="small">Last lesson: ${newLast?esc(nice(newLast)):"—"}${(newLast&&newLast>end)||rows.some(r=>!r.date)?' <span class="bad">(after term end)</span>':""}${(rows.free||[]).length?' · <span class="good">'+rows.free.length+' periods free</span>':""}</td></tr>`;
+  $("cmpTable").innerHTML=h+"</tbody>";
+  $("cmpNote").textContent=SLOT_SRC==="tt"?"Both counted on the school timetable's periods from "+nice($("fStart").value)+" to "+nice(end)+".":"This subject is not in the school timetable, so the current plan's periods per week were used.";
+  $("cmpCard").hidden=false}
+
+function renderCurrent(){
+  const rows=((CUR&&CUR.rows)||[]).filter(Boolean);if(!rows.length){$("curCard").hidden=true;return}
+  const N={teachbot:"TeachBot",teach:"Teaching",read:"Reading",practice:"Exercises",classwork:"Class work",hwday:"Revise + homework",worksheet:"Worksheet",catchup:"Catch-up",revision:"Revision",test:"Class test",activity:"Activity"};
+  let h=`<thead><tr><th style="width:110px">Date</th><th style="width:150px">Kind</th><th>Chapter · what to teach</th><th style="width:60px">Taught</th></tr></thead><tbody>`;
+  rows.slice().sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:1).forEach(r=>{h+=`<tr><td>${esc(nice(r.date))}</td><td>${esc(N[r.type]||r.type||"")}</td><td><b>${esc(r.chapter||"")}</b><br><span class="small">${esc(String(r.teach||"").slice(0,220))}</span></td><td>${r.done?"✓":""}</td></tr>`});
+  $("curTable").innerHTML=h+"</tbody>";$("curCard").hidden=false}
+
+/* ---------- start ---------- */
+$("chaps").addEventListener("change",showFit);$("chaps").addEventListener("input",showFit);
+["fStart","fEnd"].forEach(id=>$(id).addEventListener("change",()=>{computeSlots();showFit()}));
+$("fClass").onchange=()=>{fillSubjects();loadAll()};$("fSubject").onchange=loadAll;$("fTerm").onchange=loadAll;
+fillClasses();fillSubjects();
+Promise.all([loadTimetable(),loadHolidays()]).then(loadAll).catch(e=>showErr(e.message));
+})();
+</script>
+</body>
+</html>
