@@ -417,7 +417,7 @@ module.exports = async function handler(req, res) {
         const pr = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&class_name=in.(' +
           myClasses.map(function (c) { return '"' + c.replace(/"/g, '') + '"'; }).map(enc).join(',') +
           ')&status=neq.returned&select=id,class_name,subject,term,status,rows&order=updated_at.desc');
-        if (!ok(pr)) return res.json({ error: 'Could not read the term plans: ' + why(pr) });
+        if (!ok(pr)) return res.json({ error: 'Could not read the lesson plans: ' + why(pr) });
         // Oct 2026: Reading / Writing Practice plans stay in the Term Planner and Homework Planner only —
         // the principal allots those periods herself, so they never reach a teacher's My Day / Tomorrow
         plans = pr.data.filter(function (p) { return isMine(p.class_name, p.subject) && !/(Reading|Writing) Practice$/i.test(String(p.subject || '')); });
@@ -455,7 +455,7 @@ module.exports = async function handler(req, res) {
         for (const id of Object.keys(touched)) {
           const w = await db('PATCH', '/rest/v1/term_plans?id=eq.' + enc(id) + '&school_id=eq.' + enc(school.id),
                              { rows: touched[id].rows, updated_at: new Date().toISOString() });
-          if (!ok(w)) return res.json({ error: 'Could not tick the term plan: ' + why(w) });
+          if (!ok(w)) return res.json({ error: 'Could not tick the lesson plan: ' + why(w) });
         }
         // hw_checks: [{ hw_id, class_name, subject, homework, hw_date, corrected:'yes'|'some'|'no', missing:[roll] }]
         const checks = (Array.isArray(body.hw_checks) ? body.hw_checks : []).slice(0, 40).map(function (c) {
@@ -775,7 +775,7 @@ module.exports = async function handler(req, res) {
       });
       // 2. classes behind the term plan
       subjects.filter(function (s) { return s.behind >= 3; }).sort(function (a, b) { return b.behind - a.behind; }).forEach(function (s) {
-        flags.push({ level: 'bad', kind: 'Behind', title: s.class_name + ' ' + s.subject + ' is ' + s.behind + ' lessons behind the Term Planner',
+        flags.push({ level: 'bad', kind: 'Behind', title: s.class_name + ' ' + s.subject + ' is ' + s.behind + ' lessons behind the Lesson Planner',
                      detail: (s.teacher ? s.teacher + ' · ' : '') + s.done + ' of ' + s.total + ' lessons done. Consider an extra period or merging two lessons.' });
       });
       // 3. lessons marked Not done today
@@ -900,7 +900,7 @@ module.exports = async function handler(req, res) {
         db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes'),
         db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,term,status,teacher_name,rows&order=updated_at.desc')
       ]);
-      if (!ok(tr) || !ok(pr)) return res.json({ error: 'Could not load the term plans: ' + why(ok(tr) ? pr : tr) });
+      if (!ok(tr) || !ok(pr)) return res.json({ error: 'Could not load the lesson plans: ' + why(ok(tr) ? pr : tr) });
       const low = function (s) { return String(s || '').toLowerCase(); };
       const SKS = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social', evs: 'evs' };
       const sk = function (x) { x = low(x).trim(); return SKS[x] || x; };
