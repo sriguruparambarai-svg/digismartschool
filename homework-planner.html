@@ -333,6 +333,7 @@ textarea{resize:vertical;min-height:70px}
       <div class="sechead">
         <h2>Week at a glance</h2>
         <button class="btn ghost" id="tidyTp" type="button" title="Take out this week's Term Plan homework in subjects not ticked in the homework timetable for that day. Homework already sent is not touched.">🧹 Take out homework not in timetable</button>
+        <button class="btn ghost" id="redoTp" type="button" title="Homework filled from the Term Plans before the fixed homework lines were set keeps its old wording. This rewrites this week's unsent Term Plan homework: the subject's fixed line where one is set, otherwise the same homework without labels like 'Homework note:' or 'Reading:'. Homework typed by you or teachers, and homework already sent, is not touched.">🔄 Update this week to the new homework way</button>
         <button class="btn ghost" id="fillTp" type="button" title="Put the homework of the approved Term Plans into this week. Days already passed and subjects that already have homework are left alone. You can edit or take out any of it before it is sent.">📘 Fill this week from Term Plans</button>
         <div class="legend">
           <span style="--c:var(--chip)">In this week (✓ sent)</span>
@@ -1373,6 +1374,25 @@ async function tidyTp(){if(!PRINCIPAL||busy)return;const shown=classesShown();
   try{for(const i of list){try{await hw("remove",{id:i.id});n++}catch(e){bad=e.message}}}finally{busy=false;btn.disabled=false}
   await load();toast(n+" homework taken out."+(bad?" Some could not be taken out: "+bad:""),!!bad)}
 if($("tidyTp"))$("tidyTp").onclick=tidyTp;
+/* 🔄 (Oct 2026) homework filled from the Term Plans BEFORE the fixed homework lines were set keeps its old wording,
+   because "Fill this week" never touches homework that is already there. This rewrites this week's unsent
+   Term Plan homework: the fixed line of that class + subject where one is set, otherwise the same text without
+   the old labels ("Homework note:", "Reading:" …). Typed homework and sent homework are left alone. */
+async function redoTp(){if(!PRINCIPAL||busy)return;const shown=classesShown(),hr=new Date().getHours();
+  const list=[];
+  S.items.forEach(i=>{
+    if(i.sent_at||i.teacher_name!=="Term Plan"||i.status==="returned"||!shown.includes(i.class_name))return;
+    if(i.hw_date<TODAY||(i.hw_date===TODAY&&hr>=SEND_HOUR))return;
+    const now=String(i.homework||"").trim(),want=fixedText(i.class_name,i.subject)||cleanTpText(now);
+    if(want&&want!==now)list.push({i:i,want:want})});
+  if(!list.length){toast("This week's Term Plan homework already follows the new way. Nothing to change."+(Object.keys(FX||{}).length?"":" (No fixed homework lines are saved yet — set them in Homework timetable → Fill suggested lines → Save timetable.)"));return}
+  const eg=list.slice(0,3).map(x=>"• "+x.i.class_name+" "+x.i.subject+": "+x.want.slice(0,70)).join("\n");
+  if(!confirm(list.length+" homework this week will be rewritten the new way, for example:\n"+eg+"\n\nHomework typed by you or teachers, and homework already sent, is not touched. Go ahead?"))return;
+  const btn=$("redoTp");btn.disabled=true;busy=true;let n=0,bad="";
+  try{for(const x of list){try{await hw("save",{id:x.i.id,class_name:x.i.class_name,subject:x.i.subject,kind:x.i.kind||"Written",homework:x.want,hw_date:x.i.hw_date});n++}catch(e){bad=e.message}}}
+  finally{busy=false;btn.disabled=false}
+  await load();toast(n+" homework updated to the new way."+(bad?" Some could not be changed: "+bad:""),!!bad)}
+if($("redoTp"))$("redoTp").onclick=redoTp;
 $("slipAll").onclick=()=>{const ds=S.sel.date;const list=classesShown().filter(c=>itemsFor(c,ds,added).length);if(!list.length){toast("Nothing added to the week on "+nice(ds)+" yet.",true);return}printSlips(list,ds)};
 
 /* ---------- start ---------- */
