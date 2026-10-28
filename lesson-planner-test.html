@@ -337,7 +337,7 @@ CLASS TEST period: a short written test on the whole chapter — "teach" = which
 "activity": only ONE period in the chapter gets one simple, low-cost activity (introducing the chapter or a hard idea), starting with "(Class)", "(Ground)" or "(Home)". All other periods: "".
 Write in simple English a new teacher can follow. Reply with JSON only.`}
 async function askAI(prompt){
-  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:6000})});
+  const r=await fetch("/api/ai",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:rules(),messages:[{role:"user",content:prompt}],max_tokens:9000})});
   let d={};try{d=await r.json()}catch(e){throw new Error("AI did not answer properly (status "+r.status+").")}
   if(!r.ok||d.type==="error")throw new Error(d.message||(typeof d.error==="string"?d.error:JSON.stringify(d.error))||("status "+r.status));
   const txt=(d.content||[]).map(x=>x.text||"").join("");const a=txt.indexOf("{"),b=txt.lastIndexOf("}");
@@ -354,11 +354,14 @@ async function planChapter(ch,msg){
   const cp=await chapterPages(ch),parts=splitPages(cp,ch,teachN);
   const all=parts.length&&parts[0].from!=null?{from:parts[0].from,to:parts[parts.length-1].to}:{from:null,to:null};
   let ti=0;const periods=kinds.map(k=>{if(k==="teach"){const p=parts[ti++];return{kind:k,pages:pg(p),text:p.text}}return{kind:k,pages:pg(all),text:""}});
-  const budget=Math.floor(15000/Math.max(1,teachN));
-  const list=periods.map((p,i)=>`Period ${i+1} — ${{teachbot:"TEACHBOT",teach:"TEACH",classwork:"CLASS WORK",test:"CLASS TEST"}[p.kind]}${p.pages?" — book "+p.pages:""}${p.text?"\nTEXT OF THESE PAGES:\n"+p.text.slice(0,budget):""}`).join("\n\n");
-  msg("Planning "+ch.title+" ("+periods.length+" periods)…");
-  const out=await askAI(`Chapter: ${ch.title}\nClass: ${$("fClass").value} · Subject: ${$("fSubject").value}\n${cp.scanned?"The book pages are pictures, so plan from the chapter name and keep to the page numbers given.\n":""}\nThe ${periods.length} periods, in order:\n\n${list}\n\nReply as {"periods":[{"recap":"","teach":"","practice":"","homework":"","activity":""}, …]} with exactly ${periods.length} items in the same order.`);
-  const got=Array.isArray(out.periods)?out.periods:[];
+  // in groups of up to 5 periods, so the AI's answer is never cut off
+  const KN={teachbot:"TEACHBOT",teach:"TEACH",classwork:"CLASS WORK",test:"CLASS TEST"},got=[];
+  for(let g=0;g<periods.length;g+=5){const grp=periods.slice(g,g+5),budget=Math.floor(12000/Math.max(1,grp.filter(p=>p.text).length));
+    const list=grp.map((p,i)=>`Period ${g+i+1} — ${KN[p.kind]}${p.pages?" — book "+p.pages:""}${p.text?"\nTEXT OF THESE PAGES:\n"+p.text.slice(0,budget):""}`).join("\n\n");
+    const before=got.length?"\nAlready planned before these (do not repeat): "+got.map((x,i)=>"P"+(i+1)+": "+String(x.teach||"").slice(0,90)).join(" | ")+(got.some(x=>x.activity)?"\nThe chapter's one activity is already given, so \"activity\" stays \"\".":"")+"\n":"";
+    msg("Planning "+ch.title+" — periods "+(g+1)+"–"+(g+grp.length)+" of "+periods.length+"…");
+    const out=await askAI(`Chapter: ${ch.title}\nClass: ${$("fClass").value} · Subject: ${$("fSubject").value}\nThe chapter has ${periods.length} periods in all.\n${cp.scanned?"The book pages are pictures, so plan from the chapter name and keep to the page numbers given.\n":""}${before}\nPlan these ${grp.length} periods, in order:\n\n${list}\n\nReply as {"periods":[{"recap":"","teach":"","practice":"","homework":"","activity":""}, …]} with exactly ${grp.length} items in the same order. Keep each field short.`);
+    const arr=Array.isArray(out.periods)?out.periods:[];for(let i=0;i<grp.length;i++)got.push(arr[i]||{})}
   return periods.map((p,i)=>Object.assign({chapter:ch.title,kind:p.kind,pages:p.pages},got[i]||{}))}
 
 /* ---------- make ---------- */
