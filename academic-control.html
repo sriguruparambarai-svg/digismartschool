@@ -332,10 +332,11 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     var ps=periodsOf(S.day);
     if(!ps.length){$("pchips").innerHTML="";$("pgrid").innerHTML='<div class="panel empty">'+(S.TT?"No timetable for "+h(wd(S.day))+". Set it in ERP → Timetable → Master timetable (or School Admin → Timetable).":"The school timetable could not be read.")+'</div>';return}
     if(S.period==null||!ps.some(function(p){return p.i===S.period})){
-      var now=istNow(),cur=S.day===istToday()?ps.find(function(p){return p.start&&p.end&&now>=p.start&&now<p.end}):null;S.period=(cur||ps[0]).i}
+      S.period=nowPeriod(ps)}
     var now2=istNow();
-    chips($("pchips"),ps.map(function(p){var isNow=S.day===istToday()&&p.start&&p.end&&now2>=p.start&&now2<p.end;
-      return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(isNow?" · now":"")}}),String(S.period),function(k){S.period=+k;drawPgrid()});
+    var np=S.day===istToday()?runningPeriod(ps):-1;
+    chips($("pchips"),ps.map(function(p){var isNow=p.i===np;
+      return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(isNow?" · now":"")}}),String(S.period),function(k){S.period=+k;S.pickedAt=runningPeriod(periodsOf(S.day));drawPgrid()});
     drawPgrid()}
   function shortP(l,i){var m=/(\d+)/.exec(l||"");return m?"P"+m[1]:(l||"P"+(i+1))}
   function drawPgrid(){
@@ -604,6 +605,33 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(b&&b.dataset.v==="stage"&&!ST.data)stLoad()});
   $("refresh").addEventListener("click",function(){ST.data=null;ST.q={};ST.a={};if(stOpen())stLoad()});
   $("day").addEventListener("change",function(){ST.data=null;if(stOpen())stLoad()});
+
+  // ── the period running now (Oct 2026 fix) ──
+  // Times may be saved as "9:30" or "09:30"; a period with no end time ends when the next one starts.
+  // In a break it shows the period coming next; before school the first, after school the last.
+  function hm(t){var m=/^(\d{1,2}):(\d{2})/.exec(String(t||""));return m?(+m[1])*60+(+m[2]):-1}
+  function runningPeriod(ps){
+    var now=hm(istNow());
+    for(var i=0;i<ps.length;i++){var s=hm(ps[i].start),e=hm(ps[i].end);if(e<0&&ps[i+1])e=hm(ps[i+1].start);if(e<0&&s>=0)e=s+40;
+      if(s>=0&&now>=s&&now<e)return ps[i].i}
+    return -1}
+  function nowPeriod(ps){
+    if(S.day!==istToday())return ps[0].i;
+    var r=runningPeriod(ps);if(r!==-1)return r;
+    var now=hm(istNow()),next=ps.find(function(p){return hm(p.start)>now});
+    if(next)return next.i;
+    return ps.some(function(p){return hm(p.start)>=0})?ps[ps.length-1].i:ps[0].i}
+  // every minute: when a new period starts, move to it (unless the principal picked a period in this same period)
+  setInterval(function(){try{
+    if(!S.L||S.day!==istToday())return;
+    var ps=periodsOf(S.day);if(!ps.length)return;
+    var r=runningPeriod(ps);
+    if(S.pickedAt!=null&&S.pickedAt===r)return;
+    S.pickedAt=null;
+    var want=nowPeriod(ps);
+    if(want!==S.period||r!==S.lastRun){S.period=want;S.lastRun=r;drawPeriods()}
+  }catch(e){}},60000);
+  $("refresh").addEventListener("click",function(){S.period=null;S.pickedAt=null});
 
   $("day").value=istToday();
   $("day").onchange=function(){S.period=null;load()};
