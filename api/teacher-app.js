@@ -823,6 +823,173 @@ module.exports = async function handler(req, res) {
         flags: flags, subjects: subjects, teachers: tday });
     }
 
+    // ── LESSON STAGE (Oct 2026) — for Academic Control's "Lesson stage" tab ──
+    // Where each class + subject is inside its lesson, without the principal reading the Term Plan.
+    // Nothing extra for teachers: the stage comes from the Term Planner's period types and the
+    // Done ticks teachers already give in My Day:
+    //   teach / teachbot / read → Taking lesson · classwork → Class work · activity → Activities ·
+    //   hwday / practice / worksheet / catchup / revision → Revision + class work · test → Class test ·
+    //   every period of the lesson done → Completed
+    // Proof (step 3): the Class Quiz saved in Class Insights for that lesson (answer cards = % right,
+    // otherwise the Most / Half / Few tap). Read from storage, nothing new is saved here.
+    //   stages { date? } → { subjects:[ { class_name, subject, teacher, typed, total, done, behind, level,
+    //                        cur:{ n, chapter, stage, stages, activities, quiz, teach, pages },
+    //                        plan:{ n, chapter, stage, date }, lessons:[ { n, chapter, stage, quiz } ] } ] }
+    if (action === 'stages') {
+      const day = isDate(body.date) ? body.date : istToday();
+      const [tr, pr] = await Promise.all([
+        db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes'),
+        db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,term,status,teacher_name,rows&order=updated_at.desc')
+      ]);
+      if (!ok(tr) || !ok(pr)) return res.json({ error: 'Could not load the term plans: ' + why(ok(tr) ? pr : tr) });
+      const low = function (s) { return String(s || '').toLowerCase(); };
+      const SKS = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social', evs: 'evs' };
+      const sk = function (x) { x = low(x).trim(); return SKS[x] || x; };
+      const sameSub = function (a, b) { a = sk(a); b = sk(b); return a === b || (a.length >= 3 && b.length >= 3 && (a.indexOf(b) === 0 || b.indexOf(a) === 0)); };
+      const sameCls = function (a, b) { return low(a).replace(/[^a-z0-9]/g, '') === low(b).replace(/[^a-z0-9]/g, ''); };
+      const teacherFor = function (cls, sub) {
+        const t = tr.data.find(function (t) { return (t.classes || []).some(function (c) { return c.class_name === cls && low(c.subject) === low(sub); }); });
+        return t ? t.name : '';
+      };
+
+      // ── the school's Class Quiz records (newest first) ──
+      const quizzes = [];
+      const folders = [String(school.school_code || ''), String(school.id || '')]
+        .map(function (s) { return s.replace(/[^A-Za-z0-9_-]/g, '').substring(0, 64); })
+        .filter(function (s, i, a) { return s && a.indexOf(s) === i; });
+      for (const f of folders) {
+        const lr = await db('POST', '/storage/v1/object/list/lesson-audio',
+                            { prefix: 'class-quiz/s-' + f + '/', limit: 80, sortBy: { column: 'name', order: 'desc' } });
+        const names = ok(lr) && Array.isArray(lr.data) ? lr.data.map(function (x) { return x && x.name ? String(x.name) : ''; })
+          .filter(function (n) { return /\.json$/.test(n); }).slice(0, 80) : [];
+        const got = await Promise.all(names.map(function (n) {
+          return db('GET', '/storage/v1/object/lesson-audio/class-quiz/s-' + f + '/' + enc(n));
+        }));
+        got.forEach(function (g) { if (ok(g) && g.data && Array.isArray(g.data.results)) quizzes.push(g.data); });
+      }
+      quizzes.sort(function (a, b) { return String(b.ts || '') < String(a.ts || '') ? -1 : 1; });
+      // does a quiz's topic belong to this chapter? (book titles are written differently in each place)
+      const STOP = ['the', 'a', 'an', 'of', 'and', 'in', 'on', 'to', 'for', 'is', 'chapter', 'lesson', 'unit', 'part', 'term'];
+      const words = function (s) { return low(s).replace(/[^a-z0-9஀-௿ऀ-ॿ ]/g, ' ').split(/\s+/).filter(function (w) { return w.length > 1 && STOP.indexOf(w) === -1 && !/^\d+$/.test(w); }); };
+      const sameChap = function (topic, chapter) {
+        const a = words(topic), b = words(chapter);
+        if (!a.length || !b.length) return false;
+        const hit = b.filter(function (w) { return a.indexOf(w) !== -1; }).length;
+        return hit / Math.min(a.length, b.length) >= 0.6;
+      };
+      const quizFor = function (cls, sub, chapter) {
+        const q = quizzes.find(function (r) { return sameCls(r.cls, cls) && sameSub(r.subject, sub) && sameChap(r.topic, chapter); });
+        if (!q) return null;
+        let right = 0, seen = 0, rsum = 0, rn = 0;
+        (q.results || []).forEach(function (x) {
+          if (x.cards && x.correct) Object.keys(x.cards).forEach(function (k) { seen++; if (x.cards[k] === x.correct) right++; });
+          if (x.rating) { rsum += x.rating; rn++; }
+        });
+        const avg = rn ? rsum / rn : 0;
+        return { date: String(q.ts || '').slice(0, 10), topic: clip(q.topic, 140),
+                 pct: seen ? Math.round(right * 100 / seen) : null, cards: seen,
+                 rating: avg >= 2.5 ? 'most' : avg >= 1.75 ? 'half' : avg ? 'few' : '',
+                 questions: (q.results || []).slice(0, 3).map(function (x) { return { q: clip(x.q, 220), a: clip(x.a, 220) }; }) };
+      };
+
+      const STAGE_OF = { teach: 'lesson', teachbot: 'lesson', read: 'lesson', classwork: 'classwork', activity: 'activity',
+                         hwday: 'revision', practice: 'revision', worksheet: 'revision', catchup: 'revision', revision: 'revision', test: 'test' };
+      const ORDER = ['lesson', 'classwork', 'activity', 'revision', 'test', 'completed'];
+      const out = [];
+      const seenPlan = {};
+      pr.data.forEach(function (p) {
+        if (/(Reading|Writing) Practice$|Spoken English|Handwriting/i.test(String(p.subject || ''))) return;
+        const key = p.class_name + '|' + low(p.subject) + '|' + low(p.term);
+        if (seenPlan[key]) return;            // newest plan of a class + subject + term only
+        seenPlan[key] = 1;
+        const all = Array.isArray(p.rows) ? p.rows : [];
+        const typed = all.some(function (r) { return r && r.type && STAGE_OF[r.type]; });
+        // rows that belong to a lesson stage, grouped by chapter in plan order
+        const chaps = [];
+        let last = null;
+        all.forEach(function (r) {
+          if (!r) return;
+          if (r.type === 'speaking' || r.type === 'writing') return;
+          const stage = STAGE_OF[r.type] || (typed ? '' : 'lesson');
+          if (!stage) return;
+          const name = String(r.chapter || '').trim();
+          if (name && (!last || low(last.chapter) !== low(name))) {
+            last = chaps.find(function (c) { return low(c.chapter) === low(name); }) || null;
+            if (!last) { last = { chapter: name, rows: [] }; chaps.push(last); }
+          }
+          if (!last) { last = { chapter: 'Lesson', rows: [] }; chaps.push(last); }
+          last.rows.push({ stage: stage, date: r.date || '', done: !!r.done, type: r.type || '', teach: r.teach || '', pages: r.pages || '',
+                           class_act: r.class_act || '', home_act: r.home_act || '', ground_act: r.ground_act || '' });
+        });
+        if (!chaps.length) return;
+        const rowsAll = [];
+        chaps.forEach(function (c, ci) { c.rows.forEach(function (r) { rowsAll.push(Object.assign({ ci: ci }, r)); }); });
+        const total = rowsAll.length, done = rowsAll.filter(function (r) { return r.done; }).length;
+        const behind = rowsAll.filter(function (r) { return r.date && r.date < day && !r.done; }).length;
+
+        // a lesson's stage as the class really is: the first period not done AFTER the last one done
+        // (a period left undone before that was skipped — e.g. an activity — and shows as missed)
+        const actualOf = function (c) {
+          let lastDone = -1;
+          c.rows.forEach(function (r, i) { if (r.done) lastDone = i; });
+          if (lastDone === -1) return c.rows[0].date && c.rows[0].date <= day ? c.rows[0].stage : 'notstarted';
+          const next = c.rows.find(function (r, i) { return i > lastDone && !r.done; });
+          return next ? next.stage : 'completed';
+        };
+        const stagesOf = function (c) {
+          const s = {};
+          ['lesson', 'classwork', 'activity', 'revision', 'test'].forEach(function (k) {
+            const rs = c.rows.filter(function (r) { return r.stage === k; });
+            s[k] = { n: rs.length, done: rs.filter(function (r) { return r.done; }).length,
+                     overdue: rs.filter(function (r) { return !r.done && r.date && r.date < day; }).length };
+          });
+          return s;
+        };
+        // the class's current lesson
+        // (the lesson of the first period not done after the last period done anywhere in the plan)
+        let gLast = -1;
+        rowsAll.forEach(function (r, i) { if (r.done) gLast = i; });
+        const gNext = rowsAll.find(function (r, i) { return i > gLast && !r.done; });
+        const curI = gLast === -1 ? 0 : gNext ? gNext.ci : rowsAll[gLast].ci;
+        // where the Term Plan says the class should be today
+        let planRow = null;
+        rowsAll.forEach(function (r) { if (r.date && r.date <= day && (!planRow || r.date >= planRow.date)) planRow = r; });
+        let plan = null;
+        if (planRow) {
+          const pc = chaps[planRow.ci];
+          const chapRows = rowsAll.filter(function (r) { return r.ci === planRow.ci; });
+          const finished = planRow === chapRows[chapRows.length - 1] && planRow.date < day;
+          plan = { n: planRow.ci + 1, chapter: pc.chapter, stage: finished ? 'completed' : planRow.stage, date: planRow.date };
+        }
+        const c = chaps[curI];
+        // activities of the current lesson (planned activity periods + home activities given with other periods)
+        const acts = [];
+        c.rows.forEach(function (r) {
+          if (r.stage === 'activity') acts.push({ kind: 'class', text: clip(r.class_act || r.teach || 'Class activity', 300), date: r.date, done: r.done });
+          if (r.home_act) acts.push({ kind: 'home', text: clip(r.home_act, 300), date: r.date, done: r.done });
+          if (r.ground_act) acts.push({ kind: 'ground', text: clip(r.ground_act, 300), date: r.date, done: r.done });
+        });
+        const teach = c.rows.filter(function (r) { return r.stage === 'lesson' && r.teach; }).map(function (r) { return r.teach; }).join(' ');
+        const pages = c.rows.filter(function (r) { return r.pages; }).map(function (r) { return String(r.pages).trim(); })
+          .filter(function (x, i, a) { return a.indexOf(x) === i; });
+        out.push({
+          class_name: p.class_name, subject: p.subject, term: p.term || '', plan_status: p.status || '',
+          teacher: teacherFor(p.class_name, p.subject) || p.teacher_name || '', typed: typed,
+          total: total, done: done, behind: behind, level: behind >= 3 ? 'bad' : behind >= 1 ? 'slow' : 'ok',
+          cur: { n: curI + 1, chapter: c.chapter, stage: actualOf(c), stages: stagesOf(c), activities: acts.slice(0, 8),
+                 quiz: quizFor(p.class_name, p.subject, c.chapter), teach: clip(teach, 900),
+                 pages: pages.length ? clip(pages[0] + (pages.length > 1 ? ' – ' + pages[pages.length - 1] : ''), 60) : '' },
+          plan: plan,
+          lessons: chaps.map(function (x, i) {
+            const q = quizFor(p.class_name, p.subject, x.chapter);
+            return { n: i + 1, chapter: x.chapter, stage: actualOf(x),
+                     quiz: q ? { date: q.date, pct: q.pct, rating: q.rating } : null };
+          })
+        });
+      });
+      return res.json({ success: true, date: day, quizzes_read: quizzes.length, order: ORDER, subjects: out });
+    }
+
     return res.json({ error: 'Unknown action: ' + action });
   } catch (e) {
     return res.status(500).json({ error: 'Server error: ' + (e && e.message ? e.message : String(e)) });
