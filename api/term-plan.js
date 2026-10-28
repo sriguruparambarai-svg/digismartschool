@@ -101,13 +101,20 @@ function refitRows(rows, tt, cls, subject, from, off) {
   const slots = timetableSlots(tt, cls, subject, from, off, 240);
   if (!slots.length) return null;
   const keep = [], move = [];
-  rows.forEach(function (r) { if (r && r.date && r.date >= from && !r.done) move.push(r); else keep.push(r); });
+  const autoCU = function (r) { return r && r.type === 'catchup' && /next TeachBot lesson is in the AI room/.test(r.teach || ''); };
+  rows.forEach(function (r) { if (r && r.date && r.date >= from && !r.done) { if (!autoCU(r)) move.push(r); } else keep.push(r); });
   if (!move.length) return { rows: rows, fitted: 0 };
   move.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
   const placed = []; let s = 0;
-  for (let i = 0; i < move.length && s < slots.length; ) {
-    const r = move[i], sl = slots[s++];
-    if (r.type === 'teachbot' && tt.ai_room && !sl.ai) {
+  // Oct 2026 fix: an AI room period for this class + subject still to come from slot k?
+  // If there is none, a TeachBot lesson goes in the classroom period instead of waiting forever
+  // (waiting turned every later period into "Catch-up" and lost the remaining lessons).
+  const aiAhead = []; let seen = false;
+  for (let k = slots.length - 1; k >= 0; k--) { if (slots[k].ai) seen = true; aiAhead[k] = seen; }
+  let i = 0;
+  for (; i < move.length && s < slots.length; ) {
+    const r = move[i], k = s, sl = slots[s++];
+    if (r.type === 'teachbot' && tt.ai_room && !sl.ai && aiAhead[k]) {
       placed.push({ date: sl.date, period: sl.label, room: '', chapter: r.chapter, type: 'catchup', pages: '',
         teach: 'Catch-up: finish anything not done, re-check yesterday\'s work and correct class work. (The next TeachBot lesson is in the AI room.)',
         class_act: '', home_act: '', ground_act: '', homework: '', workbook: '', done: false });
@@ -116,6 +123,8 @@ function refitRows(rows, tt, cls, subject, from, off) {
     r.date = sl.date; r.period = sl.label; r.room = sl.ai ? 'ai' : '';
     placed.push(r); i++;
   }
+  // never lose a lesson: if the timetable ran out before every lesson found a period, do not re-fit
+  if (i < move.length) return null;
   const all = keep.concat(placed);
   all.sort(function (a, b) { return (a.date || '9') < (b.date || '9') ? -1 : (a.date || '9') > (b.date || '9') ? 1 : 0; });
   return { rows: all, fitted: placed.length };
@@ -599,7 +608,7 @@ module.exports = async function handler(req, res) {
       if (!TT.grid || !Object.keys(TT.grid).length) return res.json({ error: 'There is no school timetable yet. Add it in School Admin → School Timetable.' });
       const from = istToday();
       const ft = refitRows(Array.isArray(p.rows) ? p.rows : [], TT, p.class_name, p.subject, from, await offDays(school, from));
-      if (!ft) return res.json({ error: p.class_name + ' ' + p.subject + ' is not in the school timetable.' });
+      if (!ft) return res.json({ error: p.class_name + ' ' + p.subject + ' is not in the school timetable, or it has too few periods there for the lessons left.' });
       const end = p.settings && isDate(p.settings.end) ? p.settings.end : '';
       const over = end ? ft.rows.filter(function (r) { return r && r.date > end; }).length : 0;
       const w = await setStatus(p, school, { rows: ft.rows });
