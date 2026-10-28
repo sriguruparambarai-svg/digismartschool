@@ -208,7 +208,12 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   </section>
 
   <section class="view" id="v-teachers" hidden>
-    <p class="lead">Who submitted their day, what they marked, and their homework check.</p>
+    <p class="lead">Who submitted their day (and when), what they marked, and their homework check.</p>
+    <div class="warn" id="tset" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <label for="t-dl" style="font-weight:800">Submit their day by</label><input type="time" id="t-dl" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
+      <label for="t-hb" style="font-weight:800;margin-left:6px">Check yesterday's homework by</label><input type="time" id="t-hb" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
+      <button class="btn" type="button" id="t-save" style="min-height:40px;padding:6px 14px">Save times</button><span id="t-msg" style="font-weight:800"></span>
+    </div>
     <div class="panel scroll"><table class="w"><thead><tr><th>Teacher</th><th>Day</th><th>Lessons</th><th>Homework check</th></tr></thead><tbody id="teab"></tbody></table></div>
   </section>
 
@@ -429,8 +434,15 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     $("teab").innerHTML=ts.length?ts.map(function(t){
       var st=t.state==="ok"?pill("p-ok","Submitted"):t.state==="late"?pill("p-slow","Late"):t.state==="missing"?pill("p-bad","Not submitted"):pill("p-w","Not yet");
       var les=t.items.length?t.items.map(function(x){return(x.status==="done"?"✓":x.status==="not"?"✗":"?")+" "+h(x.class_name)+" "+h(x.subject)+(x.status==="not"&&x.reason?" ("+h(x.reason)+")":"")}).join("<br>"):'<span style="color:var(--mut)">Nothing marked</span>';
-      var ck=t.hw_checks.length?t.hw_checks.map(function(c){return h(c.class_name+" "+c.subject)+": "+(c.corrected==="yes"?"corrected":c.corrected==="some"?"some corrected":c.corrected==="no"?'<b style="color:var(--bad)">not corrected</b>':"not answered")+(c.missing&&c.missing.length?" · roll "+h(c.missing.join(", "))+" didn't bring":"")}).join("<br>"):'<span style="color:var(--mut)">—</span>';
-      return '<tr><td><b>'+h(t.name)+'</b></td><td>'+st+'<br><small style="color:var(--mut)">'+t.done+' done · '+t.not+' not done</small></td><td>'+les+'</td><td>'+ck+'</td></tr>'}).join(""):'<tr><td colspan="4" class="empty">No teachers in the Teacher App yet.</td></tr>'}
+      var ck=t.hw_checks.length?t.hw_checks.map(function(c){return h(c.class_name+" "+c.subject)+": "+(c.corrected==="yes"?"corrected":c.corrected==="some"?"some corrected":c.corrected==="no"?'<b style="color:var(--bad)">not corrected</b>':"not answered")+(c.missing&&c.missing.length?" · roll "+h(c.missing.join(", "))+" didn't bring":"")+(c.at?' <small style="color:'+(S.L.hw_check_by&&c.at>S.L.hw_check_by?"var(--bad)":"var(--mut)")+'">('+h(t12(c.at))+')</small>':"")}).join("<br>"):'<span style="color:var(--mut)">—</span>';
+      var sAt=t.submitted_at?'<br><small style="color:var(--mut)">at <b style="color:var(--fg)">'+h(t12(new Date(new Date(t.submitted_at).getTime()+5.5*3600e3).toISOString().slice(11,16)))+'</b>'+(S.L.deadline?' · deadline '+h(t12(S.L.deadline)):'')+'</small>':'';
+      var hb=S.L.hw_check_by,hs="";
+      if(t.hw_due!=null&&t.hw_due>0){var all=t.hw_checked>=t.hw_due;
+        hs='<div style="margin-bottom:4px">'+(all?pill(t.hw_late?"p-slow":"p-ok",t.hw_late?"Checked late":"All checked"):pill(t.hw_checked?"p-slow":"p-bad",t.hw_checked+" of "+t.hw_due+" checked"))
+          +(t.hw_first_at?' <small style="color:var(--mut)">marked '+h(t12(t.hw_first_at))+(t.hw_last_at&&t.hw_last_at!==t.hw_first_at?' – '+h(t12(t.hw_last_at)):'')+'</small>':'')
+          +(hb?' <small style="color:var(--mut)">· due '+h(t12(hb))+'</small>':'')
+          +(!all&&t.hw_missing&&t.hw_missing.length?'<br><small style="color:var(--bad);font-weight:800">Not checked: '+h(t.hw_missing.join(", "))+'</small>':'')+'</div>'}
+      return '<tr><td><b>'+h(t.name)+'</b></td><td>'+st+sAt+'<br><small style="color:var(--mut)">'+t.done+' done · '+t.not+' not done</small></td><td>'+les+'</td><td>'+hs+ck+'</td></tr>'}).join(""):'<tr><td colspan="4" class="empty">No teachers in the Teacher App yet.</td></tr>'}
 
   // ── CHILDREN TO WATCH ──
   var HWLIKE=/\b(h\/?w|homework|home work|work ?sheet|write|subject\s*:|class\s*:|date\s*:)/i;
@@ -632,6 +644,16 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     if(want!==S.period||r!==S.lastRun){S.period=want;S.lastRun=r;drawPeriods()}
   }catch(e){}},60000);
   $("refresh").addEventListener("click",function(){S.period=null;S.pickedAt=null});
+
+  // ── Oct 2026: the two daily times, set by the principal (Teachers tab) ──
+  async function tsetLoad(){try{var d=await call("/api/teacher-app",{action:"get_settings"});if(d.success){$("t-dl").value=d.deadline||"";$("t-hb").value=d.hw_check_by||""}}catch(e){}}
+  $("t-save").onclick=async function(){var m=$("t-msg");m.style.color="var(--mut)";m.textContent="Saving…";
+    var dl=$("t-dl").value,hb=$("t-hb").value,err="";
+    if(dl){var a=await call("/api/teacher-app",{action:"save_settings",deadline:dl});if(!a.success)err=a.error||"Could not save the submit time."}
+    if(!err){var b=await call("/api/teacher-app",{action:"save_settings",hw_check_by:hb});if(!b.success)err=b.error||"Could not save the homework check time."}
+    if(err){m.style.color="var(--bad)";m.textContent=err;return}
+    m.style.color="var(--ok)";m.textContent="Saved."+(hb?" Homework must be checked by "+t12(hb)+".":" No homework check time.");load()};
+  tsetLoad();
 
   $("day").value=istToday();
   $("day").onchange=function(){S.period=null;load()};
