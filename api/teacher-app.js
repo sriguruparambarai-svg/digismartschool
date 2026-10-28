@@ -106,6 +106,13 @@ async function readTomorrowAt(school) {
   const d = ok(r) && r.data.length ? String(r.data[0].tomorrow_at || '') : '';
   return /^\d{2}:\d{2}$/.test(d) ? d : '14:30';
 }
+// Oct 2026: the time by which teachers must check the last school day's homework ('' = not set).
+// Read on its own so nothing breaks before step9-homework-check-time.sql is run.
+async function readHwCheckBy(school) {
+  const r = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=hw_check_by&limit=1');
+  const d = ok(r) && r.data.length ? String(r.data[0].hw_check_by || '') : '';
+  return /^\d{2}:\d{2}$/.test(d) ? d : '';
+}
 async function readDeadline(school) {
   const r = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=deadline&limit=1');
   const d = ok(r) && r.data.length ? String(r.data[0].deadline || '') : '';
@@ -458,6 +465,14 @@ module.exports = async function handler(req, res) {
                    corrected: ['yes', 'some', 'no'].indexOf(c.corrected) !== -1 ? c.corrected : '',
                    missing: (Array.isArray(c.missing) ? c.missing : []).slice(0, 80).map(function (m) { return clip(m, 10); }) };
         }).filter(Boolean);
+        // Oct 2026: when each check was marked (India time "HH:MM"), so the principal sees late checks
+        const before = {};
+        ((report && report.hw_checks) || []).forEach(function (o) { before[o.hw_id] = o; });
+        checks.forEach(function (k) {
+          const o = before[k.hw_id];
+          if (!k.corrected) return;
+          k.at = o && o.corrected === k.corrected && o.at ? o.at : istTime();
+        });
         const fields = { items: items, hw_checks: checks, watch: clip(body.watch, 600), teacher_name: t.name,
                          updated_at: new Date().toISOString() };
         if (body.submit) {
@@ -486,7 +501,7 @@ module.exports = async function handler(req, res) {
       }
 
       // ── my_day: build the screen ──
-      const out = { today: today, weekday: istWeekday(), deadline: deadline, now: istTime(),
+      const out = { today: today, weekday: istWeekday(), deadline: deadline, now: istTime(), hw_check_by: await readHwCheckBy(school),
                     access: access, classes: mine, items: [], earlier: [], hw_today: [], hw_check: [],
                     students: {}, report: report ? { items: report.items || [], hw_checks: report.hw_checks || [],
                     watch: report.watch || '', submitted_at: report.submitted_at || null, late: !!report.late } : null };
@@ -643,7 +658,20 @@ module.exports = async function handler(req, res) {
 
     // ── ACADEMIC CONTROL (Step 3): the principal's Live School screen ──
     if (action === 'get_settings') {
-      return res.json({ success: true, deadline: await readDeadline(school), tomorrow_at: await readTomorrowAt(school) });
+      return res.json({ success: true, deadline: await readDeadline(school), tomorrow_at: await readTomorrowAt(school), hw_check_by: await readHwCheckBy(school) });
+    }
+    // Oct 2026: save only the "check yesterday's homework by" time ('' switches it off)
+    if (action === 'save_settings' && Object.prototype.hasOwnProperty.call(body, 'hw_check_by') && !body.deadline) {
+      const hb = String(body.hw_check_by || '');
+      if (hb && (!/^\d{2}:\d{2}$/.test(hb) || hb < '07:00' || hb > '18:00')) return res.json({ error: 'Choose a time between 7:00 AM and 6:00 PM.' });
+      const now = new Date().toISOString();
+      const e = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=school_id&limit=1');
+      if (!ok(e)) return res.json({ error: 'Could not read the settings: ' + why(e) });
+      const w = e.data.length
+        ? await db('PATCH', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id), { hw_check_by: hb || null, updated_at: now })
+        : await db('POST', '/rest/v1/teacher_app_settings', { school_id: school.id, deadline: await readDeadline(school), hw_check_by: hb || null, updated_at: now });
+      if (!ok(w)) return res.json({ error: 'Could not save the time: ' + why(w) + (/hw_check_by/.test(why(w)) ? ' (Please run step9-homework-check-time.sql in Supabase.)' : '') });
+      return res.json({ success: true, hw_check_by: hb });
     }
     // Oct 2026: save only the "tomorrow's portion" time
     if (action === 'save_settings' && Object.prototype.hasOwnProperty.call(body, 'tomorrow_at') && !body.deadline) {
@@ -801,6 +829,37 @@ module.exports = async function handler(req, res) {
                  state: r && r.submitted_at ? (r.late ? 'late' : 'ok') : (pastDeadline ? 'missing' : 'waiting') };
       });
 
+      // ── Oct 2026: homework check — the last school day's homework each teacher must check today ──
+      const hwCheckBy = await readHwCheckBy(school);
+      const pastCheck = !!hwCheckBy && (!isToday || istTime() >= hwCheckBy);
+      const HK = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social' };
+      const hk = function (x) { x = low(x).trim(); return HK[x] || x; };
+      const pr2 = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=eq.added&hw_date=gte.' +
+        addDays(day, -7) + '&hw_date=lt.' + day + '&select=id,class_name,subject,hw_date');
+      const prevHw = ok(pr2) ? pr2.data : [];
+      tday.forEach(function (td) {
+        const t = teachers.find(function (x) { return x.id === td.id; }) || {};
+        if ((t.access || []).indexOf('hw_check') === -1) return;
+        const mineHw = prevHw.filter(function (h) { return (t.classes || []).some(function (c) { return c.class_name === h.class_name && hk(c.subject) === hk(h.subject); }); });
+        const last = mineHw.reduce(function (m, h) { return h.hw_date > m ? h.hw_date : m; }, '');
+        const due = mineHw.filter(function (h) { return h.hw_date === last; });
+        const done = td.hw_checks.filter(function (c) { return c.corrected; });
+        const isDone = function (h) { return done.some(function (c) { return c.hw_id === h.id || (c.class_name === h.class_name && hk(c.subject) === hk(h.subject)); }); };
+        const missing = due.filter(function (h) { return !isDone(h); });
+        const times = done.map(function (c) { return c.at || ''; }).filter(Boolean).sort();
+        const lateOnes = hwCheckBy ? done.filter(function (c) { return c.at && c.at > hwCheckBy; }) : [];
+        td.hw_due = due.length; td.hw_checked = due.length - missing.length;
+        td.hw_first_at = times[0] || ''; td.hw_last_at = times[times.length - 1] || '';
+        td.hw_missing = missing.map(function (h) { return h.class_name + ' ' + h.subject; });
+        td.hw_late = lateOnes.length > 0;
+        if (pastCheck && missing.length) {
+          flags.push({ level: 'bad', kind: 'HW not checked', title: td.name + ' has not checked ' + (missing.length > 1 ? missing.length + ' homework' : 'the homework') + ' from ' + (function (d) { const x = new Date(d + 'T00:00:00Z'); return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][x.getUTCDay()] + ' ' + x.getUTCDate() + ' ' + ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][x.getUTCMonth()]; })(last),
+                       detail: td.hw_missing.join(', ') + '. Check time was ' + t12(hwCheckBy) + '.' });
+        } else if (lateOnes.length) {
+          flags.push({ level: 'slow', kind: 'HW checked late', title: td.name + ' checked homework late',
+                       detail: lateOnes.map(function (c) { return c.class_name + ' ' + c.subject + ' at ' + t12(c.at); }).join(', ') + ' (check time ' + t12(hwCheckBy) + ').' });
+        }
+      });
       const lessonsToday = subjects.reduce(function (n, s) { return n + s.today.length; }, 0);
       const lessonsDone = subjects.reduce(function (n, s) { return n + s.today.filter(function (x) { return x.state === 'done'; }).length; }, 0);
       const submitTeachers = teachers.filter(function (t) { return (t.access || []).indexOf('submit_day') !== -1; });
@@ -814,7 +873,7 @@ module.exports = async function handler(req, res) {
         detail: 'Approve them in "Today\'s parent update" below so parents get them at 4 PM.' });
       flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
       return res.json({ success: true, date: day, is_today: isToday, deadline: deadline, past_deadline: pastDeadline,
-        tomorrow_at: await readTomorrowAt(school),
+        tomorrow_at: await readTomorrowAt(school), hw_check_by: hwCheckBy,
         parent_update: parentUpdate, parent_update_error: ok(wt) ? '' : 'Could not read class work: ' + why(wt),
         stats: { lessons_today: lessonsToday, lessons_done: lessonsDone, homework_today: hwToday.length,
                  submitted: submitTeachers.filter(function (t) { return reportOf[t.id] && reportOf[t.id].submitted_at; }).length,
