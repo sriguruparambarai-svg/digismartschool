@@ -8160,6 +8160,37 @@ async function mcSplitFromPages(lessonText, label, kind){
   return all;
 }
 
+// Read {"questions":[...]} from the AI's answer. If the answer was cut off
+// part-way (a long exercise), keep every question that came through whole
+// instead of failing the whole list. (29-10-2026)
+function mcParseQuestionList(text){
+  var t = String(text || '').replace(/^```json\s*|^```\s*|\s*```$/gm, '').trim();
+  var fb = t.indexOf('{'), lb = t.lastIndexOf('}');
+  if(fb >= 0 && lb > fb){
+    try{
+      var p = JSON.parse(t.substring(fb, lb + 1));
+      if(p && Array.isArray(p.questions)) return p.questions;
+    }catch(e){}
+  }
+  var at = t.indexOf('[');
+  if(at < 0) return null;
+  var out = [], re = /"((?:[^"\\]|\\.)*)"\s*(?=,|\])/g, m;
+  re.lastIndex = at;
+  while((m = re.exec(t)) !== null){
+    try{ out.push(JSON.parse('"' + m[1] + '"')); }catch(e){}
+  }
+  return out.length ? out : null;
+}
+// The real reason a call to /api/ai failed, in plain words.
+async function mcApiFailReason(resp){
+  var msg = '';
+  try{ var j = await resp.json(); msg = (j && (j.message || (j.error && (j.error.message || j.error)))) || ''; }catch(e){}
+  if(resp.status === 429) return 'too many requests just now - wait a minute and try again';
+  if(resp.status === 401 || resp.status === 403) return 'login problem - please log out and log in again' + (msg ? (' (' + msg + ')') : '');
+  if(resp.status === 413) return 'the chapter is too big to send in one go';
+  return 'AI service error ' + resp.status + (msg ? (': ' + String(msg).substring(0, 160)) : '');
+}
+
 async function mcSplitQuestions(lessonText, label, kind){
   hideError();
   $('loading').classList.add('show');
@@ -8211,7 +8242,7 @@ async function mcSplitQuestions(lessonText, label, kind){
         max_tokens: 8000
       })
     });
-    if(!resp.ok) throw new Error('API error ' + resp.status);
+    if(!resp.ok) throw new Error(await mcApiFailReason(resp));
     var data = await resp.json();
     var text = '';
     if(data && Array.isArray(data.content)){
@@ -8219,11 +8250,8 @@ async function mcSplitQuestions(lessonText, label, kind){
     } else if(data && data.text){
       text = data.text.trim();
     }
-    text = text.replace(/^```json\s*|^```\s*|\s*```$/gm, '').trim();
-    var fb = text.indexOf('{'), lb = text.lastIndexOf('}');
-    if(fb >= 0 && lb > fb) text = text.substring(fb, lb + 1);
-    var parsed = JSON.parse(text);
-    var qs = (parsed && Array.isArray(parsed.questions)) ? parsed.questions : [];
+    var qs = mcParseQuestionList(text);
+    if(!qs) throw new Error(text ? 'the AI\'s answer was not a question list' : 'the AI sent back an empty answer');
     qs = qs.map(function(q){ return String(q).trim(); }).filter(function(q){ return q.length > 4; });
 
     $('loading').classList.remove('show');
@@ -8235,7 +8263,8 @@ async function mcSplitQuestions(lessonText, label, kind){
     showReviewScreen(qs);
   }catch(e){
     $('loading').classList.remove('show');
-    showError('Could not read questions from the lesson. Please try again, or use the photo upload instead.');
+    console.error('[BOOK] Reading questions failed:', e);
+    showError('Could not read questions from the lesson (' + ((e && e.message) || 'unknown reason') + '). Please try again, or use the photo upload instead.');
   }
 }
 
