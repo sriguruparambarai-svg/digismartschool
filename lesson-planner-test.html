@@ -252,7 +252,7 @@ function wbHomeworks(cls,w){if(!w)return[];const c=String(num(cls));let slots=nu
 /* ---------- timetable + holidays ---------- */
 let TT=null,HOL={};
 async function loadTimetable(){try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
-  const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null}catch(e){TT=null}}
+  const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null;if(d&&/log in/i.test(d.error||""))showErr("Your login has expired. Please log out and log in again as the principal, then open this page again.")}catch(e){TT=null}}
 async function loadHolidays(){try{const d=await tp("holidays",{});HOL={};(d.holidays||[]).forEach(h=>HOL[h.date]=h)}catch(e){HOL={}}}
 // this class + subject's periods: classroom ones, and the ones ticked "AI class" in ERP (TeachBot turns)
 function ttSlots(cls,subject,start,end){
@@ -286,7 +286,8 @@ async function loadAll(){
   $("makeMsg").textContent="";["cmpCard","planCard","tbCard","curCard"].forEach(id=>$(id).hidden=true);$("topErr").hidden=true;
   const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value,W=way(sb);
   $("chaps").innerHTML='<div class="hint"><span class="spin"></span>Loading the books, workbook and current plan…</div>';
-  CUR=null;try{const d=await tp("get",{class_name:c,subject:sb,term:t});CUR=d.plan||null}catch(e){CUR=null}
+  CUR=null;try{const d=await tp("get",{class_name:c,subject:sb,term:t});CUR=d.plan||null}
+  catch(e){CUR=null;if(/log in/i.test(e.message)){$("chaps").innerHTML="";showErr("Your login has expired. Please log out and log in again as the principal, then open this page again.");return}}
   const st=(CUR&&CUR.settings)||{};
   if(st.end)$("fEnd").value=st.end;else if(!$("fEnd").value)$("fEnd").value="2026-12-11";
   const tm=tomorrow();$("fStart").value=st.start&&st.start>tm?st.start:tm;
