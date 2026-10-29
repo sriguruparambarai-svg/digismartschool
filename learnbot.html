@@ -3196,6 +3196,7 @@ async function tpTeach(encName,pageFrom,pageTo,style){
     var data={chapter:name,cls:cls,subject:sub,lessonText:'',pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''};
     sessionStorage.setItem('science_autostart',JSON.stringify(data));
     sessionStorage.setItem('tm_activated',JSON.stringify({subject:sub,cls:cls,topic:name,lessonText:'',lang:'en',autostart:true,pageFrom:pageFrom,pageTo:pageTo,bookId:_tpBookId||''}));
+    sessionStorage.removeItem('tm_lesson');   // old chapter's text must not follow the new chapter
   }catch(e){}
 
   if(style==='cartoon'||style==='cartoon_ta'){
@@ -4567,6 +4568,26 @@ var TM_SUBJECTS = {
   'Hindi':           { icon:'🇮🇳', card:'Hindi Class',          hint:'भाषा, व्याकरण, कहानियाँ' }
 };
 
+// Hand a Maths lesson to math-class.html. The OLD lesson is always removed
+// first, so a previous chapter (e.g. Geometry Exercise 3) can never come back
+// when the new one is too big for browser storage or has no text. (29-10-2026)
+function lbSaveMathLesson(obj){
+  try{ sessionStorage.removeItem('mc_activated'); }catch(e){}
+  if(!obj) return false;
+  var full=String(obj.lessonText||'');
+  var caps=[100000,50000,20000,8000];
+  for(var i=0;i<caps.length;i++){
+    obj.lessonText=full.substring(0,caps[i]);
+    try{ sessionStorage.setItem('mc_activated', JSON.stringify(obj)); return true; }
+    catch(e){
+      // storage full - free the copies the Maths page does not need, then try smaller
+      try{ sessionStorage.removeItem('science_autostart'); }catch(e2){}
+    }
+  }
+  console.warn('[TeachBot] Could not hand the Maths lesson over (browser storage full).');
+  return false;
+}
+
 function launchMathClass(){
   // Math Class works without an activated lesson (teacher pastes / photographs).
   // If a Maths lesson IS activated, hand it over too (mc_activated) so the
@@ -4587,14 +4608,16 @@ function launchMathClass(){
     };
     sessionStorage.setItem('mc_autostart', JSON.stringify(autoData));
     if(activated && lessonText && lessonText.trim().length > 20){
-      sessionStorage.setItem('mc_activated', JSON.stringify({
+      lbSaveMathLesson({
         cls: activated.cls||'',
         chapter: activated.topic||'',
-        lessonText: lessonText.substring(0,100000),
+        lessonText: lessonText,
         bookId: activated.bookId||'',
         pageFrom: activated.pageFrom||0,
         pageTo: activated.pageTo||0
-      }));
+      });
+    } else {
+      lbSaveMathLesson(null);   // no new lesson: do not show the old one
     }
     sessionStorage.setItem('mc_returnUrl', 'learnbot.html');
   }catch(e){}
@@ -4640,14 +4663,14 @@ function launchTeachingMode(){
   if(sub==='maths' || sub==='mathematics' || sub==='math'){
     // Maths → math-class.html with the activated lesson (Part C routing)
     try{
-      sessionStorage.setItem('mc_activated', JSON.stringify({
+      lbSaveMathLesson({
         cls: activated.cls||'',
         chapter: activated.topic||'',
-        lessonText: (activated.lessonText||'').substring(0,100000),
+        lessonText: (activated.lessonText||''),
         bookId: activated.bookId||'',
         pageFrom: activated.pageFrom||0,
         pageTo: activated.pageTo||0
-      }));
+      });
       sessionStorage.setItem('mc_returnUrl','learnbot.html');
     }catch(e){}
     window.location.href='math-class.html';
@@ -4735,14 +4758,14 @@ function launchTeachingModeOld(subjectOverride){
   // For Maths — go to math-class.html with the activated lesson (Part C routing)
   if(subj==='Maths'||subj==='Mathematics'||subj==='Math'){
     try{
-      sessionStorage.setItem('mc_activated', JSON.stringify({
+      lbSaveMathLesson({
         cls: cls,
         chapter: topicVal,
-        lessonText: lesson.substring(0,100000),
+        lessonText: lesson,
         bookId: (activated&&activated.bookId)||'',
         pageFrom: (activated&&activated.pageFrom)||0,
         pageTo: (activated&&activated.pageTo)||0
-      }));
+      });
       sessionStorage.setItem('mc_returnUrl', window.location.href);
     }catch(e){}
     window.location.href='math-class.html';
