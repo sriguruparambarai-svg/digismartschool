@@ -321,12 +321,21 @@ async function loadAll(){
     const pages=o.from&&o.to?o.to-o.from+1:0;
     const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
     const box=W==="maths"?'<span class="small">from the book</span>':`<input type="number" min="1" max="12" data-n="${i}" value="${o.hindi?o.per:o.hwN}" aria-label="${o.hindi?"Letters a day":"Homeworks"} for ${esc(o.title)}" title="${o.hindi?"Letters a day":"Homeworks"}">`;
-    return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
+    const startBox=o.hindi||W==="maths"
+      ?`<br><span class="small">Start at ${o.hindi?"letter set":"Example"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
+      :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:12},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
+    return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
     :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
   computeSlots();showFit();renderCurrent()}
 
-function picked(){return[...$("chaps").querySelectorAll("input[data-i]:checked")].map(i=>{const o=CHOPTS[+i.dataset.i],n=$("chaps").querySelector(`[data-n="${i.dataset.i}"]`);
-  return Object.assign({},o,n?(o.hindi?{per:Math.max(1,+n.value||o.per)}:{hwN:Math.max(1,Math.min(12,+n.value||o.hwN))}):{})})}
+function picked(){return[...$("chaps").querySelectorAll("input[data-i]:checked")].map(i=>{const o=CHOPTS[+i.dataset.i],n=$("chaps").querySelector(`[data-n="${i.dataset.i}"]`),st=$("chaps").querySelector(`[data-s="${i.dataset.i}"]`);
+  const x=Object.assign({},o,n?(o.hindi?{per:Math.max(1,+n.value||o.per)}:{hwN:Math.max(1,Math.min(12,+n.value||o.hwN))}):{});
+  x.start=st?(st.tagName==="SELECT"?st.value:Math.max(1,+st.value||1)):(o.hindi||way($("fSubject").value)==="maths"?1:"teach");
+  if(typeof x.start==="string"&&/^hw\d+$/.test(x.start)&&+x.start.slice(2)>x.hwN)x.start="hw"+x.hwN;   // never past the last homework
+  return x})}
+// the kinds of a book chapter from where the class is now
+function bookKinds(ch){const all=[];for(let i=1;i<=teachN(ch);i++)all.push("teach");all.push("classwork","classwork","classwork");for(let i=1;i<=ch.hwN;i++)all.push("hw"+i);all.push("test");
+  const st=ch.start||"teach";let at=st==="teach"?0:all.indexOf(st);if(at<0)at=st==="teach"?0:all.indexOf("classwork");return{all,at}}
 
 function computeSlots(){
   const c=$("fClass").value,sb=$("fSubject").value,st=$("fStart").value,en=$("fEnd").value;
@@ -342,9 +351,9 @@ function computeSlots(){
 
 // how many classroom periods one chapter needs (Maths: estimated until the AI reads the book)
 function need(ch){const W=way($("fSubject").value);
-  if(ch.hindi)return Math.ceil(ch.letters.length/ch.per)+(ch.ex.length?2:0)+1;
-  if(W==="maths"){const p=ch.from&&ch.to?ch.to-ch.from+1:10;return Math.max(4,Math.round(p/2.5))+2}
-  return teachN(ch)+3+ch.hwN+1}
+  if(ch.hindi)return Math.max(1,Math.ceil(ch.letters.length/ch.per)-(ch.start-1))+(ch.ex.length?2:0)+1;
+  if(W==="maths"){const p=ch.from&&ch.to?ch.to-ch.from+1:10;return Math.max(2,Math.max(4,Math.round(p/2.5))-(ch.start-1))+2}
+  const k=bookKinds(ch);return k.all.length-k.at}
 function teachN(ch){if(FEW)return 0;const p=ch.from&&ch.to?ch.to-ch.from+1:8;return p<=5?1:p<=10?2:3}
 function showFit(){const ch=picked(),n=ch.reduce((a,x)=>a+need(x),0),have=ROOM.length,el=$("fit"),W=way($("fSubject").value);
   if(!ch.length){el.className="fit";el.textContent="Tick at least one chapter.";return}
@@ -387,7 +396,8 @@ function splitPages(cp,ch,n){
   const out=[];for(let k=0;k<n;k++){const a=at(tot*k/n+1e-6),b=Math.max(a,at(tot*(k+1)/n));out.push({from:pages[a].book,to:pages[b].book})}
   return out}
 const pg=s=>!s||s.from==null?"":(s.from===s.to?"p. "+s.from:"pp. "+s.from+"–"+s.to);
-const bookText=(cp,max)=>cp.pages.map(p=>"[Page "+p.book+"] "+p.text).join("\n").slice(0,max||16000);
+const bookText=(cp,max)=>{max=max||18000;const t=cp.pages.map(p=>"[Page "+p.book+"] "+p.text).join("\n");if(t.length<=max)return t;
+  return t.slice(0,Math.floor(max*0.45))+"\n…\n"+t.slice(t.length-Math.floor(max*0.55))};   // the exercises are at the end — keep them
 
 /* ---------- AI ---------- */
 function rules(){return `You are an experienced ${$("fClass").value} teacher in Tamil Nadu, India, planning lessons for ${SCHOOL_NAME||"the school"}. One period is about 40 minutes. The school teaches from its own textbook: use ONLY what is in the book text given — exact page numbers, headings, exercise and question numbers as printed. Never invent content. Write in simple English a new teacher can follow. Keep every field short (under 45 words). Reply with JSON only.`}
@@ -403,15 +413,18 @@ async function askAI(prompt,maxTokens){
 async function planBook(ch,msg){
   msg("Reading "+ch.title+" from the book…");
   const cp=await chapterPages(ch),tN=teachN(ch),parts=splitPages(cp,ch,tN),all=bookRange(cp,ch),half=splitPages(cp,ch,2);
-  const kinds=[];parts.forEach((p,i)=>kinds.push({kind:"teach",n:i+1,of:tN,pages:pg(p)}));
+  let kinds=[];parts.forEach((p,i)=>kinds.push({kind:"teach",n:i+1,of:tN,pages:pg(p)}));
   for(let i=1;i<=3;i++)kinds.push({kind:"classwork",n:i,of:3,pages:pg(all)});
   for(let i=1;i<=ch.hwN;i++)kinds.push({kind:"hw",n:i,of:ch.hwN,pages:pg(all),wb:ch.wbHw[i-1]||""});
   kinds.push({kind:"test",pages:pg(all)});
+  const bk=bookKinds(ch),skipped=kinds.slice(0,bk.at).map(k=>k.kind),past=bk.at>0;kinds=kinds.slice(bk.at);
+  const doneNote=past?`\nALREADY DONE in class before this plan: ${skipped.includes("teach")?"teaching, ":""}${skipped.filter(x=>x==="classwork").length?"class work "+skipped.filter(x=>x==="classwork").length+" of 3, ":""}${skipped.filter(x=>x==="hw").length?"homework 1–"+skipped.filter(x=>x==="hw").length+", ":""}so plan ONLY the periods listed below, numbering homework as given. Still split the exercises over ALL ${ch.hwN} homeworks (and 3 class work periods) as if from the start, so the ones listed get the right questions.\n`:"";
+  const tbWanted=!/^hw|^test/.test(ch.start||"teach");
   const list=kinds.map((k,i)=>`${i+1}. ${{teach:"TEACH "+k.n+" of "+k.of+" — book "+k.pages,classwork:"CLASS WORK "+k.n+" of 3",hw:"HOMEWORK "+k.n+" of "+k.of+(k.wb?" — workbook "+k.wb:""),test:"CLASS TEST"}[k.kind]}`).join("\n");
   msg("Planning "+ch.title+" ("+kinds.length+" classroom periods + TeachBot)…");
   const out=await askAI(`Chapter: ${ch.title} · Class: ${$("fClass").value} · Subject: ${$("fSubject").value}
 ${cp.scanned?"The book pages are pictures, so plan from the chapter name and keep to the page numbers given.\n":""}
-HOW THIS SCHOOL RUNS A CHAPTER (classroom, in this order):
+${doneNote}HOW THIS SCHOOL RUNS A CHAPTER (classroom, in this order):
 - TEACH: the teacher teaches the given pages. The first 10 minutes, children read those pages aloud in turns and the teacher corrects pronunciation — name the hard words. Then teach the pages: numbered steps, each starting with the page.
 - CLASS WORK 1–3: children WRITE the class work in their class work notebook. Split ALL the chapter's book-back exercises (question numbers as printed) across the 3 periods, in book order.${FEW?" The teacher did not teach this chapter (TeachBot did), so CLASS WORK 1 starts with 10 minutes of children reading the chapter aloud with pronunciation correction.":""}
 - HOMEWORK n: in class, revise the homework questions one by one (orally / on the board) so every child knows the answers; then give exactly those questions as that day's homework.${ch.wbHw.length?" Use the workbook homework given for each.":" There is no workbook: split the book-back exercises into "+ch.hwN+" homework sets, small and in order, so all exercises are covered."}
@@ -424,10 +437,12 @@ ${list}
 BOOK TEXT:
 ${bookText(cp)}
 
-Reply as {"teachbot":["what TeachBot Part 1 covers","what Part 2 covers"],"periods":[{"do":"","homework":""}, …]} with exactly ${kinds.length} periods in the same order. "homework" is ONE short line a parent understands (start with "Workbook:" or "Homework note:"); "" for TEACH periods and the CLASS TEST.`,12000);
+FIRST find every book-back exercise in the BOOK TEXT (at the end of the chapter) and list them in "exercises" with their headings and question numbers exactly as printed. Then use those REAL numbers in every CLASS WORK and HOMEWORK period, e.g. "Exercise A Q1–5, Exercise B Q1–3". NEVER write a placeholder like "[question numbers]" or "first set". If the exercise page is not in the text, write the exercise heading and "questions as in the book".
+
+Reply as {"exercises":"…","teachbot":["what TeachBot Part 1 covers","what Part 2 covers"],"periods":[{"do":"","homework":""}, …]} with exactly ${kinds.length} periods in the same order. "homework" is ONE short line a parent understands (start with "Workbook:" or "Homework note:"); "" for TEACH periods and the CLASS TEST.`,12000);
   const got=Array.isArray(out.periods)?out.periods:[],tb=Array.isArray(out.teachbot)?out.teachbot:[];
   const rows=kinds.map((k,i)=>Object.assign({chapter:ch.title},k,got[i]||{}));
-  return{rows,tb:[{chapter:ch.title,part:1,of:2,pages:pg(half[0]),do:tb[0]||""},{chapter:ch.title,part:2,of:2,pages:pg(half[1]),do:tb[1]||""}]}}
+  return{rows,tb:tbWanted?[{chapter:ch.title,part:1,of:2,pages:pg(half[0]),do:tb[0]||""},{chapter:ch.title,part:2,of:2,pages:pg(half[1]),do:tb[1]||""}]:[]}}
 
 /* ---------- Maths ---------- */
 async function planMaths(ch,msg){
@@ -445,21 +460,22 @@ ${bookText(cp)}
 Reply as {"examples":[{"example":"Example 1","page":"p. 24","teach":"what it teaches, short","sums":"Exercise 2.1: Q1, Q3, Q5"}],"other":"","teachbot":""}`,8000);
   const ex=(Array.isArray(out.examples)?out.examples:[]).filter(e=>e&&(e.example||e.teach));
   if(!ex.length)throw new Error("The AI could not find Examples in "+ch.title+". The book pages may be pictures.");
-  const rows=[];
-  ex.forEach((e,i)=>{const prev=ex[i-1];
+  const rows=[],from=Math.min(ex.length,Math.max(1,+ch.start||1))-1;
+  ex.forEach((e,i)=>{if(i<from)return;const prev=ex[i-1];
     rows.push({chapter:ch.title,kind:"math",pages:e.page||"",
       do:(prev?`Discuss yesterday's homework (${prev.sums}) — children check and correct their own sums (15 min). `:"")+`Teach ${e.example}${e.page?" ("+e.page+")":""} on the board: ${e.teach||""} Children try one similar sum in class.`,
       homework:e.sums?"Homework note: "+e.sums+" (same as "+e.example+")":""})});
   const last=ex[ex.length-1];
   rows.push({chapter:ch.title,kind:"math",pages:"",do:`Discuss yesterday's homework (${last.sums}) — children check and correct their own sums.`+(out.other?` Then do the remaining sums together: ${out.other}`:" Then mixed sums from the whole chapter on the board."),homework:out.other?"Homework note: "+out.other:"Homework note: revise all the Examples for the class test"});
   rows.push({chapter:ch.title,kind:"test",pages:"",do:"Class test on the whole chapter: one sum like each Example.",homework:""});
-  return{rows,tb:[{chapter:ch.title,part:1,of:1,pages:"",do:out.teachbot||"Concepts of the chapter and the hard sums."}]}}
+  return{rows,tb:from>0?[]:[{chapter:ch.title,part:1,of:1,pages:"",do:out.teachbot||"Concepts of the chapter and the hard sums."}]}}
 
 /* ---------- Hindi (no AI needed) ---------- */
 function planHindi(ch){const rows=[],L=ch.letters,per=ch.per,sets=[];for(let i=0;i<L.length;i+=per)sets.push(L.slice(i,i+per));
-  sets.forEach((s,i)=>rows.push({chapter:ch.title,kind:"hindi",pages:"",
+  const from=Math.min(sets.length,Math.max(1,+ch.start||1))-1;
+  sets.forEach((s,i)=>{if(i<from)return;rows.push({chapter:ch.title,kind:"hindi",pages:"",
     do:(i?"Check yesterday's homework letters first (5 min). ":"")+"Class work: teach these letters — say each aloud, children repeat, trace the grey letters and write them in the empty boxes: "+s.join(", ")+".",
-    homework:"Workbook: write "+s.join(", ")+" again at home (same as class work)"}));
+    homework:"Workbook: write "+s.join(", ")+" again at home (same as class work)"})});
   if(ch.ex.length){const h=Math.ceil(ch.ex.length/2);
     [ch.ex.slice(0,h),ch.ex.slice(h)].forEach((e,i)=>{if(!e.length)return;
       rows.push({chapter:ch.title,kind:"hindi",pages:"",do:(i?"Check yesterday's homework first. ":"Check yesterday's homework letters first. ")+"Workbook exercises done together in class: "+e.map(x=>x.split(/\s{2,}|\.\s/)[0]).join("; ")+".",homework:"Workbook: finish today's exercises at home"})})}
