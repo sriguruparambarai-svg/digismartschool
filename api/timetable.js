@@ -30,7 +30,14 @@ const DAY_SHORT = { monday: 'Mon', tuesday: 'Tue', wednesday: 'Wed', thursday: '
                     mon: 'Mon', tue: 'Tue', wed: 'Wed', thu: 'Thu', fri: 'Fri', sat: 'Sat', sun: 'Sun' };
 const CLASS_FROM_ERP = { PreKG: 'Pre KG', 'PRE KG': 'Pre KG', 'Pre-KG': 'Pre KG' };
 
-function db(method, path, body) {
+// Oct 2026: give up after 15 seconds (database) / 20 seconds (ERP) and try a read once more,
+// instead of waiting up to 5 minutes for a slow answer.
+async function db(method, path, body) {
+  let r = await db1(method, path, body);
+  if (r.status === 0 && method === 'GET') r = await db1(method, path, body);
+  return r;
+}
+function db1(method, path, body) {
   return new Promise(function (resolve) {
     const key = process.env.SUPABASE_SECRET_KEY || '';
     const data = body ? JSON.stringify(body) : null;
@@ -43,11 +50,17 @@ function db(method, path, body) {
       res.on('end', function () { try { resolve({ status: res.statusCode, data: d ? JSON.parse(d) : [] }); } catch (e) { resolve({ status: res.statusCode, data: d }); } });
     });
     r.on('error', function (e) { resolve({ status: 0, data: { message: e.message } }); });
+    r.setTimeout(15000, function () { r.destroy(new Error('the database took too long to answer')); });
     if (data) r.write(data);
     r.end();
   });
 }
-function erpDoor(body) {
+async function erpDoor(body) {
+  let r = await erpDoor1(body);
+  if (r.status === 0) r = await erpDoor1(body);   // the ERP timetable is only read here, so a retry is safe
+  return r;
+}
+function erpDoor1(body) {
   return new Promise(function (resolve) {
     const key = process.env.TEACHBOT_LINK_KEY || '';
     if (!key) return resolve({ status: 0, data: { error: 'TEACHBOT_LINK_KEY is not set in TeachBot\'s Vercel settings.' } });
@@ -59,6 +72,7 @@ function erpDoor(body) {
       res.on('end', function () { let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; } resolve({ status: res.statusCode, data: j || {} }); });
     });
     r.on('error', function (e) { resolve({ status: 0, data: { error: e.message } }); });
+    r.setTimeout(20000, function () { r.destroy(new Error('the ERP took too long to answer')); });
     r.write(data); r.end();
   });
 }
@@ -193,6 +207,8 @@ module.exports = async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
   if (!process.env.SUPABASE_SECRET_KEY) return res.status(500).json({ error: 'SUPABASE_SECRET_KEY is not set in Vercel.' });
+  // Oct 2026: keep-awake knock from /api/keep-warm (school hours) — reads and changes nothing
+  if (req.body && req.body.action === 'ping') return res.json({ success: true, awake: true });
 
   try {
     const who = readSession(req.headers['x-dss-session']);

@@ -58,7 +58,14 @@ const MAX_FAILS = 5;
 const LOCK_MIN = 15;
 const APP_DAYS = 30;
 
-function db(method, path, body) {
+// Oct 2026: a slow database answer used to make Academic Control wait up to 5 minutes.
+// Now each try gives up after 15 seconds, and a read (GET) is tried once more.
+async function db(method, path, body) {
+  let r = await db1(method, path, body);
+  if (r.status === 0 && method === 'GET') r = await db1(method, path, body);
+  return r;
+}
+function db1(method, path, body) {
   return new Promise(function (resolve) {
     const key = process.env.SUPABASE_SECRET_KEY || '';
     const data = body ? JSON.stringify(body) : null;
@@ -77,6 +84,7 @@ function db(method, path, body) {
       });
     });
     r.on('error', function (e) { resolve({ status: 0, data: { message: e.message } }); });
+    r.setTimeout(15000, function () { r.destroy(new Error('the database took too long to answer')); });
     if (data) r.write(data);
     r.end();
   });
@@ -316,6 +324,8 @@ module.exports = async function handler(req, res) {
 
   const body = req.body || {};
   const action = String(body.action || '');
+  // Oct 2026: keep-awake knock from /api/keep-warm (school hours) — reads and changes nothing
+  if (action === 'ping') return res.json({ success: true, awake: true });
 
   try {
     // ───────────── Teacher side ─────────────
