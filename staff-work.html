@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<script>
+  // Principal's page. Teachers go to Teacher Tools; not logged in goes to login.
+  try {
+    var _r = localStorage.getItem('dss_role');
+    if (_r === 'teacher') location.replace('/index.html');
+    else if (!_r) location.replace('/login.html');
+    else {
+      var _s = localStorage.getItem('dss_session') || '', _exp = 0;
+      try { _exp = JSON.parse(atob(_s.split('.')[0])).exp || 0; } catch (e2) {}
+      if (!_s || !_exp || Date.now() > _exp) location.replace('/login.html?next=' + encodeURIComponent('/staff-work.html'));
+    }
+  } catch (e) {}
+</script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Work to Staff — DigiSmartSchool</title>
+<!--
+  staff-work.html — Work to Staff (Oct 2026)
+  The principal / admin gives instructions to teachers. Each teacher sees them in the
+  My Day app ("Work" tab) and presses Done when finished.
+  • Issued date: stamped by the server when Send is pressed.
+  • Completed date: stamped by the server when the teacher presses Done (she cannot choose it).
+  • A teacher cannot undo Done — only the principal can "Send back" (it becomes Pending again).
+  Talks only to /api/teacher-app (work_teachers, work_send, work_list, work_reopen, work_delete).
+  Table: staff_work (step9-staff-work.sql).
+-->
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet"/>
+<style>
+:root{--m:#6B0F1A;--md:#4A0A12;--g:#C9A84C;--gl:#E8C96A;--s:#F5E6C8;--sd:#EDD9A3;--bg:#F6EEE1;--card:#FFFBF4;--line:#EDD9A3;--soft:#F1E1C6;
+  --fg:#2A1A14;--mut:#6E5A4E;--ok:#2E7D4F;--okbg:#EAF6EE;--bad:#A3241B;--badbg:#FBE7E3;--warn:#8A6418;--warnbg:#FCF1D9}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;font-family:"Nunito",sans-serif;background:var(--bg);color:var(--fg);font-size:15px;line-height:1.5}
+button,input,select,textarea{font:inherit}
+button{cursor:pointer}
+button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--g);outline-offset:2px}
+.in{max-width:1000px;margin:0 auto;padding:0 16px}
+header{position:sticky;top:0;z-index:20;background:linear-gradient(90deg,var(--md),var(--m));color:var(--s);box-shadow:0 2px 10px rgba(0,0,0,.2)}
+.hr{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 0}
+.back{background:var(--g);color:var(--md);border:none;border-radius:10px;padding:8px 14px;font-weight:900;min-height:40px;text-decoration:none;display:inline-flex;align-items:center}
+.ttl small{display:block;color:var(--gl);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;font-weight:900}
+.ttl h1{margin:0;font-family:"Cinzel",serif;font-size:1.15rem;color:#fff}
+.hctl{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.hctl input{padding:7px 10px;border-radius:8px;border:none;font-weight:800;min-height:40px;width:150px}
+.hctl button{background:transparent;color:#fff;border:1.5px solid var(--g);border-radius:8px;padding:7px 14px;font-weight:900;min-height:40px}
+main{padding:16px 0 40px;display:flex;flex-direction:column;gap:14px}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+.panel h2{margin:0 0 10px;font-family:"Cinzel",serif;font-size:1.05rem;color:var(--m)}
+label.l{display:block;font-weight:800;font-size:.85rem;color:var(--mut);margin:10px 0 4px}
+input.f,textarea.f{width:100%;border:1.5px solid var(--sd);border-radius:10px;padding:10px;background:#fff}
+textarea.f{min-height:70px;resize:vertical}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:640px){.two{grid-template-columns:1fr}}
+.tlist{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.tch{display:inline-flex;align-items:center;gap:6px;border:1.5px solid var(--sd);background:#fff;border-radius:999px;padding:6px 12px;font-weight:800;font-size:.86rem;min-height:38px;cursor:pointer;user-select:none}
+.tch input{margin:0;width:16px;height:16px;accent-color:var(--m)}
+.tch.all{border-color:var(--m);color:var(--m)}
+.tch.on{background:var(--soft);border-color:var(--g)}
+.send{margin-top:14px;background:var(--m);color:#fff;border:none;border-radius:10px;padding:12px 22px;font-weight:900;min-height:46px}
+.send:disabled{opacity:.6;cursor:default}
+.msg{margin-top:8px;font-weight:800;font-size:.88rem;min-height:20px}
+.msg.err{color:var(--bad)} .msg.good{color:var(--ok)}
+.stats{display:flex;gap:10px;flex-wrap:wrap}
+.stat{flex:1;min-width:130px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+.stat b{display:block;font-size:1.5rem;color:var(--m);line-height:1.2}
+.stat.red b{color:var(--bad)}
+.stat span{font-size:.8rem;color:var(--mut);font-weight:700}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 13px;font-weight:800;min-height:38px}
+.chip[aria-pressed="true"]{background:var(--m);color:#fff;border-color:var(--m)}
+.job{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.job.late{border-color:var(--bad)}
+.jh{padding:12px 14px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.jh .t{flex:1;min-width:200px}
+.jh .t b{font-size:1rem}
+.jh .det{font-size:.88rem;color:var(--mut);white-space:pre-line;margin-top:3px}
+.dates{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.dt{font-size:.75rem;font-weight:800;background:#fff;border:1px solid var(--sd);border-radius:8px;padding:2px 8px}
+.dt.late{background:var(--badbg);border-color:var(--bad);color:#5E120C}
+.prog{font-weight:900;font-size:.85rem;padding:4px 10px;border-radius:999px;white-space:nowrap}
+.prog.all{background:var(--ok);color:#fff}
+.prog.part{background:#F2CC74;color:#3A2A00}
+.del{background:none;border:1px solid var(--bad);color:var(--bad);border-radius:8px;padding:4px 10px;font-weight:800;font-size:.78rem;min-height:32px}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--mut);padding:6px 14px;background:var(--soft)}
+td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:.74rem;font-weight:900;white-space:nowrap}
+.st.d{background:var(--ok);color:#fff} .st.p{background:#F2CC74;color:#3A2A00} .st.o{background:var(--bad);color:#fff}
+.note{font-size:.8rem;color:var(--mut)}
+.sb{background:none;border:1px solid var(--warn);color:var(--warn);border-radius:8px;padding:3px 9px;font-weight:800;font-size:.76rem;min-height:30px}
+.empty{text-align:center;color:var(--mut);padding:22px 10px}
+@media (max-width:640px){th:nth-child(3),td:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="in hr">
+    <a href="/dashboard.html" class="back">← School Admin</a>
+    <div class="ttl"><small>Teacher App</small><h1>Work to Staff</h1></div>
+    <div class="hctl">
+      <input id="saschool" placeholder="School code" aria-label="School code (Super Admin)" hidden/>
+      <button type="button" id="refresh">Refresh</button>
+    </div>
+  </div>
+</header>
+
+<main class="in">
+  <section class="panel" aria-labelledby="newH">
+    <h2 id="newH">Give new work</h2>
+    <label class="l" for="wTitle">Instruction <span style="color:var(--bad)">*</span></label>
+    <input class="f" id="wTitle" maxlength="200" placeholder="e.g. Submit Class 5 project marks to the office"/>
+    <div class="two">
+      <div>
+        <label class="l" for="wDet">More details (optional)</label>
+        <textarea class="f" id="wDet" maxlength="1000" placeholder="Anything the teacher should know"></textarea>
+      </div>
+      <div>
+        <label class="l" for="wDue">Finish by (optional)</label>
+        <input class="f" type="date" id="wDue"/>
+        <div class="note" style="margin-top:6px">Issued date is saved automatically when you press Send.</div>
+      </div>
+    </div>
+    <label class="l" id="tLbl">Give to</label>
+    <div class="tlist" id="tList" role="group" aria-labelledby="tLbl"><span class="note">Loading teachers…</span></div>
+    <button type="button" class="send" id="sendBtn">Send to teachers</button>
+    <div class="msg" id="sendMsg" role="status" aria-live="polite"></div>
+  </section>
+
+  <div class="stats" id="stats"></div>
+
+  <div class="chips" id="filt" role="group" aria-label="Show">
+    <button type="button" class="chip" data-f="open" aria-pressed="true">Not finished</button>
+    <button type="button" class="chip" data-f="late" aria-pressed="false">Overdue</button>
+    <button type="button" class="chip" data-f="done" aria-pressed="false">Finished by all</button>
+    <button type="button" class="chip" data-f="all" aria-pressed="false">All</button>
+  </div>
+  <div id="jobs" style="display:flex;flex-direction:column;gap:12px"><div class="panel empty">Loading…</div></div>
+</main>
+
+<script>
+(function(){
+  "use strict";
+  var $=function(id){return document.getElementById(id)};
+  function h(t){return String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
+  var ROLE="";try{ROLE=localStorage.getItem("dss_role")||""}catch(e){}
+  function saSchool(){try{return localStorage.getItem("ac_sa_school")||""}catch(e){return""}}
+  async function call(body){
+    if(ROLE==="super_admin")body=Object.assign({school_id:saSchool()},body||{});
+    var r,d;
+    try{r=await fetch("/api/teacher-app",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})}
+    catch(e){return{error:"No internet. Please check the connection and try again."}}
+    try{d=await r.json()}catch(e){d={error:"The server did not answer properly (status "+r.status+")."}}
+    if(r.status===401){d.error=(d.error||"Please log in again.")+" Taking you to the login page…";
+      setTimeout(function(){location.href="/login.html?next="+encodeURIComponent("/staff-work.html")},2500)}
+    return d;
+  }
+  function dIN(iso,withTime){try{var o={timeZone:"Asia/Kolkata",day:"numeric",month:"short",year:"numeric"};if(withTime){o.hour="numeric";o.minute="2-digit"}return new Date(iso).toLocaleString("en-IN",o)}catch(e){return iso}}
+  function dDate(s){try{return new Date(s+"T00:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})}catch(e){return s}}
+  function istDay(iso){try{return new Date(iso).toLocaleDateString("en-CA",{timeZone:"Asia/Kolkata"})}catch(e){return""}}
+  function daysBetween(a,b){return Math.max(0,Math.round((new Date(b+"T00:00:00Z")-new Date(a+"T00:00:00Z"))/86400000))}
+
+  var S={teachers:[],picked:{},all:true,rows:[],today:"",filter:"open"};
+
+  // ── teachers to choose ──
+  function drawTeachers(){
+    if(!S.teachers.length){$("tList").innerHTML='<span class="note">No teachers yet. Add teachers in School Admin → My Teachers first.</span>';return}
+    var html='<label class="tch all'+(S.all?" on":"")+'"><input type="checkbox" id="tAll"'+(S.all?" checked":"")+'/> All teachers ('+S.teachers.length+')</label>';
+    html+=S.teachers.map(function(t){var on=S.all||S.picked[t.id];
+      return '<label class="tch'+(on?" on":"")+'"><input type="checkbox" data-tid="'+h(t.id)+'"'+(on?" checked":"")+'/> '+h(t.name)+'</label>'}).join("");
+    $("tList").innerHTML=html;
+    $("tAll").onchange=function(){S.all=this.checked;S.picked={};drawTeachers()};
+    $("tList").querySelectorAll("[data-tid]").forEach(function(c){c.onchange=function(){
+      var id=c.getAttribute("data-tid");
+      if(S.all){S.all=false;S.picked={};S.teachers.forEach(function(t){S.picked[t.id]=true})}
+      if(c.checked)S.picked[id]=true;else delete S.picked[id];
+      if(S.teachers.every(function(t){return S.picked[t.id]})){S.all=true;S.picked={}}
+      drawTeachers()}});
+  }
+
+  // ── send ──
+  $("sendBtn").onclick=async function(){
+    var title=$("wTitle").value.trim(),msg=$("sendMsg");msg.className="msg";
+    if(!title){msg.className="msg err";msg.textContent="Please type the instruction.";$("wTitle").focus();return}
+    var ids=Object.keys(S.picked);
+    if(!S.all&&!ids.length){msg.className="msg err";msg.textContent="Choose at least one teacher.";return}
+    var who=S.all?"all "+S.teachers.length+" teachers":ids.length+" teacher"+(ids.length>1?"s":"");
+    if(!confirm("Send this work to "+who+"?\n\n"+title))return;
+    this.disabled=true;msg.textContent="Sending…";
+    var d=await call({action:"work_send",title:title,details:$("wDet").value.trim(),due_date:$("wDue").value||"",all:S.all,teacher_ids:ids});
+    this.disabled=false;
+    if(!d.success){msg.className="msg err";msg.textContent=d.error||"Could not send.";return}
+    msg.className="msg good";msg.textContent="✓ Sent to "+d.sent_to+" teacher"+(d.sent_to>1?"s":"")+". They will see it in the Work tab of My Day.";
+    $("wTitle").value="";$("wDet").value="";$("wDue").value="";
+    loadList();
+  };
+
+  // ── list ──
+  function groups(){
+    var by={},order=[];
+    S.rows.forEach(function(r){if(!by[r.batch_id]){by[r.batch_id]={id:r.batch_id,title:r.title,details:r.details,issued_at:r.issued_at,due_date:r.due_date,rows:[]};order.push(r.batch_id)}by[r.batch_id].rows.push(r)});
+    return order.map(function(k){var g=by[k];g.rows.sort(function(a,b){return String(a.teacher_name).localeCompare(String(b.teacher_name))});
+      g.done=g.rows.filter(function(r){return r.status==="done"}).length;g.late=!!(g.due_date&&g.due_date<S.today&&g.done<g.rows.length);return g})
+      .sort(function(a,b){return String(b.issued_at).localeCompare(String(a.issued_at))});
+  }
+  function drawStats(gs){
+    var pend=S.rows.filter(function(r){return r.status!=="done"}),late=pend.filter(function(r){return r.due_date&&r.due_date<S.today});
+    var old=pend.filter(function(r){return daysBetween(istDay(r.issued_at),S.today)>=3});
+    $("stats").innerHTML='<div class="stat"><b>'+gs.filter(function(g){return g.done<g.rows.length}).length+'</b><span>Instructions not finished</span></div>'
+      +'<div class="stat'+(pend.length?" red":"")+'"><b>'+pend.length+'</b><span>Teacher tasks pending</span></div>'
+      +'<div class="stat'+(late.length?" red":"")+'"><b>'+late.length+'</b><span>Overdue</span></div>'
+      +'<div class="stat'+(old.length?" red":"")+'"><b>'+old.length+'</b><span>Pending 3+ days</span></div>';
+  }
+  function drawList(){
+    var gs=groups();drawStats(gs);
+    var f=S.filter,list=gs.filter(function(g){return f==="all"?true:f==="done"?g.done===g.rows.length:f==="late"?g.late:g.done<g.rows.length});
+    if(!list.length){$("jobs").innerHTML='<div class="panel empty">'+(f==="open"?"✅ All work given to staff is finished.":f==="late"?"Nothing is overdue.":"Nothing here yet.")+'</div>';return}
+    $("jobs").innerHTML=list.map(function(g){
+      var all=g.done===g.rows.length;
+      return '<article class="job'+(g.late?" late":"")+'"><div class="jh"><div class="t"><b>'+h(g.title)+'</b>'
+        +(g.details?'<div class="det">'+h(g.details)+'</div>':'')
+        +'<div class="dates"><span class="dt">Issued: '+h(dIN(g.issued_at,true))+'</span>'
+        +(g.due_date?'<span class="dt'+(g.late?" late":"")+'">Finish by: '+h(dDate(g.due_date))+(g.late?" — Overdue":"")+'</span>':'')+'</div></div>'
+        +'<span class="prog '+(all?"all":"part")+'">'+g.done+' of '+g.rows.length+' done</span>'
+        +'<button type="button" class="del" data-del="'+h(g.id)+'" aria-label="Remove this instruction">Remove</button></div>'
+        +'<table><thead><tr><th>Teacher</th><th>Status</th><th>Completed on</th><th></th></tr></thead><tbody>'
+        +g.rows.map(function(r){
+          var done=r.status==="done",late=!done&&r.due_date&&r.due_date<S.today,n=done?0:daysBetween(istDay(r.reopened_at||r.issued_at),S.today);
+          return '<tr><td><b>'+h(r.teacher_name||"")+'</b>'
+            +(r.reopened_at&&!done?'<div class="note">↩ Sent back '+h(dIN(r.reopened_at))+(r.reopen_note?": "+h(r.reopen_note):"")+'</div>':'')
+            +(done&&r.done_note?'<div class="note">Note: '+h(r.done_note)+'</div>':'')+'</td>'
+            +'<td>'+(done?'<span class="st d">Done</span>':late?'<span class="st o">Overdue</span>':'<span class="st p">Pending</span>')
+            +(!done&&n>0?'<div class="note">'+n+' day'+(n>1?"s":"")+' pending</div>':'')+'</td>'
+            +'<td>'+(done?h(dIN(r.done_at,true)):'—')+'</td>'
+            +'<td>'+(done?'<button type="button" class="sb" data-back="'+h(r.id)+'" data-name="'+h(r.teacher_name||"")+'">Send back</button>':'')+'</td></tr>'}).join("")
+        +'</tbody></table></article>'}).join("");
+    $("jobs").querySelectorAll("[data-back]").forEach(function(b){b.onclick=async function(){
+      var note=prompt("Send this work back to "+b.getAttribute("data-name")+"?\nIt will show as Pending again in her Work tab.\n\nReason (optional):","");
+      if(note===null)return;b.disabled=true;
+      var d=await call({action:"work_reopen",id:b.getAttribute("data-back"),note:note});
+      if(!d.success){b.disabled=false;alert(d.error||"Could not send it back.");return}
+      loadList()}});
+    $("jobs").querySelectorAll("[data-del]").forEach(function(b){b.onclick=async function(){
+      if(!confirm("Remove this instruction for all its teachers?\nUse this only if it was sent by mistake."))return;b.disabled=true;
+      var d=await call({action:"work_delete",batch_id:b.getAttribute("data-del")});
+      if(!d.success){b.disabled=false;alert(d.error||"Could not remove it.");return}
+      loadList()}});
+  }
+  $("filt").onclick=function(e){var b=e.target.closest(".chip");if(!b)return;S.filter=b.dataset.f;
+    $("filt").querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed",c===b?"true":"false")});drawList()};
+
+  async function loadList(){
+    var d=await call({action:"work_list"});
+    if(!d.success){$("jobs").innerHTML='<div class="panel empty" style="color:var(--bad)">'+h(d.error||"Could not load the work list.")+'</div>';$("stats").innerHTML="";return}
+    S.rows=d.rows||[];S.today=d.today||S.today;drawList();
+  }
+  async function load(){
+    if(ROLE==="super_admin"&&!saSchool()){$("jobs").innerHTML='<div class="panel empty">You are logged in as Super Admin. Type the school code at the top (for example ARK2024) and press Refresh.</div>';$("tList").innerHTML="";return}
+    var t=await call({action:"work_teachers"});
+    if(!t.success){$("tList").innerHTML='<span class="note" style="color:var(--bad)">'+h(t.error||"Could not load teachers.")+'</span>'}
+    else{S.teachers=t.teachers||[];S.today=t.today||"";if(S.today)$("wDue").min=S.today;drawTeachers()}
+    loadList();
+  }
+  if(ROLE==="super_admin"){$("saschool").hidden=false;$("saschool").value=saSchool()}
+  $("refresh").onclick=function(){if(ROLE==="super_admin"){try{localStorage.setItem("ac_sa_school",$("saschool").value.trim())}catch(e){}}load()};
+  load();
+})();
+</script>
+</body>
+</html>

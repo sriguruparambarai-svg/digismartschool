@@ -23,6 +23,8 @@ var l=document.createElement('link');l.rel='manifest';l.href='/api/teacher-manif
     • Today          — her lessons from the Term Planner, activity and homework, Done / Not done
     • Homework       — the last school day's homework: corrected? who didn't submit?
     • Submit my day  — check every lesson and submit before the school's deadline
+    • Work           — instructions from the principal (Oct 2026). Every teacher sees it.
+                       Issued date and completed date are stamped by the server; Done cannot be undone.
   It talks only to /api/teacher-app (its own login, kept 30 days on this phone).
   It never opens books, lessons or any other TeachBot page.
 -->
@@ -93,6 +95,16 @@ textarea{width:100%;min-height:80px;border:1.5px solid var(--sd);border-radius:1
 .small{font-size:.8rem;color:var(--mut);}
 .toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:var(--t);color:#fff;padding:9px 16px;border-radius:999px;font-weight:800;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none;z-index:20;}
 .toast.show{opacity:1;}
+/* Work to Staff (Oct 2026) */
+.wk-title{font-weight:900;font-size:1rem;color:var(--t);line-height:1.35;}
+.wk-det{font-size:.9rem;margin-top:6px;white-space:pre-line;line-height:1.4;}
+.wk-dates{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px;}
+.wk-d{font-size:.75rem;font-weight:800;background:#fff;border:1px solid var(--sd);border-radius:8px;padding:3px 8px;color:#4E3D33;}
+.wk-d.late{background:var(--badbg);border-color:var(--bad);color:#5E120C;}
+.wk-d.okd{background:#EAF6EE;border-color:var(--ok);color:#164A2C;}
+.card.wk-late{border:1.5px solid var(--bad);}
+.wk-note{min-height:52px;margin-top:10px;}
+.wk-back{margin-top:9px;font-size:.84rem;background:var(--warnbg);border:1px solid #D9A13B;border-radius:10px;padding:8px 10px;color:#4E3D33;}
 a{color:var(--m);}
 </style>
 </head>
@@ -141,6 +153,8 @@ var checks={};         // hw_id → {corrected, missing:[]}
 var watch='';
 var tab='today';
 var TT=null;           // my timetable from the server (Oct 2026)
+var W=null;            // Work to Staff: {pending,done,today} (Oct 2026)
+var WN={};             // notes typed on Work cards, kept across redraws
 var PT={teachbot:'🤖 TeachBot class — take the class to the AI room',teach:'Teaching',read:'📖 Reading in class',practice:'✏️ Exercises in class',classwork:'📝 Class work writing',catchup:'⏳ Catch-up',revision:'🔁 Revision',test:'✅ Class test'};
 var REASONS=["Children needed more time on the last lesson","Event / assembly took the period","I was on other duty","I was absent","Other"];
 
@@ -204,6 +218,7 @@ async function loadDay(){
   $('hSub').textContent=niceDate(d.today);
   var tabs=[];
   if(has('today')) tabs.push('today');
+  tabs.push('work');   // Work to Staff (Oct 2026): every teacher, no tick needed
   if(has('tomorrow')) tabs.push('tm');
   if(has('hw_check')) tabs.push('hw');
   if(has('submit_day')) tabs.push('submit');
@@ -211,7 +226,68 @@ async function loadDay(){
   if(tabs.indexOf(tab)===-1) tab=tabs[0]||'none';
   drawNav(tabs); draw();
   if(has('timetable')) loadTT();
+  loadWork();
 }
+// ── WORK TO STAFF (Oct 2026): instructions from the principal ──
+async function loadWork(){
+  var d=await api('my_work');
+  W=d&&d.success?d:{error:(d&&d.error)||'Could not load your work.'};
+  redrawNav(); if(tab==='work') draw();
+}
+function workLeft(){ return W&&W.pending?W.pending.length:0; }
+function dIN(iso,withTime){ try{ var o={timeZone:'Asia/Kolkata',day:'numeric',month:'short',year:'numeric'}; if(withTime){o.hour='numeric';o.minute='2-digit';} return new Date(iso).toLocaleString('en-IN',o); }catch(e){ return iso; } }
+function dDate(s){ try{ return new Date(s+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short'}); }catch(e){ return s; } }
+function daysSince(iso){ var t=W&&W.today?W.today:''; try{ var a=new Date(new Date(iso).toLocaleDateString('en-CA',{timeZone:'Asia/Kolkata'})+'T00:00:00Z'), b=new Date(t+'T00:00:00Z'); return Math.max(0,Math.round((b-a)/86400000)); }catch(e){ return 0; } }
+function workHTML(){
+  if(!W) return '<div class="empty">Loading your work…</div>';
+  if(W.error) return '<div class="banner red">'+h(W.error)+'</div><button type="button" class="btn primary" id="wkRetry">Try again</button>';
+  var today=W.today||'';
+  var pend=(W.pending||[]).slice().sort(function(a,b){
+    var la=a.due_date&&a.due_date<today?0:1, lb=b.due_date&&b.due_date<today?0:1; if(la!==lb) return la-lb;
+    var da=a.due_date||'9999', db=b.due_date||'9999'; if(da!==db) return da<db?-1:1;
+    return String(a.issued_at)<String(b.issued_at)?-1:1; });
+  var html='<div class="h2">Work from the principal</div>';
+  if(!pend.length) html+='<div class="banner green">✅ All work is done. Nothing pending.</div>';
+  else html+='<div class="banner yellow">You have <b>'+pend.length+'</b> work'+(pend.length>1?'s':'')+' pending. Press <b>Done</b> only after finishing it — it cannot be undone.</div>';
+  pend.forEach(function(x){
+    var late=x.due_date&&x.due_date<today, n=daysSince(x.issued_at);
+    html+='<div class="card'+(late?' wk-late':'')+'">'
+      +'<div class="row"><div class="wk-title">'+h(x.title)+'</div>'+(late?'<span class="tag t-not">Overdue</span>':'<span class="tag t-open">Pending</span>')+'</div>'
+      +(x.details?'<div class="wk-det">'+h(x.details)+'</div>':'')
+      +'<div class="wk-dates"><span class="wk-d">Issued: '+h(dIN(x.issued_at))+'</span>'
+      +(x.due_date?'<span class="wk-d'+(late?' late':'')+'">Finish by: '+h(dDate(x.due_date))+'</span>':'')
+      +(n>0?'<span class="wk-d'+(n>=3?' late':'')+'">'+n+' day'+(n>1?'s':'')+' pending</span>':'')+'</div>'
+      +(x.reopened_at?'<div class="wk-back">↩ <b>Sent back by the principal</b> on '+h(dIN(x.reopened_at))+(x.reopen_note?': '+h(x.reopen_note):'')+'</div>':'')
+      +'<label class="small" for="wkn_'+h(x.id)+'" style="display:block;margin-top:10px;font-weight:800;">Note (optional)</label>'
+      +'<textarea class="wk-note" id="wkn_'+h(x.id)+'" data-wknote="'+h(x.id)+'" maxlength="300" placeholder="e.g. Gave the file to the office">'+h(WN[x.id]||'')+'</textarea>'
+      +'<div class="btns"><button type="button" class="btn ok" data-wkdone="'+h(x.id)+'">✓ Done</button></div></div>';
+  });
+  var done=W.done||[];
+  if(done.length){
+    html+='<div class="h2" style="margin-top:18px">Finished work <span class="small">(last 60 days)</span></div>';
+    done.forEach(function(x){
+      html+='<div class="card"><div class="row"><div class="wk-title">'+h(x.title)+'</div><span class="tag t-done">Done</span></div>'
+        +'<div class="wk-dates"><span class="wk-d">Issued: '+h(dIN(x.issued_at))+'</span><span class="wk-d okd">Completed: '+h(dIN(x.done_at,true))+'</span></div>'
+        +(x.done_note?'<div class="small" style="margin-top:7px">Your note: '+h(x.done_note)+'</div>':'')+'</div>';
+    });
+  }
+  return html;
+}
+function wireWork(){
+  var m=$('main');
+  if($('wkRetry')) $('wkRetry').onclick=function(){ W=null; draw(); loadWork(); };
+  m.querySelectorAll('[data-wknote]').forEach(function(t){ t.oninput=function(){ WN[t.getAttribute('data-wknote')]=t.value; }; });
+  m.querySelectorAll('[data-wkdone]').forEach(function(b){ b.onclick=async function(){
+    var id=b.getAttribute('data-wkdone');
+    if(!confirm('Mark this work as Done?\n\nToday\'s date and time will be saved as the completed date. You cannot undo this.')) return;
+    b.disabled=true; b.textContent='Saving…';
+    var d=await api('work_done',{id:id,note:WN[id]||''});
+    if(d.relogin) return showPin(d.error);
+    if(!d.success){ b.disabled=false; b.textContent='✓ Done'; alert(d.error||'Could not save. Please try again.'); return; }
+    delete WN[id]; W=d; redrawNav(); draw(); toast('Marked Done');
+  }; });
+}
+
 // ── MY TIMETABLE (Oct 2026): the copy the principal last sent to staff ──
 var TT_SEEN_KEY='ta_ttseen_'+CODE;
 function ttNew(){ return !!(TT&&TT.sent_at&&lsGet(TT_SEEN_KEY)!==TT.sent_at); }
@@ -263,15 +339,17 @@ var ICON={
   hw:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 4h12l4 4v12H4z"/><path d="M8 13l3 3 5-6"/></svg>',
   submit:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4z"/></svg>',
   tt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+  work:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 3v3h6V3"/><path d="M9 13l2 2 4-4"/></svg>',
   tm:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 19V5a2 2 0 0 1 2-2h12v18H6a2 2 0 0 1-2-2z"/><path d="M8 7h6M8 11h6"/><path d="M14 17l3-3-3-3"/></svg>'
 };
 function drawNav(tabs){
-  var label={today:'Today',tm:'Tomorrow',hw:'Homework',submit:'Submit my day',tt:'Timetable'};
+  var label={today:'Today',work:'Work',tm:'Tomorrow',hw:'Homework',submit:'Submit my day',tt:'Timetable'};
   if(tabs.length<2){ $('nav').style.display='none'; document.body.style.paddingBottom='24px'; }
   $('nav').innerHTML=tabs.map(function(t){
     var dot='';
     if(t==='submit' && !(D.report&&D.report.submitted_at)) dot=' <span class="dot">!</span>';
     if(t==='tt' && ttNew()) dot=' <span class="dot">!</span>';
+    if(t==='work' && workLeft()) dot=' <span class="dot">'+workLeft()+'</span>';
     if(t==='tm' && D.tomorrow && D.tomorrow.open && (D.tomorrow.items||[]).length && !tmSeen()) dot=' <span class="dot">!</span>';
     if(t==='hw'){ var n=(D.hw_check||[]).filter(function(x){return !(checks[x.id]&&checks[x.id].corrected);}).length; if(n) dot=' <span class="dot">'+n+'</span>'; }
     return '<button type="button" data-t="'+t+'" class="'+(tab===t?'on':'')+'" aria-current="'+(tab===t?'page':'false')+'">'+ICON[t]+'<span>'+label[t]+dot+'</span></button>';
@@ -287,6 +365,7 @@ function draw(){
   else if(tab==='hw') m.innerHTML=hwHTML();
   else if(tab==='submit') m.innerHTML=submitHTML();
   else if(tab==='tt') m.innerHTML=ttHTML();
+  else if(tab==='work') m.innerHTML=workHTML();
   else if(tab==='tm'){ m.innerHTML=tmHTML(); tmMarkSeen(); }
   else m.innerHTML='<div class="empty">Your principal has not given you anything to see yet.</div>';
   wire();
@@ -453,6 +532,7 @@ async function save(submit){
 }
 function wire(){
   var m=$('main');
+  if(tab==='work'){ wireWork(); return; }
   m.querySelectorAll('[data-mark]').forEach(function(b){ b.onclick=function(){
     var k=b.getAttribute('data-k'), v=b.getAttribute('data-mark'), cur=marks[k]||{};
     marks[k]={status:cur.status===v?'':v,reason:v==='not'?(cur.reason||''):''};

@@ -41,6 +41,16 @@
 //                                                submit:true stamps the time once (late if after the deadline)
 // Tables (Step 2): teacher_day_reports, teacher_app_settings (step2-teacher-day.sql).
 //
+// WORK TO STAFF (Oct 2026, step9-staff-work.sql, table staff_work):
+//   Teacher:   my_work                       → { pending:[…], done:[…last 60 days] }
+//              work_done { id, note? }       → marks Done; the completed date/time is stamped HERE (server),
+//                                              never sent by the phone. A teacher cannot undo Done.
+//   Principal: work_teachers                 → active teachers to choose from
+//              work_send { title, details?, due_date?, all?, teacher_ids[] }  issued date stamped here
+//              work_list                     → instructions of the last 120 days + everything still pending
+//              work_reopen { id, note? }     → sends one teacher's Done work back to Pending (principal only)
+//              work_delete { batch_id }      → removes an instruction sent by mistake (all its teachers)
+//
 // Wrong PIN 5 times → locked for 15 minutes.
 // Table: teacher_app (step1-teacher-app.sql). RLS on, no policies — only this file uses it.
 
@@ -604,6 +614,39 @@ module.exports = async function handler(req, res) {
       return res.json(Object.assign({ success: true, teacher: forTeacher(t, school) }, out));
     }
 
+    // ── WORK TO STAFF (Oct 2026): instructions from the principal, teacher presses Done ──
+    if (action === 'my_work' || action === 'work_done') {
+      const me = await readTeacher(req.headers['x-teacher-app']);
+      if (me.error) return res.status(401).json({ error: me.error });
+      const t = me.teacher, school = me.school;
+      const NEED = ' (Has step9-staff-work.sql been run in Supabase?)';
+      if (action === 'work_done') {
+        const id = clip(body.id, 60);
+        if (!id) return res.json({ error: 'Which work? Please try again.' });
+        const r = await db('GET', '/rest/v1/staff_work?id=eq.' + enc(id) + '&school_id=eq.' + enc(school.id) +
+          '&teacher_app_id=eq.' + enc(t.id) + '&select=id,status&limit=1');
+        if (!ok(r)) return res.json({ error: 'Could not find this work: ' + why(r) + (r.status === 404 ? NEED : '') });
+        const row = r.data[0];
+        if (!row) return res.json({ error: 'This work is not yours or was removed by the principal.' });
+        if (row.status === 'done') return res.json({ error: 'This work is already marked Done.' });
+        // Completed date and time: always the server's clock, never the phone's.
+        const w = await db('PATCH', '/rest/v1/staff_work?id=eq.' + enc(id) + '&teacher_app_id=eq.' + enc(t.id) + '&status=eq.pending',
+          { status: 'done', done_at: new Date().toISOString(), done_note: clip(body.note, 300) || null });
+        if (!ok(w)) return res.json({ error: 'Could not mark it Done: ' + why(w) });
+        if (!w.data || !w.data[0]) return res.json({ error: 'This work is already marked Done.' });
+      }
+      const since = new Date(Date.now() - 60 * 86400000).toISOString();
+      const [pr, dr] = await Promise.all([
+        db('GET', '/rest/v1/staff_work?school_id=eq.' + enc(school.id) + '&teacher_app_id=eq.' + enc(t.id) +
+          '&status=eq.pending&select=id,title,details,issued_at,due_date,reopened_at,reopen_note&order=issued_at.asc&limit=200'),
+        db('GET', '/rest/v1/staff_work?school_id=eq.' + enc(school.id) + '&teacher_app_id=eq.' + enc(t.id) +
+          '&status=eq.done&done_at=gte.' + enc(since) + '&select=id,title,details,issued_at,due_date,done_at,done_note&order=done_at.desc&limit=100')
+      ]);
+      if (!ok(pr)) return res.json({ error: 'Could not load your work: ' + why(pr) + (pr.status === 404 ? NEED : '') });
+      if (!ok(dr)) return res.json({ error: 'Could not load your finished work: ' + why(dr) });
+      return res.json({ success: true, today: istToday(), pending: pr.data, done: dr.data });
+    }
+
     // ───────────── Principal side ─────────────
     const who = verify(req.headers['x-dss-session'], process.env.SUPABASE_SECRET_KEY || '');
     if (!who || (who.role !== 'school_admin' && who.role !== 'super_admin')) {
@@ -611,6 +654,62 @@ module.exports = async function handler(req, res) {
     }
     const school = await findSchool(who.role === 'super_admin' ? body.school_id : who.sid);
     if (!school) return res.json({ error: 'School not found for this login.' });
+
+    // ── WORK TO STAFF (Oct 2026) — principal side ──
+    if (action === 'work_teachers') {
+      const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name&order=name.asc');
+      if (!ok(r)) return res.json({ error: 'Could not load teachers: ' + why(r) });
+      return res.json({ success: true, school_name: school.name || '', today: istToday(), teachers: r.data });
+    }
+    if (action === 'work_send') {
+      const title = clip(body.title, 200);
+      if (!title) return res.json({ error: 'Please type the instruction.' });
+      const due = isDate(body.due_date) ? body.due_date : null;
+      if (body.due_date && !due) return res.json({ error: 'The finish-by date is not a proper date.' });
+      if (due && due < istToday()) return res.json({ error: 'The finish-by date is already over. Please choose today or a later date.' });
+      const tr = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name');
+      if (!ok(tr)) return res.json({ error: 'Could not load teachers: ' + why(tr) });
+      const want = Array.isArray(body.teacher_ids) ? body.teacher_ids.map(String) : [];
+      const chosen = body.all === true ? tr.data : tr.data.filter(function (x) { return want.indexOf(String(x.id)) !== -1; });
+      if (!chosen.length) return res.json({ error: 'Choose at least one teacher (or All teachers).' });
+      const batch = crypto.randomUUID();
+      const issued = new Date().toISOString();   // issued date: server clock only
+      const rows = chosen.map(function (x) {
+        return { school_id: String(school.id), batch_id: batch, teacher_app_id: String(x.id), teacher_name: x.name,
+                 title: title, details: clip(body.details, 1000) || null, due_date: due, issued_at: issued, status: 'pending' };
+      });
+      const w = await db('POST', '/rest/v1/staff_work', rows);
+      if (!ok(w)) return res.json({ error: 'Could not send the work: ' + why(w) + (w.status === 404 ? ' (Has step9-staff-work.sql been run in Supabase?)' : '') });
+      return res.json({ success: true, batch_id: batch, sent_to: chosen.length });
+    }
+    if (action === 'work_list') {
+      const since = new Date(Date.now() - 120 * 86400000).toISOString();
+      const sel = '&select=id,batch_id,teacher_app_id,teacher_name,title,details,issued_at,due_date,status,done_at,done_note,reopened_at,reopen_note,reopen_count';
+      const [ar, pr] = await Promise.all([
+        db('GET', '/rest/v1/staff_work?school_id=eq.' + enc(school.id) + '&issued_at=gte.' + enc(since) + sel + '&order=issued_at.desc&limit=2000'),
+        db('GET', '/rest/v1/staff_work?school_id=eq.' + enc(school.id) + '&status=eq.pending&issued_at=lt.' + enc(since) + sel + '&order=issued_at.desc&limit=1000')
+      ]);
+      if (!ok(ar)) return res.json({ error: 'Could not load the work list: ' + why(ar) + (ar.status === 404 ? ' (Has step9-staff-work.sql been run in Supabase?)' : '') });
+      return res.json({ success: true, today: istToday(), rows: ar.data.concat(ok(pr) ? pr.data : []) });
+    }
+    if (action === 'work_reopen') {
+      const id = clip(body.id, 60);
+      const w = await db('PATCH', '/rest/v1/staff_work?id=eq.' + enc(id) + '&school_id=eq.' + enc(school.id) + '&status=eq.done',
+        { status: 'pending', done_at: null, done_note: null, reopened_at: new Date().toISOString(), reopen_note: clip(body.note, 300) || null });
+      if (!ok(w)) return res.json({ error: 'Could not send it back: ' + why(w) });
+      if (!w.data || !w.data[0]) return res.json({ error: 'This work is not marked Done, so there is nothing to send back.' });
+      // count how many times it was sent back
+      await db('PATCH', '/rest/v1/staff_work?id=eq.' + enc(id) + '&school_id=eq.' + enc(school.id),
+        { reopen_count: (parseInt(w.data[0].reopen_count, 10) || 0) + 1 });
+      return res.json({ success: true });
+    }
+    if (action === 'work_delete') {
+      const b = clip(body.batch_id, 60);
+      if (!b) return res.json({ error: 'Which instruction? Please try again.' });
+      const w = await db('DELETE', '/rest/v1/staff_work?batch_id=eq.' + enc(b) + '&school_id=eq.' + enc(school.id));
+      if (!ok(w)) return res.json({ error: 'Could not remove it: ' + why(w) });
+      return res.json({ success: true, removed: (w.data || []).length });
+    }
 
     if (action === 'list') {
       const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&select=*&order=name.asc');
