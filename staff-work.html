@@ -134,6 +134,7 @@ td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
 
   <div class="chips" id="filt" role="group" aria-label="Show">
     <button type="button" class="chip" data-f="open" aria-pressed="true">Not finished</button>
+    <button type="button" class="chip" data-f="today" aria-pressed="false">Given today</button>
     <button type="button" class="chip" data-f="late" aria-pressed="false">Overdue</button>
     <button type="button" class="chip" data-f="done" aria-pressed="false">Finished by all</button>
     <button type="button" class="chip" data-f="all" aria-pressed="false">All</button>
@@ -147,7 +148,13 @@ td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
   var $=function(id){return document.getElementById(id)};
   // Shown inside the "Work to Staff" tab of My School's Academics (Oct 2026): no header, tell the parent our height and pending count
   var EMBED=/[?&]embed=1/.test(location.search)&&window.parent!==window;
-  if(EMBED){document.querySelector("header").hidden=true;document.body.style.background="transparent";document.querySelector("main").style.paddingTop="0";
+  if(EMBED){document.querySelector("header").hidden=true;
+    // View only (Oct 2026): giving, sending back and removing work happen on the Work to Staff page itself
+    document.getElementById("newH").parentNode.hidden=true;
+    var st=document.createElement("style");st.textContent=".del,.sb{display:none!important}";document.head.appendChild(st);
+    var bar=document.createElement("div");bar.className="note";bar.style.cssText="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center";
+    bar.innerHTML='<span>Work given to teachers and who has finished it. To give new work, open the Work to Staff page.</span><a href="/staff-work.html" target="_top" style="color:var(--m);font-weight:900">Give or manage work &rarr;</a>';
+    document.querySelector("main").insertBefore(bar,document.querySelector("main").firstChild);document.body.style.background="transparent";document.querySelector("main").style.paddingTop="0";
     var tell=function(){try{window.parent.postMessage({sw:"height",h:document.documentElement.scrollHeight},location.origin)}catch(e){}};
     try{new ResizeObserver(tell).observe(document.body)}catch(e){setInterval(tell,1000)}}
   function h(t){return String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
@@ -221,8 +228,8 @@ td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
   }
   function drawList(){
     var gs=groups();drawStats(gs);
-    var f=S.filter,list=gs.filter(function(g){return f==="all"?true:f==="done"?g.done===g.rows.length:f==="late"?g.late:g.done<g.rows.length});
-    if(!list.length){$("jobs").innerHTML='<div class="panel empty">'+(f==="open"?"✅ All work given to staff is finished.":f==="late"?"Nothing is overdue.":"Nothing here yet.")+'</div>';return}
+    var f=S.filter,list=gs.filter(function(g){return f==="all"?true:f==="done"?g.done===g.rows.length:f==="late"?g.late:f==="today"?istDay(g.issued_at)===S.today:g.done<g.rows.length});
+    if(!list.length){$("jobs").innerHTML='<div class="panel empty">'+(f==="open"?"✅ All work given to staff is finished.":f==="late"?"Nothing is overdue.":f==="today"?"No work was given today.":"Nothing here yet.")+'</div>';return}
     $("jobs").innerHTML=list.map(function(g){
       var all=g.done===g.rows.length;
       return '<article class="job'+(g.late?" late":"")+'"><div class="jh"><div class="t"><b>'+h(g.title)+'</b>'
