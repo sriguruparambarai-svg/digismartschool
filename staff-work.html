@@ -145,6 +145,11 @@ td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
 (function(){
   "use strict";
   var $=function(id){return document.getElementById(id)};
+  // Shown inside the "Work to Staff" tab of My School's Academics (Oct 2026): no header, tell the parent our height and pending count
+  var EMBED=/[?&]embed=1/.test(location.search)&&window.parent!==window;
+  if(EMBED){document.querySelector("header").hidden=true;document.body.style.background="transparent";document.querySelector("main").style.paddingTop="0";
+    var tell=function(){try{window.parent.postMessage({sw:"height",h:document.documentElement.scrollHeight},location.origin)}catch(e){}};
+    try{new ResizeObserver(tell).observe(document.body)}catch(e){setInterval(tell,1000)}}
   function h(t){return String(t==null?"":t).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;")}
   var ROLE="";try{ROLE=localStorage.getItem("dss_role")||""}catch(e){}
   function saSchool(){try{return localStorage.getItem("ac_sa_school")||""}catch(e){return""}}
@@ -256,6 +261,7 @@ td{padding:8px 14px;border-top:1px solid var(--soft);vertical-align:top}
     var d=await call({action:"work_list"});
     if(!d.success){$("jobs").innerHTML='<div class="panel empty" style="color:var(--bad)">'+h(d.error||"Could not load the work list.")+'</div>';$("stats").innerHTML="";return}
     S.rows=d.rows||[];S.today=d.today||S.today;drawList();
+    if(EMBED){try{window.parent.postMessage({sw:"pending",n:S.rows.filter(function(r){return r.status!=="done"}).length},location.origin)}catch(e){}}
   }
   async function load(){
     if(ROLE==="super_admin"&&!saSchool()){$("jobs").innerHTML='<div class="panel empty">You are logged in as Super Admin. Type the school code at the top (for example ARK2024) and press Refresh.</div>';$("tList").innerHTML="";return}

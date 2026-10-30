@@ -165,6 +165,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       <button class="tab" role="tab" data-v="watch" aria-selected="false">Children to watch<span id="b-watch"></span></button>
       <button class="tab" role="tab" data-v="needs" aria-selected="false">Needs you<span id="b-needs"></span></button>
       <button class="tab" role="tab" data-v="approve" aria-selected="false">Approve<span id="b-approve"></span></button>
+      <button class="tab" role="tab" data-v="work" aria-selected="false">Work to Staff<span id="b-work"></span></button>
     </div>
   </div>
 </header>
@@ -227,6 +228,11 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     <div class="panel" id="needsb"></div>
   </section>
 
+  <!-- Work to Staff (Oct 2026): the staff-work.html page shown inside this tab (header hidden) -->
+  <section class="view" id="v-work" hidden>
+    <iframe id="workFrame" title="Work to Staff" style="width:100%;min-height:600px;border:none;background:transparent;display:block"></iframe>
+  </section>
+
   <section class="view" id="v-approve" hidden>
     <p class="lead">Read and approve before 4 PM. Class work and homework are shown separately.</p>
     <div class="chips" id="achips"></div>
@@ -277,6 +283,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
 
   // ── tabs ──
   $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;
+    if(b.dataset.v==="work"&&!$("workFrame").src)$("workFrame").src="/staff-work.html?embed=1";
     document.querySelectorAll(".tab").forEach(function(t){t.setAttribute("aria-selected",t===b?"true":"false");$("v-"+t.dataset.v).hidden=t!==b});
     window.scrollTo(0,0)});
   function chips(el,list,sel,cb){el.innerHTML=list.map(function(x){return '<button type="button" class="chip" data-k="'+h(x.k)+'" aria-pressed="'+(x.k===sel)+'">'+h(x.label||x.k)+(x.sub?' <small>'+h(x.sub)+'</small>':'')+'</button>'}).join("");
@@ -656,6 +663,15 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     if(err){m.style.color="var(--bad)";m.textContent=err;return}
     m.style.color="var(--ok)";m.textContent="Saved."+(hb?" Homework must be checked by "+t12(hb)+".":" No homework check time.");load()};
   tsetLoad();
+
+  // Work to Staff badge: teacher tasks still pending (red)
+  async function workBadge(){try{var d=await call("/api/teacher-app",{action:"work_list"});
+    var n=d.success?(d.rows||[]).filter(function(r){return r.status!=="done"}).length:0;
+    $("b-work").innerHTML=n?'<span class="bd">'+n+'</span>':""}catch(e){}}
+  window.addEventListener("message",function(e){if(e.origin!==location.origin||!e.data)return;
+    if(e.data.sw==="height")$("workFrame").style.height=Math.max(600,e.data.h+20)+"px";
+    if(e.data.sw==="pending")$("b-work").innerHTML=e.data.n?'<span class="bd">'+e.data.n+'</span>':""});
+  workBadge();
 
   $("day").value=istToday();
   $("day").onchange=function(){S.period=null;load()};
