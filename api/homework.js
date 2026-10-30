@@ -87,6 +87,30 @@ function postErpHomework(row) {
 const SEND_HOUR_IST = 16;          // 4 PM India time — the daily timer runs then
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
+// Sections (Oct 2026): a class may be split, e.g. LKG + "LKG B" (Vijayadasami children).
+// The plain name ("LKG") stays section A, so nothing already saved has to move.
+// Saved per school in homework_timetable.plan._sections, e.g. { "LKG": ["B"] }.
+const SEC_LETTERS = ['B', 'C', 'D', 'E', 'F'];
+const okCls = function (c) {
+  c = String(c || '');
+  if (CLASSES.indexOf(c) !== -1) return true;
+  const m = c.match(/^(.+) ([B-F])$/);
+  return !!(m && CLASSES.indexOf(m[1]) !== -1);
+};
+function cleanSections(x) {
+  const out = {};
+  if (!x || typeof x !== 'object' || Array.isArray(x)) return out;
+  Object.keys(x).forEach(function (c) {
+    if (CLASSES.indexOf(c) === -1 || !Array.isArray(x[c])) return;
+    const l = SEC_LETTERS.filter(function (L) { return x[c].indexOf(L) !== -1; });
+    if (l.length) out[c] = l;
+  });
+  return out;
+}
+// Name ERP should get: "LKG" becomes "LKG A" once LKG has a B section (ERP then sends it to A only).
+function erpClassName(cls, sections) {
+  return sections && sections[cls] && sections[cls].length ? cls + ' A' : cls;
+}
 const MADE_BY = ['teacher', 'ai', 'ai-week', 'principal'];
 const TT_DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const ENTRY_TYPES = ['homework', 'classwork', 'bookback'];
@@ -98,14 +122,14 @@ async function readTimetable(school) {
   const r = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan,updated_at&limit=1');
   if (!ok(r)) return { error: 'Could not read the homework timetable: ' + why(r) };
   const sp = splitFixed((r.data.length && r.data[0].plan) || {});
-  return { plan: sp.timetable, fixed: sp.fixed, updated_at: r.data.length ? r.data[0].updated_at : null };
+  return { plan: sp.timetable, fixed: sp.fixed, sections: sp.sections, updated_at: r.data.length ? r.data[0].updated_at : null };
 }
 // Keep only real classes, Mon–Sat, and short subject names (at most 10 a day).
 function cleanTimetable(plan) {
   const out = {};
   if (!plan || typeof plan !== 'object') return out;
   Object.keys(plan).forEach(function (cls) {
-    if (CLASSES.indexOf(cls) === -1 || !plan[cls] || typeof plan[cls] !== 'object') return;
+    if (!okCls(cls) || !plan[cls] || typeof plan[cls] !== 'object') return;
     const days = {};
     TT_DAYS.forEach(function (d) {
       const list = Array.isArray(plan[cls][d]) ? plan[cls][d] : [];
@@ -120,7 +144,7 @@ function cleanTimetable(plan) {
   const fx = plan._fixed, fixed = {};
   if (fx && typeof fx === 'object' && !Array.isArray(fx)) {
     Object.keys(fx).forEach(function (cls) {
-      if (CLASSES.indexOf(cls) === -1 || !fx[cls] || typeof fx[cls] !== 'object') return;
+      if (!okCls(cls) || !fx[cls] || typeof fx[cls] !== 'object') return;
       const subs = {};
       Object.keys(fx[cls]).slice(0, 20).forEach(function (sb) {
         const v = fx[cls][sb] || {}, en = clip(v.en, 300), ta = clip(v.ta, 300), k = clip(sb, 40);
@@ -134,9 +158,9 @@ function cleanTimetable(plan) {
 }
 // the timetable without the fixed lines, and the fixed lines on their own
 function splitFixed(plan) {
-  const t = Object.assign({}, plan || {}), f = t._fixed || {};
-  delete t._fixed;
-  return { timetable: t, fixed: f };
+  const t = Object.assign({}, plan || {}), f = t._fixed || {}, sec = cleanSections(t._sections);
+  delete t._fixed; delete t._sections;
+  return { timetable: t, fixed: f, sections: sec };
 }
 
 // ── Supabase (TeachBot) ──
@@ -241,6 +265,8 @@ async function sendDue(school, upTo) {
   });
 
   const forErp = [];   // groups that reached the diary and now go to ERP
+  const secRead = await readTimetable(school);
+  const SECTIONS = secRead.sections || {};
   for (const key of Object.keys(groups)) {
     const [date, cls, type] = key.split('|');
     const field = type === 'classwork' ? 'class_notes' : type === 'bookback' ? 'book_back_answers' : 'homework';   // diary column
@@ -318,8 +344,8 @@ async function sendDue(school, upTo) {
       const e = await postErpHomework({
         school_id: school.erp_school_id,
         type: cw ? 'classwork' : 'homework',
-        class_name: g.cls,
-        title: cw ? (g.cls + ' · In class today — ' + dayLabel(g.date)) : (g.cls + ' Homework — ' + dayLabel(g.date)),
+        class_name: erpClassName(g.cls, SECTIONS),
+        title: cw ? (erpClassName(g.cls, SECTIONS) + ' · In class today — ' + dayLabel(g.date)) : (erpClassName(g.cls, SECTIONS) + ' Homework — ' + dayLabel(g.date)),
         message: lines.join('\n'),
         subject: subjects.join(', '),
         due_date: g.date,
@@ -436,14 +462,14 @@ module.exports = async function handler(req2, res) {
       if (!ok(r)) return res.json({ error: 'Could not load homework: ' + why(r) });
       const tt = await readTimetable(school);
       return res.json({ success: true, items: r.data, today: istToday(), send_hour: SEND_HOUR_IST,
-                        timetable: tt.plan || {}, fixed: tt.fixed || {}, timetable_error: tt.error || '',
+                        timetable: tt.plan || {}, fixed: tt.fixed || {}, sections: tt.sections || {}, timetable_error: tt.error || '',
                         school: { name: school.name, code: school.school_code, has_erp: school.has_erp === true } });
     }
 
     // ── PAST homework of one class (last 365 days, not sent-back) — for the repeat check ──
     if (action === 'past') {
       const cls = clip(body.class_name, 20);
-      if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
+      if (!okCls(cls)) return res.json({ error: 'Choose a class.' });
       const since = new Date(istNow().getTime() - 365 * 864e5).toISOString().slice(0, 10);
       const r = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
         '&status=neq.returned&entry_type=eq.homework&hw_date=gte.' + since + '&select=id,subject,homework,hw_date&order=hw_date.desc&limit=1500');
@@ -456,6 +482,8 @@ module.exports = async function handler(req2, res) {
       if (!principal) return res.status(403).json({ error: 'Only the principal can change the homework timetable.' });
       const plan = cleanTimetable(body.plan);
       const now = new Date().toISOString();
+      const keepSec = await readTimetable(school);   // the Sections setting is kept as it is
+      if (keepSec.sections && Object.keys(keepSec.sections).length) plan._sections = keepSec.sections;
       let r = await db('PATCH', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id), { plan: plan, updated_at: now });
       if (!ok(r)) return res.json({ error: 'Could not save the timetable: ' + why(r) });
       if (!r.data.length) {
@@ -463,13 +491,35 @@ module.exports = async function handler(req2, res) {
         if (!ok(r)) return res.json({ error: 'Could not save the timetable: ' + why(r) });
       }
       const sp = splitFixed(plan);
-      return res.json({ success: true, timetable: sp.timetable, fixed: sp.fixed });
+      return res.json({ success: true, timetable: sp.timetable, fixed: sp.fixed, sections: sp.sections });
+    }
+
+    // ── SECTIONS (Oct 2026): read for any login; save for the principal only ──
+    if (action === 'sections') {
+      const tt = await readTimetable(school);
+      return res.json({ success: true, sections: tt.sections || {} });
+    }
+    if (action === 'save_sections') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can change sections.' });
+      const sec = cleanSections(body.sections);
+      const r0 = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan&limit=1');
+      if (!ok(r0)) return res.json({ error: 'Could not read the settings: ' + why(r0) });
+      const plan = Object.assign({}, (r0.data.length && r0.data[0].plan) || {});
+      if (Object.keys(sec).length) plan._sections = sec; else delete plan._sections;
+      const now = new Date().toISOString();
+      let r = await db('PATCH', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id), { plan: plan, updated_at: now });
+      if (!ok(r)) return res.json({ error: 'Could not save sections: ' + why(r) });
+      if (!r.data.length) {
+        r = await db('POST', '/rest/v1/homework_timetable', { school_id: String(school.id), plan: plan, updated_at: now });
+        if (!ok(r)) return res.json({ error: 'Could not save sections: ' + why(r) });
+      }
+      return res.json({ success: true, sections: sec });
     }
 
     // ── SAVE (new or changed) ──
     if (action === 'save') {
       const cls = clip(body.class_name, 20), subject = clip(body.subject, 40), text = clip(body.homework, textLimit(body));
-      if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
+      if (!okCls(cls)) return res.json({ error: 'Choose a class.' });
       if (!subject) return res.json({ error: 'Choose a subject.' });
       if (!text) return res.json({ error: 'Type the homework.' });
       if (!isDate(body.hw_date)) return res.json({ error: 'Choose a day.' });
@@ -508,7 +558,7 @@ module.exports = async function handler(req2, res) {
       const rows = [];
       for (const x of list) {
         const cls = clip(x.class_name, 20), subject = clip(x.subject, 40), text = clip(x.homework, textLimit(x));
-        if (CLASSES.indexOf(cls) === -1 || !subject || !text || !isDate(x.hw_date)) {
+        if (!okCls(cls) || !subject || !text || !isDate(x.hw_date)) {
           return res.json({ error: 'One homework is missing its class, subject, day or text.' });
         }
         rows.push({

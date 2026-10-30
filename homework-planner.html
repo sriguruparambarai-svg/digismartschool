@@ -313,7 +313,13 @@ textarea{resize:vertical;min-height:70px}
   <div class="layout" id="layout" hidden>
     <section id="adminSide" hidden>
       <div class="waitbar" id="waitBar"></div>
-      <div class="btnrow" style="margin-bottom:12px"><button class="btn ghost" id="ttToggle">Homework timetable</button><span class="hint" id="ttSummary"></span></div>
+      <div class="btnrow" style="margin-bottom:12px"><button class="btn ghost" id="ttToggle">Homework timetable</button><button class="btn ghost" id="secToggle" type="button">Sections</button><span class="hint" id="ttSummary"></span></div>
+      <div class="ttbox" id="secBox" hidden>
+        <h2 style="margin:0">Sections</h2>
+        <p class="hint" style="margin:0">Tick a class that has a second section with its own homework (e.g. LKG B for Vijayadasami children). The class you have now becomes section A — its homework stays as it is. Each section then gets its own row, homework and Lesson Plan, and parents get only their own section's homework. Children's sections are set in ERP's Admission form.</p>
+        <div id="secRows" style="display:flex;flex-wrap:wrap;gap:8px 18px;margin:10px 0"></div>
+        <div class="btnrow"><button class="btn" id="secSave" type="button">Save sections</button><span id="secState"></span></div>
+      </div>
       <div class="ttbox" id="ttBox" hidden>
         <div class="tthead">
           <h2 style="flex:1">Homework timetable</h2>
@@ -499,6 +505,13 @@ if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
 const ALL_CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
 const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
 function classesShown(){const max=+($("maxCls").value||8);return ALL_CLASSES.filter(c=>num(c)<=max)}
+/* Sections (Oct 2026): a class can get a second section, e.g. LKG B for Vijayadasami children.
+   The plain class ("LKG") stays section A, so all its old homework stays where it is.
+   Set by the principal (Sections button); saved per school. */
+const BASE_CLASSES=ALL_CLASSES.slice();let SECTIONS={};
+function applySections(sec){SECTIONS=sec&&typeof sec==="object"?sec:{};const list=[];BASE_CLASSES.forEach(c=>{list.push(c);(SECTIONS[c]||[]).forEach(L=>list.push(c+" "+L))});
+  const changed=list.join("|")!==ALL_CLASSES.join("|");ALL_CLASSES.length=0;list.forEach(c=>ALL_CLASSES.push(c));if(changed)$("tCls").innerHTML=""}
+const lbl=c=>SECTIONS[c]&&SECTIONS[c].length?c+" A":c;
 function subjectsFor(c){const n=num(c);
   if(!n)return["English","Maths","Tamil","Rhymes/GK"];
   if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer"];
@@ -588,7 +601,7 @@ async function load(){
     S.items=all.filter(i=>i.entry_type!=="classwork"&&i.entry_type!=="bookback");   // homework (all older rows)
     S.bb=all.filter(i=>i.entry_type==="bookback");       // book back answers (from Teacher Tools → Book Back Answers)
     S.cw=all.filter(i=>i.entry_type==="classwork");      // class work
-    TT=d.timetable||{};FX=d.fixed||{};TT_ERR=d.timetable_error||"";
+    TT=d.timetable||{};FX=d.fixed||{};TT_ERR=d.timetable_error||"";applySections(d.sections);
     if(TT_ERR){$("topInfo").textContent="The homework timetable could not load: "+TT_ERR;$("topInfo").hidden=false}else $("topInfo").hidden=true;
     if(PRINCIPAL)ttSummary();
     if(d.school){SCHOOL=Object.assign(SCHOOL,d.school)}
@@ -624,7 +637,7 @@ function renderTop(){
   $("roleBadge").textContent=PRINCIPAL?(MYCLASS?"Principal · My class":"Principal"):"Teacher"+(TEACHER_NAME?" · "+TEACHER_NAME:"");
   $("viewSwitch").hidden=!PRINCIPAL;$("viewSwitch").textContent=MYCLASS?"← Back to whole school":"My class (teacher view)";
   $("tClsWrap").hidden=ADMINVIEW();$("maxClsWrap").hidden=!ADMINVIEW();
-  if(!$("tCls").options.length)$("tCls").innerHTML=ALL_CLASSES.map(c=>`<option>${c}</option>`).join("");
+  if(!$("tCls").options.length)$("tCls").innerHTML=ALL_CLASSES.map(c=>`<option value="${c}">${lbl(c)}</option>`).join("");
   $("tCls").value=S.tcls;
   $("roleHint").textContent=MYCLASS?"Homework you write here goes straight into the week.":PRINCIPAL?"Homework from teachers waits here until you add it to the week.":"Homework you write goes to the principal first.";
   $("adminSide").hidden=!ADMINVIEW();$("teacherSide").hidden=ADMINVIEW();
@@ -643,7 +656,7 @@ function renderGrid(){
   let h="<thead><tr><th class='cls'>Class</th>";
   DAYS.forEach((d,i)=>{const ds=addDays(S.week,i);h+=`<th class="${ds===TODAY?"today":""}">${d}<small>${nice(ds)}</small></th>`});
   h+="</tr></thead><tbody>";
-  classesShown().forEach(c=>{h+=`<tr><th class="cls" scope="row">${c}</th>`;
+  classesShown().forEach(c=>{h+=`<tr><th class="cls" scope="row">${esc(lbl(c))}</th>`;
     DAYS.forEach((d,i)=>{const ds=addDays(S.week,i),its=itemsFor(c,ds,x=>x.status!=="returned"),na=its.filter(added).length,nw=its.length-na,st=loadState(c,ds),lim=limitFor(c,ds);
       const sel=S.sel.cls===c&&S.sel.date===ds;
       const todo=(fixedFor(c,ds)||[]).filter(s=>!its.some(x=>x.subject===s));
@@ -792,8 +805,14 @@ $("fxSuggest").onclick=()=>{const c=ttCls();TTD._fixed=TTD._fixed||{};const F=TT
   const mm=miss.length?" Type the Tamil yourself for: "+miss.join(", ")+".":"";
   if(!n){toast("Nothing new to fill for "+c+"."+mm,!!miss.length);return}
   ttDirty=true;renderTT();toast(n+" line"+(n>1?"s":"")+" filled for "+c+" (Tamil included). Check them, then press Save timetable."+mm,!!miss.length)};
-function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=classesShown().map(c=>`<option${c===cur?" selected":""}>${c}</option>`).join("");
-  const c=ttCls();$("ttCopyTo").innerHTML=`<option value="">— choose —</option>`+classesShown().filter(x=>x!==c).map(x=>`<option>${x}</option>`).join("")}
+function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=classesShown().map(c=>`<option value="${c}"${c===cur?" selected":""}>${lbl(c)}</option>`).join("");
+  const c=ttCls();$("ttCopyTo").innerHTML=`<option value="">— choose —</option>`+classesShown().filter(x=>x!==c).map(x=>`<option value="${x}">${lbl(x)}</option>`).join("")}
+$("secToggle").onclick=()=>{const b=$("secBox");if(b.hidden){$("secRows").innerHTML=BASE_CLASSES.filter(c=>num(c)<=+($("maxCls").value||8)).map(c=>`<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" value="${c}"${(SECTIONS[c]||[]).length?" checked":""}> ${c} B</label>`).join("");$("secState").textContent=""}b.hidden=!b.hidden};
+$("secSave").onclick=async()=>{const sec={};$("secRows").querySelectorAll("input:checked").forEach(i=>{sec[i.value]=["B"]});
+  const gone=Object.keys(SECTIONS).filter(c=>!sec[c]);
+  if(gone.length&&!confirm("Remove section B from "+gone.join(", ")+"? Its homework stays saved but will not be shown."))return;
+  $("secState").textContent="Saving…";
+  try{const d=await hw("save_sections",{sections:sec});if(!d.success)throw new Error(d.error||"Could not save.");$("secState").textContent="Saved.";location.reload()}catch(e){$("secState").textContent=e.message}};
 $("ttToggle").onclick=()=>{const b=$("ttBox");if(b.hidden){if(!TTD||!ttDirty){TTD=JSON.parse(JSON.stringify(TT));TTD._fixed=JSON.parse(JSON.stringify(FX))}ttFill();renderTT()}b.hidden=!b.hidden};
 $("ttCls").onchange=()=>{ttFill();renderTT()};
 $("ttTable").addEventListener("change",e=>{const v=e.target.dataset.tt;if(!v)return;const[d,s]=v.split("|"),c=ttCls();

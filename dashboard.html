@@ -794,8 +794,14 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
 
   function drawForm(){
     $('ta-cls').innerHTML=CLASSES.map(function(c){return '<option>'+h(c)+'</option>';}).join('');
-    $('ta-cls').onchange=function(){ $('ta-sub').innerHTML=subjectsFor($('ta-cls').value).map(function(s){return '<option>'+h(s)+'</option>';}).join(''); };
+    $('ta-cls').onchange=function(){ $('ta-sub').innerHTML=subjectsFor(String($('ta-cls').value).replace(/ [B-F]$/,'')).map(function(s){return '<option>'+h(s)+'</option>';}).join(''); };
     $('ta-cls').onchange();
+    // Sections (Oct 2026): add e.g. "LKG B" (set in the Homework Planner → Sections) after its class
+    fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sections'})}).then(function(r){return r.json();}).then(function(d){
+      var sec=(d&&d.success&&d.sections)||{},list=[];if(!Object.keys(sec).length)return;
+      CLASSES.forEach(function(c){list.push(c);(sec[c]||[]).forEach(function(L){list.push(c+' '+L);});});
+      var cur=$('ta-cls').value;$('ta-cls').innerHTML=list.map(function(c){return '<option>'+h(c)+'</option>';}).join('');$('ta-cls').value=cur;
+    }).catch(function(){});
     $('ta-add-cls').onclick=function(){
       var c=$('ta-cls').value, s=$('ta-sub').value;
       if(picked.some(function(p){return p.class_name===c&&p.subject===s;}))return;
@@ -1105,7 +1111,8 @@ window.addEventListener('load',function(){setTimeout(function(){_sid=window._sch
   /* Oct 2026: Today's parent update, class by class — class buttons on top, opens on the first
      class with something waiting for approval; the approve button approves the class shown. */
   var puList=[], puSel=null;
-  function clsSort(a,b){ return CLS_ORDER.indexOf(a)-CLS_ORDER.indexOf(b) || String(a).localeCompare(b); }
+  function clsBase(c){ var i=CLS_ORDER.indexOf(String(c).replace(/ [B-F]$/,'')); return i<0?99:i; }   // "LKG B" sorts with LKG
+  function clsSort(a,b){ return clsBase(a)-clsBase(b) || String(a).localeCompare(b); }
   function puItem(x,withClass){
     var st=x.sent?pill('ok','Sent to parents'):x.status==='added'?pill('ok','Approved — goes at 4 PM'):pill('slow','Waiting for you');
     return '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px dashed #EEDDC2;">'

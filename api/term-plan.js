@@ -65,6 +65,13 @@ module.exports.config = { api: { bodyParser: { sizeLimit: '2mb' } } };
 const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
+// Sections (Oct 2026): "LKG B" etc. are real classes too (see api/homework.js).
+const okCls = function (c) {
+  c = String(c || '');
+  if (CLASSES.indexOf(c) !== -1) return true;
+  const m = c.match(/^(.+) ([B-F])$/);
+  return !!(m && CLASSES.indexOf(m[1]) !== -1);
+};
 const TERMS = ['I', 'II', 'III'];
 const ROW_FIELDS = ['date', 'chapter', 'pages', 'teach', 'class_act', 'home_act', 'ground_act', 'homework', 'type', 'workbook', 'period', 'room', 'act', 'speak', 'write'];   // speak = Spoken English topic|level; write = handwriting sheet (JSON)
 // act = 'class' when this period is the chapter's class activity day, 'home' when the home activity is given on it (Oct 2026)
@@ -461,7 +468,7 @@ module.exports = async function handler(req, res) {
     // ── one class, one day, every subject (for the Homework Planner) ──
     if (action === 'for_day' || action === 'done_day') {
       const cls = clip(body.class_name, 20), date = String(body.date || '');
-      if (CLASSES.indexOf(cls) === -1 || !isDate(date)) return res.json({ error: 'Class and date needed.' });
+      if (!okCls(cls) || !isDate(date)) return res.json({ error: 'Class and date needed.' });
       const r = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) +
         '&status=neq.returned&select=id,subject,term,status,rows&order=updated_at.desc');
       if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
@@ -645,7 +652,7 @@ module.exports = async function handler(req, res) {
 
     if (action === 'save') {
       const cls = clip(body.class_name, 20), subject = clip(body.subject, 40), term = clip(body.term, 4);
-      if (CLASSES.indexOf(cls) === -1) return res.json({ error: 'Choose a class.' });
+      if (!okCls(cls)) return res.json({ error: 'Choose a class.' });
       if (!subject) return res.json({ error: 'Choose a subject.' });
       if (TERMS.indexOf(term) === -1) return res.json({ error: 'Choose a term.' });
       const fields = { settings: cleanSettings(body.settings), rows: cleanRows(body.rows), updated_at: new Date().toISOString() };

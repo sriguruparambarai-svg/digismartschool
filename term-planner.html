@@ -199,6 +199,7 @@ body.focus:not(.focus-set) #setupCard{display:none}
     <h2>Make or open a plan</h2>
     <div class="row" style="margin-top:10px">
       <label>Class<select id="fClass"></select></label>
+      <label id="fSecWrap" hidden>Section<select id="fSec"></select></label>
       <label>Subject<select id="fSubject"></select></label>
       <label>Term<select id="fTerm"><option>I</option><option selected>II</option><option>III</option></select></label>
       <label id="hwStyleBox" hidden>English writing style<select id="fHwStyle"><option value="print">Print — all classes</option><option value="cursive">Cursive from Class 3</option></select></label>
@@ -320,6 +321,16 @@ $("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");
 $("fClass").value=lsGet("tp_class")||"Class 1";
 function fillSubjects(keep){const subs=subjectsFor($("fClass").value);$("fSubject").innerHTML=subs.map(s=>`<option>${esc(s)}</option>`).join("");if(subs.includes(keep))$("fSubject").value=keep}
 fillSubjects(lsGet("tp_subject"));
+/* Sections (Oct 2026): a class with a second section (e.g. LKG B for Vijayadasami children) gets its own
+   plans. The book, subjects and timetable stay the class's ("LKG"); only the plan is kept as "LKG B".
+   Section A is the plain class name, so plans made before stay where they are. */
+let SECTIONS={};
+const planCls=()=>{const c=$("fClass").value,L=$("fSec").value;return L&&L!=="A"?c+" "+L:c};
+const planLbl=()=>{const c=$("fClass").value;return (SECTIONS[c]||[]).length?c+" "+($("fSec").value||"A"):c};
+function secShow(){const L=SECTIONS[$("fClass").value]||[],cur=$("fSec").value;$("fSecWrap").hidden=!L.length;
+  $("fSec").innerHTML=["A"].concat(L).map(x=>`<option>${x}</option>`).join("");$("fSec").value=L.includes(cur)?cur:"A"}
+function setPlanCls(k){const m=String(k||"").match(/^(.+) ([B-F])$/);$("fClass").value=m?m[1]:k;secShow();if(m)$("fSec").value=m[2]}
+secShow();
 $("fDays").innerHTML=DAYS.map(d=>`<label><input type="checkbox" value="${d}" checked>${d}</label>`).join("");
 $("fStart").value=lsGet("tp_start")||"";$("fEnd").value=lsGet("tp_end")||"";
 function getDays(){return[...$("fDays").querySelectorAll("input:checked")].map(i=>i.value)}
@@ -396,7 +407,7 @@ function spokenUI(){const sp=isSpoken();
   $("makeBtn").textContent=sp?"✨ Make the "+$("fSubject").value+" plan":"✨ Make the lesson plan with AI"}
 const hwStyle=()=>($("fHwStyle")&&$("fHwStyle").value)||"print";
 // Units the class did in its other plans of this subject (other terms), so this term carries on
-async function spokenDone(){const c=$("fClass").value,t=$("fTerm").value,sb=$("fSubject").value,done={};
+async function spokenDone(){const c=planCls(),t=$("fTerm").value,sb=$("fSubject").value,done={};
   for(const term of ["I","II","III"]){if(term===t)continue;
     try{const d=await tp("get",{class_name:c,subject:sb,term});
       ((d.plan&&d.plan.settings&&d.plan.settings.chapters)||[]).forEach(x=>{done[x.key]=term})}catch(e){}}
@@ -451,7 +462,7 @@ function practiceRows(chs,n,c,sb,blank){const rows=[],fitted=[],wr=PRACTICE_SYLL
   rows.forEach((r,i)=>{if(i&&i%12===0&&r.pages!=="Level check")r.teach=(wr?"📋 Monthly check today: during own writing, look at each child's notebook and move children up a group when they are ready. ":PRACTICE_SYLLABUS.monthly)+r.teach});
   return{rows,cut,fitted}}
 async function practiceBook(rows){const ta=PRACTICE_SYLLABUS.isTamil($("fSubject").value),sb=ta?"Tamil":"English";let pr=[];
-  try{const d=await tp("get",{class_name:$("fClass").value,subject:sb,term:$("fTerm").value});
+  try{const d=await tp("get",{class_name:planCls(),subject:sb,term:$("fTerm").value});
     pr=(d.plan&&Array.isArray(d.plan.rows)?d.plan.rows:[]).filter(r=>r.date&&["teach","teachbot","read"].includes(r.type)&&/\d/.test(String(r.pages||""))&&!/part|period/i.test(String(r.pages||""))).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0)}catch(e){}
   rows.forEach(r=>{if(String(r.teach||"").indexOf("{{BOOK}}")<0)return;let src=null;pr.forEach(x=>{if(x.date<=r.date)src=x});if(!src&&pr.length)src=pr[0];
     const txt=src?"pages "+String(src.pages).replace(/^p+\.?\s*/i,"")+" of “"+String(src.chapter||"").replace(/^Ch \d+\.\s*/,"")+"” (this week's "+sb+" lesson)":"the pages of this week's "+sb+" lesson";
@@ -1131,7 +1142,7 @@ $("makeBtn").onclick=async()=>{
       if(modelOn()){P.innerHTML=`<span class="spin"></span>Activity ideas for ${esc(chs[i].title)}…`;
         try{ACTS_NEW[chs[i].title]=await suggestActs(chs[i],ct)}catch(e){notes.push(chs[i].title+": activity ideas could not be made ("+e.message+") — use “🎯 Activities” in the plan.")}}}
     rows.forEach((r,k)=>{r.date=dates[k]||"";r.period=TS&&TS[k]?TS[k].label:""});
-    await loadHwTT();{const hm=matchHwTT(rows,$("fClass").value,$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.");if(hm.filled)notes.push(hm.filled+" homework day"+(hm.filled>1?"s":"")+" with no homework got practice of the last lesson taught.")}
+    await loadHwTT();{const hm=matchHwTT(rows,planCls(),$("fSubject").value);if(hm.moved)notes.push(hm.moved+" homework moved to this subject's homework-timetable days.");if(hm.filled)notes.push(hm.filled+" homework day"+(hm.filled>1?"s":"")+" with no homework got practice of the last lesson taught.")}
     S.rows=rows;S.acts=ACTS_NEW;Object.keys(S.acts).forEach(applyActs);S.settings=collectSettings(chs);S.settings.hw_only=[];
     P.innerHTML=`<span class="spin"></span>Homework for days without a class…`;try{const ho=await refreshHwOnly();if(ho.count)notes.push(ho.count+" homework day"+(ho.count>1?"s":"")+" without a "+$("fSubject").value+" class got homework (see “Homework-only days” below the plan).")}catch(e){notes.push("Homework-only days could not be made: "+e.message)}
     tidyHw(false);
@@ -1208,7 +1219,7 @@ function fillEmptyHwDays(rows,days,today){
 async function hwTTButton(){
   await loadHwTT();
   const hoBefore=hoMissing();
-  const cls=$("fClass").value,subj=$("fSubject").value;
+  const cls=planCls(),subj=$("fSubject").value;
   if(!hwDaysFor(cls,subj)){toast("The homework timetable has no "+subj+" days for "+cls+". Set it in the Homework Planner first.",true);return}
   const copy=JSON.parse(JSON.stringify(S.rows)),res=matchHwTT(copy,cls,subj);
   if(!res.moved&&!res.extra&&!res.filled){if(hoBefore){await hoButtonOnly(hoBefore);return}toast("Already matches the homework timetable ("+subj+": "+hwDaysFor(cls,subj).join(", ")+").");return}
@@ -1226,7 +1237,7 @@ async function redoChapter(title){
     const got=await planChapter(ch,idx.length,ct,$("fNote").value.trim(),()=>{},wi!=null&&wi>=0?wl.find(x=>x.i===wi):null,idx.map(i=>S.rows[i].room==="ai"));
     idx.forEach((ri,k)=>{const d=S.rows[ri].date,pd=S.rows[ri].period||"";S.rows[ri]=Object.assign(got[k],{date:d,period:pd})});
     if(modelOn()){if(!S.acts[title]){try{S.acts[title]=await suggestActs(ch,ct)}catch(e){}}if(S.acts[title])applyActs(title)}
-    await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
+    await loadHwTT();matchHwTT(S.rows,planCls(),$("fSubject").value);
     try{await refreshHwOnly()}catch(e){}
     renderPlan();queueSave();toast("“"+title+"” made again.")}
   catch(e){toast("AI could not redo it: "+e.message,true)}}
@@ -1286,7 +1297,7 @@ function homeOnTb(rows,days){const today=iso(new Date()),by=(a,b)=>a.date<b.date
     for(let i=0;i<Math.min(tb.length,hm.length);i++){tb[i].act="home";hm[i].act="";hm[i].home_act="";
       hm[i].teach=String(hm[i].teach||"").replace(/ ?Give the home activity \(done with parents\)\.?/,"")}})}
 /* Oct 2026: tidy the homework of the lessons from today on (new plans, and the 🧹 button for old ones) */
-function tidyHw(full){const today=iso(new Date()),days=hwDaysFor($("fClass").value,$("fSubject").value),live=r=>r.date&&r.date>=today&&!r.done;
+function tidyHw(full){const today=iso(new Date()),days=hwDaysFor(planCls(),$("fSubject").value),live=r=>r.date&&r.date>=today&&!r.done;
   if(full)S.rows.forEach(r=>{if(!live(r))return;const ls=String(r.homework||"").split("\n").map(x=>x.trim()).filter(Boolean);
     let h=ls.length?ls[ls.length-1]:"";if(/^Practise at home what was taught on /.test(h))h="";r.homework=h});
   if(modelOn())homeOnTb(S.rows,days);Object.keys(S.acts||{}).forEach(applyActs);
@@ -1302,7 +1313,7 @@ async function tidyButton(){if(locked())return;
   renderPlan();queueSave();toast("Homework tidied.")}
 // homework-timetable days of this subject, from today to the plan's end, with no class of it that day
 function hoDates(){
-  const days=hwDaysFor($("fClass").value,$("fSubject").value);if(!days)return[];
+  const days=hwDaysFor(planCls(),$("fSubject").value);if(!days)return[];
   const dated=S.rows.filter(r=>r.date).map(r=>r.date).sort(),st=S.settings||{};
   const start=[st.start,dated[0]].filter(Boolean).sort()[0],end=[st.end,dated[dated.length-1]].filter(Boolean).sort().pop();
   if(!start||!end)return[];
@@ -1381,7 +1392,7 @@ function wsLink(r){
   const hw=String(r.homework||"").split("\n").filter(l=>l.trim()&&!/^Workbook \d+\s*—/.test(l.trim())).join("\n").trim();if(hw)q.set("hw",hw.slice(0,1500));
   return "todays-worksheet.html?"+q.toString()}
 function renderPlan(){
-  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;
+  const c=planLbl(),sb=$("fSubject").value,t=$("fTerm").value;
   $("planCard").hidden=!S.rows.length&&!S.plan;
   $("planTitle").textContent=`${c} · ${sb} · Term ${t}`;
   $("phSchool").textContent=SCHOOL_NAME;$("phTitle").textContent=`Lesson plan — ${c} · ${sb} · Term ${t}`+(S.plan&&S.plan.teacher_name?" · "+S.plan.teacher_name:"");
@@ -1454,7 +1465,7 @@ async function suggestHomework(){
         const res=await askAI(`Class: ${$("fClass").value}\nSubject: ${$("fSubject").value}\nChapter: ${title}\nSuggest ONLY the "homework" for these lessons (already planned — do not change them):\n${part.map((i,k)=>"Lesson "+(k+1)+" (p. "+(S.rows[i].pages||"?")+"): "+S.rows[i].teach).join("\n")}\n${txt?"Text of these pages from the school's own book:\n<<<"+txt+"\n>>>\n":""}\nReply with JSON only: {"rows":[{"homework":""}]} with exactly ${part.length} rows in the same order.`,Math.min(4000,300*part.length+400));
         (res.rows||[]).slice(0,part.length).forEach((x,k)=>{if(x&&x.homework)S.rows[part[k]].homework=String(x.homework)});
         done+=part.length}}
-    await loadHwTT();matchHwTT(S.rows,$("fClass").value,$("fSubject").value);
+    await loadHwTT();matchHwTT(S.rows,planCls(),$("fSubject").value);
     try{await refreshHwOnly()}catch(e){}
     renderPlan();queueSave();toast("Homework suggested for "+todo.length+" lessons. Change or clear any you don't want.")}
   catch(e){renderPlan();queueSave();toast("AI could not finish: "+e.message+(done?" — the ones done so far are kept.":""),true)}
@@ -1491,7 +1502,7 @@ let saveT;function queueSave(){S.dirty=true;$("savedNote").textContent="Saving�
 async function saveNow(fresh){
   if(locked())return;clearTimeout(saveT);
   if(S.saving){S.again=true;return}S.saving=true;
-  try{const d=await tp("save",{class_name:$("fClass").value,subject:$("fSubject").value,term:$("fTerm").value,
+  try{const d=await tp("save",{class_name:planCls(),subject:$("fSubject").value,term:$("fTerm").value,
       settings:fresh||!S.settings?collectSettings():S.settings,rows:S.rows,teacher_name:TEACHER_NAME});
     S.plan=d.plan;S.dirty=false;$("savedNote").textContent="Saved ✓ "+new Date().toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"});
     const st=$("planStatus");st.className="status st-"+S.plan.status;st.textContent=STAT[S.plan.status];renderActs();loadList()}
@@ -1501,15 +1512,15 @@ window.addEventListener("beforeunload",e=>{if(S.dirty){e.preventDefault();e.retu
 
 /* ---------- open a plan ---------- */
 async function openPlan(){
-  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;lsSet("tp_class",c);lsSet("tp_subject",sb);
+  const c=planCls(),sb=$("fSubject").value,t=$("fTerm").value;lsSet("tp_class",$("fClass").value);lsSet("tp_subject",sb);
   S.plan=null;S.rows=[];S.settings=null;S.own=[];S.acts={};S.openActs=null;$("fPpwOwn").checked=false;BOOK_CLS="";
   try{const d=await tp("get",{class_name:c,subject:sb,term:t});
-    if(d.plan&&$("fClass").value===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
+    if(d.plan&&planCls()===c&&$("fSubject").value===sb&&$("fTerm").value===t){S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];S.settings=d.plan.settings||null;
       const st=S.settings||{};S.acts=st.acts||{};if(st.start)$("fStart").value=st.start;if(st.end)$("fEnd").value=st.end;if(st.days&&st.days.length)setDays(st.days);if(st.ppw)$("fPpw").value=st.ppw;$("fPpwOwn").checked=!!st.ppw_own;$("fNote").value=st.note||"";if($("fHwStyle"))$("fHwStyle").value=st.hw_style==="cursive"?"cursive":"print";$("fTb").value=st.tb!=null&&[...$("fTb").options].some(o=>o.value===String(st.tb))?String(st.tb):"auto";
       S.own=(st.chapters||[]).filter(x=>String(x.key).startsWith("O:")).map(x=>({title:x.title,from:x.from,to:x.to,frac:x.frac||0}));BOOK_CLS=st.book_cls||""}}
   catch(e){showErr("Could not open the plan: "+e.message)}
   $("prog").hidden=true;renderChapters().then(renderWbBox).then(modelHint);renderPlan();modelHint();loadHolidays().then(loadTimetable)}
-["fClass","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass")fillSubjects($("fSubject").value);
+["fClass","fSec","fSubject","fTerm"].forEach(id=>$(id).addEventListener("change",()=>{if(id==="fClass"){fillSubjects($("fSubject").value);secShow()}
   if(S.dirty)saveNow().catch(()=>{});openPlan()}));
 $("fStart").addEventListener("change",()=>lsSet("tp_start",$("fStart").value));
 $("fHwStyle").addEventListener("change",()=>{if(isHand()){S.settings=S.settings?Object.assign({},S.settings,{chapters:[]}):null;renderUnits()}});$("fEnd").addEventListener("change",()=>lsSet("tp_end",$("fEnd").value));
@@ -1525,7 +1536,7 @@ async function loadList(useCache){
     const CO=["Pre KG","LKG","UKG"],cOrd=x=>{const i=CO.indexOf(x);return i>=0?i:3+(parseInt(String(x).replace(/\D/g,""))||0)};
     const cls=[...new Set(ps.map(p=>p.class_name))].sort((a,b)=>cOrd(a)-cOrd(b));
     const need=k=>ps.some(p=>p.class_name===k&&(p.status==="waiting"||p.status==="returned"));
-    if(LSEL!=="all"&&!cls.includes(LSEL))LSEL=cls.find(need)||(cls.includes($("fClass").value)?$("fClass").value:cls[0]);
+    if(LSEL!=="all"&&!cls.includes(LSEL))LSEL=cls.find(need)||(cls.includes(planCls())?planCls():cls[0]);
     const chips=cls.length>1?`<div class="lchips" style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 14px">${cls.concat(["all"]).map(k=>{const on=LSEL===k,n=k==="all"?ps.length:ps.filter(p=>p.class_name===k).length,
         dot=k==="all"?"":need(k)?"#C9A84C":ps.some(p=>p.class_name===k&&p.behind_count)?"#A3241B":"#2E7D4F";
         return `<button type="button" data-lc="${esc(k)}" style="display:inline-flex;align-items:center;gap:7px;padding:7px 14px;border-radius:999px;cursor:pointer;font-family:inherit;font-weight:800;font-size:.88rem;min-height:40px;${on?"background:#6B0F1A;color:#E8C96A;border:1.5px solid #6B0F1A":"background:#FFFBF4;color:#6B0F1A;border:1.5px solid #EDD9A3"}">${dot?`<span style="width:9px;height:9px;border-radius:50%;background:${dot}"></span>`:""}${k==="all"?"All classes":esc(k)} <span style="font-weight:600;opacity:.8">${n}</span></button>`}).join("")}</div>`:"";
@@ -1541,14 +1552,16 @@ $("plist").addEventListener("click",async e=>{const lc=e.target.closest("[data-l
       if(S.plan&&String(S.plan.id)===del.dataset.id){clearTimeout(saveT);S.dirty=false;openPlan()}loadList()}catch(err){toast(err.message,true)}return}
   const tr=e.target.closest("tr.go");if(!tr)return;
   document.body.classList.add("focus");document.body.classList.remove("focus-set");$("fbSet").textContent="⚙ Plan settings";window.scrollTo(0,0);
-  if(S.dirty)saveNow().catch(()=>{});$("fClass").value=tr.dataset.c;fillSubjects(tr.dataset.s);$("fSubject").value=tr.dataset.s;$("fTerm").value=tr.dataset.t;
+  if(S.dirty)saveNow().catch(()=>{});setPlanCls(tr.dataset.c);fillSubjects(tr.dataset.s);$("fSubject").value=tr.dataset.s;$("fTerm").value=tr.dataset.t;
   openPlan().then(()=>window.scrollTo(0,0))});
 $("fbBack").onclick=()=>{document.body.classList.remove("focus","focus-set");loadList();$("listCard").scrollIntoView()};
 $("fbSet").onclick=()=>{const on=document.body.classList.toggle("focus-set");$("fbSet").textContent=on?"✕ Hide settings":"⚙ Plan settings";if(on)$("setupCard").scrollIntoView({behavior:"smooth"})};
 
 /* ---------- start ---------- */
 if(!SCHOOL_ID)showErr("Your school was not found in this login. Please log out and log in again.");
-loadList();openPlan();loadModel();
+(async()=>{try{const r=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"sections"})});const d=await r.json();if(d&&d.success&&d.sections){SECTIONS=d.sections;const L=lsGet("tp_sec");secShow();if(L&&(SECTIONS[$("fClass").value]||[]).includes(L)){$("fSec").value=L}}}catch(e){}
+  loadList();openPlan();loadModel()})();
+$("fSec").addEventListener("change",()=>lsSet("tp_sec",$("fSec").value));
 })();
 </script>
 </body>

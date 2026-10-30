@@ -52,6 +52,13 @@ module.exports.config = { api: { bodyParser: { sizeLimit: '1mb' } } };
 const SB_HOST = 'pzxosqukijwpjdlfdfst.supabase.co';
 const CLASSES = ['Pre KG', 'LKG', 'UKG', 'Class 1', 'Class 2', 'Class 3', 'Class 4', 'Class 5',
                  'Class 6', 'Class 7', 'Class 8', 'Class 9', 'Class 10', 'Class 11', 'Class 12'];
+// Sections (Oct 2026): "LKG B" etc. are real classes too (see api/homework.js).
+const okCls = function (c) {
+  c = String(c || '');
+  if (CLASSES.indexOf(c) !== -1) return true;
+  const m = c.match(/^(.+) ([B-F])$/);
+  return !!(m && CLASSES.indexOf(m[1]) !== -1);
+};
 const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable'];
 const timetableApi = require('./timetable.js');
 const MAX_FAILS = 5;
@@ -198,7 +205,7 @@ function cleanClasses(v) {
   return v.slice(0, 60).map(function (c) {
     return { class_name: clip(c && c.class_name, 20), subject: clip(c && c.subject, 40) };
   }).filter(function (c) {
-    if (CLASSES.indexOf(c.class_name) === -1 || !c.subject) return false;
+    if (!okCls(c.class_name) || !c.subject) return false;
     const k = c.class_name + '|' + c.subject.toLowerCase();
     if (seen[k]) return false;
     seen[k] = 1; return true;
