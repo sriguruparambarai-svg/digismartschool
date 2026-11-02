@@ -22,7 +22,12 @@
    • TeachBot runs on its own turns (periods ticked "AI class" in the ERP master timetable, or a
      test turn chosen here). The class never waits for it: each turn takes the next TeachBot
      class of the chapter the class is on (2 per chapter; 1 in Maths).
-  Reads books, workbook, ERP timetable, holidays and the current plan. Never saves.
+  Reads books, workbook, ERP timetable, holidays and the current plan.
+  Nov 2026: "Use this plan" — the principal makes the new-way plan the REAL plan for one class +
+  subject + term (class by class). Lessons before the plan's start date and lessons ticked as taught
+  are kept; the current plan's other lessons are replaced. Saved through /api/term-plan (save, then
+  approve), so teachers, My Day, Tomorrow, Homework Planner and Academic Control follow it.
+  The old plan is kept in this browser so "Put back the old plan" can undo it.
 -->
 <style>
 :root{
@@ -106,12 +111,12 @@ details summary{cursor:pointer;font-weight:700;color:var(--accent)}
 <body>
 <div class="band"><div class="in">
   <img id="schoolLogo" alt="" hidden>
-  <div class="grow"><div class="sub" id="schoolName">TeachBot</div><h1>Lesson Planner — test <span class="testtag">TEST · NOTHING IS SAVED</span></h1></div>
+  <div class="grow"><div class="sub" id="schoolName">TeachBot</div><h1>Lesson Planner — test <span class="testtag">TEST · SAVES ONLY WHEN YOU PRESS “USE THIS PLAN”</span></h1></div>
   <a class="back" href="dashboard.html">← School Admin</a>
 </div></div>
 
 <div class="wrap">
-  <div class="notice">This page only <b>shows</b> a plan made the new way, beside your current plan. Nothing here is saved. Teachers, My Day, Tomorrow, the Homework Planner, Academic Control and parents keep using the real Lesson Planner.</div>
+  <div class="notice">Make a plan the new way and compare it with your current plan. Nothing changes until you press <b>✅ Use this plan</b> — then that one class and subject follow the new plan (teachers, My Day, Tomorrow, the Homework Planner, Academic Control and parents). Every other class keeps its current plan. You can switch classes one at a time.</div>
   <div class="err" id="topErr" hidden></div>
 
   <div class="card" id="formCard">
@@ -140,7 +145,7 @@ details summary{cursor:pointer;font-weight:700;color:var(--accent)}
     <p class="hint" id="chapHelp" style="margin:0"></p>
     <div class="chaps" id="chaps"></div>
     <div class="fit" id="fit"></div>
-    <div class="btnrow"><button class="btn" id="makeBtn" type="button">✨ Make the test plan</button><span class="hint" id="makeMsg"></span></div>
+    <div class="btnrow"><button class="btn" id="makeBtn" type="button">✨ Make the test plan</button><button class="btn ghost" id="undoBtn" type="button" hidden>↩ Put back the old plan</button><span class="hint" id="makeMsg"></span></div>
   </div>
 
   <div class="card" id="cmpCard" hidden>
@@ -150,7 +155,8 @@ details summary{cursor:pointer;font-weight:700;color:var(--accent)}
   </div>
 
   <div class="card" id="planCard" hidden>
-    <div class="btnrow noprint" style="margin-top:0;justify-content:space-between"><h2>Test plan — classroom</h2><button class="btn ghost" type="button" onclick="window.print()">🖨 Print</button></div>
+    <div class="btnrow noprint" style="margin-top:0;justify-content:space-between"><h2>Test plan — classroom</h2><span><button class="btn" id="useBtn" type="button" hidden>✅ Use this plan</button> <button class="btn ghost" type="button" onclick="window.print()">🖨 Print</button></span></div>
+    <p class="hint noprint" id="useMsg" style="margin:6px 0 0"></p>
     <p class="hint" id="planHelp" style="margin:6px 0 0"></p>
     <div class="tablewrap"><table class="plan" id="planTable"></table></div>
   </div>
@@ -276,7 +282,7 @@ function testTurns(start,end){const day=$("fTurnDay").value,every=+$("fTurnEvery
   return out}
 
 /* ---------- state ---------- */
-let CHOPTS=[],CUR=null,ROOM=[],TURNS=[],SLOT_NOTE="",FEW=false;
+let CHOPTS=[],CUR=null,ROOM=[],TURNS=[],SLOT_NOTE="",FEW=false,LAST=null;   // LAST = the plan just made, waiting for "Use this plan"
 const weeks=()=>Math.max(1,(parse($("fEnd").value)-parse($("fStart").value))/(7*864e5));
 
 function fillClasses(){$("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");$("fClass").value="Class 7"}
@@ -284,6 +290,7 @@ function fillSubjects(){const subs=subjectsFor($("fClass").value),v=$("fSubject"
 
 async function loadAll(){
   $("makeMsg").textContent="";["cmpCard","planCard","tbCard","curCard"].forEach(id=>$(id).hidden=true);$("topErr").hidden=true;
+  LAST=null;$("useBtn").hidden=true;$("useMsg").textContent="";
   const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value,W=way(sb);
   $("chaps").innerHTML='<div class="hint"><span class="spin"></span>Loading the books, workbook and current plan…</div>';
   CUR=null;try{const d=await tp("get",{class_name:c,subject:sb,term:t});CUR=d.plan||null}
@@ -292,6 +299,8 @@ async function loadAll(){
   if(st.end)$("fEnd").value=st.end;else if(!$("fEnd").value)$("fEnd").value="2026-12-11";
   const tm=tomorrow();$("fStart").value=st.start&&st.start>tm?st.start:tm;
   $("curHint").textContent=CUR?"Current plan found: "+(CUR.rows||[]).length+" periods, "+(CUR.rows||[]).filter(r=>r&&r.done).length+" ticked as taught. The test plan starts from "+nice($("fStart").value)+".":"No current plan for "+c+" "+sb+" Term "+t+".";
+  if(CUR&&/^New way/.test(st.note||""))$("curHint").textContent+=" ✅ This subject already follows the new way.";
+  showUndo();
   try{await loadWorkbook()}catch(e){}
   CHOPTS=[];
   const rows=(CUR&&CUR.rows)||[],planned=new Set((st.chapters||[]).map(x=>x.title));
@@ -490,7 +499,10 @@ $("makeBtn").onclick=async()=>{if(BUSY)return;const chs=picked();if(!chs.length)
   try{const rows=[],tb=[];
     for(const ch of chs){const r=W==="hindi"?planHindi(ch):W==="maths"?await planMaths(ch,msg):await planBook(ch,msg);rows.push(...r.rows);tb.push(...r.tb)}
     placeRoom(rows);const tbRows=placeTurns(tb,rows);
-    renderPlan(rows);renderTb(tbRows);renderCompare(rows,tbRows,chs);$("makeMsg").textContent="Done. Nothing was saved.";
+    renderPlan(rows);renderTb(tbRows);renderCompare(rows,tbRows,chs);
+    LAST={cls:$("fClass").value,sb:$("fSubject").value,term:$("fTerm").value,start:$("fStart").value,end:$("fEnd").value,rows,tb:tbRows,chs};
+    $("useBtn").hidden=false;$("useBtn").textContent="✅ Use this plan for "+LAST.cls+" "+LAST.sb;
+    $("makeMsg").textContent="Done. Not saved yet — press “Use this plan” to make it the real plan for "+LAST.cls+" "+LAST.sb+".";
     $("cmpCard").scrollIntoView({behavior:"smooth",block:"start"})}
   catch(e){$("makeMsg").textContent="";showErr("Could not make the test plan: "+e.message)}
   BUSY=false;$("makeBtn").disabled=false};
@@ -544,9 +556,68 @@ function renderCurrent(){
   rows.slice().sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:1).forEach(r=>{h+=`<tr><td>${esc(nice(r.date))}</td><td>${esc(N[r.type]||r.type||"")}</td><td><b>${esc(r.chapter||"")}</b><br><span class="small">${esc(String(r.teach||"").slice(0,220))}</span></td><td>${r.done?"✓":""}</td></tr>`});
   $("curTable").innerHTML=h+"</tbody>";$("curCard").hidden=false}
 
+/* ---------- use this plan (Nov 2026): make the new-way plan the real one, one class + subject at a time ---------- */
+const ROWTYPE={teach:"teach",classwork:"classwork",hw:"hwday",test:"test",math:"teach",hindi:"classwork"};
+const bkKey=()=>"lpt_backup|"+$("fClass").value+"|"+$("fSubject").value+"|"+$("fTerm").value;
+function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v);return true}catch(e){return false}}
+function showUndo(){$("undoBtn").hidden=!lsGet(bkKey())}
+const blankRow=()=>({date:"",chapter:"",pages:"",teach:"",class_act:"",home_act:"",ground_act:"",homework:"",type:"",workbook:"",period:"",room:"",act:"",speak:"",write:"",done:false});
+function realRows(L){
+  const out=[];
+  L.rows.forEach(r=>{if(!r.date)return;
+    const lab=KNAME[r.kind].replace(/^\S+\s/,"")+(r.n?" "+r.n+(r.of?" of "+r.of:""):"");
+    out.push(Object.assign(blankRow(),{date:r.date,period:r.period||"",chapter:r.chapter,pages:r.pages||"",type:ROWTYPE[r.kind]||"classwork",
+      teach:lab+": "+String(r.do||"").trim(),homework:r.homework||"",workbook:r.kind==="hw"?(r.wb||""):""}))});
+  L.tb.forEach(x=>{if(x.free||x.missed||!x.date)return;
+    out.push(Object.assign(blankRow(),{date:x.date,period:x.period||"",room:"ai",type:"teachbot",chapter:x.chapter,pages:x.pages||"",
+      teach:"TeachBot "+(x.of>1?"Part "+x.part+" of "+x.of:"class")+" (AI room, class teacher goes with the class): "+String(x.do||"").trim()}))});
+  return out}
+$("useBtn").onclick=async()=>{if(!LAST||BUSY)return;const L=LAST;
+  if(L.cls!==$("fClass").value||L.sb!==$("fSubject").value||L.term!==$("fTerm").value){$("useMsg").textContent="Class or subject changed. Make the plan again.";return}
+  const old=((CUR&&CUR.rows)||[]).filter(Boolean),keep=old.filter(r=>r.done||(r.date&&r.date<L.start)),gone=old.length-keep.length;
+  const fresh=realRows(L),over=L.rows.filter(r=>!r.date).length,missed=L.tb.filter(x=>x.missed&&!x.free).length;
+  if(!fresh.length){$("useMsg").textContent="This plan has no dated lessons to use.";return}
+  let q=`Use this plan for ${L.cls} ${L.sb} (Term ${L.term})?\n\n`+
+    `• Kept as they are: ${keep.length} lessons (before ${nice(L.start)}, or ticked as taught).\n`+
+    `• ${gone} lessons of the current plan from ${nice(L.start)} are replaced by the ${fresh.length} lessons of this plan.\n`;
+  if(over)q+=`• ${over} classroom periods do not fit before the term end and will be left out.\n`;
+  if(missed)q+=`• ${missed} TeachBot classes have no turn and will be left out.\n`;
+  q+=`\nTeachers, My Day, Tomorrow, the Homework Planner, Academic Control and parents will follow the new plan for this subject. Other classes and subjects are not touched.`;
+  if(!confirm(q))return;
+  BUSY=true;$("useBtn").disabled=true;$("useMsg").innerHTML='<span class="spin"></span>Saving…';
+  try{
+    // keep the old plan in this browser, so it can be put back
+    if(!lsGet(bkKey()))lsSet(bkKey(),JSON.stringify(CUR?{had:true,settings:CUR.settings||{},rows:old,at:istToday()}:{had:false,at:istToday()}));
+    const s=CUR&&CUR.settings?JSON.parse(JSON.stringify(CUR.settings)):{start:L.start,end:L.end,days:["Mon","Tue","Wed","Thu","Fri"],ppw:Math.max(1,Math.min(14,Math.round(ROOM.length/weeks()))),chapters:[]};
+    if(!s.start)s.start=L.start;if(L.end)s.end=L.end;
+    const chl=Array.isArray(s.chapters)?s.chapters:[];
+    L.chs.forEach(ch=>{if(!chl.some(x=>x.title===ch.title))chl.push({key:ch.key,title:ch.title,book:ch.bookObj?(ch.bookObj.book_name||ch.bookObj.title||""):"",from:ch.from||null,to:ch.to||null})});
+    s.chapters=chl.slice(0,40);
+    s.note=("New way (Lesson Planner test) used from "+nice(L.start)+". "+String(s.note||"").replace(/^New way \(Lesson Planner test\)[^.]*\.\s*/,"")).slice(0,500);
+    const rows=keep.concat(fresh).sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:(a.date||"9")>(b.date||"9")?1:0);
+    let d=await tp("save",{class_name:L.cls,subject:L.sb,term:L.term,settings:s,rows});
+    if(d.plan&&d.plan.status!=="approved")d=await tp("approve",{id:d.plan.id});
+    CUR=d.plan||CUR;LAST=null;$("useBtn").hidden=true;
+    $("useMsg").innerHTML="✅ Saved and approved. "+esc(L.cls+" "+L.sb)+" now follows the new plan from "+esc(nice(L.start))+".";
+    $("curHint").textContent="Current plan: "+((CUR&&CUR.rows)||[]).length+" periods. ✅ This subject now follows the new way.";
+    renderCurrent();showUndo()}
+  catch(e){$("useMsg").textContent="";showErr("Could not use this plan: "+e.message)}
+  BUSY=false;$("useBtn").disabled=false};
+$("undoBtn").onclick=async()=>{if(BUSY)return;let b=null;try{b=JSON.parse(lsGet(bkKey())||"null")}catch(e){b=null}
+  if(!b){showUndo();return}
+  const c=$("fClass").value,sb=$("fSubject").value,t=$("fTerm").value;
+  if(!confirm(`Put back the old plan for ${c} ${sb} (Term ${t}), as it was on ${nice(b.at)}?\n\nLessons ticked as taught since then will need ticking again.`+(b.had?"":"\n\nThere was no plan before, so the new plan will be removed.")))return;
+  BUSY=true;$("undoBtn").disabled=true;
+  try{if(b.had)await tp("save",{class_name:c,subject:sb,term:t,settings:b.settings,rows:b.rows});
+    else if(CUR&&CUR.id)await tp("delete",{id:CUR.id});
+    lsSet(bkKey(),null);$("makeMsg").textContent="↩ The old plan is back for "+c+" "+sb+".";await loadAll()}
+  catch(e){showErr("Could not put back the old plan: "+e.message)}
+  BUSY=false;$("undoBtn").disabled=false};
+
 /* ---------- start ---------- */
 $("chaps").addEventListener("change",showFit);$("chaps").addEventListener("input",showFit);
-["fStart","fEnd","fTurnDay","fTurnEvery"].forEach(id=>$(id).addEventListener("change",()=>{computeSlots();showFit()}));
+["fStart","fEnd","fTurnDay","fTurnEvery"].forEach(id=>$(id).addEventListener("change",()=>{computeSlots();showFit();
+  if(LAST){LAST=null;$("useBtn").hidden=true;$("useMsg").textContent="Dates or turns changed — make the plan again before using it."}}));
 $("fClass").onchange=()=>{fillSubjects();loadAll()};$("fSubject").onchange=loadAll;$("fTerm").onchange=loadAll;
 fillClasses();fillSubjects();
 Promise.all([loadTimetable(),loadHolidays()]).then(loadAll).catch(e=>showErr(e.message));
