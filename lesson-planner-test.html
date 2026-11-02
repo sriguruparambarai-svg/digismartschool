@@ -269,11 +269,18 @@ const wbSlots=(cls,w)=>{try{return w.own?WBPICKS._own.plans[w.own].slots:WBPICKS
 const words=t=>String(t||"").toLowerCase().replace(/^ch(apter)?\s*\d+\.?\s*/,"").split(/[^a-z஀-௿ऀ-ॿ]+/).filter(x=>x.length>2);
 function bestWb(title,list){const a=words(title);let best=null,sc=0;list.forEach(x=>{const b=words(x.title);const m=a.filter(y=>b.includes(y)).length;if(m>sc){sc=m;best=x}});return best}
 // the school's saved homework of one workbook chapter: ["Home Work 1: Fill in the blanks (5); Match (4)", …]
+// Nov 2026: with the exact question numbers as printed (section letter + Q numbers), e.g. "Home Work 4: C. Answer in two marks — Q4–5"
+const qNums=idx=>{const a=idx.map(k=>+k+1).sort((x,y)=>x-y),out=[];let i=0;
+  while(i<a.length){let j=i;while(j+1<a.length&&a[j+1]===a[j]+1)j++;out.push(j>i?"Q"+a[i]+"–"+a[j]:"Q"+a[i]);i=j+1}return out.join(", ")};
+const wbSlotText=(w,s)=>w.sections.filter(sec=>s.picks&&s.picks[sec.id]&&s.picks[sec.id].length)
+  .map(sec=>(sec.id?sec.id+". ":"")+String(sec.head||"").replace(/\s+/g," ").split(/[.।]/)[0].trim()+" — "+qNums(s.picks[sec.id])+(s.marks&&s.marks[sec.id]?" ("+s.marks[sec.id]+")":""));
 function wbHomeworks(cls,w){if(!w)return[];const slots=wbSlots(cls,w);
   if(!slots)return[];
-  return slots.filter(s=>s.kind==="hw").map(s=>{const heads=w.sections.filter(sec=>s.picks&&s.picks[sec.id]&&s.picks[sec.id].length)
-      .map(sec=>String(sec.head||"").replace(/\s+/g," ").split(/[.।]/)[0].trim()+" ("+s.picks[sec.id].length+")");
-    return heads.length?(s.name||s.id)+": "+heads.slice(0,4).join("; "):""}).filter(Boolean)}
+  return slots.filter(s=>s.kind==="hw").map(s=>{const heads=wbSlotText(w,s);
+    return heads.length?(s.name||s.id)+": "+heads.join("; "):""}).filter(Boolean)}
+// the workbook's Class Test page: "A. Choose the correct answer — Q1–10; B. …"
+function wbTest(cls,w){if(!w)return"";const slots=wbSlots(cls,w);if(!slots)return"";
+  const t=slots.find(s=>s&&s.kind==="test");return t?wbSlotText(w,t).join("; "):""}
 
 // LKG–Class 2 Maths (Nov 2026): each workbook homework with its questions, for the AI to match to the book.
 // No saved homework picks → each workbook section is one homework.
@@ -353,7 +360,7 @@ async function loadAll(){
       chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
     (st.chapters||[]).forEach(x=>{if(!CHOPTS.some(o=>o.key===x.key||o.title===x.title))CHOPTS.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
     const wl=wbList(c,sb);
-    CHOPTS.forEach(o=>{o.wb=wl.length?bestWb(o.title,wl):null;o.wbHw=wbHomeworks(c,o.wb);o.hwN=o.wbHw.length>=1?o.wbHw.length:6});
+    CHOPTS.forEach(o=>{o.wb=wl.length?bestWb(o.title,wl):null;o.wbHw=wbHomeworks(c,o.wb);o.wbTest=wbTest(c,o.wb);o.hwN=o.wbHw.length>=1?o.wbHw.length:6});
     if(W==="wbmaths"){   // the workbook decides: no book chapters → the workbook's chapters are the list
       if(!CHOPTS.length)wl.forEach(w=>CHOPTS.push({key:"W:"+(w.own||w.i),title:"Ch "+w.no+". "+w.title.replace(/\s+/g," "),bookObj:null,from:null,to:null,wb:w,wbHw:[]}));
       CHOPTS.forEach(o=>{o.wbD=wbHwDetail(c,o.wb);o.hwN=o.wbD.length})}
@@ -372,7 +379,7 @@ async function loadAll(){
     const startBox=o.hindi||W==="maths"||W==="wbmaths"
       ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"lesson"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
       :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:12},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
-    return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
+    return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${startBox}</span><span class="pg">${esc(info)}${o.wb&&!o.wbHw.length&&W==="book"?'<br><b style="color:#b00020">⚠ Workbook homework not saved for the school — open Workbook Generator, choose this chapter and press “Save them for the school”. Until then the AI guesses the homework.</b>':""}</span>${box}</label>`}).join("")
     :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
   computeSlots();showFit();renderCurrent()}
 
@@ -467,7 +474,7 @@ async function planBook(ch,msg){
   for(let i=1;i<=ch.hwN;i++)kinds.push({kind:"hw",n:i,of:ch.hwN,pages:pg(all),wb:ch.wbHw[i-1]||""});
   kinds.push({kind:"test",pages:pg(all)});
   const bk=bookKinds(ch),skipped=kinds.slice(0,bk.at).map(k=>k.kind),past=bk.at>0;kinds=kinds.slice(bk.at);
-  const doneNote=past?`\nALREADY DONE in class before this plan: ${skipped.includes("teach")?"teaching, ":""}${skipped.filter(x=>x==="classwork").length?"class work "+skipped.filter(x=>x==="classwork").length+" of 3, ":""}${skipped.filter(x=>x==="hw").length?"homework 1–"+skipped.filter(x=>x==="hw").length+", ":""}so plan ONLY the periods listed below, numbering homework as given. Still split the exercises over ALL ${ch.hwN} homeworks (and 3 class work periods) as if from the start, so the ones listed get the right questions.\n`:"";
+  const doneNote=past?`\nALREADY DONE in class before this plan: ${skipped.includes("teach")?"teaching, ":""}${skipped.filter(x=>x==="classwork").length?"class work "+skipped.filter(x=>x==="classwork").length+" of 3, ":""}${skipped.filter(x=>x==="hw").length?"homework 1–"+skipped.filter(x=>x==="hw").length+", ":""}so plan ONLY the periods listed below, numbering homework as given.${ch.wbHw.length?" Each homework's questions are fixed by the workbook, given below.":" Still split the exercises over ALL "+ch.hwN+" homeworks (and 3 class work periods) as if from the start, so the ones listed get the right questions."}\n`:"";
   const tbWanted=!/^hw|^test/.test(ch.start||"teach");
   const list=kinds.map((k,i)=>`${i+1}. ${{teach:"TEACH "+k.n+" of "+k.of+" — book "+k.pages,classwork:"CLASS WORK "+k.n+" of 3",hw:"HOMEWORK "+k.n+" of "+k.of+(k.wb?" — workbook "+k.wb:""),test:"CLASS TEST"}[k.kind]}`).join("\n");
   msg("Planning "+ch.title+" ("+kinds.length+" classroom periods + TeachBot)…");
@@ -476,8 +483,8 @@ ${cp.scanned?"The book pages are pictures, so plan from the chapter name and kee
 ${doneNote}HOW THIS SCHOOL RUNS A CHAPTER (classroom, in this order):
 - TEACH: the teacher teaches the given pages. The first 10 minutes, children read those pages aloud in turns and the teacher corrects pronunciation — name the hard words. Then teach the pages: numbered steps, each starting with the page.
 - CLASS WORK 1–3: children WRITE the class work in their class work notebook. Split ALL the chapter's book-back exercises (question numbers as printed) across the 3 periods, in book order.${FEW?" The teacher did not teach this chapter (TeachBot did), so CLASS WORK 1 starts with 10 minutes of children reading the chapter aloud with pronunciation correction.":""}
-- HOMEWORK n: in class, revise the homework questions one by one (orally / on the board) so every child knows the answers; then give exactly those questions as that day's homework.${ch.wbHw.length?" Use the workbook homework given for each.":" There is no workbook: split the book-back exercises into "+ch.hwN+" homework sets, small and in order, so all exercises are covered."}
-- CLASS TEST: a short written test on the whole chapter — which questions, total marks.
+- HOMEWORK n: in class, revise the homework questions one by one (orally / on the board) so every child knows the answers; then give exactly those questions as that day's homework.${ch.wbHw.length?" This school has a WORKBOOK: each HOMEWORK period's questions are EXACTLY the workbook homework given with it below (same section letters and question numbers as printed in the workbook) — never change, add or drop questions, and never use questions from another homework.":" There is no workbook: split the book-back exercises into "+ch.hwN+" homework sets, small and in order, so all exercises are covered."}
+- CLASS TEST: ${ch.wbTest?"the workbook's own printed Class Test page — exactly these questions: "+ch.wbTest+". Do not choose other questions.":"a short written test on the whole chapter — which questions, total marks."}
 TEACHBOT (separate, in the AI room): 2 TeachBot classes — Part 1 covers ${pg(half[0])}, Part 2 covers ${pg(half[1])}. TeachBot explains every concept in Tamil + English with many examples.${FEW?" Here TeachBot is the ONLY teaching of this chapter, so it must cover everything.":""}
 
 The classroom periods:
@@ -491,6 +498,8 @@ FIRST find every book-back exercise in the BOOK TEXT (at the end of the chapter)
 Reply as {"exercises":"…","teachbot":["what TeachBot Part 1 covers","what Part 2 covers"],"periods":[{"do":"","homework":""}, …]} with exactly ${kinds.length} periods in the same order. "homework" is ONE short line a parent understands (start with "Workbook:" or "Homework note:"); "" for TEACH periods and the CLASS TEST.`,12000);
   const got=Array.isArray(out.periods)?out.periods:[],tb=Array.isArray(out.teachbot)?out.teachbot:[];
   const rows=kinds.map((k,i)=>Object.assign({chapter:ch.title},k,got[i]||{}));
+  rows.forEach(r=>{if(r.kind==="hw"&&r.wb)r.homework="Workbook: "+r.wb;
+    if(r.kind==="test"&&ch.wbTest&&!/Class Test page/i.test(r.do||""))r.do="CLASS TEST — workbook Class Test page: "+ch.wbTest+"."+(r.do?" "+r.do:"")});
   return{rows,tb:tbWanted?[{chapter:ch.title,part:1,of:2,pages:pg(half[0]),do:tb[0]||""},{chapter:ch.title,part:2,of:2,pages:pg(half[1]),do:tb[1]||""}]:[]}}
 
 /* ---------- Maths, Class 3–12 (Nov 2026): Examples if the book has them, else topics ---------- */
