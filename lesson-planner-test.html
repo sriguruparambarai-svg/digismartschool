@@ -335,7 +335,7 @@ function testTurns(start,end){const day=$("fTurnDay").value,every=+$("fTurnEvery
   return out}
 
 /* ---------- state ---------- */
-let CHOPTS=[],CUR=null,ROOM=[],TURNS=[],SLOT_NOTE="",FEW=false,LAST=null;   // LAST = the plan just made, waiting for "Use this plan"
+let LOADN=0,CHOPTS=[],CUR=null,ROOM=[],TURNS=[],SLOT_NOTE="",FEW=false,LAST=null;   // LAST = the plan just made, waiting for "Use this plan"
 const weeks=()=>Math.max(1,(parse($("fEnd").value)-parse($("fStart").value))/(7*864e5));
 
 function fillClasses(){$("fClass").innerHTML=CLASSES.map(c=>`<option>${c}</option>`).join("");$("fClass").value="Class 7"}
@@ -355,7 +355,7 @@ async function loadAll(){
   if(CUR&&/^New way/.test(st.note||""))$("curHint").textContent+=" ✅ This subject already follows the new way.";
   showUndo();
   try{await loadWorkbook()}catch(e){}
-  CHOPTS=[];let sortNote="";
+  const mine=[],myLoad=++LOADN;let sortNote="";   // Nov 2026: a slower earlier load (another class) must not add its chapters to this list
   const rows=(CUR&&CUR.rows)||[],planned=new Set((st.chapters||[]).map(x=>x.title));
   const finished=title=>{const rs=rows.filter(r=>r&&r.chapter===title);return rs.length&&rs.every(r=>r.done)};
   if(W==="hindi"){
@@ -363,7 +363,7 @@ async function loadAll(){
     let list=wbList(c,"Hindi");if(list.length<3){const l1=wbList("Class 1","Hindi");if(l1.length>list.length)list=l1}
     list.forEach(w=>{const tr=(w.sections.find(s=>s.type==="trace")||{items:[]}).items||[],ex=w.sections.filter(s=>s.type==="plain");
       const per=/बारहखड़ी/.test(w.title)?3:/व्यंजन/.test(w.title)?6:5;
-      CHOPTS.push({key:"W:"+w.i,title:w.title.replace(/\s+/g," "),hindi:true,letters:tr.map(x=>(x.tr&&(x.tr.label||x.tr.l))||String(x.q||"").split(/\s/)[0]),ex:ex.map(s=>String(s.head||"").replace(/\s+/g," ")),per})});
+      mine.push({key:"W:"+w.i,title:w.title.replace(/\s+/g," "),hindi:true,letters:tr.map(x=>(x.tr&&(x.tr.label||x.tr.l))||String(x.q||"").split(/\s/)[0]),ex:ex.map(s=>String(s.head||"").replace(/\s+/g," ")),per})});
     $("chapHelp").textContent="From the school's Hindi workbook. Each day: the letters are taught as class work, then the same letters are the homework. Next day the homework is checked first. Change how many letters a day.";
   }else{
     const romanT={"1":"I","2":"II","3":"III",i:"I",ii:"II",iii:"III"},bTerm=b=>{const x=String(b.term||"").trim().toLowerCase().replace(/^term\s*/,"");return x?(romanT[x]||x.toUpperCase()):""};
@@ -373,22 +373,23 @@ async function loadAll(){
       if(!b.subject){const g=await subjectGroups(b,chs);   // a term book with every subject in it: keep only this subject's chapters
         if(g&&g.fail)sortNote="This class's book has all subjects in one book, and the subjects could not be sorted just now, so every chapter is shown. Tick only "+sb+" chapters.";
         else if(g)chs=[].concat(...g.filter(x=>subjKey(x.subject)===subjKey(sb)).map(x=>x.chs))}
-      chs.forEach((ch,i)=>CHOPTS.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+      chs.forEach((ch,i)=>mine.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
     // Nov 2026: chapters saved in the current plan are added only when this term has no book chapters (they may be other terms' or other subjects')
-    if(!CHOPTS.length)(st.chapters||[]).forEach(x=>{if(!CHOPTS.some(o=>o.key===x.key||o.title===x.title))CHOPTS.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
+    if(!mine.length)(st.chapters||[]).forEach(x=>{if(!mine.some(o=>o.key===x.key||o.title===x.title))mine.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
     const wl=wbList(c,sb);
-    CHOPTS.forEach(o=>{o.wb=wl.length?bestWb(o.title,wl):null;o.wbHw=wbHomeworks(c,o.wb);o.wbTest=wbTest(c,o.wb);o.wbCw=wbClassWork(c,o.wb);o.hwN=o.wbHw.length>=1?o.wbHw.length:6});
+    mine.forEach(o=>{o.wb=wl.length?bestWb(o.title,wl):null;o.wbHw=wbHomeworks(c,o.wb);o.wbTest=wbTest(c,o.wb);o.wbCw=wbClassWork(c,o.wb);o.hwN=o.wbHw.length>=1?o.wbHw.length:6});
     if(W==="wbmaths"){   // the workbook decides: no book chapters → the workbook's chapters are the list
-      if(!CHOPTS.length)wl.forEach(w=>CHOPTS.push({key:"W:"+(w.own||w.i),title:"Ch "+w.no+". "+w.title.replace(/\s+/g," "),bookObj:null,from:null,to:null,wb:w,wbHw:[]}));
-      CHOPTS.forEach(o=>{o.wbD=wbHwDetail(c,o.wb);o.hwN=o.wbD.length})}
-    if(W==="maths")CHOPTS.forEach(o=>{o.wbD=o.wbHw.length?wbHwDetail(c,o.wb):[];o.hwN=o.wbD.length});   // Class 3+: workbook only when its homework is saved
+      if(!mine.length)wl.forEach(w=>mine.push({key:"W:"+(w.own||w.i),title:"Ch "+w.no+". "+w.title.replace(/\s+/g," "),bookObj:null,from:null,to:null,wb:w,wbHw:[]}));
+      mine.forEach(o=>{o.wbD=wbHwDetail(c,o.wb);o.hwN=o.wbD.length})}
+    if(W==="maths")mine.forEach(o=>{o.wbD=o.wbHw.length?wbHwDetail(c,o.wb):[];o.hwN=o.wbD.length});   // Class 3+: workbook only when its homework is saved
     $("chapHelp").textContent=W==="wbmaths"
       ?"Maths for little classes follows the workbook: each workbook homework decides that day's class. The AI finds the same topic in the textbook, the teacher teaches it, then that homework is given. A big homework gets 2 periods. Next day the homework is checked first. A chapter with no workbook is split into small topics from the book."
       :W==="maths"
       ?"Maths: if the book has worked Examples, each lesson is one Example and the exercise sums solved the same way are the homework. If not, each lesson is one topic: 2–3 exercise sums of that topic are done in class and the same type of sums are the homework. With a saved workbook, the homework is the workbook homework of that topic. Next day the homework is discussed and corrected first."
       :"Each chapter: up to 3 teaching periods (10 minutes reading aloud first) → 3 class work periods → revise Homework 1 in class and give it, Homework 2 … → class test. The number is how many homeworks.";
   }
-  if($("fClass").value!==c||$("fSubject").value!==sb)return;
+  if($("fClass").value!==c||$("fSubject").value!==sb||myLoad!==LOADN)return;
+  CHOPTS=mine;
   if(WBERR)showErr(/log in/i.test(WBERR)?"Your login has expired, so the school's workbook homework could not be read. Please log out and log in again as the principal, then open this page again.":"The school's workbook homework could not be read ("+WBERR+"). Plans made now will not follow the workbook.");
   $("chaps").innerHTML=CHOPTS.length?CHOPTS.map((o,i)=>{const fin=finished(o.title),tick=!fin&&(planned.size&&!o.hindi?planned.has(o.title):true);
     const pages=o.from&&o.to?o.to-o.from+1:0;
