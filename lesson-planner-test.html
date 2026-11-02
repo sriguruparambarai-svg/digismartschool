@@ -28,6 +28,11 @@
   are kept; the current plan's other lessons are replaced. Saved through /api/term-plan (save, then
   approve), so teachers, My Day, Tomorrow, Homework Planner and Academic Control follow it.
   The old plan is kept in this browser so "Put back the old plan" can undo it.
+  Nov 2026: Maths for LKG, UKG, Class 1 and Class 2 follows the WORKBOOK, not Examples: each workbook
+  homework decides that day's class — the AI finds the same topic in the textbook (page numbers), the
+  teacher teaches it, then that homework is given; a big homework gets 2 periods. No workbook for a
+  chapter → the AI splits the book chapter into small topics. Reads the school's own workbook
+  chapters too (Workbook Generator, PLANS._own), e.g. for LKG/UKG.
 -->
 <style>
 :root{
@@ -221,7 +226,7 @@ async function authCall(action,data){
 const SUBJ_ALIAS={maths:"mathematics",math:"mathematics","social science":"social",sst:"social","social studies":"social"};
 const sk=s=>{s=String(s||"").toLowerCase().trim();return SUBJ_ALIAS[s]||s};
 const subjKey=x=>{x=sk(x).replace(/[^a-z]/g,"");return{mathematics:"maths",maths:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",evs:"evs",environmentalstudies:"evs",science:"science"}[x]||x};
-const way=sb=>{const k=subjKey(sb);return k==="maths"?"maths":k==="hindi"?"hindi":"book"};   // book = English, Tamil, Science, SS, EVS
+const way=sb=>{const k=subjKey(sb);return k==="maths"?(num($("fClass").value)<=2?"wbmaths":"maths"):k==="hindi"?"hindi":"book"};   // book = English, Tamil, Science, SS, EVS; wbmaths = LKG–Class 2 Maths (workbook decides)
 
 /* ---------- books + chapters ---------- */
 const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|\./g,"");
@@ -234,26 +239,49 @@ async function bookChapters(b){
   return BOOK_CH[b.id]}
 
 /* ---------- the school's workbook (Workbook Generator) ---------- */
-let WB=null,WBP=null,WBPICKS=null;
+let WB=null,WBP=null,WBPICKS=null;const OWNWB={};   // OWNWB: the school's own workbook chapters (uid → chapter)
+async function sha(parts){const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(parts.join("|")));return Array.from(new Uint8Array(buf)).slice(0,20).map(b=>b.toString(16).padStart(2,"0")).join("")}
+async function loadOwnWb(){const list=WBPICKS&&WBPICKS._own&&Array.isArray(WBPICKS._own.list)?WBPICKS._own.list:[];
+  await Promise.all(list.filter(r=>r&&r.uid&&!OWNWB[r.uid]).map(async r=>{try{const k=await sha(["wbown1",SCHOOL_ID,r.uid]);const x=await fetch("/api/lesson-plan?key="+k);if(!x.ok)return;
+    const d=await x.json(),st=d&&Array.isArray(d.steps)?d.steps:[];if(st[0]&&st[0].sections)OWNWB[r.uid]=st[0]}catch(e){}}))}
+const wbKey=cls=>num(cls)?String(num(cls)):(/^(LKG|UKG)$/.test(cls)?cls:"");
 async function loadWorkbook(){if(WB)return WB;if(WBP)return WBP;
   WBP=(async()=>{const r=await fetch("workbook-generator.html",{cache:"no-cache"});if(!r.ok)throw new Error("Workbook Generator not found");
     const html=await r.text();const a=html.indexOf("<script>\n/*"),b=html.indexOf("\nvar cls = ");
     const a2=a>=0?a:html.lastIndexOf("<script>",b);if(a2<0||b<0)throw new Error("Workbook chapters could not be read.");
     const CL=(new Function(html.slice(a2+8,b)+"\n;return CLASSES;"))();
     try{const r2=await fetch("/api/homework",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"workbook_get"})});const d=await r2.json();WBPICKS=d&&d.success&&d.plan?d.plan:null}catch(e){WBPICKS=null}
+    try{await loadOwnWb()}catch(e){}
     WB=CL;return WB})();
   try{return await WBP}catch(e){WBP=null;throw e}}
-function wbList(cls,sb){const c=String(num(cls)||"");if(!WB||!WB[c])return[];const key=Object.keys(WB[c]).find(k=>sk(k)===sk(sb));
-  return key?WB[c][key].map((x,i)=>({i,key,no:x.no,title:String(x.title||""),write:!!x.write,sections:x.sections||[]})):[]}
+function wbList(cls,sb){const c=wbKey(cls),out=[];
+  if(WB&&WB[c]){const key=Object.keys(WB[c]).find(k=>sk(k)===sk(sb));if(key)WB[c][key].forEach((x,i)=>out.push({i,key,no:x.no,title:String(x.title||""),write:!!x.write,sections:x.sections||[]}))}
+  // the school's own chapters (added in the Workbook Generator from its own books)
+  ((WBPICKS&&WBPICKS._own&&WBPICKS._own.list)||[]).filter(r=>r&&r.cls===c&&sk(r.subj)===sk(sb)&&OWNWB[r.uid])
+    .sort((a,b)=>(parseFloat(a.no)||0)-(parseFloat(b.no)||0)).forEach(r=>{const x=OWNWB[r.uid];out.push({own:r.uid,no:x.no||r.no,title:String(x.title||r.title||""),sections:x.sections||[]})});
+  return out}
+const wbSlots=(cls,w)=>{try{return w.own?WBPICKS._own.plans[w.own].slots:WBPICKS[wbKey(cls)][w.key][w.i].slots}catch(e){return null}};
 const words=t=>String(t||"").toLowerCase().replace(/^ch(apter)?\s*\d+\.?\s*/,"").split(/[^a-z஀-௿ऀ-ॿ]+/).filter(x=>x.length>2);
 function bestWb(title,list){const a=words(title);let best=null,sc=0;list.forEach(x=>{const b=words(x.title);const m=a.filter(y=>b.includes(y)).length;if(m>sc){sc=m;best=x}});return best}
 // the school's saved homework of one workbook chapter: ["Home Work 1: Fill in the blanks (5); Match (4)", …]
-function wbHomeworks(cls,w){if(!w)return[];const c=String(num(cls));let slots=null;
-  try{slots=WBPICKS[c][w.key][w.i].slots}catch(e){slots=null}
+function wbHomeworks(cls,w){if(!w)return[];const slots=wbSlots(cls,w);
   if(!slots)return[];
   return slots.filter(s=>s.kind==="hw").map(s=>{const heads=w.sections.filter(sec=>s.picks&&s.picks[sec.id]&&s.picks[sec.id].length)
       .map(sec=>String(sec.head||"").replace(/\s+/g," ").split(/[.।]/)[0].trim()+" ("+s.picks[sec.id].length+")");
     return heads.length?(s.name||s.id)+": "+heads.slice(0,4).join("; "):""}).filter(Boolean)}
+
+// LKG–Class 2 Maths (Nov 2026): each workbook homework with its questions, for the AI to match to the book.
+// No saved homework picks → each workbook section is one homework.
+const itemText=it=>{if(!it)return"";let t=String(it.q||"");
+  if(it.table&&Array.isArray(it.table.rows))t+=" ["+it.table.rows.slice(0,6).map(r=>(Array.isArray(r)?r:[]).filter(x=>typeof x==="string"&&x.trim()).join(" ")).filter(Boolean).join("; ")+"]";
+  return t.replace(/\s+/g," ").trim().slice(0,160)};
+function wbHwDetail(cls,w){if(!w)return[];const slots=wbSlots(cls,w);
+  const desc=(sec,idx)=>{const its=(sec.items||[]).filter((_,k)=>!idx||idx.includes(k));
+    return{t:String(sec.head||"").replace(/\s+/g," ").trim()+" ("+its.length+"): "+its.slice(0,6).map(itemText).filter(Boolean).join(" | "),n:its.length}};
+  let hw=(slots||[]).filter(s=>s&&s.kind==="hw").map(s=>{const parts=w.sections.filter(sec=>s.picks&&s.picks[sec.id]&&s.picks[sec.id].length).map(sec=>desc(sec,s.picks[sec.id]));
+    return parts.length?{name:s.name||s.id,text:parts.map(p=>p.t).join("\n   "),n:parts.reduce((a,p)=>a+p.n,0)}:null}).filter(Boolean);
+  if(!hw.length)hw=w.sections.filter(sec=>(sec.items||[]).length&&!/^\s*do in class/i.test(String(sec.head||""))).map((sec,k)=>{const p=desc(sec);return{name:"Homework "+(k+1),text:p.t,n:p.n}});
+  return hw}
 
 /* ---------- timetable + holidays ---------- */
 let TT=null,HOL={};
@@ -321,17 +349,22 @@ async function loadAll(){
     (st.chapters||[]).forEach(x=>{if(!CHOPTS.some(o=>o.key===x.key||o.title===x.title))CHOPTS.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
     const wl=wbList(c,sb);
     CHOPTS.forEach(o=>{o.wb=wl.length?bestWb(o.title,wl):null;o.wbHw=wbHomeworks(c,o.wb);o.hwN=o.wbHw.length>=1?o.wbHw.length:6});
-    $("chapHelp").textContent=W==="maths"
+    if(W==="wbmaths"){   // the workbook decides: no book chapters → the workbook's chapters are the list
+      if(!CHOPTS.length)wl.forEach(w=>CHOPTS.push({key:"W:"+(w.own||w.i),title:"Ch "+w.no+". "+w.title.replace(/\s+/g," "),bookObj:null,from:null,to:null,wb:w,wbHw:[]}));
+      CHOPTS.forEach(o=>{o.wbD=wbHwDetail(c,o.wb);o.hwN=o.wbD.length})}
+    $("chapHelp").textContent=W==="wbmaths"
+      ?"Maths for little classes follows the workbook: each workbook homework decides that day's class. The AI finds the same topic in the textbook, the teacher teaches it, then that homework is given. A big homework gets 2 periods. Next day the homework is checked first. A chapter with no workbook is split into small topics from the book."
+      :W==="maths"
       ?"Maths: each period the teacher teaches one Example, and the exercise sums like it are the homework. Next day those sums are discussed and corrected first, then the next Example. The AI finds the Examples and their matching sums in the book."
       :"Each chapter: up to 3 teaching periods (10 minutes reading aloud first) → 3 class work periods → revise Homework 1 in class and give it, Homework 2 … → class test. The number is how many homeworks.";
   }
   if($("fClass").value!==c||$("fSubject").value!==sb)return;
   $("chaps").innerHTML=CHOPTS.length?CHOPTS.map((o,i)=>{const fin=finished(o.title),tick=!fin&&(planned.size&&!o.hindi?planned.has(o.title):true);
     const pages=o.from&&o.to?o.to-o.from+1:0;
-    const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
-    const box=W==="maths"?'<span class="small">from the book</span>':`<input type="number" min="1" max="12" data-n="${i}" value="${o.hindi?o.per:o.hwN}" aria-label="${o.hindi?"Letters a day":"Homeworks"} for ${esc(o.title)}" title="${o.hindi?"Letters a day":"Homeworks"}">`;
-    const startBox=o.hindi||W==="maths"
-      ?`<br><span class="small">Start at ${o.hindi?"letter set":"Example"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
+    const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":W==="wbmaths"?(pages?"pp "+o.from+"–"+o.to:"no book pages")+(o.wb?" · workbook “"+o.wb.title.replace(/\s+/g," ").slice(0,40)+"”: "+o.hwN+" homeworks":" · no workbook — AI splits the book into topics"):(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
+    const box=W==="wbmaths"?'<span class="small">from the workbook</span>':W==="maths"?'<span class="small">from the book</span>':`<input type="number" min="1" max="12" data-n="${i}" value="${o.hindi?o.per:o.hwN}" aria-label="${o.hindi?"Letters a day":"Homeworks"} for ${esc(o.title)}" title="${o.hindi?"Letters a day":"Homeworks"}">`;
+    const startBox=o.hindi||W==="maths"||W==="wbmaths"
+      ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"Example"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
       :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:12},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
     return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
     :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
@@ -339,7 +372,7 @@ async function loadAll(){
 
 function picked(){return[...$("chaps").querySelectorAll("input[data-i]:checked")].map(i=>{const o=CHOPTS[+i.dataset.i],n=$("chaps").querySelector(`[data-n="${i.dataset.i}"]`),st=$("chaps").querySelector(`[data-s="${i.dataset.i}"]`);
   const x=Object.assign({},o,n?(o.hindi?{per:Math.max(1,+n.value||o.per)}:{hwN:Math.max(1,Math.min(12,+n.value||o.hwN))}):{});
-  x.start=st?(st.tagName==="SELECT"?st.value:Math.max(1,+st.value||1)):(o.hindi||way($("fSubject").value)==="maths"?1:"teach");
+  x.start=st?(st.tagName==="SELECT"?st.value:Math.max(1,+st.value||1)):(o.hindi||/maths/.test(way($("fSubject").value))?1:"teach");
   if(typeof x.start==="string"&&/^hw\d+$/.test(x.start)&&+x.start.slice(2)>x.hwN)x.start="hw"+x.hwN;   // never past the last homework
   return x})}
 // the kinds of a book chapter from where the class is now
@@ -361,15 +394,16 @@ function computeSlots(){
 // how many classroom periods one chapter needs (Maths: estimated until the AI reads the book)
 function need(ch){const W=way($("fSubject").value);
   if(ch.hindi)return Math.max(1,Math.ceil(ch.letters.length/ch.per)-(ch.start-1))+(ch.ex.length?2:0)+1;
+  if(W==="wbmaths"){const h=Math.max(1,(ch.hwN||Math.max(3,Math.round((ch.from&&ch.to?ch.to-ch.from+1:6)/1.5)))-(ch.start-1));return Math.ceil(h*1.3)+1}   // some homeworks get 2 periods
   if(W==="maths"){const p=ch.from&&ch.to?ch.to-ch.from+1:10;return Math.max(2,Math.max(4,Math.round(p/2.5))-(ch.start-1))+2}
   const k=bookKinds(ch);return k.all.length-k.at}
 function teachN(ch){if(FEW)return 0;const p=ch.from&&ch.to?ch.to-ch.from+1:8;return p<=5?1:p<=10?2:3}
 function showFit(){const ch=picked(),n=ch.reduce((a,x)=>a+need(x),0),have=ROOM.length,el=$("fit"),W=way($("fSubject").value);
   if(!ch.length){el.className="fit";el.textContent="Tick at least one chapter.";return}
-  const tbNeed=ch.length*(W==="maths"?1:2),tb=TURNS.length;
+  const tbNeed=ch.length*(/maths/.test(W)?1:2),tb=TURNS.length;
   const tbLine=W==="hindi"?"":` · TeachBot: ${tbNeed} classes needed, ${tb} turns this term`+(tb<tbNeed?" (not enough turns)":"");
-  if(n<=have){el.className="fit ok";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${W==="maths"?"about ":""}${n} classroom periods · ${have} left this term`+(have>n?` · ${have-n} free at the end`:"")+tbLine}
-  else{el.className="fit bad";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${W==="maths"?"about ":""}${n} classroom periods but only ${have} are left this term — ${n-have} would go past the term end`+tbLine}}
+  if(n<=have){el.className="fit ok";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${/maths/.test(W)?"about ":""}${n} classroom periods · ${have} left this term`+(have>n?` · ${have-n} free at the end`:"")+tbLine}
+  else{el.className="fit bad";el.textContent=`${ch.length} chapter${ch.length>1?"s":""} need ${/maths/.test(W)?"about ":""}${n} classroom periods but only ${have} are left this term — ${n-have} would go past the term end`+tbLine}}
 
 /* ---------- reading the book pages ---------- */
 async function pdfFor(b){
@@ -479,6 +513,35 @@ Reply as {"examples":[{"example":"Example 1","page":"p. 24","teach":"what it tea
   rows.push({chapter:ch.title,kind:"test",pages:"",do:"Class test on the whole chapter: one sum like each Example.",homework:""});
   return{rows,tb:from>0?[]:[{chapter:ch.title,part:1,of:1,pages:"",do:out.teachbot||"Concepts of the chapter and the hard sums."}]}}
 
+/* ---------- Maths, LKG–Class 2 (Nov 2026): the workbook decides each class ---------- */
+async function planWbMaths(ch,msg){
+  msg("Reading "+ch.title+" from the book and the workbook…");
+  const cp=ch.bookObj?await chapterPages(ch):{pages:[],scanned:true},hw=ch.wbD||[],all=bookRange(cp,ch),start=Math.max(1,+ch.start||1);
+  const hwList=hw.map((h,i)=>"HOMEWORK "+(i+1)+" — "+h.name+" · "+h.n+" questions:\n   "+h.text).join("\n");
+  const how=hw.length
+    ?"For EVERY workbook homework below, in order: find the topic in the BOOK TEXT that this homework practises (page numbers as printed) and plan the classroom period(s) that teach exactly that topic, so the children can then do that homework."
+    :"There is no workbook for this chapter: split the chapter into small topics in book order (one skill each, e.g. counting 1 to 5 with fingers). Each topic's homework is the book's own exercise or activity on those pages.";
+  msg("Matching each homework to its topic in "+ch.title+"…");
+  const out=await askAI(`Chapter: ${ch.title} · Class: ${$("fClass").value} · Maths for little children${all.from?" · book "+pg(all):""}
+${cp.pages.length&&!cp.scanned?"":"The book pages are pictures or not available, so work from the chapter name, the workbook and the page numbers given.\n"}
+HOW THIS SCHOOL RUNS MATHS FOR LKG TO CLASS 2 — the WORKBOOK decides each class. ${how}
+- One period per homework. If a homework is BIG (many questions, or more than one skill), give it 2 periods on the same topic and split the homework into two parts.
+- Each period: from the second period on, first check yesterday's homework (5 minutes). Then teach the topic using real objects, fingers, pictures or the board (say what to use) with the book pages. Children do 1 or 2 together in class. Then give the homework.
+- Simple steps a new teacher can follow. Never invent book content.
+${hw.length?"\nWORKBOOK HOMEWORKS:\n"+hwList+"\n":""}
+BOOK TEXT:
+${cp.pages.length?bookText(cp,14000):"(not available)"}
+
+Reply as {"homeworks":[{"topic":"short topic name","pages":"pp. 4–5","periods":[{"do":"what happens in class","homework":"one short line a parent understands, starting with Workbook: or Homework note:"}]}],"teachbot":"what the 1 TeachBot class shows for this chapter"}${hw.length?" with exactly "+hw.length+" homeworks, in the same order as the workbook":""}. Each homework has 1 or 2 periods.`,12000);
+  const H=(Array.isArray(out.homeworks)?out.homeworks:[]).filter(h=>h&&Array.isArray(h.periods)&&h.periods.length);
+  if(!H.length)throw new Error("The AI could not plan "+ch.title+". Please try again.");
+  const rows=[];
+  H.forEach((h,i)=>{if(i<start-1)return;const ps=h.periods.slice(0,2);
+    ps.forEach((p,k)=>rows.push({chapter:ch.title,kind:"wbm",n:i+1,of:H.length,part:ps.length>1?(k+1)+" of "+ps.length:"",topic:String(h.topic||""),pages:String(h.pages||""),
+      do:String((p&&p.do)||""),homework:String((p&&p.homework)||(hw[i]?"Workbook: "+hw[i].name:""))}))});
+  rows.push({chapter:ch.title,kind:"test",pages:pg(all),do:"Class test on the whole chapter: one or two questions like each homework.",homework:""});
+  return{rows,tb:start>1?[]:[{chapter:ch.title,part:1,of:1,pages:pg(all),do:String(out.teachbot||"The chapter's ideas with pictures and objects.")}]}}
+
 /* ---------- Hindi (no AI needed) ---------- */
 function planHindi(ch){const rows=[],L=ch.letters,per=ch.per,sets=[];for(let i=0;i<L.length;i+=per)sets.push(L.slice(i,i+per));
   const from=Math.min(sets.length,Math.max(1,+ch.start||1))-1;
@@ -497,7 +560,7 @@ $("makeBtn").onclick=async()=>{if(BUSY)return;const chs=picked();if(!chs.length)
   BUSY=true;$("makeBtn").disabled=true;$("topErr").hidden=true;const msg=t=>$("makeMsg").innerHTML='<span class="spin"></span>'+esc(t);
   const W=way($("fSubject").value);
   try{const rows=[],tb=[];
-    for(const ch of chs){const r=W==="hindi"?planHindi(ch):W==="maths"?await planMaths(ch,msg):await planBook(ch,msg);rows.push(...r.rows);tb.push(...r.tb)}
+    for(const ch of chs){const r=W==="hindi"?planHindi(ch):W==="wbmaths"?await planWbMaths(ch,msg):W==="maths"?await planMaths(ch,msg):await planBook(ch,msg);rows.push(...r.rows);tb.push(...r.tb)}
     placeRoom(rows);const tbRows=placeTurns(tb,rows);
     renderPlan(rows);renderTb(tbRows);renderCompare(rows,tbRows,chs);
     LAST={cls:$("fClass").value,sb:$("fSubject").value,term:$("fTerm").value,start:$("fStart").value,end:$("fEnd").value,rows,tb:tbRows,chs};
@@ -517,15 +580,15 @@ function placeTurns(tb,rows){const span={};rows.forEach(r=>{if(!r.date)return;co
     if(q.length){const n=q.shift();n.date=t.date;n.period=t.label;out.push(n)}else out.push({free:true,date:t.date,period:t.label})});
   q.forEach(n=>{n.missed=true;out.push(n)});return out}
 
-const KNAME={teach:"👩‍🏫 Teaching",classwork:"✍️ Class work",hw:"📒 Revise + homework",test:"📝 Class test",math:"🔢 Example + sums",hindi:"✍️ Letters"};
-const kcls=k=>({teach:"k-teach",classwork:"k-classwork",hw:"k-hw",test:"k-test",math:"k-math",hindi:"k-hindi"}[k]||"");
+const KNAME={teach:"👩‍🏫 Teaching",classwork:"✍️ Class work",hw:"📒 Revise + homework",test:"📝 Class test",math:"🔢 Example + sums",hindi:"✍️ Letters",wbm:"🔢 Topic + homework"};
+const kcls=k=>({teach:"k-teach",classwork:"k-classwork",hw:"k-hw",test:"k-test",math:"k-math",hindi:"k-hindi",wbm:"k-math"}[k]||"");
 function renderPlan(rows){const W=way($("fSubject").value);
-  $("planHelp").innerHTML=W==="maths"?"Each period: discuss and correct yesterday's sums first, then the next Example, then its matching sums as homework.":W==="hindi"?"Each period: check yesterday's letters, teach the next letters as class work, give the same letters as homework.":(FEW?"Teacher teaching is skipped (few periods) — TeachBot teaches. ":"Teaching periods start with 10 minutes of reading aloud. ")+"Each homework is revised in class before it is given.";
+  $("planHelp").innerHTML=W==="wbmaths"?"Each period: check yesterday's homework, teach the topic of today's workbook homework (book pages given), then give that homework. A big homework has 2 periods.":W==="maths"?"Each period: discuss and correct yesterday's sums first, then the next Example, then its matching sums as homework.":W==="hindi"?"Each period: check yesterday's letters, teach the next letters as class work, give the same letters as homework.":(FEW?"Teacher teaching is skipped (few periods) — TeachBot teaches. ":"Teaching periods start with 10 minutes of reading aloud. ")+"Each homework is revised in class before it is given.";
   let h=`<thead><tr><th style="width:120px">Date</th><th style="width:150px">Kind</th><th>What happens</th><th style="width:240px">Homework</th></tr></thead><tbody>`;let last="";
   rows.forEach(r=>{if(r.chapter!==last){last=r.chapter;h+=`<tr class="chrow"><td colspan="4">${esc(r.chapter)} · ${rows.filter(x=>x.chapter===r.chapter).length} classroom periods</td></tr>`}
-    const lab=KNAME[r.kind]+(r.n?" "+r.n+(r.of?" of "+r.of:""):"");
+    const lab=KNAME[r.kind]+(r.n?" "+r.n+(r.of?" of "+r.of:""):"")+(r.part?" · part "+r.part:"");
     h+=`<tr${r.over?' class="after"':""}><td>${r.date?esc(nice(r.date)):'<span class="bad">No period left this term</span>'}<br><span class="small">${esc(r.period||"")}</span></td>
-      <td><span class="kind ${kcls(r.kind)}">${esc(lab)}</span><br><span class="small">${esc(r.pages||"")}</span></td><td>${esc(r.do||"").replace(/\n/g,"<br>")}</td><td>${esc(r.homework||"")}</td></tr>`});
+      <td><span class="kind ${kcls(r.kind)}">${esc(lab)}</span><br><span class="small">${r.topic?esc(r.topic)+"<br>":""}${esc(r.pages||"")}</span></td><td>${esc(r.do||"").replace(/\n/g,"<br>")}</td><td>${esc(r.homework||"")}</td></tr>`});
   if((rows.free||[]).length)h+=`<tr class="free"><td colspan="4">${rows.free.length} free classroom period${rows.free.length>1?"s":""} left this term (${esc(nice(rows.free[0].date))} onward) — time for the next chapter.</td></tr>`;
   $("planTable").innerHTML=h+"</tbody>";$("planCard").hidden=false}
 function renderTb(list){if(way($("fSubject").value)==="hindi"&&!list.some(x=>!x.free)){$("tbCard").hidden=true;return}
@@ -541,7 +604,7 @@ function renderCompare(rows,tbRows,chs){
   let h=`<thead><tr><th>Chapter</th><th class="num">Current plan<br><span class="small">from ${esc(nice($("fStart").value))}</span></th><th>Current plan is made of</th><th class="num">Test plan<br><span class="small">classroom</span></th><th>Test plan is made of</th></tr></thead><tbody>`;
   let tc=0,tt=0;
   chs.forEach(ch=>{const a=cur.filter(r=>r.chapter===ch.title),b=rows.filter(r=>r.chapter===ch.title),k=kindsNow(a),nb=x=>b.filter(r=>r.kind===x).length,tbn=tbRows.filter(x=>x.chapter===ch.title&&!x.missed).length;tc+=a.length;tt+=b.length;
-    const made=ch.hindi?`${nb("hindi")} letters / exercises (taught then homework) · ${nb("test")} test`:way($("fSubject").value)==="maths"?`${nb("math")} Example + sums periods · ${nb("test")} test · ${tbn} TeachBot`:`${nb("teach")} teaching · ${nb("classwork")} class work · ${nb("hw")} revise + homework · ${nb("test")} test · ${tbn} TeachBot (on turns)`;
+    const made=way($("fSubject").value)==="wbmaths"?`${nb("wbm")} topic + homework periods · ${nb("test")} test · ${tbn} TeachBot`:ch.hindi?`${nb("hindi")} letters / exercises (taught then homework) · ${nb("test")} test`:way($("fSubject").value)==="maths"?`${nb("math")} Example + sums periods · ${nb("test")} test · ${tbn} TeachBot`:`${nb("teach")} teaching · ${nb("classwork")} class work · ${nb("hw")} revise + homework · ${nb("test")} test · ${tbn} TeachBot (on turns)`;
     h+=`<tr><td>${esc(ch.title)}</td><td class="num">${a.length||"—"}</td><td class="small">${a.length?`${k.teach} teaching / TeachBot / reading · ${k.cw} class work · ${k.hw} homework days, worksheets · ${k.rev} revision · ${k.other} catch-up, activity, test`:"Not in the current plan from this date"}</td><td class="num">${b.length}</td><td class="small">${made}</td></tr>`});
   const curLast=cur.map(r=>r.date).sort().pop(),newLast=rows.filter(r=>r.date).map(r=>r.date).sort().pop(),over=rows.filter(r=>r.over).length;
   h+=`<tr><td><b>Total</b></td><td class="num"><b>${tc}</b></td><td class="small">Last lesson: ${curLast?esc(nice(curLast)):"—"}${curLast&&curLast>end?' <span class="bad">(after term end)</span>':""}</td><td class="num"><b>${tt}</b></td><td class="small">Last lesson: ${newLast?esc(nice(newLast)):"—"}${over?' · <span class="bad">'+over+' periods do not fit before the term end</span>':""}${(rows.free||[]).length?' · <span class="good">'+rows.free.length+' periods free</span>':""}</td></tr>`;
@@ -557,7 +620,7 @@ function renderCurrent(){
   $("curTable").innerHTML=h+"</tbody>";$("curCard").hidden=false}
 
 /* ---------- use this plan (Nov 2026): make the new-way plan the real one, one class + subject at a time ---------- */
-const ROWTYPE={teach:"teach",classwork:"classwork",hw:"hwday",test:"test",math:"teach",hindi:"classwork"};
+const ROWTYPE={teach:"teach",classwork:"classwork",hw:"hwday",test:"test",math:"teach",hindi:"classwork",wbm:"teach"};
 const bkKey=()=>"lpt_backup|"+$("fClass").value+"|"+$("fSubject").value+"|"+$("fTerm").value;
 function lsSet(k,v){try{v==null?localStorage.removeItem(k):localStorage.setItem(k,v);return true}catch(e){return false}}
 function showUndo(){$("undoBtn").hidden=!lsGet(bkKey())}
@@ -565,9 +628,9 @@ const blankRow=()=>({date:"",chapter:"",pages:"",teach:"",class_act:"",home_act:
 function realRows(L){
   const out=[];
   L.rows.forEach(r=>{if(!r.date)return;
-    const lab=KNAME[r.kind].replace(/^\S+\s/,"")+(r.n?" "+r.n+(r.of?" of "+r.of:""):"");
+    const lab=KNAME[r.kind].replace(/^\S+\s/,"")+(r.n?" "+r.n+(r.of?" of "+r.of:""):"")+(r.part?" (part "+r.part+")":"");
     out.push(Object.assign(blankRow(),{date:r.date,period:r.period||"",chapter:r.chapter,pages:r.pages||"",type:ROWTYPE[r.kind]||"classwork",
-      teach:lab+": "+String(r.do||"").trim(),homework:r.homework||"",workbook:r.kind==="hw"?(r.wb||""):""}))});
+      teach:lab+": "+(r.topic?r.topic+" — ":"")+String(r.do||"").trim(),homework:r.homework||"",workbook:r.kind==="hw"?(r.wb||""):""}))});
   L.tb.forEach(x=>{if(x.free||x.missed||!x.date)return;
     out.push(Object.assign(blankRow(),{date:x.date,period:x.period||"",room:"ai",type:"teachbot",chapter:x.chapter,pages:x.pages||"",
       teach:"TeachBot "+(x.of>1?"Part "+x.part+" of "+x.of:"class")+" (AI room, class teacher goes with the class): "+String(x.do||"").trim()}))});
