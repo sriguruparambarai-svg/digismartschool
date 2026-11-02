@@ -396,7 +396,7 @@ async function loadAll(){
     const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":W==="maths"?(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.hwN?" · workbook: "+o.hwN+" homeworks":" · no workbook — homework from the book's exercise sums"):W==="wbmaths"?(pages?"pp "+o.from+"–"+o.to:"no book pages")+(o.wb?" · workbook “"+o.wb.title.replace(/\s+/g," ").slice(0,40)+"”: "+o.hwN+" homeworks":" · no workbook — AI splits the book into topics"):(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
     const box=W==="wbmaths"?'<span class="small">from the workbook</span>':W==="maths"?'<span class="small">from the book</span>':`<input type="number" min="1" max="12" data-n="${i}" value="${o.hindi?o.per:o.hwN}" aria-label="${o.hindi?"Letters a day":"Homeworks"} for ${esc(o.title)}" title="${o.hindi?"Letters a day":"Homeworks"}">`;
     const startBox=o.hindi||W==="maths"||W==="wbmaths"
-      ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"lesson"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
+      ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"lesson"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at">${W==="maths"?` <b>or</b> from exercise <input type="text" data-x="${i}" placeholder="e.g. D" style="width:90px;padding:2px 6px" aria-label="Start from exercise" title="Already finished the exercises before this one? Type the exercise to start from, e.g. D or 2.3">`:""}</span>`
       :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:12},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
     return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${o.wb&&!o.wbHw.length&&W==="book"?'<br><span class="small" style="color:#b00020;font-weight:600">⚠ Workbook homework not saved — pick it in Workbook Generator</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
     :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
@@ -406,6 +406,7 @@ async function loadAll(){
 function picked(){return[...$("chaps").querySelectorAll("input[data-i]:checked")].map(i=>{const o=CHOPTS[+i.dataset.i],n=$("chaps").querySelector(`[data-n="${i.dataset.i}"]`),st=$("chaps").querySelector(`[data-s="${i.dataset.i}"]`);
   const x=Object.assign({},o,n?(o.hindi?{per:Math.max(1,+n.value||o.per)}:{hwN:Math.max(1,Math.min(12,+n.value||o.hwN))}):{});
   x.start=st?(st.tagName==="SELECT"?st.value:Math.max(1,+st.value||1)):(o.hindi||/maths/.test(way($("fSubject").value))?1:"teach");
+  const ex=$("chaps").querySelector(`[data-x="${i.dataset.i}"]`);x.fromEx=ex?String(ex.value||"").trim():"";   // Nov 2026: Maths — start from a book exercise
   if(typeof x.start==="string"&&/^hw\d+$/.test(x.start)&&+x.start.slice(2)>x.hwN)x.start="hw"+x.hwN;   // never past the last homework
   return x})}
 // the kinds of a book chapter from where the class is now
@@ -548,6 +549,9 @@ Reply as {"exercises":"…","teachbot":["what TeachBot Part 1 covers","what Part
   return{rows,tb:tbWanted?[{chapter:ch.title,part:1,of:2,pages:pg(half[0]),do:tb[0]||""},{chapter:ch.title,part:2,of:2,pages:pg(half[1]),do:tb[1]||""}]:[]}}
 
 /* ---------- Maths, Class 3–12 (Nov 2026): Examples if the book has them, else topics ---------- */
+// "Exercise D", "ex 2.3", "d" → ["d"], ["2.3"]
+const exTok=s=>String(s||"").toLowerCase().replace(/exercises?|ex\.?(?=\s|\d|$)/g," ").split(/[^a-z0-9.]+/).map(x=>x.replace(/^\.+|\.+$/g,"")).filter(Boolean);
+const exName=s=>{const t=exTok(s)[0]||String(s||"");return /^[a-z]$/.test(t)?t.toUpperCase():t};
 async function planMaths(ch,msg){
   msg("Reading "+ch.title+" from the book…");
   const cp=await chapterPages(ch),hw=ch.wbD||[],all=bookRange(cp,ch);
@@ -561,16 +565,19 @@ HOW THIS SCHOOL RUNS MATHS. FIRST look: does this chapter have worked Examples (
 - Every exercise sum belongs to one lesson; sums that fit none go in "other".
 - A lesson with a lot to teach may take 2 periods (then split its homework into two parts). Most lessons take 1.
 - From the second lesson on, each period starts with discussing yesterday's homework: children check and correct their own sums (10–15 min).
-${hw.length?"- This school has a WORKBOOK for this chapter: each lesson's homework is the workbook homework of that same topic (not book sums). Use every workbook homework once, in workbook order; the class sums still come from the book exercises.\n\nWORKBOOK HOMEWORKS:\n"+hwList+"\n":""}- Use exercise and question numbers exactly as printed. Never invent.
+${ch.fromEx?"- The class has ALREADY FINISHED everything before Exercise "+exName(ch.fromEx)+". Still list ALL the chapter's lessons in book order (so the numbering is right), and give each lesson's exercise exactly.\n":""}${hw.length?"- This school has a WORKBOOK for this chapter: each lesson's homework is the workbook homework of that same topic (not book sums). Use every workbook homework once, in workbook order; the class sums still come from the book exercises.\n\nWORKBOOK HOMEWORKS:\n"+hwList+"\n":""}- Use exercise and question numbers exactly as printed. Never invent.
 Also say what TeachBot should show for this chapter's concepts and hard sums (1 TeachBot class).
 
 BOOK TEXT:
 ${bookText(cp)}
 
-Reply as {"way":"examples or topics","lessons":[{"name":"Example 1 — what it teaches / or the topic name","page":"p. 24","periods":[{"do":"what happens in class, with the exact class sums","homework":"one short line a parent understands, starting with Homework note: or Workbook:"}]}],"other":"","teachbot":""}`,10000);
+Reply as {"way":"examples or topics","lessons":[{"name":"Example 1 — what it teaches / or the topic name","page":"p. 24","exercise":"the book exercise its sums come from, as printed, e.g. Exercise 2.3 or Exercise D","periods":[{"do":"what happens in class, with the exact class sums","homework":"one short line a parent understands, starting with Homework note: or Workbook:"}]}],"other":"","teachbot":""}`,10000);
   const L=(Array.isArray(out.lessons)?out.lessons:[]).filter(l=>l&&Array.isArray(l.periods)&&l.periods.length);
   if(!L.length)throw new Error("The AI could not find the lessons of "+ch.title+". The book pages may be pictures.");
-  const byEx=out.way==="examples",rows=[],from=Math.min(L.length,Math.max(1,+ch.start||1))-1;
+  const byEx=out.way==="examples",rows=[];let from=Math.min(L.length,Math.max(1,+ch.start||1))-1;
+  if(ch.fromEx){const k=exTok(ch.fromEx)[0],at=L.findIndex(l=>exTok(l.exercise).includes(k));
+    if(at<0)throw new Error("Could not find Exercise "+exName(ch.fromEx)+" in "+ch.title+". Check the exercise name as printed in the book, or leave it empty and use “Start at lesson”.");
+    from=at}
   L.forEach((l,i)=>{if(i<from)return;const ps=l.periods.slice(0,2);
     ps.forEach((p,k)=>rows.push({chapter:ch.title,kind:"math",n:i+1,of:L.length,part:ps.length>1?(k+1)+" of "+ps.length:"",topic:String(l.name||""),pages:String(l.page||""),
       do:String((p&&p.do)||""),homework:String((p&&p.homework)||"")}))});
