@@ -9500,7 +9500,10 @@ Object.keys(CLASSES).forEach(function(c){
 });
 plan = PLANS[cls][subj];
 
-function save(){ try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){} if(window.srvLater) srvLater(); }
+function save(){ try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); localStorage.setItem("wbplan3_unsaved", String(Date.now())); }catch(e){} if(window.srvLater) srvLater(); }
+// Nov 2026: picks changed on this computer that the school copy does not have yet (e.g. login expired while ticking)
+function unsavedMark(){ try{ return localStorage.getItem("wbplan3_unsaved") || ""; }catch(e){ return ""; } }
+function unsavedClear(){ try{ localStorage.removeItem("wbplan3_unsaved"); }catch(e){} }
 function load(){
   try{
     var r = localStorage.getItem("wbplan3"); if(!r) return;
@@ -9539,28 +9542,55 @@ function applyPlans(o){
   });
   plan = PLANS[cls][subj];
 }
+// would loading the school copy change any chapter's picks on this computer?
+function plansDiffer(o){
+  var diff = false;
+  Object.keys(CLASSES).forEach(function(c){
+    if(!o || !o[c]) return;
+    Object.keys(CLASSES[c]).forEach(function(n){
+      if(o[c][n] && o[c][n].length === CLASSES[c][n].length && JSON.stringify(o[c][n]) !== JSON.stringify(PLANS[c][n])) diff = true;
+    });
+  });
+  return diff;
+}
 function srvSettings(){ return { school:$("fSchool").value, term:$("fTerm").value, year:$("fYear").value }; }
 function srvSaveNow(){
-  if(!SRV.ready || !SRV.canSave) return;
+  if(!SRV.ready || !SRV.canSave || SRV.hold) return;
   if(SRV.busy){ SRV.again = true; return; }
   SRV.busy = true; srvStatus("Saving for the school…");
   var who = ""; try{ var u = JSON.parse(localStorage.getItem("dss_user")||"{}"); who = u.name || ""; }catch(e){}
   srvCall("workbook_save", { plan:PLANS, settings:srvSettings(), by:who }).then(function(d){
-    if(d && d.success){ var t=new Date(d.updated_at); srvStatus("Saved for the school \u2713 "+t.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})); }
-    else srvStatus("Not saved for the school: "+((d&&d.error)||"unknown error")+" (kept on this computer)", true);
+    if(d && d.success){ unsavedClear(); var t=new Date(d.updated_at); srvStatus("Saved for the school \u2713 "+t.toLocaleTimeString("en-IN",{hour:"numeric",minute:"2-digit"})); }
+    else srvStatus(/log in/i.test((d&&d.error)||"") ? "NOT saved for the school \u2014 your login has expired. Your picks are kept on this computer only. Log out and log in again, then open this page to save them." : "Not saved for the school: "+((d&&d.error)||"unknown error")+" (kept on this computer)", true);
   }).catch(function(e){ srvStatus("Not saved for the school: "+e.message+" (kept on this computer)", true); })
   .then(function(){ SRV.busy=false; if(SRV.again){ SRV.again=false; srvSaveNow(); } });
 }
-window.srvLater = function(){ if(!SRV.ready || !SRV.canSave) return; clearTimeout(SRV.timer); SRV.timer = setTimeout(srvSaveNow, 1200); };
+window.srvLater = function(){ if(!SRV.ready || !SRV.canSave || SRV.hold) return; clearTimeout(SRV.timer); SRV.timer = setTimeout(srvSaveNow, 1200); };
 ["fSchool","fTerm","fYear"].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener("change", function(){ srvLater(); }); });
 function srvLoad(){
   srvStatus("Loading the school's picks…");
   srvCall("workbook_get").then(function(d){
-    if(!d || !d.success){ srvStatus("Could not load the school's picks: "+((d&&d.error)||"unknown error")+". Using this computer's picks.", true); return; }
+    if(!d || !d.success){ srvStatus(/log in/i.test((d&&d.error)||"") ? "Your login has expired \u2014 picks you tick now are kept on this computer only and are NOT saved for the school. Log out and log in again first." : "Could not load the school's picks: "+((d&&d.error)||"unknown error")+". Using this computer's picks.", true); return; }
     SRV.canSave = !!d.can_save;
     if(d.settings){ if(d.settings.school) $("fSchool").value=d.settings.school; if(d.settings.term) $("fTerm").value=d.settings.term; if(d.settings.year) $("fYear").value=d.settings.year; }
     else if(d.school_name) $("fSchool").value = String(d.school_name).toUpperCase();
+    if(d.plan && unsavedMark() && SRV.canSave && plansDiffer(d.plan)){
+      SRV.ready = true; SRV.hold = true;
+      var el=$("status"); el.style.color="#b3261e";
+      el.innerHTML = 'This computer has picks that were <b>not saved for the school</b> (school copy last saved '
+        + (d.updated_at ? new Date(d.updated_at).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"numeric",minute:"2-digit"}) : "earlier")
+        + '). <button class="btn gold" id="srvMine" style="padding:4px 10px">Save my picks for the school</button> <button class="btn alt" id="srvTheirs" style="padding:4px 10px">Use the school\u2019s copy</button>';
+      $("srvMine").onclick = function(){ SRV.hold = false; srvSaveNow(); };
+      $("srvTheirs").onclick = function(){
+        if(!confirm("Replace the picks on this computer with the school's copy? The picks on this computer will be lost.")) return;
+        SRV.hold = false; applyPlans(d.plan); unsavedClear();
+        try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){}
+        drawSlots(); drawPicker(); srvStatus("School picks loaded");
+      };
+      return;
+    }
     if(d.plan){
+      unsavedClear();
       applyPlans(d.plan);
       try{ localStorage.setItem("wbplan3", JSON.stringify(PLANS)); }catch(e){}
       drawSlots(); drawPicker();
