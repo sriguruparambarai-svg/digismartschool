@@ -33,6 +33,11 @@
   teacher teaches it, then that homework is given; a big homework gets 2 periods. No workbook for a
   chapter → the AI splits the book chapter into small topics. Reads the school's own workbook
   chapters too (Workbook Generator, PLANS._own), e.g. for LKG/UKG.
+  Nov 2026: Maths for Class 3–12 — the AI decides per chapter: a book WITH worked Examples → one lesson
+  per Example, exercise sums solved the same way are the homework; a book WITHOUT Examples → one lesson
+  per topic, 2–3 exercise sums of that topic done in class, the same type of sums as homework. A chapter
+  counts as having a workbook only when the school saved homework picks for it (Workbook Generator);
+  then each lesson's homework is the workbook homework of that topic. Classes 9–12 added to the list.
 -->
 <style>
 :root{
@@ -198,7 +203,7 @@ $("schoolName").textContent=(SCHOOL_NAME?SCHOOL_NAME+" · ":"")+"TeachBot";
 if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
 
 /* ---------- lists and dates ---------- */
-const CLASSES=["LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8"];
+const CLASSES=["LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
 const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
 function subjectsFor(c){const n=num(c);
   if(!n)return["English","Maths","Tamil","EVS"];
@@ -352,19 +357,20 @@ async function loadAll(){
     if(W==="wbmaths"){   // the workbook decides: no book chapters → the workbook's chapters are the list
       if(!CHOPTS.length)wl.forEach(w=>CHOPTS.push({key:"W:"+(w.own||w.i),title:"Ch "+w.no+". "+w.title.replace(/\s+/g," "),bookObj:null,from:null,to:null,wb:w,wbHw:[]}));
       CHOPTS.forEach(o=>{o.wbD=wbHwDetail(c,o.wb);o.hwN=o.wbD.length})}
+    if(W==="maths")CHOPTS.forEach(o=>{o.wbD=o.wbHw.length?wbHwDetail(c,o.wb):[];o.hwN=o.wbD.length});   // Class 3+: workbook only when its homework is saved
     $("chapHelp").textContent=W==="wbmaths"
       ?"Maths for little classes follows the workbook: each workbook homework decides that day's class. The AI finds the same topic in the textbook, the teacher teaches it, then that homework is given. A big homework gets 2 periods. Next day the homework is checked first. A chapter with no workbook is split into small topics from the book."
       :W==="maths"
-      ?"Maths: each period the teacher teaches one Example, and the exercise sums like it are the homework. Next day those sums are discussed and corrected first, then the next Example. The AI finds the Examples and their matching sums in the book."
+      ?"Maths: if the book has worked Examples, each lesson is one Example and the exercise sums solved the same way are the homework. If not, each lesson is one topic: 2–3 exercise sums of that topic are done in class and the same type of sums are the homework. With a saved workbook, the homework is the workbook homework of that topic. Next day the homework is discussed and corrected first."
       :"Each chapter: up to 3 teaching periods (10 minutes reading aloud first) → 3 class work periods → revise Homework 1 in class and give it, Homework 2 … → class test. The number is how many homeworks.";
   }
   if($("fClass").value!==c||$("fSubject").value!==sb)return;
   $("chaps").innerHTML=CHOPTS.length?CHOPTS.map((o,i)=>{const fin=finished(o.title),tick=!fin&&(planned.size&&!o.hindi?planned.has(o.title):true);
     const pages=o.from&&o.to?o.to-o.from+1:0;
-    const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":W==="wbmaths"?(pages?"pp "+o.from+"–"+o.to:"no book pages")+(o.wb?" · workbook “"+o.wb.title.replace(/\s+/g," ").slice(0,40)+"”: "+o.hwN+" homeworks":" · no workbook — AI splits the book into topics"):(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
+    const info=o.hindi?o.letters.length+" letters · "+o.ex.length+" exercises":W==="maths"?(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.hwN?" · workbook: "+o.hwN+" homeworks":" · no workbook — homework from the book's exercise sums"):W==="wbmaths"?(pages?"pp "+o.from+"–"+o.to:"no book pages")+(o.wb?" · workbook “"+o.wb.title.replace(/\s+/g," ").slice(0,40)+"”: "+o.hwN+" homeworks":" · no workbook — AI splits the book into topics"):(pages?"pp "+o.from+"–"+o.to:"no pages")+(o.wb?" · workbook: "+(o.wbHw.length?o.wbHw.length+" homeworks":"no homework saved"):"");
     const box=W==="wbmaths"?'<span class="small">from the workbook</span>':W==="maths"?'<span class="small">from the book</span>':`<input type="number" min="1" max="12" data-n="${i}" value="${o.hindi?o.per:o.hwN}" aria-label="${o.hindi?"Letters a day":"Homeworks"} for ${esc(o.title)}" title="${o.hindi?"Letters a day":"Homeworks"}">`;
     const startBox=o.hindi||W==="maths"||W==="wbmaths"
-      ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"Example"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
+      ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"lesson"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at"></span>`
       :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:12},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
     return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
     :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
@@ -395,7 +401,7 @@ function computeSlots(){
 function need(ch){const W=way($("fSubject").value);
   if(ch.hindi)return Math.max(1,Math.ceil(ch.letters.length/ch.per)-(ch.start-1))+(ch.ex.length?2:0)+1;
   if(W==="wbmaths"){const h=Math.max(1,(ch.hwN||Math.max(3,Math.round((ch.from&&ch.to?ch.to-ch.from+1:6)/1.5)))-(ch.start-1));return Math.ceil(h*1.3)+1}   // some homeworks get 2 periods
-  if(W==="maths"){const p=ch.from&&ch.to?ch.to-ch.from+1:10;return Math.max(2,Math.max(4,Math.round(p/2.5))-(ch.start-1))+2}
+  if(W==="maths"){const p=ch.from&&ch.to?ch.to-ch.from+1:10;return Math.max(2,Math.max(ch.hwN||4,Math.round(p/2.5))-(ch.start-1))+2}
   const k=bookKinds(ch);return k.all.length-k.at}
 function teachN(ch){if(FEW)return 0;const p=ch.from&&ch.to?ch.to-ch.from+1:8;return p<=5?1:p<=10?2:3}
 function showFit(){const ch=picked(),n=ch.reduce((a,x)=>a+need(x),0),have=ROOM.length,el=$("fit"),W=way($("fSubject").value);
@@ -487,31 +493,36 @@ Reply as {"exercises":"…","teachbot":["what TeachBot Part 1 covers","what Part
   const rows=kinds.map((k,i)=>Object.assign({chapter:ch.title},k,got[i]||{}));
   return{rows,tb:tbWanted?[{chapter:ch.title,part:1,of:2,pages:pg(half[0]),do:tb[0]||""},{chapter:ch.title,part:2,of:2,pages:pg(half[1]),do:tb[1]||""}]:[]}}
 
-/* ---------- Maths ---------- */
+/* ---------- Maths, Class 3–12 (Nov 2026): Examples if the book has them, else topics ---------- */
 async function planMaths(ch,msg){
   msg("Reading "+ch.title+" from the book…");
-  const cp=await chapterPages(ch);
-  msg("Finding the Examples and their matching sums in "+ch.title+"…");
-  const out=await askAI(`Chapter: ${ch.title} · Class: ${$("fClass").value} · Maths
+  const cp=await chapterPages(ch),hw=ch.wbD||[],all=bookRange(cp,ch);
+  const hwList=hw.map((h,i)=>"WORKBOOK HOMEWORK "+(i+1)+" — "+h.name+" · "+h.n+" questions:\n   "+h.text).join("\n");
+  msg("Finding the lessons and their sums in "+ch.title+"…");
+  const out=await askAI(`Chapter: ${ch.title} · Class: ${$("fClass").value} · Maths${all.from?" · book "+pg(all):""}
 ${cp.scanned?"The book pages are pictures, so work from the chapter name and keep to the page numbers given.\n":""}
-List every worked Example in the chapter, in book order. For each Example, find the exercise sums in the chapter that are solved the SAME way — these are the homework after that Example is taught (up to 10 sums). Every exercise sum should be under one Example; sums that fit none go in "other".
+HOW THIS SCHOOL RUNS MATHS. FIRST look: does this chapter have worked Examples (e.g. "Example 1")?
+- YES → way "examples": one lesson per Example, in book order. Teach the Example on the board; children do 1 similar exercise sum in class (give its number). Homework = the exercise sums solved the SAME way (up to 10).
+- NO → way "topics": split the chapter into its topics, in book order. Teach the topic; children do 2–3 exercise sums of that topic in class (give exact numbers). Homework = the other exercise sums of the SAME type (up to 10).
+- Every exercise sum belongs to one lesson; sums that fit none go in "other".
+- A lesson with a lot to teach may take 2 periods (then split its homework into two parts). Most lessons take 1.
+- From the second lesson on, each period starts with discussing yesterday's homework: children check and correct their own sums (10–15 min).
+${hw.length?"- This school has a WORKBOOK for this chapter: each lesson's homework is the workbook homework of that same topic (not book sums). Use every workbook homework once, in workbook order; the class sums still come from the book exercises.\n\nWORKBOOK HOMEWORKS:\n"+hwList+"\n":""}- Use exercise and question numbers exactly as printed. Never invent.
 Also say what TeachBot should show for this chapter's concepts and hard sums (1 TeachBot class).
 
 BOOK TEXT:
 ${bookText(cp)}
 
-Reply as {"examples":[{"example":"Example 1","page":"p. 24","teach":"what it teaches, short","sums":"Exercise 2.1: Q1, Q3, Q5"}],"other":"","teachbot":""}`,8000);
-  const ex=(Array.isArray(out.examples)?out.examples:[]).filter(e=>e&&(e.example||e.teach));
-  if(!ex.length)throw new Error("The AI could not find Examples in "+ch.title+". The book pages may be pictures.");
-  const rows=[],from=Math.min(ex.length,Math.max(1,+ch.start||1))-1;
-  ex.forEach((e,i)=>{if(i<from)return;const prev=ex[i-1];
-    rows.push({chapter:ch.title,kind:"math",pages:e.page||"",
-      do:(prev?`Discuss yesterday's homework (${prev.sums}) — children check and correct their own sums (15 min). `:"")+`Teach ${e.example}${e.page?" ("+e.page+")":""} on the board: ${e.teach||""} Children try one similar sum in class.`,
-      homework:e.sums?"Homework note: "+e.sums+" (same as "+e.example+")":""})});
-  const last=ex[ex.length-1];
-  rows.push({chapter:ch.title,kind:"math",pages:"",do:`Discuss yesterday's homework (${last.sums}) — children check and correct their own sums.`+(out.other?` Then do the remaining sums together: ${out.other}`:" Then mixed sums from the whole chapter on the board."),homework:out.other?"Homework note: "+out.other:"Homework note: revise all the Examples for the class test"});
-  rows.push({chapter:ch.title,kind:"test",pages:"",do:"Class test on the whole chapter: one sum like each Example.",homework:""});
-  return{rows,tb:from>0?[]:[{chapter:ch.title,part:1,of:1,pages:"",do:out.teachbot||"Concepts of the chapter and the hard sums."}]}}
+Reply as {"way":"examples or topics","lessons":[{"name":"Example 1 — what it teaches / or the topic name","page":"p. 24","periods":[{"do":"what happens in class, with the exact class sums","homework":"one short line a parent understands, starting with Homework note: or Workbook:"}]}],"other":"","teachbot":""}`,10000);
+  const L=(Array.isArray(out.lessons)?out.lessons:[]).filter(l=>l&&Array.isArray(l.periods)&&l.periods.length);
+  if(!L.length)throw new Error("The AI could not find the lessons of "+ch.title+". The book pages may be pictures.");
+  const byEx=out.way==="examples",rows=[],from=Math.min(L.length,Math.max(1,+ch.start||1))-1;
+  L.forEach((l,i)=>{if(i<from)return;const ps=l.periods.slice(0,2);
+    ps.forEach((p,k)=>rows.push({chapter:ch.title,kind:"math",n:i+1,of:L.length,part:ps.length>1?(k+1)+" of "+ps.length:"",topic:String(l.name||""),pages:String(l.page||""),
+      do:String((p&&p.do)||""),homework:String((p&&p.homework)||"")}))});
+  rows.push({chapter:ch.title,kind:"math",pages:"",topic:"Practice",do:"Discuss yesterday's homework — children check and correct their own sums."+(out.other?" Then do the remaining sums together: "+out.other:" Then mixed sums from the whole chapter on the board."),homework:out.other?"Homework note: "+out.other:"Homework note: revise the chapter for the class test"});
+  rows.push({chapter:ch.title,kind:"test",pages:"",do:"Class test on the whole chapter: one sum like each "+(byEx?"Example":"topic")+".",homework:""});
+  return{rows,tb:from>0?[]:[{chapter:ch.title,part:1,of:1,pages:pg(all),do:String(out.teachbot||"Concepts of the chapter and the hard sums.")}]}}
 
 /* ---------- Maths, LKG–Class 2 (Nov 2026): the workbook decides each class ---------- */
 async function planWbMaths(ch,msg){
@@ -580,10 +591,10 @@ function placeTurns(tb,rows){const span={};rows.forEach(r=>{if(!r.date)return;co
     if(q.length){const n=q.shift();n.date=t.date;n.period=t.label;out.push(n)}else out.push({free:true,date:t.date,period:t.label})});
   q.forEach(n=>{n.missed=true;out.push(n)});return out}
 
-const KNAME={teach:"👩‍🏫 Teaching",classwork:"✍️ Class work",hw:"📒 Revise + homework",test:"📝 Class test",math:"🔢 Example + sums",hindi:"✍️ Letters",wbm:"🔢 Topic + homework"};
+const KNAME={teach:"👩‍🏫 Teaching",classwork:"✍️ Class work",hw:"📒 Revise + homework",test:"📝 Class test",math:"🔢 Lesson + sums",hindi:"✍️ Letters",wbm:"🔢 Topic + homework"};
 const kcls=k=>({teach:"k-teach",classwork:"k-classwork",hw:"k-hw",test:"k-test",math:"k-math",hindi:"k-hindi",wbm:"k-math"}[k]||"");
 function renderPlan(rows){const W=way($("fSubject").value);
-  $("planHelp").innerHTML=W==="wbmaths"?"Each period: check yesterday's homework, teach the topic of today's workbook homework (book pages given), then give that homework. A big homework has 2 periods.":W==="maths"?"Each period: discuss and correct yesterday's sums first, then the next Example, then its matching sums as homework.":W==="hindi"?"Each period: check yesterday's letters, teach the next letters as class work, give the same letters as homework.":(FEW?"Teacher teaching is skipped (few periods) — TeachBot teaches. ":"Teaching periods start with 10 minutes of reading aloud. ")+"Each homework is revised in class before it is given.";
+  $("planHelp").innerHTML=W==="wbmaths"?"Each period: check yesterday's homework, teach the topic of today's workbook homework (book pages given), then give that homework. A big homework has 2 periods.":W==="maths"?"Each period: discuss and correct yesterday's homework first, then the next Example or topic with sums done in class, then the same type of sums (or the workbook homework) as homework.":W==="hindi"?"Each period: check yesterday's letters, teach the next letters as class work, give the same letters as homework.":(FEW?"Teacher teaching is skipped (few periods) — TeachBot teaches. ":"Teaching periods start with 10 minutes of reading aloud. ")+"Each homework is revised in class before it is given.";
   let h=`<thead><tr><th style="width:120px">Date</th><th style="width:150px">Kind</th><th>What happens</th><th style="width:240px">Homework</th></tr></thead><tbody>`;let last="";
   rows.forEach(r=>{if(r.chapter!==last){last=r.chapter;h+=`<tr class="chrow"><td colspan="4">${esc(r.chapter)} · ${rows.filter(x=>x.chapter===r.chapter).length} classroom periods</td></tr>`}
     const lab=KNAME[r.kind]+(r.n?" "+r.n+(r.of?" of "+r.of:""):"")+(r.part?" · part "+r.part:"");
@@ -604,7 +615,7 @@ function renderCompare(rows,tbRows,chs){
   let h=`<thead><tr><th>Chapter</th><th class="num">Current plan<br><span class="small">from ${esc(nice($("fStart").value))}</span></th><th>Current plan is made of</th><th class="num">Test plan<br><span class="small">classroom</span></th><th>Test plan is made of</th></tr></thead><tbody>`;
   let tc=0,tt=0;
   chs.forEach(ch=>{const a=cur.filter(r=>r.chapter===ch.title),b=rows.filter(r=>r.chapter===ch.title),k=kindsNow(a),nb=x=>b.filter(r=>r.kind===x).length,tbn=tbRows.filter(x=>x.chapter===ch.title&&!x.missed).length;tc+=a.length;tt+=b.length;
-    const made=way($("fSubject").value)==="wbmaths"?`${nb("wbm")} topic + homework periods · ${nb("test")} test · ${tbn} TeachBot`:ch.hindi?`${nb("hindi")} letters / exercises (taught then homework) · ${nb("test")} test`:way($("fSubject").value)==="maths"?`${nb("math")} Example + sums periods · ${nb("test")} test · ${tbn} TeachBot`:`${nb("teach")} teaching · ${nb("classwork")} class work · ${nb("hw")} revise + homework · ${nb("test")} test · ${tbn} TeachBot (on turns)`;
+    const made=way($("fSubject").value)==="wbmaths"?`${nb("wbm")} topic + homework periods · ${nb("test")} test · ${tbn} TeachBot`:ch.hindi?`${nb("hindi")} letters / exercises (taught then homework) · ${nb("test")} test`:way($("fSubject").value)==="maths"?`${nb("math")} lesson + sums periods · ${nb("test")} test · ${tbn} TeachBot`:`${nb("teach")} teaching · ${nb("classwork")} class work · ${nb("hw")} revise + homework · ${nb("test")} test · ${tbn} TeachBot (on turns)`;
     h+=`<tr><td>${esc(ch.title)}</td><td class="num">${a.length||"—"}</td><td class="small">${a.length?`${k.teach} teaching / TeachBot / reading · ${k.cw} class work · ${k.hw} homework days, worksheets · ${k.rev} revision · ${k.other} catch-up, activity, test`:"Not in the current plan from this date"}</td><td class="num">${b.length}</td><td class="small">${made}</td></tr>`});
   const curLast=cur.map(r=>r.date).sort().pop(),newLast=rows.filter(r=>r.date).map(r=>r.date).sort().pop(),over=rows.filter(r=>r.over).length;
   h+=`<tr><td><b>Total</b></td><td class="num"><b>${tc}</b></td><td class="small">Last lesson: ${curLast?esc(nice(curLast)):"—"}${curLast&&curLast>end?' <span class="bad">(after term end)</span>':""}</td><td class="num"><b>${tt}</b></td><td class="small">Last lesson: ${newLast?esc(nice(newLast)):"—"}${over?' · <span class="bad">'+over+' periods do not fit before the term end</span>':""}${(rows.free||[]).length?' · <span class="good">'+rows.free.length+' periods free</span>':""}</td></tr>`;
