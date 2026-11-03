@@ -128,6 +128,10 @@ details summary{cursor:pointer;font-weight:700;color:var(--accent)}
 <div class="wrap">
   <div class="notice">Make a plan the new way and compare it with your current plan. Nothing changes until you press <b>✅ Use this plan</b> — then that one class and subject follow the new plan (teachers, My Day, Tomorrow, the Homework Planner, Academic Control and parents). Every other class keeps its current plan. You can switch classes one at a time.</div>
   <div class="err" id="topErr" hidden></div>
+  <div class="card noprint" id="moveCard" style="padding:14px 18px">
+    <b>⏪ New plans starting tomorrow?</b> <span class="hint">If you used plans meant to start today but they start tomorrow, this moves every one of them one step earlier so they start today. Today's old lessons of those subjects are replaced, lessons ticked as taught are kept, and the Homework Planner is updated.</span>
+    <div style="margin-top:8px"><button class="btn" id="moveBtn" type="button">⏪ Start them from today</button> <span class="hint" id="moveMsg"></span></div>
+  </div>
 
   <div class="card" id="formCard">
     <h2>Make a test plan</h2>
@@ -310,7 +314,7 @@ function wbHwDetail(cls,w){if(!w)return[];const slots=wbSlots(cls,w);
   return hw}
 
 /* ---------- timetable + holidays ---------- */
-let TT=null,HOL={};
+let TT=null,HOL={},START_PICKED="";   // START_PICKED (Nov 2026): the "Plan from" date the principal chose, kept across class/subject changes
 async function loadTimetable(){try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
   const d=await r.json();TT=d&&d.success&&!d.error&&d.grid&&Object.keys(d.grid).length?d:null;if(d&&/log in/i.test(d.error||""))showErr("Your login has expired. Please log out and log in again as the principal, then open this page again.")}catch(e){TT=null}}
 async function loadHolidays(){try{const d=await tp("holidays",{});HOL={};(d.holidays||[]).forEach(h=>HOL[h.date]=h)}catch(e){HOL={}}}
@@ -351,7 +355,7 @@ async function loadAll(){
   catch(e){CUR=null;if(/log in/i.test(e.message)){$("chaps").innerHTML="";showErr("Your login has expired. Please log out and log in again as the principal, then open this page again.");return}}
   const st=(CUR&&CUR.settings)||{};
   if(st.end)$("fEnd").value=st.end;else if(!$("fEnd").value)$("fEnd").value="2026-12-11";
-  const tm=tomorrow();$("fStart").value=st.start&&st.start>tm?st.start:tm;
+  const tm=tomorrow();$("fStart").value=START_PICKED||(st.start&&st.start>tm?st.start:tm);
   $("curHint").textContent=CUR?"Current plan found: "+(CUR.rows||[]).length+" periods, "+(CUR.rows||[]).filter(r=>r&&r.done).length+" ticked as taught. The test plan starts from "+nice($("fStart").value)+".":"No current plan for "+c+" "+sb+" Term "+t+".";
   if(CUR&&/^New way/.test(st.note||""))$("curHint").textContent+=" ✅ This subject already follows the new way.";
   showStartWarn();showUndo();
@@ -734,6 +738,54 @@ async function swapPlanHw(cls,sb,info){
   let removed=0;for(const i of old){await hwApi("remove",{id:i.id});removed++}   // new ones are in first, so nothing is lost if this stops half way
   return{added,removed}}
 
+/* ---------- Nov 2026: plans used to start "tomorrow" by mistake → start them from today ----------
+   For every new-way plan that starts tomorrow: today's classroom periods of that subject are put in front, so each
+   classroom lesson moves one period earlier (the last period becomes free). Today's old lessons are taken out.
+   TeachBot (AI room) lessons keep their turns. A plan whose today's lesson is already ticked as taught is left alone. */
+function pOrder(lab){const per=(TT&&TT.periods)||[];const i=per.findIndex(p=>p&&p.label===lab);if(i>=0)return i;const m=/(\d+)/.exec(lab||"");return m?+m[1]:99}
+const isTb=r=>r&&(r.room==="ai"||r.type==="teachbot");
+function moveOne(P){const td=istToday(),tm=tomorrow(),rows=(P.rows||[]).map(r=>Object.assign({},r));
+  const oldT=rows.filter(r=>r.date===td&&!isTb(r));
+  if(oldT.some(r=>r.done))return{skip:"today's lesson is already ticked as taught"};
+  const tt=ttSlots(P.class_name,P.subject,td,td);
+  const today=tt?tt.room.map(x=>({date:x.date,period:x.label})):oldT.map(r=>({date:r.date,period:r.period||""}));
+  if(!today.length)return{skip:"no "+P.subject+" period today, nothing to move"};
+  const mv=rows.filter(r=>r.date>=tm&&!isTb(r)&&!r.done)
+    .sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:pOrder(a.period)-pOrder(b.period));
+  if(!mv.length)return{skip:"no lessons from tomorrow"};
+  const seq=today.concat(mv.map(r=>({date:r.date,period:r.period||""})));
+  mv.forEach((r,k)=>{r.date=seq[k].date;r.period=seq[k].period});
+  const out=rows.filter(r=>!oldT.includes(r)).sort((a,b)=>(a.date||"9")<(b.date||"9")?-1:(a.date||"9")>(b.date||"9")?1:pOrder(a.period)-pOrder(b.period));
+  return{rows:out,moved:mv.length,gone:oldT.length,today:today.length}}
+async function moveToToday(){if(BUSY)return;const td=istToday(),tm=tomorrow(),tag="used from "+nice(tm)+".";
+  $("moveMsg").innerHTML='<span class="spin"></span>Looking for plans that start '+esc(nice(tm))+'…';
+  let list=[];
+  try{const d=await tp("list",{});
+    for(const x of (d.plans||[]).filter(x=>x.status==="approved")){
+      const g=await tp("get",{class_name:x.class_name,subject:x.subject,term:x.term});const P=g.plan;
+      if(P&&P.settings&&String(P.settings.note||"").startsWith("New way (Lesson Planner test) "+tag))list.push(Object.assign(P,{m:moveOne(P)}))}}
+  catch(e){$("moveMsg").textContent="";showErr("Could not read the plans: "+e.message);return}
+  if(!list.length){$("moveMsg").textContent="No new-way plans start "+nice(tm)+". Nothing to move.";return}
+  const go=list.filter(P=>!P.m.skip),skip=list.filter(P=>P.m.skip);
+  let q=`Start these plans from today (${nice(td)}) instead of ${nice(tm)}?\n\n`+go.map(P=>`• ${P.class_name} ${P.subject}: ${P.m.today} period${P.m.today>1?"s":""} today`+(P.m.gone?`, ${P.m.gone} old lesson${P.m.gone>1?"s":""} of today taken out`:"")).join("\n");
+  if(skip.length)q+=`\n\nLeft as they are:\n`+skip.map(P=>`• ${P.class_name} ${P.subject} — ${P.m.skip}`).join("\n");
+  q+=`\n\nEach classroom lesson moves one period earlier. TeachBot turns stay. Unsent Lesson-Plan homework of these subjects from today is replaced in the Homework Planner.`;
+  if(!go.length){$("moveMsg").textContent="";alert(q.replace(/^Start these[^\n]*\n\n/,"Nothing can be moved.\n\n"));return}
+  if(!confirm(q)){$("moveMsg").textContent="";return}
+  BUSY=true;$("moveBtn").disabled=true;let done=0,hwN=0;const bad=[];
+  for(const P of go){$("moveMsg").innerHTML='<span class="spin"></span>'+esc(P.class_name+" "+P.subject)+'…';
+    try{const s=JSON.parse(JSON.stringify(P.settings||{}));
+      s.note=String(s.note||"").replace(tag,"used from "+nice(td)+".");
+      if(Array.isArray(s.hw_only))s.hw_only=s.hw_only.filter(x=>x&&x.date&&x.date<td);
+      await tp("save",{class_name:P.class_name,subject:P.subject,term:P.term,settings:s,rows:P.m.rows});done++;
+      try{const info=await oldPlanHw(P.class_name,P.subject,td);const x=await swapPlanHw(P.class_name,P.subject,info);hwN+=x.added}
+      catch(e){bad.push(P.class_name+" "+P.subject+" homework: "+e.message)}}
+    catch(e){bad.push(P.class_name+" "+P.subject+": "+e.message)}}
+  BUSY=false;$("moveBtn").disabled=false;
+  $("moveMsg").innerHTML="✅ "+done+" plan"+(done>1?"s":"")+" now start today ("+esc(nice(td))+")."+(hwN?" "+hwN+" homework updated in the Homework Planner.":"")+(bad.length?' <span style="color:#a00">Problems: '+esc(bad.join(" · "))+'</span>':"");
+  loadAll()}
+$("moveBtn").onclick=moveToToday;
+
 /* ---------- use this plan (Nov 2026): make the new-way plan the real one, one class + subject at a time ---------- */
 const ROWTYPE={teach:"teach",classwork:"classwork",hw:"hwday",test:"test",math:"teach",hindi:"classwork",wbm:"teach"};
 const bkKey=()=>"lpt_backup|"+$("fClass").value+"|"+$("fSubject").value+"|"+$("fTerm").value;
@@ -772,6 +824,7 @@ $("useBtn").onclick=async()=>{if(!LAST||BUSY)return;const L=LAST;
     if(!lsGet(bkKey()))lsSet(bkKey(),JSON.stringify(CUR?{had:true,settings:CUR.settings||{},rows:old,at:istToday()}:{had:false,at:istToday()}));
     const s=CUR&&CUR.settings?JSON.parse(JSON.stringify(CUR.settings)):{start:L.start,end:L.end,days:["Mon","Tue","Wed","Thu","Fri"],ppw:Math.max(1,Math.min(14,Math.round(ROOM.length/weeks()))),chapters:[]};
     if(!s.start)s.start=L.start;if(L.end)s.end=L.end;
+    if(Array.isArray(s.hw_only))s.hw_only=s.hw_only.filter(x=>x&&x.date&&x.date<L.start);   // Nov 2026: the old plan's homework-only days go too
     const chl=Array.isArray(s.chapters)?s.chapters:[];
     L.chs.forEach(ch=>{if(!chl.some(x=>x.title===ch.title))chl.push({key:ch.key,title:ch.title,book:ch.bookObj?(ch.bookObj.book_name||ch.bookObj.title||""):"",from:ch.from||null,to:ch.to||null})});
     s.chapters=chl.slice(0,40);
@@ -804,6 +857,7 @@ $("undoBtn").onclick=async()=>{if(BUSY)return;let b=null;try{b=JSON.parse(lsGet(
 $("chaps").addEventListener("change",showFit);$("chaps").addEventListener("input",showFit);
 ["fStart","fEnd","fTurnDay","fTurnEvery"].forEach(id=>$(id).addEventListener("change",()=>{computeSlots();showFit();showStartWarn();
   if(LAST){LAST=null;$("useBtn").hidden=true;$("useMsg").textContent="Dates or turns changed — make the plan again before using it."}}));
+$("fStart").addEventListener("change",()=>{START_PICKED=$("fStart").value||""});
 $("fClass").onchange=()=>{fillSubjects();loadAll()};$("fSubject").onchange=loadAll;$("fTerm").onchange=loadAll;
 fillClasses();fillSubjects();
 Promise.all([loadTimetable(),loadHolidays()]).then(loadAll).catch(e=>showErr(e.message));
