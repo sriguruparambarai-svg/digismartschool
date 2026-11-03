@@ -75,6 +75,25 @@ const okCls = function (c) {
 const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable'];
 // Nov 2026: homework defaulters go to ERP (same shared key as the homework link)
 const HW_REASONS = ['not_done', 'half', 'notebook'];
+// Nov 2026: ERP schools — the teacher app takes each class's children straight from ERP.
+// Each child gets a short key (roll number, else first name) used in the homework check.
+async function erpSchoolOf(school) {
+  const er = await db('GET', '/rest/v1/schools?id=eq.' + enc(school.id) + '&select=has_erp,erp_school_id&limit=1');
+  const es = ok(er) && er.data.length ? er.data[0] : null;
+  return es && es.has_erp === true && es.erp_school_id ? String(es.erp_school_id) : '';
+}
+async function erpClassKids(erpId, cls) {
+  const r = await postErpDefaulters({ action: 'class_list', school_id: erpId, class_name: cls });
+  if (!(r.status === 200 && r.data && r.data.ok && Array.isArray(r.data.rows))) return null;
+  const used = {};
+  return r.data.rows.map(function (s) {
+    let k = clip(s.roll, 10) || clip(String(s.name || '').split(/\s+/)[0], 10) || 'child';
+    const base = k; let n = 2;
+    while (used[k.toLowerCase()]) { k = clip(base, 8) + n; n++; }
+    used[k.toLowerCase()] = 1;
+    return { roll: k, name: s.name || '', id: s.id };
+  });
+}
 function postErpDefaulters(row) {
   return new Promise(function (resolve) {
     const key = process.env.TEACHBOT_LINK_KEY || '';
@@ -562,18 +581,26 @@ module.exports = async function handler(req, res) {
         let df;
         if (body.send_defaulters) {
           df = { sent: 0, not_found: [], errors: [], erp: false };
-          const er = await db('GET', '/rest/v1/schools?id=eq.' + enc(school.id) + '&select=has_erp,erp_school_id&limit=1');
-          const es = ok(er) && er.data.length ? er.data[0] : null;
-          if (es && es.has_erp === true && es.erp_school_id) {
+          const erpId = await erpSchoolOf(school);
+          const es = { erp_school_id: erpId };
+          if (erpId) {
             df.erp = true;
+            const fromErp = {};   // class → { key → ERP child }
             const names = {};
             const sr = await db('GET', '/rest/v1/diary_students?school_id=in.(' + labels.map(enc).join(',') + ')&select=class,roll_no,name');
             if (ok(sr)) sr.data.forEach(function (x) { names[x.class + '|' + String(x.roll_no)] = x.name || ''; });
             for (const c of checks) {
               if (!c.corrected || !c.hw_date) continue;
               // "Yes, all" sends an empty list, which clears any names she marked earlier for this homework
+              if (c.corrected !== 'yes' && c.missing.length && !fromErp[c.class_name]) {
+                const ek = await erpClassKids(erpId, c.class_name);
+                fromErp[c.class_name] = {};
+                (ek || []).forEach(function (x) { fromErp[c.class_name][x.roll] = x; });
+              }
               const kids = c.corrected === 'yes' ? [] : c.missing.map(function (roll) {
-                return { roll: roll, name: names[c.class_name + '|' + roll] || '', reason: (c.reasons || {})[roll] || 'not_done' };
+                const e = (fromErp[c.class_name] || {})[roll];
+                return { id: e ? e.id : '', roll: e ? '' : roll, name: e ? e.name : (names[c.class_name + '|' + roll] || ''),
+                         reason: (c.reasons || {})[roll] || 'not_done' };
               });
               const r = await postErpDefaulters({ action: 'hw_check', school_id: es.erp_school_id, class_name: c.class_name,
                 subject: c.subject, homework: c.homework, hw_date: c.hw_date, staff_name: t.name, kids: kids });
@@ -661,11 +688,21 @@ module.exports = async function handler(req, res) {
       }
 
       // roll numbers (and names) of the classes she must check
+      // Nov 2026: ERP schools take the class list straight from ERP (no My Students needed)
+      const erpIdForKids = out.hw_check.length ? await erpSchoolOf(school) : '';
+      if (erpIdForKids) {
+        const cls = out.hw_check.map(function (h) { return h.class_name; }).filter(function (c, i, a) { return a.indexOf(c) === i; });
+        for (const c of cls) {
+          const ek = await erpClassKids(erpIdForKids, c);
+          if (ek && ek.length) out.students[c] = ek.map(function (x) { return { roll: x.roll, name: x.name }; });
+        }
+      }
       if (out.hw_check.length) {
         const cls = out.hw_check.map(function (h) { return h.class_name; }).filter(function (c, i, a) { return a.indexOf(c) === i; });
         const sr = await db('GET', '/rest/v1/diary_students?school_id=in.(' + labels.map(enc).join(',') + ')&select=class,roll_no,name&order=roll_no.asc');
         if (ok(sr)) {
           cls.forEach(function (c) {
+            if (out.students[c]) return;   // already have ERP's list
             out.students[c] = sr.data.filter(function (s) { return s.class === c; })
               .map(function (s) { return { roll: String(s.roll_no), name: s.name || '' }; })
               .sort(function (a, b) { return (parseInt(a.roll, 10) || 0) - (parseInt(b.roll, 10) || 0); });
