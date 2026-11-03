@@ -149,7 +149,9 @@ var CODE=(new URLSearchParams(location.search).get('t')||'').trim().toLowerCase(
 var TOK_KEY='ta_tok_'+CODE;
 var D=null;            // the day from the server
 var marks={};          // "planId|index" → {status:'done'|'not', reason}
-var checks={};         // hw_id → {corrected, missing:[]}
+var checks={};         // hw_id → {corrected, missing:[], reasons:{roll:'not_done'|'half'|'notebook'}}
+var sendDef=false, lastSave=null;   // Nov 2026: Save homework check sends defaulters to ERP
+var WHY=[['not_done','Not done'],['half','Half done'],['notebook','No notebook']];
 var watch='';
 var tab='today';
 var TT=null;           // my timetable from the server (Oct 2026)
@@ -206,7 +208,7 @@ async function loadDay(){
   D=d; marks={}; checks={}; watch='';
   if(d.report){
     (d.report.items||[]).forEach(function(x){ if(x.status) marks[x.plan_id+'|'+x.index]={status:x.status,reason:x.reason||''}; });
-    (d.report.hw_checks||[]).forEach(function(c){ checks[c.hw_id]={corrected:c.corrected||'',missing:(c.missing||[]).slice()}; });
+    (d.report.hw_checks||[]).forEach(function(c){ checks[c.hw_id]={corrected:c.corrected||'',missing:(c.missing||[]).slice(),reasons:Object.assign({},c.reasons||{})}; });
     watch=d.report.watch||'';
   }
   // lessons already ticked as taught (e.g. by the Homework Planner) start as Done
@@ -462,15 +464,25 @@ function hwHTML(){
       +'<div class="small" style="margin-top:4px;font-size:.88rem;color:#4E3D33;">'+h(hw.homework)+'</div>'
       +'<div style="font-weight:900;font-size:.88rem;margin-top:12px;">Corrected?</div>'
       +'<div class="btns" style="margin-top:6px;">'+cb('yes','Yes, all','ok')+cb('some','Some','warn')+cb('no','Not yet','bad')+'</div>'
-      +'<div style="font-weight:900;font-size:.88rem;margin-top:14px;">Didn\'t submit — tap roll numbers</div>'
+      // Nov 2026: the defaulter list opens only for Some / Not yet; names go to the office (ERP) on Save
+      +((c.corrected==='some'||c.corrected==='no')?(
+       '<div style="font-weight:900;font-size:.88rem;margin-top:14px;">Who didn\'t do it? Tap each child</div>'
       +(kids.length?'<div class="chips">'+kids.map(function(k){
-          var on=c.missing.indexOf(k.roll)!==-1;
-          return '<button type="button" class="chip'+(on?' on':'')+'" data-miss="'+h(k.roll)+'" data-hw="'+h(hw.id)+'" aria-pressed="'+on+'" title="'+h(k.name)+'">'+h(k.roll)+'</button>';
+          var on=c.missing.indexOf(k.roll)!==-1, fn=String(k.name||'').trim().split(/\s+/)[0];
+          return '<button type="button" class="chip'+(on?' on':'')+'" data-miss="'+h(k.roll)+'" data-hw="'+h(hw.id)+'" aria-pressed="'+on+'" title="'+h(k.name)+'">'+h(k.roll)+(fn?' · '+h(fn):'')+'</button>';
         }).join('')+'</div>'
+        +(c.missing.length?'<div style="font-weight:900;font-size:.85rem;margin-top:12px;">Why?</div>'+c.missing.map(function(roll){
+          var k=kids.find(function(x){return x.roll===roll;})||{name:''}, rs=(c.reasons||{})[roll]||'not_done';
+          return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:6px;"><span style="font-weight:800;font-size:.85rem;min-width:92px;">'+h(roll)+(k.name?' · '+h(k.name):'')+'</span>'
+            +WHY.map(function(w){ return '<button type="button" class="chip'+(rs===w[0]?' on':'')+'" style="min-width:0;padding:6px 10px;font-size:.78rem;" data-why="'+w[0]+'" data-roll="'+h(roll)+'" data-hw="'+h(hw.id)+'" aria-pressed="'+(rs===w[0])+'">'+w[1]+'</button>'; }).join('')
+            +'</div>';
+        }).join(''):'')
         :'<div class="small" style="margin-top:6px;">No student list for '+h(hw.class_name)+' yet. Your principal can add it in My Students.</div>')
+      ):'')
       +'</div>';
   }).join('');
   out+='<button type="button" class="btn primary" id="saveHw" style="width:100%;">Save homework check</button>';
+  out+='<p class="small" style="text-align:center;margin-top:8px;">The children you mark go to the office, who check and send the message to parents.</p>';
   return out;
 }
 
@@ -513,17 +525,19 @@ function payload(submit){
       return {plan_id:x.plan_id,index:x.index,status:mk.status||'',reason:mk.reason||'',hw:hws.map(function(hw){return hw.homework;}).join(' | ')}; })
       .filter(function(x){ return x.status || submit; }),
     hw_checks: (D.hw_check||[]).filter(function(hw){ return checks[hw.id]; }).map(function(hw){ var c=checks[hw.id];
-      return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,homework:hw.homework,hw_date:hw.hw_date,corrected:c.corrected||'',missing:c.missing}; }),
+      return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,homework:hw.homework,hw_date:hw.hw_date,corrected:c.corrected||'',missing:c.missing,reasons:c.reasons||{}}; }),
     watch: watch,
-    submit: !!submit
+    submit: !!submit,
+    send_defaulters: sendDef
   };
 }
 var saving=false, again=false;
 async function save(submit){
   if(saving && !submit){ again=true; return; }
   saving=true;
-  var d=await api('save_day',payload(submit));
-  saving=false;
+  var pl=payload(submit); sendDef=false;
+  var d=await api('save_day',pl);
+  saving=false; lastSave=d;
   if(d.relogin) return showPin(d.error);
   if(!d.success){ alert(d.error||'Could not save. Please try again.'); return false; }
   if(submit){ D.report=D.report||{}; D.report.submitted_at=d.submitted_at; D.report.late=d.late; }
@@ -544,17 +558,34 @@ function wire(){
   }; });
   m.querySelectorAll('[data-cor]').forEach(function(b){ b.onclick=function(){
     var id=b.getAttribute('data-hw'); checks[id]=checks[id]||{corrected:'',missing:[]};
-    checks[id].corrected=checks[id].corrected===b.getAttribute('data-cor')?'':b.getAttribute('data-cor'); draw(); redrawNav();
+    checks[id].corrected=checks[id].corrected===b.getAttribute('data-cor')?'':b.getAttribute('data-cor');
+    if(checks[id].corrected!=='some'&&checks[id].corrected!=='no'){ checks[id].missing=[]; checks[id].reasons={}; }   // Nov 2026
+    draw(); redrawNav();
   }; });
   m.querySelectorAll('[data-miss]').forEach(function(b){ b.onclick=function(){
     var id=b.getAttribute('data-hw'), r=b.getAttribute('data-miss'); checks[id]=checks[id]||{corrected:'',missing:[]};
     var i=checks[id].missing.indexOf(r); if(i===-1) checks[id].missing.push(r); else checks[id].missing.splice(i,1);
-    b.classList.toggle('on'); b.setAttribute('aria-pressed',String(i===-1));
+    checks[id].reasons=checks[id].reasons||{}; if(i===-1) checks[id].reasons[r]=checks[id].reasons[r]||'not_done'; else delete checks[id].reasons[r];
+    var y=window.scrollY; draw(); window.scrollTo(0,y);   // Nov 2026: show the "Why?" row
+  }; });
+  m.querySelectorAll('[data-why]').forEach(function(b){ b.onclick=function(){
+    var id=b.getAttribute('data-hw'), r=b.getAttribute('data-roll'); checks[id]=checks[id]||{corrected:'',missing:[]};
+    checks[id].reasons=checks[id].reasons||{}; checks[id].reasons[r]=b.getAttribute('data-why');
+    var y=window.scrollY; draw(); window.scrollTo(0,y);
   }; });
   if($('saveHw')) $('saveHw').onclick=async function(){
     var miss=(D.hw_check||[]).filter(function(hw){return !(checks[hw.id]&&checks[hw.id].corrected);}).length;
     if(miss && !confirm(miss+' homework not answered "Corrected?" yet. Save anyway?')) return;
-    this.disabled=true; var ok=await save(false); this.disabled=false; if(ok!==false){ toast('Homework check saved'); redrawNav(); }
+    this.disabled=true; sendDef=true; var ok=await save(false); this.disabled=false;
+    if(ok!==false){
+      var df=lastSave&&lastSave.defaulters;   // Nov 2026: what reached the office
+      if(df&&df.erp){
+        if(df.errors.length) alert('Saved, but some names did not reach the office:\n'+df.errors.join('\n'));
+        else if(df.not_found.length) alert('Saved. '+df.sent+' sent to the office.\nThese children were not found in the school records — please tell the office:\n'+df.not_found.join('\n'));
+        else toast(df.sent?'Saved · '+df.sent+' name'+(df.sent>1?'s':'')+' sent to the office':'Homework check saved');
+      } else toast('Homework check saved');
+      redrawNav();
+    }
   };
   if($('watchIn')) $('watchIn').oninput=function(){ watch=this.value; };
   if($('submitDay')) $('submitDay').onclick=async function(){

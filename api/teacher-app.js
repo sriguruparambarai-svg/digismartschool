@@ -38,6 +38,9 @@
 //                                                (ERP: Send to staff) — { days, periods, week:{Mon:[…]}, sent_at }
 //                                                needs the 'timetable' tick and erp_name (step7-staff-timetable.sql)
 //   save_day { items, hw_checks, watch, submit? }  saves what she marked; Done/Not done ticks the Term Planner;
+//            Nov 2026: send_defaulters:true (Save homework check) also sends the children who didn't do it,
+//            with hw_checks[].reasons {roll:'not_done'|'half'|'notebook'}, to ERP's Homework Defaulters
+//            (ERP schools only, through ERP's /api/defaulters with TEACHBOT_LINK_KEY). The office checks and sends.
 //                                                submit:true stamps the time once (late if after the deadline)
 // Tables (Step 2): teacher_day_reports, teacher_app_settings (step2-teacher-day.sql).
 //
@@ -70,6 +73,30 @@ const okCls = function (c) {
   return !!(m && CLASSES.indexOf(m[1]) !== -1);
 };
 const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable'];
+// Nov 2026: homework defaulters go to ERP (same shared key as the homework link)
+const HW_REASONS = ['not_done', 'half', 'notebook'];
+function postErpDefaulters(row) {
+  return new Promise(function (resolve) {
+    const key = process.env.TEACHBOT_LINK_KEY || '';
+    if (!key) return resolve({ status: 0, data: { error: 'TEACHBOT_LINK_KEY is not set in TeachBot\'s Vercel settings.' } });
+    const data = JSON.stringify(row);
+    const r = https.request({
+      hostname: 'erp.digismartschool.com', path: '/api/defaulters', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-teachbot-key': key }
+    }, function (res) {
+      let d = '';
+      res.setEncoding('utf8');
+      res.on('data', function (c) { d += c; });
+      res.on('end', function () {
+        let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; }
+        resolve({ status: res.statusCode, data: j || {} });
+      });
+    });
+    r.on('error', function (e) { resolve({ status: 0, data: { error: e.message } }); });
+    r.setTimeout(20000, function () { r.destroy(new Error('ERP did not answer in 20 seconds')); });
+    r.write(data); r.end();
+  });
+}
 const timetableApi = require('./timetable.js');
 const MAX_FAILS = 5;
 const LOCK_MIN = 15;
@@ -492,6 +519,14 @@ module.exports = async function handler(req, res) {
                    corrected: ['yes', 'some', 'no'].indexOf(c.corrected) !== -1 ? c.corrected : '',
                    missing: (Array.isArray(c.missing) ? c.missing : []).slice(0, 80).map(function (m) { return clip(m, 10); }) };
         }).filter(Boolean);
+        // Nov 2026: why each child didn't do it (only for children in the missing list)
+        (Array.isArray(body.hw_checks) ? body.hw_checks : []).forEach(function (c) {
+          const k = c && checks.find(function (x) { return x.hw_id === clip(c.hw_id, 60); });
+          if (!k) return;
+          const given = c.reasons && typeof c.reasons === 'object' ? c.reasons : {};
+          k.reasons = {};
+          k.missing.forEach(function (roll) { k.reasons[roll] = HW_REASONS.indexOf(given[roll]) !== -1 ? given[roll] : 'not_done'; });
+        });
         // Oct 2026: when each check was marked (India time "HH:MM"), so the principal sees late checks
         const before = {};
         ((report && report.hw_checks) || []).forEach(function (o) { before[o.hw_id] = o; });
@@ -523,8 +558,34 @@ module.exports = async function handler(req, res) {
         // Student Diary and the ERP parent app — the same way as class work typed in the planner.
         let cw = { made: 0, error: '' };
         if (body.submit) cw = await syncClassWork(school, t, today, items, saved);
+        // ── Nov 2026: Save homework check → children who didn't do it go to ERP's Homework Defaulters ──
+        let df;
+        if (body.send_defaulters) {
+          df = { sent: 0, not_found: [], errors: [], erp: false };
+          const er = await db('GET', '/rest/v1/schools?id=eq.' + enc(school.id) + '&select=has_erp,erp_school_id&limit=1');
+          const es = ok(er) && er.data.length ? er.data[0] : null;
+          if (es && es.has_erp === true && es.erp_school_id) {
+            df.erp = true;
+            const names = {};
+            const sr = await db('GET', '/rest/v1/diary_students?school_id=in.(' + labels.map(enc).join(',') + ')&select=class,roll_no,name');
+            if (ok(sr)) sr.data.forEach(function (x) { names[x.class + '|' + String(x.roll_no)] = x.name || ''; });
+            for (const c of checks) {
+              if (!c.corrected || !c.hw_date) continue;
+              // "Yes, all" sends an empty list, which clears any names she marked earlier for this homework
+              const kids = c.corrected === 'yes' ? [] : c.missing.map(function (roll) {
+                return { roll: roll, name: names[c.class_name + '|' + roll] || '', reason: (c.reasons || {})[roll] || 'not_done' };
+              });
+              const r = await postErpDefaulters({ action: 'hw_check', school_id: es.erp_school_id, class_name: c.class_name,
+                subject: c.subject, homework: c.homework, hw_date: c.hw_date, staff_name: t.name, kids: kids });
+              if (r.status === 200 && r.data && r.data.ok) {
+                df.sent += r.data.saved || 0;
+                (r.data.not_found || []).forEach(function (n) { df.not_found.push(c.class_name + ': ' + n); });
+              } else df.errors.push(c.class_name + ' ' + c.subject + ': ' + ((r.data && r.data.error) || ('ERP status ' + r.status)));
+            }
+          }
+        }
         return res.json({ success: true, submitted_at: saved.submitted_at || null, late: !!saved.late,
-                          class_work_made: cw.made, class_work_error: cw.error || undefined });
+                          class_work_made: cw.made, class_work_error: cw.error || undefined, defaulters: df });
       }
 
       // ── my_day: build the screen ──
