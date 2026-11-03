@@ -236,6 +236,8 @@ function practiceOf(all, d, subject) {
 function kgLine(cls, subject, t, wb) {
   t = String(t || '').trim();
   if (!t || /Class \d+/.test(String(cls)) || /spoken|handwriting/i.test(String(subject)) || /^Homework given in /.test(t)) return t;
+  // Nov 2026: the plan now names the exact workbook page ("Practice Workbook p.3 (trace s a t i)") — send it as written
+  if (/\bp(?:ages?|\.)?\s*\d+/i.test(t)) return t;
   const isWb = wb && /workbook/i.test(t), pm = t.match(/\bp(?:ages?|\.)?\s*\d+(?:\s*[–-]\s*\d+)?/i);
   return 'Homework given in ' + (isWb ? 'workbook' : subject + ' note') + (isWb && pm ? ' – ' + pm[0] : '');
 }
