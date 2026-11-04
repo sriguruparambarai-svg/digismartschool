@@ -403,6 +403,7 @@ module.exports = async function handler(req, res) {
         const k0 = p.class_name + '|' + String(p.subject).toLowerCase();
         if (seen[k0]) return;            // the newest plan for this class+subject wins
         seen[k0] = 1;
+        if (/Reading Practice$/i.test(String(p.subject || ''))) return;   // Writing Practice already tells parents what was taught
         (Array.isArray(p.rows) ? p.rows : []).forEach(function (x) {
           if (!x || !isDate(x.date) || x.date < from || x.date > to) return;
           const ch = String(x.chapter || '').trim();
