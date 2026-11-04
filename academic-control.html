@@ -200,7 +200,8 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   </section>
 
   <section class="view" id="v-portion" hidden>
-    <p class="lead">Is every class keeping to its Lesson Plan? Subjects behind come first.</p>
+    <p class="lead">Is every class keeping to its Lesson Plan? Pick a class. The red number on a class = subjects that need action.</p>
+    <div class="chips" id="porchips"></div>
     <div class="panel scroll"><table class="w"><thead><tr><th>Class</th><th>Subject · Teacher</th><th>Done</th><th>Today</th><th>Status</th></tr></thead><tbody id="porb"></tbody></table></div>
   </section>
 
@@ -283,7 +284,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     return d;
   }
 
-  var S={day:istToday(),L:null,Y:null,N:null,TT:null,period:null,cls:null,ccls:null,acls:"all",sideI:-1};
+  var S={day:istToday(),L:null,Y:null,N:null,TT:null,period:null,cls:null,ccls:null,acls:"all",sideI:-1,pcls:null};
 
   // ── tabs ──
   $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;
@@ -455,8 +456,16 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       return '<div class="panel"><div class="ph"><h3>'+h(c)+'</h3><span>'+g.length+' item'+(g.length>1?"s":"")+'</span></div>'+part("classwork","Class work · in class today","k-cw")+part("homework","Homework · to do at home","k-hw")+'</div>'}).join("")}
 
   // ── PORTION ──
+  // Nov 2026: class buttons — the table shows one class at a time (it was too long to read)
   function drawPortion(){
-    var rank={bad:0,slow:1,ok:2},subs=(S.L.subjects||[]).slice().sort(function(a,b){return(rank[a.level]-rank[b.level])||(b.behind-a.behind)||cord(a.class_name,b.class_name)});
+    var all=S.L.subjects||[],classes=[];all.forEach(function(s){if(classes.indexOf(s.class_name)===-1)classes.push(s.class_name)});classes.sort(cord);
+    var nBad=function(c){return all.filter(function(s){return s.class_name===c&&s.level==="bad"}).length};
+    var nAll=function(c){return all.filter(function(s){return s.class_name===c}).length};
+    if(S.pcls!=="all"&&classes.indexOf(S.pcls)===-1){S.pcls=classes.find(function(c){return nBad(c)})||classes[0]||"all"}
+    chips($("porchips"),[{k:"all",label:"All classes",sub:String(all.length)}].concat(classes.map(function(c){var b=nBad(c);return{k:c,sub:b?b+" need action":"✓ "+nAll(c)}})),S.pcls,function(k){S.pcls=k;drawPorBody()});
+    drawPorBody()}
+  function drawPorBody(){
+    var rank={bad:0,slow:1,ok:2},subs=(S.L.subjects||[]).filter(function(s){return S.pcls==="all"||s.class_name===S.pcls}).slice().sort(function(a,b){return(rank[a.level]-rank[b.level])||(b.behind-a.behind)||cord(a.class_name,b.class_name)});
     $("porb").innerHTML=subs.length?subs.map(function(s){var td=s.today.length?s.today.map(function(x){return h(chap(x.chapter))+" "+stPill(x.state)+(x.state==="not"&&x.reason?' <small>('+h(x.reason)+')</small>':"")}).join("<br>"):'<span style="color:var(--mut)">No lesson today</span>';
       return '<tr><td><b>'+h(s.class_name)+'</b></td><td>'+h(s.subject)+'<br><small style="color:var(--mut)">'+h(s.teacher||"No teacher set")+'</small></td><td style="white-space:nowrap">'+s.done+' of '+s.total+(s.behind?'<br><b style="color:var(--bad)">'+s.behind+' behind</b>':'')+'</td><td>'+td+'</td><td>'+lvl(s.level)+'</td></tr>'}).join(""):'<tr><td colspan="5" class="empty">No term plans yet.</td></tr>'}
 
