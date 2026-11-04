@@ -1185,14 +1185,18 @@ function matchHwTT(rows,cls,subj){
      Revision / class test days keep their own homework. Our earlier note on a lesson is replaced, not repeated,
      when the button is pressed again. */
   const CARRY_RE=/ ?(Homework for this lesson is given on [^.]+ \(homework timetable\)\.|No homework for this lesson \(homework timetable\)\.|Today's homework is carried over from [^—]+— go through it with the class before giving it\.)/g;
-  const clean=t=>String(t||"").replace(CARRY_RE,"").replace(HW_EXTRA_NOTE,"");
+  const clean=t=>String(t||"").replace(CARRY_RE,"").replace(/ ?Homework for this lesson is given on [^.]+ with the other lesson's homework\./g,"").replace(HW_EXTRA_NOTE,"");
   const line=[];
   idx.forEach(i=>{const r=rows[i];
     if(FIXED_TYPES.includes(r.type))return;
     const own=String(r.homework||"").trim(),filler=HW_PRACTICE_RE.test(own);
-    if(own&&!filler)line.push({i:i,h:r.homework});
+    // Nov 2026: two lessons the same day give their homework together, as one
+    if(own&&!filler){const L=line[line.length-1];
+      if(L&&rows[L.i].date===r.date){if(L.h.split("\n").indexOf(own)<0)L.h=L.h.trim()+"\n"+own;(L.also=L.also||[]).push(i);if(!days.includes(dow(r.date)))r.homework="";else if(L.i!==i)r.homework="";return}
+      line.push({i:i,h:r.homework})}
     if(days.includes(dow(r.date))){
       if(line.length){const q=line.shift();r.homework=q.h;
+        (q.also||[]).forEach(a=>{if(a!==i)rows[a].teach=clean(rows[a].teach)+" Homework for this lesson is given on "+nice(r.date)+" with the other lesson's homework."});
         if(q.i!==i){const s=rows[q.i];
           s.teach=clean(s.teach).replace(/ ?Before giving homework: go through each homework question with the class\./,"")+" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).";
           r.teach=clean(r.teach)+" Today's homework is carried over from "+nice(s.date)+" — go through it with the class before giving it.";moved++}}

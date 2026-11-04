@@ -424,15 +424,20 @@ module.exports = async function handler(req, res) {
            day goes out on the next homework days after it (up to 4 weeks). Worked out from the plan's first day,
            so every week gives the same answer. */
         const isFiller = function (l) { return /^(Practise at home what was taught on |Reading: read .* aloud to a parent\.$|Homework note: redo 3 sums from )/.test(l); };
-        const hwText = function (x) { return lastLine(String(x.homework || '').split('\n').filter(function (l) { return l.trim() && !isFiller(l.trim()); }).join('\n')); };
-        // a lesson marked "give it as Extra" may hold two waiting homework (one per line) — each waits its own turn
-        const line = [];
+        // Nov 2026: all its lines (two lessons the same day may share one lesson's homework box)
+        const hwText = function (x) { return String(x.homework || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && !isFiller(l); }).join('\n'); };
+        // a lesson marked "give it as Extra" may hold two waiting homework (one per line) — each waits its own turn.
+        // Nov 2026: two lessons on the SAME day (e.g. two Maths periods) give their homework together, as one.
+        const line = [], byDay = {};
         all.forEach(function (x) {
           if (FIXED_HW.indexOf(x.type) !== -1 || !hwText(x)) return;
           if (/give it as Extra if needed/.test(String(x.teach || ''))) {
-            String(x.homework || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && !isFiller(l); })
-              .forEach(function (l) { line.push({ date: x.date, homework: l }); });
-          } else line.push(x);
+            // the leftover was added as the LAST line; the lines above it are this lesson's own homework
+            const ls = String(x.homework || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && !isFiller(l); });
+            if (ls.length > 1) line.push({ date: x.date, homework: ls.slice(0, -1).join('\n'), joined: true });
+            line.push({ date: x.date, homework: ls[ls.length - 1], joined: true });
+          } else if (byDay[x.date]) { const t = hwText(x); if (byDay[x.date].homework.split('\n').indexOf(t) === -1) byDay[x.date].homework += '\n' + t; }
+          else { byDay[x.date] = { date: x.date, homework: hwText(x), joined: true }; line.push(byDay[x.date]); }
         });
         line.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
         let li = 0;   // next homework in the line
@@ -449,12 +454,13 @@ module.exports = async function handler(req, res) {
           else if (days.indexOf(w) !== -1) {
             if (li < line.length && line[li].date <= d) {
               const x = line[li++];
-              add(hwText(x));
+              add(x.joined ? x.homework : hwText(x));
               if (x.date < d) carried = x.date;
             } else if (d <= last) add(practiceOf(all, d, p.subject));
           }
+          // Nov 2026: every line is kept (two lessons the same day give two lines), not only the last one
           if (d >= from && lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, carried_from: carried || undefined,
-            homework: kgLine(p.class_name, p.subject, lastLine(lines.join('\n')), !!(p.settings && p.settings.use_wb)) });
+            homework: Array.from(new Set(lines.map(function (l) { return kgLine(p.class_name, p.subject, l, !!(p.settings && p.settings.use_wb)); }))).join('\n') });
         }
       });
       // Oct 2026: a class that HAS a homework timetable gets no homework in subjects not ticked in it
@@ -474,9 +480,9 @@ module.exports = async function handler(req, res) {
           // one plan per class+subject wins (the newest); several lessons the same day are joined
           const k = p.class_name + '|' + String(p.subject).toLowerCase() + '|' + row.date;
           if (seen[k] && seen[k].plan !== p) return;
-          // Oct 2026: one homework a day — a later lesson the same day replaces it (never stacked)
+          // Nov 2026: a second lesson the same day adds its homework below (both lessons were taught that day)
           const one = kgLine(p.class_name, p.subject, lastLine(row.homework), !!(p.settings && p.settings.use_wb));
-          if (seen[k]) { seen[k].item.homework = one; return; }
+          if (seen[k]) { if (seen[k].item.homework.split('\n').indexOf(one) === -1) seen[k].item.homework += '\n' + one; return; }
           const item = { class_name: p.class_name, subject: p.subject, date: row.date, homework: one };
           seen[k] = { plan: p, item: item }; out.push(item);
         });
