@@ -1179,23 +1179,36 @@ function matchHwTT(rows,cls,subj){
     .sort((a,b)=>rows[a].date<rows[b].date?-1:rows[a].date>rows[b].date?1:a-b);
   // revision ("revise for the class test") and test days stay where they are
   const FIXED_TYPES=["test","revision"];
-  let moved=0,extra=0,pending=[];const hwOf={};
+  let moved=0,extra=0;
+  /* Nov 2026: homework is never skipped — it waits in a line (oldest first). Each homework-timetable day gives
+     the next homework in the line, even when that day has its own (its own waits for the next homework day).
+     Revision / class test days keep their own homework. Our earlier note on a lesson is replaced, not repeated,
+     when the button is pressed again. */
+  const CARRY_RE=/ ?(Homework for this lesson is given on [^.]+ \(homework timetable\)\.|No homework for this lesson \(homework timetable\)\.|Today's homework is carried over from [^—]+— go through it with the class before giving it\.)/g;
+  const clean=t=>String(t||"").replace(CARRY_RE,"").replace(HW_EXTRA_NOTE,"");
+  const line=[];
   idx.forEach(i=>{const r=rows[i];
     if(FIXED_TYPES.includes(r.type))return;
+    const own=String(r.homework||"").trim(),filler=HW_PRACTICE_RE.test(own);
+    if(own&&!filler)line.push({i:i,h:r.homework});
     if(days.includes(dow(r.date))){
-      if(pending.length){
-        // Oct 2026: one homework a day — the day's own homework, else the latest one moved here (never stacked)
-        const keep=String(r.homework||"").trim()?null:pending[pending.length-1];
-        if(keep!=null)r.homework=hwOf[keep];
-        pending.forEach(x=>{const s=rows[x];
-          s.teach=String(s.teach||"").replace(/ ?Before giving homework: go through each homework question with the class\./,"").replace(HW_EXTRA_NOTE,"")
-            +(x===keep?" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).":" No homework for this lesson (homework timetable).");moved++});
-        pending=[]}
+      if(line.length){const q=line.shift();r.homework=q.h;
+        if(q.i!==i){const s=rows[q.i];
+          s.teach=clean(s.teach).replace(/ ?Before giving homework: go through each homework question with the class\./,"")+" Homework for this lesson is given on "+nice(r.date)+" (homework timetable).";
+          r.teach=clean(r.teach)+" Today's homework is carried over from "+nice(s.date)+" — go through it with the class before giving it.";moved++}}
+      else if(!filler)r.homework="";
       return}
-    if(!r.homework)return;
-    hwOf[i]=r.homework;r.homework="";pending.push(i)});
-  // no homework day left in this plan: the homework stays on its own lesson, given as Extra
-  pending.forEach(x=>{const s=rows[x];s.homework=hwOf[x];
+    if(own&&!filler)r.homework="";});
+  // homework still waiting at the end of this plan: it stays on its own lesson, given as Extra
+  // (the Homework Planner's "Fill this week" also gives it on the next homework days after the plan ends)
+  // Nov 2026: if its own lesson already holds another homework, it goes on a later lesson with no homework
+  // (after the last homework day used), so the order stays the same; only if there is none, a second line is added
+  const lastUsed=idx.filter(i=>days.includes(dow(rows[i].date))&&String(rows[i].homework||"").trim()).map(i=>rows[i].date).sort().pop()||"";
+  const freeRow=d=>idx.find(i=>!FIXED_TYPES.includes(rows[i].type)&&rows[i].date>=d&&rows[i].date>lastUsed&&(!String(rows[i].homework||"").trim()||HW_PRACTICE_RE.test(String(rows[i].homework).trim())));
+  line.forEach(q=>{let s=rows[q.i];
+    if(String(s.homework||"").trim()&&!HW_PRACTICE_RE.test(String(s.homework).trim())){const f=freeRow(s.date);if(f!=null)s=rows[f]}
+    if(!String(s.homework||"").trim()||HW_PRACTICE_RE.test(String(s.homework).trim()))s.homework=q.h;
+    else s.homework=String(s.homework).trim()+"\n"+q.h;
     if(String(s.teach||"").indexOf(HW_EXTRA_NOTE.trim())<0){s.teach=(s.teach||"")+HW_EXTRA_NOTE;extra++}});
   // Oct 2026: a homework day with no homework (e.g. a TeachBot or activity day) gets practice of the last lesson taught
   const filled=fillEmptyHwDays(rows,days,today);
