@@ -134,6 +134,8 @@ function cleanGrid(grid, renameClass) {
         r[name] = { subject: subject, teacher: teacher };
         if (c.ai === true) r[name].ai = true;
         if (c.common === true) r[name].common = true;
+        // Nov 2026: a second teacher helping in this class this period (ERP master timetable) — not free then
+        if (c.helper) { const hp = clip(c.helper, 120); if (hp) r[name].helper = hp; }
       });
       if (Object.keys(r).length) o[pi] = r;
     });
