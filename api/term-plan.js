@@ -398,7 +398,9 @@ module.exports = async function handler(req, res) {
       // Oct 2026 (B): follow the CURRENT homework timetable, even if a plan still has homework on old days.
       const tt = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan&limit=1');
       const TT = (ok(tt) && tt.data.length && tt.data[0].plan) || {};
-      const hol = await db('GET', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=gte.' + from + '&date=lte.' + to + '&select=date');
+      // Nov 2026: holidays from well before this week too — the homework line is worked out from each plan's start
+      const holFrom = (function () { const t = new Date(from + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() - 200); return t.toISOString().slice(0, 10); })();
+      const hol = await db('GET', '/rest/v1/school_holidays?school_id=eq.' + enc(school.id) + '&date=gte.' + holFrom + '&date=lte.' + to + '&select=date');
       const HOL = {}; if (ok(hol)) hol.data.forEach(function (x) { HOL[x.date] = 1; });
       const done = {};   // plans handled by the timetable way
       r.data.forEach(function (p) {
@@ -416,28 +418,43 @@ module.exports = async function handler(req, res) {
         done[k0] = 1;
         const dates = all.map(function (x) { return x.date; }).sort();
         const first = dates[0], last = dates[dates.length - 1];
-        for (let d = from; d <= to; d = dayAfter(d)) {
-          if (d < first || d > last || HOL[d]) continue;
+        /* Nov 2026: homework is never skipped. Each plan's homework waits in a line (oldest first). Every homework-
+           timetable day gives the next one in the line; a class test / revision homework keeps its own day and the
+           line waits. A day with nothing waiting gets short practice. Homework still waiting after the plan's last
+           day goes out on the next homework days after it (up to 4 weeks). Worked out from the plan's first day,
+           so every week gives the same answer. */
+        const isFiller = function (l) { return /^(Practise at home what was taught on |Reading: read .* aloud to a parent\.$|Homework note: redo 3 sums from )/.test(l); };
+        const hwText = function (x) { return lastLine(String(x.homework || '').split('\n').filter(function (l) { return l.trim() && !isFiller(l.trim()); }).join('\n')); };
+        // a lesson marked "give it as Extra" may hold two waiting homework (one per line) — each waits its own turn
+        const line = [];
+        all.forEach(function (x) {
+          if (FIXED_HW.indexOf(x.type) !== -1 || !hwText(x)) return;
+          if (/give it as Extra if needed/.test(String(x.teach || ''))) {
+            String(x.homework || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && !isFiller(l); })
+              .forEach(function (l) { line.push({ date: x.date, homework: l }); });
+          } else line.push(x);
+        });
+        line.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+        let li = 0;   // next homework in the line
+        const stop = (function () { const t = new Date(last + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + 28); return t.toISOString().slice(0, 10); })();
+        for (let d = first; d <= to && d <= stop; d = dayAfter(d)) {
+          if (d > last && li >= line.length) break;
+          if (HOL[d]) continue;
           const w = wkday(d);
           const lines = [];
+          let carried = '';
           const add = function (t) { String(t || '').split('\n').forEach(function (l) { l = l.trim(); if (l && !/^Practise at home what was taught on /.test(l) && lines.indexOf(l) === -1) lines.push(l); }); };
-          if (days.indexOf(w) !== -1) {
-            const prev = prevHwDay(d, days);
-            // Oct 2026: ONE homework a day — the day's own, else the latest one moved here, else short practice
-            let own = '', moved = null;
-            all.forEach(function (x) {
-              const h = String(x.homework || '').split('\n').filter(function (l) { return l.trim() && !/^Practise at home what was taught on /.test(l.trim()); }).join('\n');
-              if (!h.trim()) return;
-              if (x.date === d) own = h;
-              else if (x.date > prev && x.date < d && days.indexOf(wkday(x.date)) === -1 && FIXED_HW.indexOf(x.type) === -1 && (!moved || x.date >= moved.date)) moved = { date: x.date, h: h };
-            });
-            if (own) add(lastLine(own)); else if (moved) add(lastLine(moved.h));
-            if (!lines.length) add(practiceOf(all, d, p.subject));
-          } else {
-            // not a homework day: only class test / revision homework stays on its own day
-            all.forEach(function (x) { if (x.date === d && FIXED_HW.indexOf(x.type) !== -1) add(x.homework); });
+          const fixedToday = all.filter(function (x) { return x.date === d && FIXED_HW.indexOf(x.type) !== -1 && String(x.homework || '').trim(); });
+          if (fixedToday.length) fixedToday.forEach(function (x) { add(x.homework); });
+          else if (days.indexOf(w) !== -1) {
+            if (li < line.length && line[li].date <= d) {
+              const x = line[li++];
+              add(hwText(x));
+              if (x.date < d) carried = x.date;
+            } else if (d <= last) add(practiceOf(all, d, p.subject));
           }
-          if (lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, homework: kgLine(p.class_name, p.subject, lastLine(lines.join('\n')), !!(p.settings && p.settings.use_wb)) });
+          if (d >= from && lines.length) out.push({ class_name: p.class_name, subject: p.subject, date: d, carried_from: carried || undefined,
+            homework: kgLine(p.class_name, p.subject, lastLine(lines.join('\n')), !!(p.settings && p.settings.use_wb)) });
         }
       });
       // Oct 2026: a class that HAS a homework timetable gets no homework in subjects not ticked in it
