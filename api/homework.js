@@ -338,7 +338,9 @@ async function sendDue(school, upTo) {
       const ids = [], lines = [];
       subjects.forEach(function (sub) {
         g.bySubject[sub].forEach(function (i) { ids.push(i.id); });
-        lines.push(sub + ': ' + g.bySubject[sub].map(function (i) { return i.homework; }).join(' / ').replace(/\n/g, ' / '));
+        // Nov 2026: each homework line stays on its own line (e.g. the Tamil line below the English one) —
+        // the parent app shows "Subject: …" lines as a diary-slip list; lines that follow belong to that subject
+        lines.push(sub + ': ' + g.bySubject[sub].map(function (i) { return String(i.homework || '').trim(); }).filter(Boolean).join('\n'));
       });
       const cw = g.type === 'classwork';
       const e = await postErpHomework({
