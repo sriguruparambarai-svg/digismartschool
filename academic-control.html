@@ -219,7 +219,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   </section>
 
   <section class="view" id="v-classwork" hidden>
-    <p class="lead">What goes to parents as "In class today", kept apart from homework. Blue = class work, gold = homework.</p>
+    <p class="lead">One class at a time: yesterday's, today's and tomorrow's class work side by side. Where a teacher has not sent class work yet, the lesson from the Lesson Plan is shown with whether it was taken. Homework is in the Homework tab.</p>
     <div class="chips" id="cchips"></div>
     <div id="cwb" class="view"></div>
   </section>
@@ -345,7 +345,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     $("loaderr").innerHTML=T.success?"":'<div class="err">Timetable could not be read: '+h(T.error||"no answer")+'</div>';
     drawAll();
     Promise.all([pY,pN]).then(function(r){S.Y=r[0].success?r[0]:null;S.N=r[1].success?r[1]:null;
-      try{drawHomeworkBody()}catch(e){showErr(e)}});
+      try{drawHomeworkBody();drawCwBody()}catch(e){showErr(e)}});
   }
   function showErr(e){$("loaderr").innerHTML+='<div class="err">Something went wrong on this page: '+h(e&&e.message||e)+'. Please send a screenshot.</div>'}
   function drawAll(){try{
@@ -483,23 +483,27 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       +(les.activity?'<div class="bx cw"><h4>Activity</h4><p>'+h(les.activity)+'</p></div>':'')
       +'<div class="bx hw"><h4>Homework planned</h4><p>'+h(les.homework||"None in the Lesson Planner for this day.")+'</p></div>'}
 
-  // ── CLASS WORK ──
+  // ── CLASS WORK (Nov 2026): one class at a time — yesterday, today and tomorrow side by side ──
   function drawClasswork(){
-    var pu=S.L.parent_update||[],classes=allClasses().filter(function(c){return pu.some(function(x){return x.class_name===c})});
-    chips($("cchips"),[{k:"all",label:"All classes",sub:String(pu.length)}].concat(classes.map(function(c){return{k:c,sub:String(pu.filter(function(x){return x.class_name===c}).length)}})),S.ccls,function(k){S.ccls=k;drawCwBody()});
+    var classes=allClasses();
+    if(!S.ccls||S.ccls==="all"||classes.indexOf(S.ccls)===-1)S.ccls=classes[0]||"";
+    chips($("cchips"),classes.map(function(c){return{k:c}}),S.ccls,function(k){S.ccls=k;drawCwBody()});
     drawCwBody()}
+  // one day's class work for a class: what teachers sent (class work) and, for subjects without it, the planned lesson
+  function cwCol(L,c,when){
+    if(!L)return '<div class="empty">Loading&hellip;</div>';
+    var cw=(L.parent_update||[]).filter(function(x){return x.class_name===c&&x.type==="classwork"});
+    var out=cw.map(function(x){return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?"By "+x.teacher:"")+'</div></div>'}).join("");
+    (L.subjects||[]).filter(function(s){return s.class_name===c&&(s.today||[]).length&&!cw.some(function(x){return sameSub(x.subject,s.subject)})}).forEach(function(s){
+      out+=s.today.map(function(l){
+        var p=when==="tomorrow"?pill("p-w","Planned"):l.state==="done"?pill("p-ok","Taken"):l.state==="not"?pill("p-bad","Not taken"):pill("p-w",when==="yesterday"?"Not marked":"Not marked yet");
+        return '<div class="it"><div class="t"><b>'+h(s.subject)+'</b>'+p+'</div><p>'+(l.period?'<b>'+h(l.period)+'</b> · ':'')+h(chap(l.chapter))+(l.pages?" · p. "+h(l.pages):"")+'</p><div class="m">'
+          +(l.state==="not"&&l.reason?'<b style="color:var(--bad)">'+h(l.reason)+'</b> · ':'')+h(s.teacher||"No teacher set")+' · from the Lesson Plan</div></div>'}).join("")});
+    return out||'<div class="empty">No class work '+(when==="tomorrow"?"planned":"for this day")+'.</div>'}
   function drawCwBody(){
-    var pu=(S.L.parent_update||[]).filter(function(x){return S.ccls==="all"||x.class_name===S.ccls}).sort(function(a,b){return cord(a.class_name,b.class_name)||(a.type<b.type?-1:1)});
-    if(!pu.length){$("cwb").innerHTML='<div class="panel empty">Nothing for parents yet today. Class work appears when teachers submit their day.</div>';return}
-    var groups={};pu.forEach(function(x){(groups[x.class_name]=groups[x.class_name]||[]).push(x)});
-    $("cwb").innerHTML=Object.keys(groups).sort(cord).map(function(c){var g=groups[c];
-      var part=function(type,label,k){var list=g.filter(function(x){return x.type===type});if(!list.length)return"";
-        return '<div class="it" style="background:var('+(type==="classwork"?"--cwbg":"--hwbg")+')"><span class="kind '+k+'">'+label+'</span></div>'+list.map(function(x){
-          var long=type==="classwork"&&String(x.text||"").length>400;
-          return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?"By "+x.teacher:"")+(long?' · <b style="color:var(--bad)">Long — parents get all of this text</b>':'')+'</div></div>'}).join("")};
-      // Nov 2026: class work on one side, homework on the other
-      var none=function(t){return '<div class="it"><span class="kind '+(t==="classwork"?"k-cw":"k-hw")+'">'+(t==="classwork"?"Class work · in class today":"Homework · to do at home")+'</span></div><div class="empty">No '+(t==="classwork"?"class work":"homework")+' yet.</div>'};
-      return '<div class="panel"><div class="ph"><h3>'+h(c)+'</h3><span>'+g.length+' item'+(g.length>1?"s":"")+'</span></div><div class="cwhw"><div>'+(part("classwork","Class work · in class today","k-cw")||none("classwork"))+'</div><div>'+(part("homework","Homework · to do at home","k-hw")||none("homework"))+'</div></div></div>'}).join("")}
+    var c=S.ccls;if(!c){$("cwb").innerHTML='<div class="panel empty">No classes yet.</div>';return}
+    var col=function(title,date,note,L,when){return '<div class="panel"><div class="ph"><h3>'+h(title)+' · '+h(nice(date))+'</h3><span>'+h(note)+'</span></div>'+cwCol(L,c,when)+'</div>'};
+    $("cwb").innerHTML='<div class="cols3">'+col("Yesterday",S.yday,"What was done",S.Y,"yesterday")+col("Today",S.day,"Goes to parents at 4 PM",S.L,"today")+col("Tomorrow",S.nday,"From the Lesson Plan",S.N,"tomorrow")+'</div>'}
 
   // ── PORTION ──
   // Nov 2026: class buttons — the table shows one class at a time (it was too long to read)
