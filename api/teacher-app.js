@@ -1188,6 +1188,9 @@ module.exports = async function handler(req, res) {
       subjects.forEach(function (s) {
         const notToday = s.today.some(function (x) { return x.state === 'not'; });
         s.level = s.behind >= 3 ? 'bad' : (s.behind >= 1 || notToday) ? 'slow' : 'ok';
+        // Nov 2026: Reading / Writing Practice periods are allotted by the principal and never reach a teacher's
+        // My Day, so nobody ticks them — never count them as behind, and leave them out of the lesson counts
+        if (/(Reading|Writing) Practice$/i.test(String(s.subject || ''))) { s.practice = true; s.behind = 0; s.level = 'ok'; }
       });
 
       // ── needs attention ──
@@ -1300,8 +1303,8 @@ module.exports = async function handler(req, res) {
                        detail: lateOnes.map(function (c) { return c.class_name + ' ' + c.subject + ' at ' + t12(c.at); }).join(', ') + ' (check time ' + t12(hwCheckBy) + ').' });
         }
       });
-      const lessonsToday = subjects.reduce(function (n, s) { return n + s.today.length; }, 0);
-      const lessonsDone = subjects.reduce(function (n, s) { return n + s.today.filter(function (x) { return x.state === 'done'; }).length; }, 0);
+      const lessonsToday = subjects.reduce(function (n, s) { return s.practice ? n : n + s.today.length; }, 0);
+      const lessonsDone = subjects.reduce(function (n, s) { return s.practice ? n : n + s.today.filter(function (x) { return x.state === 'done'; }).length; }, 0);
       const submitTeachers = teachers.filter(function (t) { return (t.access || []).indexOf('submit_day') !== -1; });
       // Step 4: today's parent update — class work and homework waiting for the principal, and what is already approved
       const parentUpdate = ok(wt) ? wt.data.map(function (x) {
