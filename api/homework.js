@@ -245,6 +245,16 @@ const isDate = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || ''))
 const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const dayLabel = function (d) { const p = d.split('-'); return p[2] + ' ' + MON[Number(p[1]) - 1]; };
 const clip = function (s, n) { return String(s == null ? '' : s).trim().substring(0, n); };
+// Nov 2026: parent message headings (English, then Tamil for parents who don't read English)
+const CW_HEAD = '📚 Class work · பள்ளியில் இன்று படித்தது';
+const HW_HEAD = '✏️ Homework · வீட்டுப்பாடம்';
+// Class work for parents: only the lesson name and pages — the teaching steps after " — " are for the teacher.
+// "pp pp. 4–10" (old wording) becomes "pp. 4–10".
+function cwShort(t) {
+  return String(t || '').split('\n').map(function (l) {
+    return l.split(' — ')[0].replace(/\bpp\s+(pp?\.)/g, '$1').replace(/\s*Class activity:.*$/, '').trim();
+  }).filter(Boolean).join('; ').substring(0, 240);
+}
 
 // ── Sending: Student Diary + ERP Parent Portal ──
 // Sends every 'added', not-yet-sent homework of one school dated on or before `upTo`.
@@ -333,30 +343,48 @@ async function sendDue(school, upTo) {
       });
     }
 
-    for (const g of forErp) {
-      const subjects = Object.keys(g.bySubject);
-      const ids = [], lines = [];
-      subjects.forEach(function (sub) {
-        g.bySubject[sub].forEach(function (i) { ids.push(i.id); });
-        // Nov 2026: each homework line stays on its own line (e.g. the Tamil line below the English one) —
-        // the parent app shows "Subject: …" lines as a diary-slip list; lines that follow belong to that subject
-        lines.push(sub + ': ' + g.bySubject[sub].map(function (i) { return String(i.homework || '').trim(); }).filter(Boolean).join('\n'));
-      });
-      const cw = g.type === 'classwork';
+    // Nov 2026: ONE evening message per class + day — "Class work" (one short line per subject: lesson name
+    // and pages, never the teaching steps) and "Homework" (in full), each with a Tamil heading.
+    // A day with only class work, or only homework, still goes as before (one part only).
+    const byDay = {};
+    forErp.forEach(function (g) {
+      const k = g.date + '|' + g.cls;
+      const d = (byDay[k] = byDay[k] || { date: g.date, cls: g.cls, cw: {}, hw: {} });
+      const into = g.type === 'classwork' ? d.cw : d.hw;
+      Object.keys(g.bySubject).forEach(function (sub) { into[sub] = (into[sub] || []).concat(g.bySubject[sub]); });
+    });
+    for (const k of Object.keys(byDay)) {
+      const d = byDay[k], ids = [], cwSubs = Object.keys(d.cw), hwSubs = Object.keys(d.hw);
+      const both = cwSubs.length && hwSubs.length;
+      const part = function (bySub, short) {
+        return Object.keys(bySub).map(function (sub) {
+          bySub[sub].forEach(function (i) { ids.push(i.id); });
+          // each homework line stays on its own line (e.g. the Tamil line below the English one) —
+          // the parent app shows "Subject: …" lines as a diary-slip list; lines that follow belong to that subject
+          const txt = bySub[sub].map(function (i) { return short ? cwShort(i.homework) : String(i.homework || '').trim(); }).filter(Boolean);
+          return sub + ': ' + (short ? txt.join('; ') : txt.join('\n'));
+        });
+      };
+      const lines = [];
+      if (cwSubs.length) { if (both) lines.push(CW_HEAD); Array.prototype.push.apply(lines, part(d.cw, true)); }
+      if (hwSubs.length) { if (both) lines.push(HW_HEAD); Array.prototype.push.apply(lines, part(d.hw, false)); }
+      const cn = erpClassName(d.cls, SECTIONS);
       const e = await postErpHomework({
         school_id: school.erp_school_id,
-        type: cw ? 'classwork' : 'homework',
-        class_name: erpClassName(g.cls, SECTIONS),
-        title: cw ? (erpClassName(g.cls, SECTIONS) + ' · In class today — ' + dayLabel(g.date)) : (erpClassName(g.cls, SECTIONS) + ' Homework — ' + dayLabel(g.date)),
+        type: hwSubs.length ? 'homework' : 'classwork',
+        combined: !!both,
+        class_name: cn,
+        title: both ? (cn + ' · Class work & Homework — ' + dayLabel(d.date))
+          : !hwSubs.length ? (cn + ' · Class work — ' + dayLabel(d.date)) : (cn + ' Homework — ' + dayLabel(d.date)),
         message: lines.join('\n'),
-        subject: subjects.join(', '),
-        due_date: g.date,
+        subject: cwSubs.concat(hwSubs.filter(function (s) { return cwSubs.indexOf(s) === -1; })).join(', '),
+        due_date: d.date,
         sender_name: clip(school.name, 120) || 'School'   // parents see the school's name as the sender
       });
       const good = e.status === 200 && e.data && e.data.ok;
       const msg = good ? null : clip((e.data && e.data.error) || ('status ' + e.status), 300);
       await db('PATCH', '/rest/v1/homework_plan?id=in.(' + ids.map(enc).join(',') + ')', { erp_error: msg });
-      if (!good) out.errors.push(g.cls + ' ' + g.date + ' ERP (' + (cw ? 'class work' : 'homework') + '): ' + msg + ' — will try again at the next send');
+      if (!good) out.errors.push(d.cls + ' ' + d.date + ' ERP: ' + msg + ' — will try again at the next send');
     }
   }
   return out;

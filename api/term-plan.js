@@ -25,6 +25,10 @@
 //   for_week  { from, to }                      (Oct 2026) homework of every APPROVED plan, all classes, from..to
 //                                               → { rows:[{class_name,subject,date,homework}], not_approved }
 //                                               (Homework Planner → "Fill this week from Term Plans")
+//   cw_for_week { from, to }                    (Nov 2026) CLASS WORK of every APPROVED plan, from..to: one short
+//                                               line per class + subject + day — the lesson name and pages only
+//                                               → { rows:[{class_name,subject,date,classwork}] }
+//                                               (Homework Planner → "Fill this week from Lesson Plans")
 //   list also gives behind_count: lessons dated before today (India time) not yet ticked done.
 //
 // SCHOOL HOLIDAY CALENDAR (Oct 2026) — one calendar per school, shared by every term plan.
@@ -387,6 +391,34 @@ module.exports = async function handler(req, res) {
     }
 
     // ── every class, one week: the approved plans' homework (Oct 2026, Homework Planner "Fill this week") ──
+    // ── Nov 2026: class work for parents, one short line per lesson (no teaching steps) ──
+    if (action === 'cw_for_week') {
+      const from = String(body.from || ''), to = String(body.to || '');
+      if (!isDate(from) || !isDate(to) || to < from) return res.json({ error: 'Dates needed.' });
+      const r = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) +
+        '&status=eq.approved&select=class_name,subject,rows&order=updated_at.desc');
+      if (!ok(r)) return res.json({ error: 'Could not read term plans: ' + why(r) });
+      const seen = {}, byKey = {};
+      r.data.forEach(function (p) {
+        const k0 = p.class_name + '|' + String(p.subject).toLowerCase();
+        if (seen[k0]) return;            // the newest plan for this class+subject wins
+        seen[k0] = 1;
+        (Array.isArray(p.rows) ? p.rows : []).forEach(function (x) {
+          if (!x || !isDate(x.date) || x.date < from || x.date > to) return;
+          const ch = String(x.chapter || '').trim();
+          if (!ch) return;
+          const pg = String(x.pages || '').trim().replace(/^pp?\.?\s*/i, '');
+          const line = ch + (pg ? (/^\d/.test(pg) ? ' (p. ' + pg + ')' : ' (' + pg + ')') : '');
+          const k = p.class_name + '|' + p.subject + '|' + x.date;
+          byKey[k] = byKey[k] || { class_name: p.class_name, subject: p.subject, date: x.date, lines: [] };
+          if (byKey[k].lines.indexOf(line) === -1) byKey[k].lines.push(line);
+        });
+      });
+      return res.json({ success: true, rows: Object.keys(byKey).map(function (k) {
+        const g = byKey[k]; return { class_name: g.class_name, subject: g.subject, date: g.date, classwork: g.lines.join('; ') };
+      }) });
+    }
+
     if (action === 'for_week') {
       const from = String(body.from || ''), to = String(body.to || '');
       if (!isDate(from) || !isDate(to) || to < from) return res.json({ error: 'Dates needed.' });

@@ -1376,15 +1376,25 @@ async function fillFromTp(){
       if(S.items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned")){have++;return false}
       return true}).map(x=>({class_name:x.class_name,subject:x.subject,kind:"Written",homework:fixedText(x.class_name,x.subject)||cleanTpText(x.homework),hw_date:x.date,made_by:"principal"}));
     const note=(have?" "+have+" already had homework (left as is).":"")+(past?" "+past+(past>1?" were":" was")+" for days already sent.":"")+(d.not_approved?" "+d.not_approved+" Lesson Plan"+(d.not_approved>1?"s are":" is")+" not approved yet, so "+(d.not_approved>1?"their":"its")+" homework was not taken.":"");
-    if(!items.length){toast("Nothing new to add from the Lesson Plans for this week."+note);return}
+    // Nov 2026: class work too — one short line per lesson (lesson name + pages), so parents get
+    // "Class work" and "Homework" in one 4 PM message. Subjects that already have class work that day are left alone.
+    let cwItems=[];
+    try{const rc=await fetch("/api/term-plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"cw_for_week",from,to})});
+      const dc=await rc.json();if(dc.error)throw new Error(dc.error);
+      cwItems=(dc.rows||[]).filter(x=>shown.includes(x.class_name)&&!(x.date<TODAY||(x.date===TODAY&&hr>=SEND_HOUR))
+        &&!S.cw.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned"))
+        .map(x=>({class_name:x.class_name,subject:x.subject,kind:"Class work",homework:x.classwork,hw_date:x.date,made_by:"principal",entry_type:"classwork"}))}
+    catch(e){toast("Class work could not be read from the Lesson Plans: "+e.message,true)}
+    if(!items.length&&!cwItems.length){toast("Nothing new to add from the Lesson Plans for this week."+note);return}
     // Nov 2026: homework not given on its own day (homework timetable) is carried to the next homework day — never skipped
     const carried=(d.rows||[]).filter(x=>x.carried_from&&items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)));
     const cnote=carried.length?"\n\n"+carried.length+" of them "+(carried.length>1?"are":"is")+" homework carried over from an earlier day, for example: "+carried.slice(0,3).map(x=>x.class_name+" "+x.subject+" (from "+nice(x.carried_from)+" → "+nice(x.date)+")").join(", ")+".":"";
-    if(!confirm(items.length+" homework from the approved Lesson Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+cnote+"\n\nYou can edit or take out any of them before they are sent. Add them?"))return;
-    busy=true;let n=0;
-    try{for(let a=0;a<items.length;a+=60){const s=await hw("save_many",{items:items.slice(a,a+60),teacher_name:"Term Plan"});n+=(s.items||[]).length}}
+    if(!confirm(items.length+" homework and "+cwItems.length+" class work from the approved Lesson Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+cnote+"\n\nThey go to parents together at 4 PM on their own day. You can edit or take out any of them before they are sent. Add them?"))return;
+    busy=true;let n=0,m=0;
+    try{for(let a=0;a<items.length;a+=60){const s=await hw("save_many",{items:items.slice(a,a+60),teacher_name:"Term Plan"});n+=(s.items||[]).length}
+      for(let a=0;a<cwItems.length;a+=60){const s=await hw("save_many",{items:cwItems.slice(a,a+60),teacher_name:"Term Plan"});m+=(s.items||[]).length}}
     finally{busy=false}
-    await load();toast(n+" homework added from the Lesson Plans. Check and edit them in the week below."+note);
+    await load();toast(n+" homework and "+m+" class work added from the Lesson Plans. Check and edit them in the week below."+note);
   }catch(e){toast("Could not fill from Lesson Plans: "+e.message,true)}
   finally{btn.disabled=false}}
 if($("fillTp"))$("fillTp").onclick=fillFromTp;
