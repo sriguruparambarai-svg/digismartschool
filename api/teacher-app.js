@@ -671,7 +671,9 @@ module.exports = async function handler(req, res) {
         // → Today's parent update, or the Homework Planner) and the usual 4 PM send takes them to the
         // Student Diary and the ERP parent app — the same way as class work typed in the planner.
         let cw = { made: 0, error: '' };
-        if (body.submit) cw = await syncClassWork(school, t, today, items, saved);
+        // Nov 2026: class work for parents now comes from the Lesson Plan (Homework Planner → Fill this week),
+        // so a teacher's submit no longer makes class work entries. syncClassWork is kept but not called.
+        // if (body.submit) cw = await syncClassWork(school, t, today, items, saved);
         // ── Nov 2026: Save homework check → children who didn't do it go to ERP's Homework Defaulters ──
         let df;
         if (body.send_defaulters) {
