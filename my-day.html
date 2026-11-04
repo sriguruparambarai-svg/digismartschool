@@ -109,6 +109,13 @@ textarea{width:100%;min-height:80px;border:1.5px solid var(--sd);border-radius:1
 .wk-note{min-height:52px;margin-top:10px;}
 .wk-back{margin-top:9px;font-size:.84rem;background:var(--warnbg);border:1px solid #D9A13B;border-radius:10px;padding:8px 10px;color:#4E3D33;}
 a{color:var(--m);}
+/* Nov 2026: Submit my day in 3 steps; homework to give in Tomorrow */
+.hwgive{background:var(--s);border-left:4px solid var(--g);border-radius:8px;padding:8px 10px;margin-top:9px;font-size:.9rem;line-height:1.4;}
+.hwgive small{display:block;font-weight:900;color:var(--m);font-size:.72rem;letter-spacing:.05em;text-transform:uppercase;}
+.step{font-family:"Cinzel",serif;color:var(--m);font-size:1rem;display:flex;gap:9px;align-items:center;margin:16px 2px 8px;}
+.step i{font-style:normal;flex:0 0 24px;height:24px;border-radius:50%;background:var(--m);color:#fff;display:grid;place-items:center;font-family:"Nunito",sans-serif;font-size:.8rem;font-weight:900;}
+.card.mini{padding:11px 13px;}
+.mini .what{font-size:.86rem;color:#4E3D33;margin-top:3px;line-height:1.35;}
 </style>
 </head>
 <body>
@@ -156,6 +163,7 @@ var checks={};         // hw_id → {corrected, missing:[], reasons:{roll:'not_d
 var sendDef=false, lastSave=null;   // Nov 2026: Save homework check sends defaulters to ERP
 var WHY=[['not_done','Not done'],['half','Half done'],['notebook','No notebook']];
 var watch='';
+var given={};          // Nov 2026: hw_id → 'yes' | 'no'  (Submit my day step 2: homework given today?)
 var tab='today';
 var TT=null;           // my timetable from the server (Oct 2026)
 var W=null;            // Work to Staff: {pending,done,today} (Oct 2026)
@@ -208,11 +216,12 @@ async function loadDay(){
   var d=await api('my_day');
   if(d.relogin) return showPin(d.error);
   if(!d.success){ show('appView'); $('main').innerHTML='<div class="banner red">'+h(d.error||'Could not load your day.')+'</div><button type="button" class="btn primary" onclick="location.reload()">Try again</button>'; return; }
-  D=d; marks={}; checks={}; watch='';
+  D=d; marks={}; checks={}; watch=''; given={};
   if(d.report){
     (d.report.items||[]).forEach(function(x){ if(x.status) marks[x.plan_id+'|'+x.index]={status:x.status,reason:x.reason||''}; });
     (d.report.hw_checks||[]).forEach(function(c){ checks[c.hw_id]={corrected:c.corrected||'',missing:(c.missing||[]).slice(),reasons:Object.assign({},c.reasons||{})}; });
     watch=d.report.watch||'';
+    (d.report.hw_given||[]).forEach(function(g){ if(g.given) given[g.hw_id]=g.given; });
   }
   // lessons already ticked as taught (e.g. by the Homework Planner) start as Done
   (d.items||[]).forEach(function(x){ if(x.done && !marks[key(x)]) marks[key(x)]={status:'done',reason:''}; });
@@ -226,7 +235,7 @@ async function loadDay(){
   if(has('today')) tabs.push('today');
   tabs.push('work');   // Work to Staff (Oct 2026): every teacher, no tick needed
   if(has('tomorrow')) tabs.push('tm');
-  if(has('hw_check')) tabs.push('hw');
+  // Nov 2026: the homework check is now step 3 of Submit my day (no separate Homework tab)
   if(has('submit_day')) tabs.push('submit');
   if(has('timetable')) tabs.push('tt');
   if(tabs.indexOf(tab)===-1) tab=tabs[0]||'none';
@@ -309,7 +318,7 @@ async function loadMyNb(){
   MYNB=d&&d.success?d:{error:(d&&d.error)||''};
   if(tab===nbScoreTab()) draw();
 }
-function nbScoreTab(){ return has('hw_check')?'hw':'work'; }
+function nbScoreTab(){ return 'work'; }
 function nbScoreHTML(){
   if(!MYNB||MYNB.error) return '';
   var s=MYNB.this_month||{}, l=MYNB.last_month||{};
@@ -384,7 +393,7 @@ function drawNav(tabs){
   if(tabs.length<2){ $('nav').style.display='none'; document.body.style.paddingBottom='24px'; }
   $('nav').innerHTML=tabs.map(function(t){
     var dot='';
-    if(t==='submit' && !(D.report&&D.report.submitted_at)) dot=' <span class="dot">!</span>';
+    if(t==='submit' && !(D.report&&D.report.submitted_at)) dot=' <span class="dot">'+(answersLeft()||'!')+'</span>';
     if(t==='tt' && ttNew()) dot=' <span class="dot">!</span>';
     if(t==='work' && workLeft()) dot=' <span class="dot">'+workLeft()+'</span>';
     if(t==='tm' && D.tomorrow && D.tomorrow.open && (D.tomorrow.items||[]).length && !tmSeen()) dot=' <span class="dot">!</span>';
@@ -424,8 +433,7 @@ function lessonCard(x,isEarlier,showButtons){
     +'<div class="line"><b>Lesson</b><span>'+h(x.chapter||'')+(x.pages?' <span class="small">(p. '+h(x.pages)+')</span>':'')+'</span></div>'
     +'<div class="line"><b>'+(x.type==='teachbot'?'In AI class':'Do')+'</b><span style="white-space:pre-line">'+h(x.teach||'')+'</span></div>'
     +(x.workbook?'<div class="line"><b>Workbook</b><span style="white-space:pre-line">'+h(x.workbook)+'</span></div>':'')
-    +'<div class="line"><b>Activity</b><span>'+act+'</span></div>'
-    +'<div class="line"><b>Homework</b><span>'+hwLine+'</span></div>';
+    +'<div class="line"><b>Activity</b><span>'+act+'</span></div>';   // Nov 2026: no homework here (it is in Tomorrow)
   if(showButtons){
     html+='<div class="btns">'
       +'<button type="button" class="btn '+(st==='done'?'okon':'ok')+'" data-mark="done" data-k="'+h(key(x))+'">Done</button>'
@@ -447,8 +455,8 @@ function tmSeen(){ return D && D.tomorrow && lsGet(TM_SEEN_KEY)===D.tomorrow.dat
 function tmMarkSeen(){ if(D && D.tomorrow && D.tomorrow.open && D.tomorrow.date){ lsSet(TM_SEEN_KEY,D.tomorrow.date); redrawNav(); } }
 function tmCard(x){
   var act=[x.class_act,x.ground_act?('Ground: '+x.ground_act):''].filter(Boolean).map(h).join('<br>');
-  var hwp=hwNextFor(x);
-  var hw=hwp.length?hwp.map(function(z){return h(z.homework);}).join('<br>'):(x.homework?h(x.homework):x.home_act?h(x.home_act):'');
+  // Nov 2026: only the final homework approved in the Homework Planner — no suggestions
+  var hw=hwNextFor(x).filter(function(z){return z.status==='added';}).map(function(z){return h(z.homework);}).join('<br>');
   return '<div class="card">'
     +'<div class="row"><div class="cls">'+h(x.class_name)+' · '+h(x.subject)+'</div>'+(x.period?'<span class="tag" style="background:#fff;border:1px solid #C9A84C;color:#4E3D33;">'+h(x.period)+'</span>':'')+'</div>'
     +(PT[x.type]?'<div style="margin-top:6px;"><span class="tag" style="background:'+(x.room==='ai'?'#6B0F1A;color:#fff':'#F5E6C8;color:#4E3D33')+';">'+h(PT[x.type])+'</span></div>':'')
@@ -456,7 +464,7 @@ function tmCard(x){
     +(x.teach?'<div class="line"><b>'+(x.type==='teachbot'?'In AI class':'Prepare')+'</b><span style="white-space:pre-line">'+h(x.teach)+'</span></div>':'')
     +(x.workbook?'<div class="line"><b>Workbook</b><span style="white-space:pre-line">'+h(x.workbook)+'</span></div>':'')
     +(act?'<div class="line"><b>Activity</b><span>'+act+'</span></div>':'')
-    +(hw?'<div class="line"><b>Homework</b><span><span class="small">Suggested:</span> '+hw+'</span></div>':'')
+    +'<div class="hwgive"><small>Homework to give tomorrow</small>'+(hw||'<span class="small">Not set yet. The principal adds it in the Homework Planner.</span>')+'</div>'
     +'</div>';
 }
 function tmHTML(){
@@ -465,13 +473,13 @@ function tmHTML(){
   if(!t.date) return '<div class="empty">No lessons are planned for the next school day yet.<br><span class="small">Your principal fills these in the Lesson Planner.</span></div>';
   var items=t.items||[];
   var out='<div class="h2">'+h(niceDate(t.date))+'</div>'
-    +'<div class="banner green">Prepare these today. Read the book pages before class.</div>';
+    +'<div class="banner green">Prepare these today. Read the book pages before class. The homework shown is final — give it in class.</div>';
   out+=items.length?items.map(tmCard).join(''):'<div class="empty">No lessons for you on this day.</div>';
-  if((D.items||[]).length||(D.earlier||[]).length) out+='<p class="small" style="text-align:center;margin-top:8px;">Any lesson you mark Not done today will also come back on your Today screen.</p>';
+  if((D.items||[]).length||(D.earlier||[]).length) out+='<p class="small" style="text-align:center;margin-top:8px;">Any class you mark Not taken today will also come back on your Today screen.</p>';
   return out;
 }
 function todayHTML(){
-  var canMark=has('submit_day')||has('today');
+  var canMark=false;   // Nov 2026: Today only shows what to teach — teachers mark everything in Submit my day
   if(D.weekday==='Sun') return '<div class="empty">It is Sunday. Enjoy your day off!</div>';
   if(!(D.classes||[]).length) return '<div class="empty">Your principal has not added your classes yet.<br>Please ask them to add your classes and subjects.</div>';
   var out='';
@@ -482,7 +490,7 @@ function todayHTML(){
   out+='<div class="h2">Today</div>';
   if(!(D.items||[]).length) out+='<div class="empty">No lessons planned for today in the Lesson Planner for your classes.<br>If this is wrong, please tell your principal.</div>';
   else out+=D.items.map(function(x){return lessonCard(x,false,canMark);}).join('');
-  out+='<p class="small" style="margin:8px 2px;">Tap <b>Done</b> right after each class. You check everything again in <b>Submit my day</b>.</p>';
+  if(has('submit_day')) out+='<p class="small" style="margin:8px 2px;">At the end of the day, mark everything in <b>Submit my day</b>.</p>';
   return out;
 }
 
@@ -525,29 +533,62 @@ function hwHTML(){
 
 // ── SUBMIT MY DAY ──
 function submitHTML(){
+  // Nov 2026: three steps in the school's order — 1 classes taken, 2 today's homework given, 3 yesterday's corrected
   var rep=D.report||{}, done=!!rep.submitted_at;
-  var items=allItems();
-  var left=unmarked();
+  var items=allItems(), give=giveList(), chk=has('hw_check')?(D.hw_check||[]):[];
+  var all=items.length+give.length+chk.length, left=answersLeft();
   var out='';
   if(done){
     var tm=new Date(rep.submitted_at).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'});
     out+='<div class="banner green"><b>Submitted at '+h(tm)+'</b>'+(rep.late?' (after the '+h(nice12(D.deadline))+' deadline)':'')+'. You can still correct it today and tap Update.</div>';
   } else {
     var mins=minsLeft();
-    out+='<div class="banner '+(mins<0?'red':'yellow')+'"><b>Due by '+h(nice12(D.deadline))+'</b> <span class="small">(time set by your principal)</span><br>'
+    out+='<div class="banner '+(mins<0?'red':'yellow')+'"><b>Due by '+h(nice12(D.deadline))+'</b> · '+(all-left)+' of '+all+' answered<br>'
       +(mins<0?'The deadline has passed. Please submit now.':(mins<=60?mins+' minutes left.':'Parents get today\'s update after you submit.'))+'</div>';
   }
-  if(left) out+='<div class="banner red">'+left+' lesson'+(left>1?'s are':' is')+' not marked yet. Mark each one Done or Not done.</div>';
-  out+='<div class="h2">Your lessons</div>';
-  if(!items.length) out+='<div class="empty">No lessons to mark today.</div>';
-  else out+=items.map(function(x){ return lessonCard(x,x.date!==D.today,true); }).join('');
-  out+='<div class="card"><label for="watchIn" style="font-weight:900;font-size:.92rem;">Children to watch <span class="small">(optional)</span></label>'
+  out+='<div class="step"><i>1</i>Did you take these classes as planned?</div>';
+  if(!items.length) out+='<div class="empty" style="padding:12px">No lessons planned for you today.</div>';
+  else out+=items.map(function(x){
+    var k=key(x), mk=marks[k]||{}, st=mk.status||'', early=x.date!==D.today;
+    var html='<div class="card mini'+(early?' earlier':'')+'"><div class="row"><div class="cls">'+(x.period?h(x.period)+' · ':'')+h(x.class_name)+' · '+h(x.subject)+'</div>'+(early?'<span class="tag t-earlier">From '+h(shortDate(x.date))+'</span>':'')+'</div>'
+      +'<div class="what">'+h(x.chapter||'')+(x.pages?' (p. '+h(x.pages)+')':'')+'</div>'
+      +'<div class="btns"><button type="button" class="btn '+(st==='done'?'okon':'ok')+'" data-mark="done" data-k="'+h(k)+'">✓ Taken</button>'
+      +'<button type="button" class="btn '+(st==='not'?'badon':'bad')+'" data-mark="not" data-k="'+h(k)+'">✗ Not taken</button></div>';
+    if(st==='not'){ var id='rs_'+x.plan_id.slice(0,8)+'_'+x.index;
+      html+='<label for="'+id+'" class="small" style="display:block;margin-top:10px;font-weight:800;">Reason</label><select id="'+id+'" data-reason="'+h(k)+'"><option value="">Choose a reason</option>'
+        +REASONS.map(function(r){return '<option'+(mk.reason===r?' selected':'')+'>'+h(r)+'</option>';}).join('')+'</select>'; }
+    return html+'</div>';
+  }).join('');
+  out+='<div class="step"><i>2</i>Did you give today\'s homework?</div>';
+  if(!give.length) out+='<div class="empty" style="padding:12px">No homework approved for your classes today.</div>';
+  else out+=give.map(function(hw){ var g=given[hw.id]||'';
+    return '<div class="card mini"><div class="cls">'+h(hw.class_name)+' · '+h(hw.subject)+'</div><div class="what">'+h(hw.homework)+'</div>'
+      +'<div class="btns"><button type="button" class="btn '+(g==='yes'?'okon':'ok')+'" data-giv="yes" data-hw="'+h(hw.id)+'">✓ Given</button>'
+      +'<button type="button" class="btn '+(g==='no'?'badon':'bad')+'" data-giv="no" data-hw="'+h(hw.id)+'">✗ Not given</button></div></div>'; }).join('');
+  if(has('hw_check')){
+    out+='<div class="step"><i>3</i>Did you correct yesterday\'s homework?</div>';
+    if(!chk.length) out+='<div class="empty" style="padding:12px">No homework to correct from the last school day.</div>';
+    else out+=chk.map(function(hw){ var cr=(checks[hw.id]||{}).corrected||'';
+      return '<div class="card mini"><div class="cls">'+h(hw.class_name)+' · '+h(hw.subject)+'</div><div class="what">Given '+h(shortDate(hw.hw_date))+': '+h(hw.homework)+'</div>'
+        +'<div class="btns"><button type="button" class="btn '+(cr==='yes'?'okon':'ok')+'" data-cr="yes" data-hw="'+h(hw.id)+'">✓ Corrected</button>'
+        +'<button type="button" class="btn '+(cr==='no'?'badon':'bad')+'" data-cr="no" data-hw="'+h(hw.id)+'">✗ Not corrected</button></div></div>'; }).join('');
+  }
+  out+='<div class="card" style="margin-top:14px"><label for="watchIn" style="font-weight:900;font-size:.92rem;">Children to watch <span class="small">(optional)</span></label>'
     +'<div class="small" style="margin:4px 0 8px;">Who didn\'t follow today\'s lesson, or needs help? Roll numbers or names.</div>'
     +'<textarea id="watchIn" maxlength="600" placeholder="e.g. Class 3: roll 7 and 12 found new words hard">'+h(watch)+'</textarea></div>';
-  out+='<button type="button" class="btn primary" id="submitDay" style="width:100%;min-height:54px;font-size:1.05rem;">'+(done?'Update my day':'Submit my day')+'</button>';
+  out+='<button type="button" class="btn primary" id="submitDay" style="width:100%;min-height:54px;font-size:1.05rem;"'+(left?' disabled':'')+'>'+(left?'Answer all '+all+' to submit ('+left+' left)':(done?'Update my day':'Submit my day'))+'</button>';
   out+='<p class="small" style="text-align:center;margin-top:8px;">Not submitted by the school\'s deadline shows red on the principal\'s screen.</p>';
   out+='<p class="small" style="text-align:center;margin-top:18px;"><a href="#" id="logout">Not you? Log out</a></p>';
   return out;
+}
+// today's homework the principal approved for her classes — what she must give
+function giveList(){ return (D.hw_today||[]).filter(function(hw){ return hw.status==='added'; }); }
+function answersLeft(){
+  var n=unmarked();
+  n+=Object.keys(marks).filter(function(k){return marks[k].status==='not'&&!marks[k].reason;}).length;
+  n+=giveList().filter(function(hw){return !given[hw.id];}).length;
+  if(has('hw_check')) n+=(D.hw_check||[]).filter(function(hw){return !(checks[hw.id]&&checks[hw.id].corrected);}).length;
+  return n;
 }
 function minsLeft(){
   var now=new Date(Date.now()+5.5*3600*1000), p=String(D.deadline||'15:30').split(':');
@@ -562,7 +603,8 @@ function payload(submit){
       return {plan_id:x.plan_id,index:x.index,status:mk.status||'',reason:mk.reason||'',hw:hws.map(function(hw){return hw.homework;}).join(' | ')}; })
       .filter(function(x){ return x.status || submit; }),
     hw_checks: (D.hw_check||[]).filter(function(hw){ return checks[hw.id]; }).map(function(hw){ var c=checks[hw.id];
-      return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,homework:hw.homework,hw_date:hw.hw_date,corrected:c.corrected||'',missing:c.missing,reasons:c.reasons||{}}; }),
+      return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,homework:hw.homework,hw_date:hw.hw_date,corrected:c.corrected||'',missing:[],reasons:{}}; }),   // Nov 2026: no names — the office records defaulters
+    hw_given: giveList().filter(function(hw){ return given[hw.id]; }).map(function(hw){ return {hw_id:hw.id,class_name:hw.class_name,subject:hw.subject,given:given[hw.id]}; }),
     watch: watch,
     submit: !!submit,
     send_defaulters: sendDef
@@ -624,12 +666,20 @@ function wire(){
       redrawNav();
     }
   };
+  // Nov 2026: Submit my day steps 2 and 3 — saved as soon as she taps
+  m.querySelectorAll('[data-giv]').forEach(function(b){ b.onclick=function(){
+    var id=b.getAttribute('data-hw'), v=b.getAttribute('data-giv'); if(given[id]===v) delete given[id]; else given[id]=v;
+    draw(); redrawNav(); save(false).then(function(ok){ if(ok!==false) toast('Saved'); });
+  }; });
+  m.querySelectorAll('[data-cr]').forEach(function(b){ b.onclick=function(){
+    var id=b.getAttribute('data-hw'), v=b.getAttribute('data-cr'); checks[id]=checks[id]||{corrected:'',missing:[]};
+    checks[id].corrected=checks[id].corrected===v?'':v; checks[id].missing=[]; checks[id].reasons={};
+    draw(); redrawNav(); save(false).then(function(ok){ if(ok!==false) toast('Saved'); });
+  }; });
   if($('watchIn')) $('watchIn').oninput=function(){ watch=this.value; };
   if($('submitDay')) $('submitDay').onclick=async function(){
-    var left=unmarked();
-    if(left && !confirm(left+' lesson'+(left>1?'s are':' is')+' not marked. Submit anyway?')) return;
-    var bad=Object.keys(marks).filter(function(k){return marks[k].status==='not'&&!marks[k].reason;}).length;
-    if(bad){ alert('Please choose a reason for every lesson marked Not done.'); return; }
+    var left=answersLeft();   // Nov 2026: every step must be answered
+    if(left){ alert(left+' answer'+(left>1?'s are':' is')+' still missing. Answer every class and homework (and a reason for each class not taken).'); return; }
     this.disabled=true; var ok=await save(true); this.disabled=false;
     if(ok!==false){ toast('Day submitted. Thank you!'); draw(); redrawNav(); window.scrollTo(0,0); }
   };

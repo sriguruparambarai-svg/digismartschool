@@ -158,6 +158,19 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
 .lsl{margin:6px 0 0;padding-left:16px;font-size:.84rem}.lsl li.cur{font-weight:800;color:var(--m)}
 .bx details summary{cursor:pointer;color:var(--m);font-size:.78rem;font-weight:800}
 .ph .pill.p-ok,.ph .pill.p-bad{color:#fff}.ph .pill.p-slow{color:var(--slowfg)}
+/* Teachers tab cards (Nov 2026) */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-items:start}
+.tcd{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.tcd.red{border-color:var(--bad)}
+.tcd .top{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.tcd .when{font-size:.76rem;color:var(--mut);min-height:1em}
+.tsteps{display:grid;grid-template-columns:auto 1fr auto;gap:4px 8px;align-items:center;font-size:.85rem}
+.tsteps .n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:.7rem;font-weight:900;background:var(--soft);color:var(--m)}
+.tv{font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.tv.ok{color:var(--ok)}.tv.bad{color:var(--bad)}.tv.slow{color:var(--slowfg);background:var(--slow);padding:0 6px;border-radius:6px}.tv.na{color:var(--mut)}
+.tdet{font-size:.8rem;color:var(--mut);border-top:1px dashed var(--line);padding-top:6px;line-height:1.45}
+.tdet b{color:var(--fg)}
+.tmore{align-self:flex-start;background:none;border:none;padding:0;color:var(--m);font-weight:800;font-size:.8rem}
 </style>
 </head>
 <body>
@@ -232,7 +245,9 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       <label for="t-hb" style="font-weight:800;margin-left:6px">Check yesterday's homework by</label><input type="time" id="t-hb" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
       <button class="btn" type="button" id="t-save" style="min-height:40px;padding:6px 14px">Save times</button><span id="t-msg" style="font-weight:800"></span>
     </div>
-    <div class="panel scroll"><table class="w"><thead><tr><th>Teacher</th><th>Day</th><th>Lessons</th><th>Homework check</th></tr></thead><tbody id="teab"></tbody></table></div>
+    <p class="lead">Each teacher is checked in the same order: <b>1</b> classes taken as planned → <b>2</b> today's homework given → <b>3</b> yesterday's homework corrected. Teachers with a problem come first. Tap a box to show only that group.</p>
+    <div class="stsum" id="teasum"></div>
+    <div class="tgrid" id="teab"></div>
   </section>
 
   <!-- Notebook check (Nov 2026): random notebooks per class + subject, teacher scores. Parents never see this. -->
@@ -502,19 +517,62 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
 
   // ── TEACHERS ──
   function drawTeachers(){
-    var ord={missing:0,waiting:1,late:2,ok:3},ts=(S.L.teachers||[]).slice().sort(function(a,b){return ord[a.state]-ord[b.state]});
-    $("teab").innerHTML=ts.length?ts.map(function(t){
-      var st=t.state==="ok"?pill("p-ok","Submitted"):t.state==="late"?pill("p-slow","Late"):t.state==="missing"?pill("p-bad","Not submitted"):pill("p-w","Not yet");
-      var les=t.items.length?t.items.map(function(x){return(x.status==="done"?"✓":x.status==="not"?"✗":"?")+" "+h(x.class_name)+" "+h(x.subject)+(x.status==="not"&&x.reason?" ("+h(x.reason)+")":"")}).join("<br>"):'<span style="color:var(--mut)">Nothing marked</span>';
-      var ck=t.hw_checks.length?t.hw_checks.map(function(c){return h(c.class_name+" "+c.subject)+": "+(c.corrected==="yes"?"corrected":c.corrected==="some"?"some corrected":c.corrected==="no"?'<b style="color:var(--bad)">not corrected</b>':"not answered")+(c.missing&&c.missing.length?" · roll "+h(c.missing.join(", "))+" didn't bring":"")+(c.at?' <small style="color:'+(S.L.hw_check_by&&c.at>S.L.hw_check_by?"var(--bad)":"var(--mut)")+'">('+h(t12(c.at))+')</small>':"")}).join("<br>"):'<span style="color:var(--mut)">—</span>';
-      var sAt=t.submitted_at?'<br><small style="color:var(--mut)">at <b style="color:var(--fg)">'+h(t12(new Date(new Date(t.submitted_at).getTime()+5.5*3600e3).toISOString().slice(11,16)))+'</b>'+(S.L.deadline?' · deadline '+h(t12(S.L.deadline)):'')+'</small>':'';
-      var hb=S.L.hw_check_by,hs="";
-      if(t.hw_due!=null&&t.hw_due>0){var all=t.hw_checked>=t.hw_due;
-        hs='<div style="margin-bottom:4px">'+(all?pill(t.hw_late?"p-slow":"p-ok",t.hw_late?"Checked late":"All checked"):pill(t.hw_checked?"p-slow":"p-bad",t.hw_checked+" of "+t.hw_due+" checked"))
-          +(t.hw_first_at?' <small style="color:var(--mut)">marked '+h(t12(t.hw_first_at))+(t.hw_last_at&&t.hw_last_at!==t.hw_first_at?' – '+h(t12(t.hw_last_at)):'')+'</small>':'')
-          +(hb?' <small style="color:var(--mut)">· due '+h(t12(hb))+'</small>':'')
-          +(!all&&t.hw_missing&&t.hw_missing.length?'<br><small style="color:var(--bad);font-weight:800">Not checked: '+h(t.hw_missing.join(", "))+'</small>':'')+'</div>'}
-      return '<tr><td><b>'+h(t.name)+'</b></td><td>'+st+sAt+'<br><small style="color:var(--mut)">'+t.done+' done · '+t.not+' not done</small></td><td>'+les+'</td><td>'+hs+ck+'</td></tr>'}).join(""):'<tr><td colspan="4" class="empty">No teachers in the Teacher App yet.</td></tr>'}
+    // Nov 2026: one card per teacher, same 3 steps as the Teacher App's Submit my day:
+    // 1 classes taken as planned, 2 today's homework given, 3 yesterday's homework corrected
+    var HG={maths:"mathematics",math:"mathematics","social science":"social",sst:"social","social studies":"social"};
+    var hg=function(x){x=String(x||"").toLowerCase().trim();return HG[x]||x};
+    var ts=(S.L.teachers||[]).map(function(t){
+      var mine=function(c,s){return(t.classes||[]).some(function(x){return x.class_name===c&&hg(x.subject)===hg(s)})};
+      var les=[];(S.L.subjects||[]).forEach(function(s){if(mine(s.class_name,s.subject))(s.today||[]).forEach(function(x){les.push({c:s.class_name,s:s.subject,st:x.state,r:x.reason,p:x.period})})});
+      var hasSub=(t.access||[]).indexOf("submit_day")!==-1,hasHw=(t.access||[]).indexOf("hw_check")!==-1;
+      var g=t.hw_give||[],gv=t.hw_given||[],gOf=function(id){var x=gv.find(function(y){return y.hw_id===id});return x?x.given:""};
+      var cor=(t.hw_checks||[]).filter(function(c){return c.corrected==="yes"}).length;
+      var x={t:t,les:les,hasSub:hasSub,hasHw:hasHw,
+        c:[les.filter(function(l){return l.st==="done"}).length,les.length],
+        g:[g.filter(function(h){return gOf(h.id)==="yes"}).length,g.length],
+        r:hasHw&&t.hw_due!=null?[Math.min(cor,t.hw_due),t.hw_due]:[0,0],
+        notTaken:les.filter(function(l){return l.st==="not"}),notMarked:les.filter(function(l){return l.st!=="done"&&l.st!=="not"}),
+        notGiven:g.filter(function(h){return gOf(h.id)==="no"}),noAns:g.filter(function(h){return!gOf(h.id)}),
+        notCor:(t.hw_checks||[]).filter(function(c){return c.corrected==="no"}),corMissing:t.hw_missing||[]};
+      x.notSub=hasSub&&(t.state==="missing"||t.state==="waiting");
+      x.p=(t.state==="missing"?1:0)+(x.c[0]<x.c[1]?1:0)+(x.g[0]<x.g[1]?1:0)+(x.r[0]<x.r[1]?1:0);
+      return x}).sort(function(a,b){return b.p-a.p||(a.t.name<b.t.name?-1:1)});
+    var FL=[{k:"",l:"All teachers",f:function(){return true},c:""},
+      {k:"sub",l:"Not submitted",f:function(x){return x.notSub},c:"bad"},
+      {k:"c",l:"Classes not taken",f:function(x){return x.c[0]<x.c[1]},c:"bad"},
+      {k:"g",l:"Homework not given",f:function(x){return x.g[0]<x.g[1]},c:"bad"},
+      {k:"r",l:"Homework not corrected",f:function(x){return x.r[0]<x.r[1]},c:"bad"},
+      {k:"ok",l:"All done",f:function(x){return x.p===0&&!x.notSub},c:"ok"}];
+    if(!FL.some(function(f){return f.k===S.tf}))S.tf="";
+    $("teasum").innerHTML=FL.map(function(f){var n=ts.filter(f.f).length;
+      return '<button type="button" class="stt '+(f.c||"ok")+'" data-tf="'+f.k+'" aria-pressed="'+(S.tf===f.k)+'"><b>'+n+'</b><span>'+h(f.l)+'</span></button>'}).join("");
+    $("teasum").onclick=function(e){var b=e.target.closest("[data-tf]");if(!b)return;S.tf=S.tf===b.dataset.tf?"":b.dataset.tf;drawTeachers()};
+    var f=FL.find(function(z){return z.k===S.tf}),show=ts.filter(f.f);
+    S.topen=S.topen||{};
+    var val=function(v,on){if(!on||!v[1])return'<span class="tv na">—</span>';var cls=v[0]===v[1]?"ok":v[0]===0?"bad":"slow";return'<span class="tv '+cls+'">'+(v[0]===v[1]?"✓ ":"")+v[0]+" of "+v[1]+'</span>'};
+    var nm=function(l){return h((l.p?l.p+" ":"")+l.c+" "+l.s)};
+    $("teab").innerHTML=show.length?show.map(function(x){var t=x.t;
+      var st=!x.hasSub?pill("p-w","No submit"):t.state==="ok"?pill("p-ok","Submitted"):t.state==="late"?pill("p-slow","Late"):t.state==="missing"?pill("p-bad","Not submitted"):pill("p-w","Not yet");
+      var when=t.submitted_at?"Submitted at "+t12(new Date(new Date(t.submitted_at).getTime()+5.5*3600e3).toISOString().slice(11,16)):(x.hasSub?(t.state==="missing"?"Not submitted by "+t12(S.L.deadline):"Deadline "+t12(S.L.deadline)):"");
+      var det=[];
+      if(x.notTaken.length)det.push("<b>Not taken:</b> "+x.notTaken.map(function(l){return nm(l)+(l.r?" ("+h(l.r)+")":"")}).join(", "));
+      if(x.notMarked.length)det.push("<b>Not marked yet:</b> "+x.notMarked.map(nm).join(", "));
+      if(x.notGiven.length)det.push("<b>Homework not given:</b> "+x.notGiven.map(function(z){return h(z.class_name+" "+z.subject)}).join(", "));
+      if(x.noAns.length)det.push("<b>Homework given? not answered:</b> "+x.noAns.map(function(z){return h(z.class_name+" "+z.subject)}).join(", "));
+      if(x.notCor.length)det.push("<b>Not corrected:</b> "+x.notCor.map(function(z){return h(z.class_name+" "+z.subject)}).join(", "));
+      var corOpen=x.corMissing.filter(function(m){return!x.notCor.some(function(z){return z.class_name+" "+z.subject===m})});
+      if(corOpen.length)det.push("<b>Correction not answered:</b> "+h(corOpen.join(", ")));
+      if(t.hw_late)det.push("<b>Homework check marked late</b>"+(t.hw_last_at?" at "+h(t12(t.hw_last_at)):""));
+      if(!det.length)det.push("Everything done as planned.");
+      var open=!!S.topen[t.id];
+      return '<div class="tcd'+(x.p>=2?" red":"")+'"><div class="top"><b>'+h(t.name)+'</b>'+st+'</div><div class="when">'+h(when)+'</div>'
+        +'<div class="tsteps"><span class="n">1</span><span>Classes taken</span>'+val(x.c,true)
+        +'<span class="n">2</span><span>Homework given</span>'+val(x.g,true)
+        +'<span class="n">3</span><span>Homework corrected</span>'+val(x.r,x.hasHw)+'</div>'
+        +(open?'<div class="tdet">'+det.join("<br>")+'</div>':'')
+        +'<button type="button" class="tmore" data-to="'+h(t.id)+'" aria-expanded="'+open+'">'+(open?"Hide details ▴":"Details ▾")+'</button></div>'}).join("")
+      :'<div class="panel empty">'+(S.L.teachers&&S.L.teachers.length?"No teacher in this group.":"No teachers in the Teacher App yet.")+'</div>';
+    $("teab").onclick=function(e){var b=e.target.closest("[data-to]");if(!b)return;S.topen[b.dataset.to]=!S.topen[b.dataset.to];drawTeachers()}}
 
   // ── CHILDREN TO WATCH ──
   var HWLIKE=/\b(h\/?w|homework|home work|work ?sheet|write|subject\s*:|class\s*:|date\s*:)/i;

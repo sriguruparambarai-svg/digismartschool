@@ -638,6 +638,14 @@ module.exports = async function handler(req, res) {
         });
         const fields = { items: items, hw_checks: checks, watch: clip(body.watch, 600), teacher_name: t.name,
                          updated_at: new Date().toISOString() };
+        // Nov 2026: Submit my day step 2 — "Did you give today's homework?" (step11-homework-given.sql)
+        if (Array.isArray(body.hw_given)) {
+          fields.hw_given = body.hw_given.slice(0, 40).map(function (g) {
+            if (!g || !isMineHw(clip(g.class_name, 20), clip(g.subject, 40))) return null;
+            return { hw_id: clip(g.hw_id, 60), class_name: clip(g.class_name, 20), subject: clip(g.subject, 40),
+                     given: g.given === 'yes' || g.given === 'no' ? g.given : '' };
+          }).filter(function (g) { return g && g.given; });
+        }
         if (body.submit) {
           if (access.indexOf('submit_day') === -1) return res.json({ error: 'Your principal has not switched on Submit my day for you.' });
           if (!report || !report.submitted_at) {
@@ -645,11 +653,16 @@ module.exports = async function handler(req, res) {
             fields.late = istTime() > deadline;
           }
         }
-        let w;
-        if (report) w = await db('PATCH', '/rest/v1/teacher_day_reports?id=eq.' + enc(report.id), fields);
-        else {
-          Object.assign(fields, { school_id: school.id, teacher_app_id: t.id, report_date: today });
-          w = await db('POST', '/rest/v1/teacher_day_reports', fields);
+        let w, givenWarn = '';
+        const writeDay = async function () {
+          if (report) return db('PATCH', '/rest/v1/teacher_day_reports?id=eq.' + enc(report.id), fields);
+          return db('POST', '/rest/v1/teacher_day_reports', Object.assign({ school_id: school.id, teacher_app_id: t.id, report_date: today }, fields));
+        };
+        w = await writeDay();
+        // if step11-homework-given.sql is not run yet, the day still saves — only "homework given" is skipped
+        if (!ok(w) && fields.hw_given && /hw_given/.test(why(w))) {
+          delete fields.hw_given; givenWarn = 'Homework given was not saved (step11-homework-given.sql is not run in Supabase).';
+          w = await writeDay();
         }
         if (!ok(w)) return res.json({ error: 'Could not save: ' + why(w) });
         const saved = w.data[0];
@@ -694,14 +707,16 @@ module.exports = async function handler(req, res) {
           }
         }
         return res.json({ success: true, submitted_at: saved.submitted_at || null, late: !!saved.late,
-                          class_work_made: cw.made, class_work_error: cw.error || undefined, defaulters: df });
+                          class_work_made: cw.made, class_work_error: cw.error || undefined, defaulters: df,
+                          warning: givenWarn || undefined });
       }
 
       // ── my_day: build the screen ──
       const out = { today: today, weekday: istWeekday(), deadline: deadline, now: istTime(), hw_check_by: await readHwCheckBy(school),
                     access: access, classes: mine, items: [], earlier: [], hw_today: [], hw_check: [],
                     students: {}, report: report ? { items: report.items || [], hw_checks: report.hw_checks || [],
-                    watch: report.watch || '', submitted_at: report.submitted_at || null, late: !!report.late } : null };
+                    watch: report.watch || '', submitted_at: report.submitted_at || null, late: !!report.late,
+                    hw_given: report.hw_given || [] } : null };
 
       if (access.indexOf('today') !== -1 || access.indexOf('submit_day') !== -1) {
         plans.forEach(function (p) {
@@ -1243,7 +1258,15 @@ module.exports = async function handler(req, res) {
                  done: items.filter(function (x) { return x.status === 'done'; }).length,
                  not: items.filter(function (x) { return x.status === 'not'; }).length,
                  items: items, hw_checks: r ? (r.hw_checks || []) : [], watch: r ? (r.watch || '') : '',
-                 state: r && r.submitted_at ? (r.late ? 'late' : 'ok') : (pastDeadline ? 'missing' : 'waiting') };
+                 state: r && r.submitted_at ? (r.late ? 'late' : 'ok') : (pastDeadline ? 'missing' : 'waiting'),
+                 // Nov 2026: for the Teachers cards — her classes, what she answered for "homework given",
+                 // and today's approved homework of her classes (what she should have given)
+                 access: t.access || [], classes: t.classes || [], hw_given: r ? (r.hw_given || []) : [],
+                 hw_give: hwToday.filter(function (h) {
+                   const HG = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social' };
+                   const hg = function (x) { x = low(x).trim(); return HG[x] || x; };
+                   return h.status === 'added' && (t.classes || []).some(function (c) { return c.class_name === h.class_name && hg(c.subject) === hg(h.subject); });
+                 }).map(function (h) { return { id: h.id, class_name: h.class_name, subject: h.subject }; }) };
       });
 
       // ── Oct 2026: homework check — the last school day's homework each teacher must check today ──
