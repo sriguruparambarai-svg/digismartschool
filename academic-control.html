@@ -90,6 +90,15 @@ main{padding:16px 0 40px}
 /* homework */
 .cols3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:start}
 @media (max-width:1000px){.cols3{grid-template-columns:1fr}}
+/* Nov 2026: Homework tab — yesterday, today, tomorrow, next day's class work */
+.cols4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;align-items:start}
+@media (max-width:1150px){.cols4{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:700px){.cols4{grid-template-columns:1fr}}
+/* Nov 2026: Class work tab — class work and homework side by side */
+.cwhw{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:stretch}
+.cwhw>div{min-width:0;border-top:1px solid var(--line)}
+.cwhw>div+div{border-left:1px solid var(--line)}
+@media (max-width:800px){.cwhw{grid-template-columns:1fr}.cwhw>div+div{border-left:none}}
 .plist button{width:100%;text-align:left;background:transparent;border:none;border-top:1px solid var(--line);padding:9px 14px;display:grid;grid-template-columns:44px minmax(0,1fr);gap:8px;color:var(--fg)}
 .plist button:first-child{border-top:none}
 .plist button[aria-pressed="true"]{background:var(--now)}
@@ -185,11 +194,12 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   </section>
 
   <section class="view" id="v-homework" hidden>
-    <p class="lead">One class at a time: yesterday's homework and its check, today's homework in full, and the next day's class work by period. Tap a period to open it below.</p>
+    <p class="lead">One class at a time: yesterday's homework and its check, today's homework in full, tomorrow's homework, and the next day's class work by period. Tap a period to open it below.</p>
     <div class="chips" id="hchips"></div>
-    <div class="cols3">
+    <div class="cols4">
       <div class="panel"><div class="ph"><h3 id="h-y">Yesterday</h3><span>Checked by teachers today</span></div><div id="h-yb"></div></div>
       <div class="panel"><div class="ph"><h3 id="h-t">Today</h3><span>Goes to parents at 4 PM</span></div><div id="h-tb"></div></div>
+      <div class="panel"><div class="ph"><h3 id="h-m">Tomorrow</h3><span>Goes to parents tomorrow</span></div><div id="h-mb"></div></div>
       <div class="panel"><div class="ph"><h3 id="h-n">Next day's class work</h3><span>Tap a period</span></div><div class="plist" id="h-nb"></div></div>
     </div>
     <div class="panel" id="side"><div class="ph"><h3 id="s-t">Pick a period</h3><span id="s-s"></span></div><div class="sidebody" id="s-b"><div class="empty">Tap a period in "Next day's class work" to see its class work and homework here.</div></div></div>
@@ -410,7 +420,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     drawHomeworkBody()}
   function drawHomeworkBody(){
     var c=S.cls;
-    $("h-y").textContent="Yesterday · "+nice(S.yday);$("h-t").textContent="Today · "+nice(S.day);$("h-n").textContent="Class work · "+nice(S.nday);
+    $("h-y").textContent="Yesterday · "+nice(S.yday);$("h-t").textContent="Today · "+nice(S.day);$("h-m").textContent="Tomorrow · "+nice(S.nday);$("h-n").textContent="Class work · "+nice(S.nday);
     // yesterday + today's checks of it
     var checks=[];(S.L.teachers||[]).forEach(function(t){(t.hw_checks||[]).forEach(function(k){if(k.class_name===c)checks.push(Object.assign({by:t.name},k))})});
     if(!S.Y&&!S.N){$("h-yb").innerHTML=$("h-nb").innerHTML='<div class="empty">Loading&hellip;</div>'}
@@ -428,6 +438,14 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     $("h-tb").onclick=function(e){var b=e.target.closest("button[data-ws],button[data-wsall]");if(!b)return;
       var list=b.dataset.wsall?th:[th[+b.dataset.ws]];if(!list.length||!list[0])return;
       window.open(wsLink(c,S.day,list.map(function(x){return{subject:x.subject,text:x.text}})),"_blank","noopener")};
+    // Nov 2026: tomorrow's homework — what is in the Homework Planner for the next school day,
+    // plus homework the Lesson Plan suggests for subjects not added there yet
+    if(!S.N)$("h-mb").innerHTML='<div class="empty">Loading&hellip;</div>';
+    else{var mh=hwOf(S.N,c),mb=mh.map(function(x){return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?("By "+x.teacher):"")+'</div></div>'}).join("");
+      (S.N.subjects||[]).filter(function(s){return s.class_name===c&&!mh.some(function(x){return sameSub(x.subject,s.subject)})}).forEach(function(s){
+        var hw=(s.today||[]).map(function(l){return l.homework}).filter(Boolean);
+        if(hw.length)mb+='<div class="it"><div class="t"><b>'+h(s.subject)+'</b>'+pill("p-w","Planned · not added yet")+'</div><p>'+h(hw.join("\n"))+'</p><div class="m">From the Lesson Plan. Add it in the Homework Planner so it reaches parents.</div></div>'});
+      $("h-mb").innerHTML=mb||'<div class="empty">No homework for '+h(c)+' on '+h(nice(S.nday))+' yet.</div>'}
     // next day's periods for this class
     var ps=periodsOf(S.nday),list=[];
     ps.forEach(function(p){var cell=p.row[c];if(!cell||!cell.subject)return;var lf=lessonFor(S.N,c,cell.subject,p.label);list.push({p:p,cell:cell,lf:lf})});
@@ -464,7 +482,9 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
         return '<div class="it" style="background:var('+(type==="classwork"?"--cwbg":"--hwbg")+')"><span class="kind '+k+'">'+label+'</span></div>'+list.map(function(x){
           var long=type==="classwork"&&String(x.text||"").length>400;
           return '<div class="it"><div class="t"><b>'+h(x.subject)+'</b>'+statusPill(x)+'</div><p>'+h(x.text)+'</p><div class="m">'+h(x.teacher?"By "+x.teacher:"")+(long?' · <b style="color:var(--bad)">Long — parents get all of this text</b>':'')+'</div></div>'}).join("")};
-      return '<div class="panel"><div class="ph"><h3>'+h(c)+'</h3><span>'+g.length+' item'+(g.length>1?"s":"")+'</span></div>'+part("classwork","Class work · in class today","k-cw")+part("homework","Homework · to do at home","k-hw")+'</div>'}).join("")}
+      // Nov 2026: class work on one side, homework on the other
+      var none=function(t){return '<div class="it"><span class="kind '+(t==="classwork"?"k-cw":"k-hw")+'">'+(t==="classwork"?"Class work · in class today":"Homework · to do at home")+'</span></div><div class="empty">No '+(t==="classwork"?"class work":"homework")+' yet.</div>'};
+      return '<div class="panel"><div class="ph"><h3>'+h(c)+'</h3><span>'+g.length+' item'+(g.length>1?"s":"")+'</span></div><div class="cwhw"><div>'+(part("classwork","Class work · in class today","k-cw")||none("classwork"))+'</div><div>'+(part("homework","Homework · to do at home","k-hw")||none("homework"))+'</div></div></div>'}).join("")}
 
   // ── PORTION ──
   // Nov 2026: class buttons — the table shows one class at a time (it was too long to read)
