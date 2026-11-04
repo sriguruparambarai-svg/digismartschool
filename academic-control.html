@@ -78,6 +78,10 @@ main{padding:16px 0 40px}
 .pc .c b{font-family:"Cinzel",serif;color:var(--m)}
 .pc .who{font-weight:800}
 .pc .por{font-size:.85rem;color:var(--mut)}
+.pc.free{border:1.5px dashed var(--gold,#C9A84C);background:#FFFBF0}
+.pc.free .c b{font-family:inherit}
+.pc .fl{margin:4px 0 2px;padding-left:18px;font-size:.88rem;line-height:1.55}
+.pc .fl span{color:var(--mut);font-size:.8rem}
 .pc.ai{border-color:#3B4A8C}
 .pc.none{border-style:dashed}
 .pc details summary{cursor:pointer;color:var(--m);font-weight:800;font-size:.8rem;list-style:none;margin-top:2px}
@@ -157,7 +161,6 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     <div class="stats" id="stats"></div>
     <div class="tabs" role="tablist" id="tabs">
       <button class="tab" role="tab" data-v="periods" aria-selected="true">Periods</button>
-      <button class="tab" role="tab" data-v="free" aria-selected="false">Free teachers</button>
       <button class="tab" role="tab" data-v="homework" aria-selected="false">Homework</button>
       <button class="tab" role="tab" data-v="classwork" aria-selected="false">Class work</button>
       <button class="tab" role="tab" data-v="portion" aria-selected="false">Portion</button>
@@ -177,11 +180,6 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     <p class="lead">For rounds. Pick a period to see every class: subject, teacher and the portion being taught. On today it opens on the period running now.</p>
     <div class="chips" id="pchips"></div>
     <div class="pgrid" id="pgrid"></div>
-  </section>
-  <section class="view" id="v-free" hidden>
-    <p class="lead">Teachers with no class in the period you pick (from the timetable), with their next class today. Useful for sending a teacher to a class without one.</p>
-    <div class="chips" id="fchips"></div>
-    <div class="pgrid" id="fgrid"></div>
   </section>
 
   <section class="view" id="v-homework" hidden>
@@ -327,7 +325,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     var classes=allClasses();
     if(!S.cls||classes.indexOf(S.cls)===-1)S.cls=classes[0]||"";
     if(!S.ccls)S.ccls="all";
-    drawPeriods();drawFree();drawHomework();drawClasswork();drawPortion();drawTeachers();drawWatch();drawNeeds();drawApprove();
+    drawPeriods();drawHomework();drawClasswork();drawPortion();drawTeachers();drawWatch();drawNeeds();drawApprove();
   }catch(e){showErr(e)}}
   function allClasses(){var set={};(S.L.subjects||[]).forEach(function(x){set[x.class_name]=1});(S.L.parent_update||[]).forEach(function(x){set[x.class_name]=1});
     ttClasses().forEach(function(c){set[c]=1});return Object.keys(set).sort(cord)}
@@ -356,7 +354,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     var now2=istNow();
     var np=S.day===istToday()?runningPeriod(ps):-1;
     chips($("pchips"),ps.map(function(p){var isNow=p.i===np;
-      return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(isNow?" · now":"")}}),String(S.period),function(k){S.period=+k;S.pickedAt=runningPeriod(periodsOf(S.day));drawPgrid();try{drawFree()}catch(e){}});
+      return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(isNow?" · now":"")}}),String(S.period),function(k){S.period=+k;S.pickedAt=runningPeriod(periodsOf(S.day));drawPgrid()});
     drawPgrid()}
   // ── FREE TEACHERS (Nov 2026): everyone named in this week's timetable who has no class (or helper duty) in the period ──
   function nkey(n){return String(n||"").trim().toLowerCase().replace(/\s+/g," ")}
@@ -366,27 +364,17 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     return out.sort(function(a,b){return a.localeCompare(b)})}
   function busyIn(p){var b={};Object.keys(p.row||{}).forEach(function(c){var x=p.row[c]||{};
     [[x.teacher,"teach"],[x.helper,"help"]].forEach(function(t){var k=nkey(t[0]);if(k)(b[k]=b[k]||[]).push({cls:c,subject:x.subject||"",role:t[1]})})});return b}
-  function drawFree(){
-    var ps=periodsOf(S.day);
-    if(!ps.length){$("fchips").innerHTML="";$("fgrid").innerHTML='<div class="panel empty">'+(S.TT?"No timetable for "+h(wd(S.day))+".":"The school timetable could not be read.")+'</div>';return}
-    if(S.period==null||!ps.some(function(p){return p.i===S.period}))S.period=nowPeriod(ps);
-    var np=S.day===istToday()?runningPeriod(ps):-1;
-    chips($("fchips"),ps.map(function(p){return{k:String(p.i),label:shortP(p.label,p.i),sub:(p.start?t12(p.start):"")+(p.i===np?" · now":"")}}),String(S.period),
-      function(k){S.period=+k;S.pickedAt=runningPeriod(periodsOf(S.day));drawFgrid();drawPeriods()});
-    drawFgrid()}
-  function drawFgrid(){
-    var ps=periodsOf(S.day),p=ps.find(function(x){return x.i===S.period});if(!p)return;
-    var busy=busyIn(p),all=allTeachers();
-    var free=all.filter(function(n){return!busy[nkey(n)]});
-    if(!all.length){$("fgrid").innerHTML='<div class="panel empty">No teacher names in the timetable yet.</div>';return}
-    var later=ps.filter(function(x){return x.i>p.i});
-    var cards=free.map(function(n){var k=nkey(n),nx=null,freeN=0;
+  // the "Free this period" box, shown after the class boxes in Periods
+  function freeBox(p){
+    var ps=periodsOf(S.day),busy=busyIn(p),all=allTeachers();if(!all.length)return "";
+    var free=all.filter(function(n){return!busy[nkey(n)]}),later=ps.filter(function(x){return x.i>p.i});
+    var li=free.map(function(n){var k=nkey(n),nx=null;
       later.forEach(function(x){var b=busyIn(x)[k];if(b&&!nx)nx={p:x,b:b[0]}});
-      ps.forEach(function(x){if(!busyIn(x)[k])freeN++});
-      var next=nx?"Next: "+shortP(nx.p.label,nx.p.i)+(nx.p.start?" ("+t12(nx.p.start)+")":"")+" · "+nx.b.cls+(nx.b.subject?" "+nx.b.subject:"")+(nx.b.role==="help"?" (helper)":""):"No more classes today";
-      return '<div class="pc"><div class="c"><b>'+h(n)+'</b>'+pill("p-ok","Free")+'</div><div class="por">'+h(next)+'</div><div class="por">Free '+freeN+' of '+ps.length+' periods today</div></div>'});
-    $("fgrid").innerHTML=(free.length?'':'<div class="panel empty">No teacher is free in '+h(shortP(p.label,p.i))+'.</div>')+cards.join("")+
-      '<div class="pc none" style="grid-column:1/-1"><div class="por">'+free.length+' free · '+(all.length-free.length)+' in class in '+h(shortP(p.label,p.i))+'. Teachers not in the timetable at all are not listed.</div></div>'}
+      var next=nx?"next "+shortP(nx.p.label,nx.p.i)+" · "+nx.b.cls+(nx.b.subject?" "+nx.b.subject:"")+(nx.b.role==="help"?" (helper)":""):"no more classes today";
+      return '<li><b>'+h(n)+'</b> <span>— '+h(next)+'</span></li>'}).join("");
+    return '<div class="pc free"><div class="c"><b>Free this period</b>'+pill("p-ok",free.length+" free")+'</div>'+
+      (free.length?'<ul class="fl">'+li+'</ul>':'<div class="por">No teacher is free in '+h(shortP(p.label,p.i))+'.</div>')+
+      '<div class="por" style="font-size:.75rem">Only teachers named in the timetable are counted.</div></div>'}
   function shortP(l,i){var m=/(\d+)/.exec(l||"");return m?"P"+m[1]:(l||"P"+(i+1))}
   function drawPgrid(){
     var p=periodsOf(S.day).find(function(x){return x.i===S.period});if(!p)return;
@@ -398,7 +386,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       var por=les?h(chap(les.chapter))+(les.pages?" · p. "+h(les.pages):""):'<i>No lesson planned for this subject today</i>';
       var st=les?stPill(les.state):"";
       var det=les&&les.teach?'<details><summary>What to teach ▾</summary><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></details>':"";
-      return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")}
+      return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.helper?' <small>+ helper '+h(cell.helper)+'</small>':'')+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")+freeBox(p)}
 
   // ── HOMEWORK ──
   function wsLink(cls,date,list){var q=new URLSearchParams({src:"hw",class:cls,date:date,subject:list[0].subject});q.set("hw",list.length===1?list[0].text:list.map(function(x){return "["+x.subject+"]\n"+x.text}).join("\n\n"));return "todays-worksheet.html?"+q.toString()}
@@ -685,7 +673,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     if(S.pickedAt!=null&&S.pickedAt===r)return;
     S.pickedAt=null;
     var want=nowPeriod(ps);
-    if(want!==S.period||r!==S.lastRun){S.period=want;S.lastRun=r;drawPeriods();try{drawFree()}catch(e){}}
+    if(want!==S.period||r!==S.lastRun){S.period=want;S.lastRun=r;drawPeriods()}
   }catch(e){}},60000);
   $("refresh").addEventListener("click",function(){S.period=null;S.pickedAt=null});
 
