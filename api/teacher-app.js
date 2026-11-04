@@ -72,7 +72,7 @@ const okCls = function (c) {
   const m = c.match(/^(.+) ([B-F])$/);
   return !!(m && CLASSES.indexOf(m[1]) !== -1);
 };
-const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable'];
+const ACCESS_KEYS = ['today', 'tomorrow', 'hw_check', 'submit_day', 'notices', 'timetable', 'notebook_check'];   // notebook_check: office staff (Nov 2026)
 // Nov 2026: homework defaulters go to ERP (same shared key as the homework link)
 const HW_REASONS = ['not_done', 'half', 'notebook'];
 // Nov 2026: ERP schools — the teacher app takes each class's children straight from ERP.
@@ -375,6 +375,88 @@ async function readTeacher(raw) {
   const closed = schoolClosed(school);
   if (closed) return { error: closed };
   return { teacher: t, school: school };
+}
+
+// ── NOTEBOOK CHECK (Nov 2026, step10-notebook-check.sql, table notebook_checks) ──
+// The principal (School Admin login) or an office staff member (Teacher App with the
+// 'notebook_check' tick) picks a class + subject. The server picks N children at random
+// (N = the school's choice, default 5), skipping children whose notebook for that subject
+// was checked in the last 3 weeks. Each notebook: corrected / partly / not corrected / not brought.
+// The subject teacher is found HERE from My Teachers (never sent by the phone).
+//   nb_classes                          → classes with their subjects, teacher and how many checked this week
+//   nb_pick  { class_name, subject }    → the class's children + the random pick
+//   nb_save  { class_name, subject, rows:[{roll,name,result,note}] }
+// Principal only: nb_report { month:'YYYY-MM' }, nb_delete { id }, nb_settings { per_week }
+// Teacher (own score only): my_nb
+const NB_RESULTS = ['corrected', 'partly', 'not_corrected', 'not_brought'];
+const NB_NEED = ' (Has step10-notebook-check.sql been run in Supabase?)';
+// Monday of the India-time week
+function nbWeekStart(d) { const x = new Date(d + 'T00:00:00Z'); return addDays(d, -((x.getUTCDay() + 6) % 7)); }
+function nbMonth(m) { return /^\d{4}-\d{2}$/.test(String(m || '')) ? m : istToday().slice(0, 7); }
+function nbPrevMonth(m) { const y = +m.slice(0, 4), mo = +m.slice(5, 7); return mo === 1 ? (y - 1) + '-12' : y + '-' + String(mo - 1).padStart(2, '0'); }
+function nbNextMonth(m) { const y = +m.slice(0, 4), mo = +m.slice(5, 7); return mo === 12 ? (y + 1) + '-01' : y + '-' + String(mo + 1).padStart(2, '0'); }
+// Score: corrected = 1, partly = half, not corrected = 0; "not brought" is left out (not the teacher's fault)
+function nbScore(rows) {
+  const c = { corrected: 0, partly: 0, not_corrected: 0, not_brought: 0 };
+  rows.forEach(function (r) { if (c[r.result] != null) c[r.result]++; });
+  const seen = c.corrected + c.partly + c.not_corrected;
+  return Object.assign(c, { seen: seen, pct: seen ? Math.round(100 * (c.corrected + c.partly / 2) / seen) : null });
+}
+async function readPerWeek(school) {
+  const r = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=nb_per_week&limit=1');
+  const n = ok(r) && r.data.length ? parseInt(r.data[0].nb_per_week, 10) : NaN;
+  return n >= 1 && n <= 20 ? n : 5;
+}
+// Office staff: only the Notebook check tick, no classes of their own — not counted as a teacher
+function isOfficeOnly(t) {
+  const a = t.access || [];
+  return a.indexOf('notebook_check') !== -1 && !['today', 'tomorrow', 'hw_check', 'submit_day'].some(function (k) { return a.indexOf(k) !== -1; });
+}
+// Who is asking: the principal, or office staff through the Teacher App
+async function nbActor(req, body) {
+  if (req.headers['x-teacher-app']) {
+    const me = await readTeacher(req.headers['x-teacher-app']);
+    if (me.error) return { status: 401, error: me.error };
+    if ((me.teacher.access || []).indexOf('notebook_check') === -1) return { error: 'Your principal has not given you Notebook check.' };
+    return { school: me.school, by: me.teacher.name, by_id: String(me.teacher.id), principal: false };
+  }
+  const w = verify(req.headers['x-dss-session'], process.env.SUPABASE_SECRET_KEY || '');
+  if (!w || (w.role !== 'school_admin' && w.role !== 'super_admin')) return { status: 401, error: 'Please log in again.' };
+  const school = await findSchool(w.role === 'super_admin' ? body.school_id : w.sid);
+  if (!school) return { error: 'School not found for this login.' };
+  return { school: school, by: 'Principal', by_id: null, principal: true };
+}
+// Every class + subject that a teacher in My Teachers takes, with that teacher
+async function nbSubjects(school) {
+  const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes');
+  if (!ok(r)) return { error: 'Could not load teachers: ' + why(r) };
+  const map = {};
+  r.data.forEach(function (t) {
+    (Array.isArray(t.classes) ? t.classes : []).forEach(function (c) {
+      if (!c || !okCls(c.class_name) || !c.subject) return;
+      const k = c.class_name + '|' + String(c.subject).toLowerCase();
+      if (!map[k]) map[k] = { class_name: c.class_name, subject: c.subject, teacher: t.name, teacher_id: String(t.id) };
+    });
+  });
+  return { list: Object.keys(map).map(function (k) { return map[k]; }) };
+}
+// The class's children: from ERP for ERP schools, else from the Student Diary
+async function nbKids(school, cls) {
+  try {
+    const erp = await erpSchoolOf(school);
+    if (erp) { const k = await erpClassKids(erp, cls); if (k && k.length) return k.map(function (x) { return { roll: x.roll, name: x.name || '' }; }); }
+  } catch (e) { /* fall back to the diary list */ }
+  const labels = [String(school.id)];
+  if (school.school_code) labels.push(String(school.school_code));
+  const sr = await db('GET', '/rest/v1/diary_students?school_id=in.(' + labels.map(enc).join(',') + ')&class=eq.' + enc(cls) + '&select=roll_no,name');
+  if (!ok(sr)) return [];
+  return sr.data.map(function (s) { return { roll: String(s.roll_no), name: s.name || '' }; })
+    .sort(function (a, b) { return (parseInt(a.roll, 10) || 0) - (parseInt(b.roll, 10) || 0); });
+}
+function nbShuffle(a) {
+  a = a.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = crypto.randomInt(0, i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
 }
 
 module.exports = async function handler(req, res) {
@@ -745,6 +827,126 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true, today: istToday(), pending: pr.data, done: dr.data });
     }
 
+    // ── NOTEBOOK CHECK (Nov 2026) — teacher's own score ──
+    if (action === 'my_nb') {
+      const me = await readTeacher(req.headers['x-teacher-app']);
+      if (me.error) return res.status(401).json({ error: me.error });
+      const t = me.teacher, school = me.school;
+      const m = istToday().slice(0, 7), pm = nbPrevMonth(m);
+      const r = await db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&teacher_app_id=eq.' + enc(t.id) +
+        '&check_date=gte.' + pm + '-01&select=check_date,class_name,subject,roll,result,note&order=check_date.desc&limit=500');
+      if (!ok(r)) return res.json({ error: 'Could not load your notebook check: ' + why(r) + (r.status === 404 ? NB_NEED : '') });
+      const thisM = r.data.filter(function (x) { return String(x.check_date).slice(0, 7) === m; });
+      const lastM = r.data.filter(function (x) { return String(x.check_date).slice(0, 7) === pm; });
+      return res.json({ success: true, month: m, this_month: nbScore(thisM), last_month: nbScore(lastM), recent: r.data.slice(0, 20) });
+    }
+
+    // ── NOTEBOOK CHECK (Nov 2026) — principal or office staff ──
+    if (action === 'nb_classes' || action === 'nb_pick' || action === 'nb_save' ||
+        action === 'nb_report' || action === 'nb_delete' || action === 'nb_settings') {
+      const a = await nbActor(req, body);
+      if (a.error) return a.status ? res.status(a.status).json({ error: a.error }) : res.json({ error: a.error });
+      const school = a.school, today = istToday(), ws = nbWeekStart(today);
+      if (!a.principal && (action === 'nb_report' || action === 'nb_delete' || action === 'nb_settings')) {
+        return res.json({ error: 'Only the principal can see scores or change this.' });
+      }
+      if (action === 'nb_settings') {
+        const n = parseInt(body.per_week, 10);
+        if (!(n >= 1 && n <= 20)) return res.json({ error: 'Choose a number from 1 to 20.' });
+        const now = new Date().toISOString();
+        const e = await db('GET', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id) + '&select=school_id&limit=1');
+        if (!ok(e)) return res.json({ error: 'Could not read the settings: ' + why(e) });
+        const w = e.data.length
+          ? await db('PATCH', '/rest/v1/teacher_app_settings?school_id=eq.' + enc(school.id), { nb_per_week: n, updated_at: now })
+          : await db('POST', '/rest/v1/teacher_app_settings', { school_id: school.id, deadline: await readDeadline(school), nb_per_week: n, updated_at: now });
+        if (!ok(w)) return res.json({ error: 'Could not save: ' + why(w) + (/nb_per_week/.test(why(w)) ? NB_NEED : '') });
+        return res.json({ success: true, per_week: n });
+      }
+      if (action === 'nb_delete') {
+        const id = clip(body.id, 60);
+        if (!id) return res.json({ error: 'Which check? Please try again.' });
+        const w = await db('DELETE', '/rest/v1/notebook_checks?id=eq.' + enc(id) + '&school_id=eq.' + enc(school.id));
+        if (!ok(w)) return res.json({ error: 'Could not remove it: ' + why(w) });
+        return res.json({ success: true });
+      }
+      if (action === 'nb_report') {
+        const m = nbMonth(body.month), pm = nbPrevMonth(m);
+        const r = await db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&check_date=gte.' + pm + '-01&check_date=lt.' + nbNextMonth(m) +
+          '-01&select=id,check_date,class_name,subject,teacher_app_id,teacher_name,roll,child_name,result,note,checked_by&order=check_date.desc&limit=5000');
+        if (!ok(r)) return res.json({ error: 'Could not load the notebook checks: ' + why(r) + (r.status === 404 ? NB_NEED : '') });
+        const by = {};
+        r.data.forEach(function (x) {
+          const k = x.teacher_app_id || ('name:' + (x.teacher_name || ''));
+          by[k] = by[k] || { teacher_id: x.teacher_app_id || '', teacher: x.teacher_name || 'No teacher set', rows: [], prev: [] };
+          (String(x.check_date).slice(0, 7) === m ? by[k].rows : by[k].prev).push(x);
+        });
+        const teachers = Object.keys(by).map(function (k) {
+          const t = by[k];
+          return { teacher_id: t.teacher_id, teacher: t.teacher, this_month: nbScore(t.rows), last_month: nbScore(t.prev), rows: t.rows };
+        }).filter(function (t) { return t.rows.length || t.last_month.seen || t.last_month.not_brought; })
+          .sort(function (x, y) { const a1 = x.this_month.pct == null ? 101 : x.this_month.pct, b1 = y.this_month.pct == null ? 101 : y.this_month.pct; return a1 - b1 || (x.teacher < y.teacher ? -1 : 1); });
+        return res.json({ success: true, month: m, prev_month: pm, today: today, per_week: await readPerWeek(school), teachers: teachers });
+      }
+      const sj = await nbSubjects(school);
+      if (sj.error) return res.json({ error: sj.error });
+      if (action === 'nb_classes') {
+        const r = await db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&check_date=gte.' + ws + '&select=class_name,subject,roll&limit=5000');
+        if (!ok(r)) return res.json({ error: 'Could not load this week\'s checks: ' + why(r) + (r.status === 404 ? NB_NEED : '') });
+        const classes = {};
+        sj.list.forEach(function (s) {
+          const n = {};
+          r.data.forEach(function (x) { if (x.class_name === s.class_name && String(x.subject).toLowerCase() === String(s.subject).toLowerCase()) n[x.roll] = 1; });
+          (classes[s.class_name] = classes[s.class_name] || []).push({ subject: s.subject, teacher: s.teacher, done_week: Object.keys(n).length });
+        });
+        const out = Object.keys(classes).sort(function (x, y) {
+          const p = function (c) { const i = CLASSES.indexOf(c); if (i >= 0) return i; const mm = String(c).match(/^(.+) ([B-F])$/); return mm ? CLASSES.indexOf(mm[1]) + 0.1 * (mm[2].charCodeAt(0) - 64) : 99; };
+          return p(x) - p(y);
+        }).map(function (c) { return { class_name: c, subjects: classes[c].sort(function (x, y) { return x.subject < y.subject ? -1 : 1; }) }; });
+        return res.json({ success: true, today: today, week_start: ws, per_week: await readPerWeek(school), principal: a.principal, classes: out });
+      }
+      const cls = clip(body.class_name, 20), sub = clip(body.subject, 40);
+      const subj = sj.list.find(function (s) { return s.class_name === cls && String(s.subject).toLowerCase() === sub.toLowerCase(); });
+      if (!okCls(cls) || !subj) return res.json({ error: 'This class and subject is not given to any teacher in My Teachers.' });
+      if (action === 'nb_pick') {
+        const [kids, rr] = await Promise.all([
+          nbKids(school, cls),
+          db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subj.subject) +
+            '&check_date=gte.' + addDays(today, -21) + '&select=roll,check_date&order=check_date.desc&limit=1000')
+        ]);
+        if (!ok(rr)) return res.json({ error: 'Could not load earlier checks: ' + why(rr) + (rr.status === 404 ? NB_NEED : '') });
+        const per = await readPerWeek(school);
+        const last = {};
+        rr.data.forEach(function (x) { if (!last[x.roll]) last[x.roll] = String(x.check_date); });
+        const todayRolls = Object.keys(last).filter(function (k) { return last[k] === today; });
+        // not checked in 3 weeks first, then the ones checked longest ago
+        const fresh = nbShuffle(kids.filter(function (k) { return !last[k.roll]; }));
+        const old = kids.filter(function (k) { return last[k.roll] && last[k.roll] !== today; })
+          .sort(function (x, y) { return last[x.roll] < last[y.roll] ? -1 : 1; });
+        const pick = fresh.concat(old).slice(0, per).map(function (k) { return k.roll; });
+        return res.json({ success: true, class_name: cls, subject: subj.subject, teacher: subj.teacher, per_week: per,
+                          kids: kids, pick: pick, checked_today: todayRolls });
+      }
+      if (action === 'nb_save') {
+        const rows = (Array.isArray(body.rows) ? body.rows : []).slice(0, 40).map(function (x) {
+          return { roll: clip(x && x.roll, 10), child_name: clip(x && x.name, 80), result: String(x && x.result || ''), note: clip(x && x.note, 200) };
+        }).filter(function (x) { return x.roll && NB_RESULTS.indexOf(x.result) !== -1; });
+        if (!rows.length) return res.json({ error: 'Mark at least one notebook before saving.' });
+        const seen = {};
+        const uniq = rows.filter(function (x) { const k = x.roll.toLowerCase(); if (seen[k]) return false; seen[k] = 1; return true; });
+        // checking the same child again today replaces the earlier mark
+        const del = await db('DELETE', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&check_date=eq.' + today +
+          '&class_name=eq.' + enc(cls) + '&subject=eq.' + enc(subj.subject) + '&roll=in.(' + uniq.map(function (x) { return '"' + x.roll.replace(/"/g, '') + '"'; }).map(enc).join(',') + ')');
+        if (!ok(del)) return res.json({ error: 'Could not save: ' + why(del) + (del.status === 404 ? NB_NEED : '') });
+        const ins = await db('POST', '/rest/v1/notebook_checks', uniq.map(function (x) {
+          return { school_id: String(school.id), check_date: today, class_name: cls, subject: subj.subject,
+                   teacher_app_id: subj.teacher_id, teacher_name: subj.teacher, roll: x.roll, child_name: x.child_name || null,
+                   result: x.result, note: x.note || null, checked_by: clip(a.by, 80), checked_by_id: a.by_id };
+        }));
+        if (!ok(ins)) return res.json({ error: 'Could not save: ' + why(ins) + (ins.status === 404 ? NB_NEED : '') });
+        return res.json({ success: true, saved: uniq.length, score: nbScore(uniq) });
+      }
+    }
+
     // ───────────── Principal side ─────────────
     const who = verify(req.headers['x-dss-session'], process.env.SUPABASE_SECRET_KEY || '');
     if (!who || (who.role !== 'school_admin' && who.role !== 'super_admin')) {
@@ -1033,7 +1235,8 @@ module.exports = async function handler(req, res) {
       flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
 
       // ── teachers' day ──
-      const tday = teachers.map(function (t) {
+      // Nov 2026: office staff (Notebook check only) are not teachers here
+      const tday = teachers.filter(function (t) { return !isOfficeOnly(t); }).map(function (t) {
         const r = reportOf[t.id];
         const items = r ? (r.items || []) : [];
         return { id: t.id, name: t.name, submitted_at: r && r.submitted_at ? r.submitted_at : null, late: !!(r && r.late),
@@ -1083,6 +1286,22 @@ module.exports = async function handler(req, res) {
                  status: x.status, sent: !!x.sent_at, teacher: x.teacher_name || '' };
       }) : [];
       const waitingN = parentUpdate.filter(function (x) { return x.status === 'waiting'; }).length;
+      // Nov 2026: Notebook check — a teacher with 2 or more notebooks found Not corrected this month
+      try {
+        const nm = day.slice(0, 7);
+        const nr = await db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&result=eq.not_corrected&check_date=gte.' + nm +
+          '-01&check_date=lte.' + day + '&select=teacher_name,class_name,subject,roll,check_date&order=check_date.desc&limit=2000');
+        if (ok(nr)) {
+          const nb = {};
+          nr.data.forEach(function (x) { const k = x.teacher_name || 'No teacher set'; (nb[k] = nb[k] || []).push(x); });
+          Object.keys(nb).forEach(function (k) {
+            if (nb[k].length < 2) return;
+            flags.push({ level: 'bad', kind: 'Notebooks', title: k + ': ' + nb[k].length + ' notebooks found not corrected this month',
+              detail: nb[k].slice(0, 6).map(function (x) { return x.class_name + ' ' + x.subject + ' · roll ' + x.roll + ' (' + x.check_date.slice(8, 10) + '/' + x.check_date.slice(5, 7) + ')'; }).join('\n') +
+                (nb[k].length > 6 ? '\n…and ' + (nb[k].length - 6) + ' more. See the Notebook check tab.' : '') });
+          });
+        }
+      } catch (e) { /* Notebook check not set up yet: nothing to add */ }
       if (waitingN) flags.push({ level: 'slow', kind: 'Approve', title: waitingN + ' class work / homework waiting for your approval',
         detail: 'Approve them in "Today\'s parent update" below so parents get them at 4 PM.' });
       flags.sort(function (a, b) { return order[a.level] - order[b.level]; });

@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <script src="js/session-header.js"></script>
+<script src="js/notebook-check.js"></script>
 <script>
   // Principal's page. Teachers go to Teacher Tools; not logged in goes to login.
   try {
@@ -166,6 +167,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       <button class="tab" role="tab" data-v="portion" aria-selected="false">Portion</button>
       <button class="tab" role="tab" data-v="stage" aria-selected="false">Lesson stage</button>
       <button class="tab" role="tab" data-v="teachers" aria-selected="false">Teachers<span id="b-teachers"></span></button>
+      <button class="tab" role="tab" data-v="notebooks" aria-selected="false">Notebook check</button>
       <button class="tab" role="tab" data-v="watch" aria-selected="false">Children to watch<span id="b-watch"></span></button>
       <button class="tab" role="tab" data-v="needs" aria-selected="false">Needs you<span id="b-needs"></span></button>
       <button class="tab" role="tab" data-v="approve" aria-selected="false">Approve<span id="b-approve"></span></button>
@@ -221,6 +223,14 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       <button class="btn" type="button" id="t-save" style="min-height:40px;padding:6px 14px">Save times</button><span id="t-msg" style="font-weight:800"></span>
     </div>
     <div class="panel scroll"><table class="w"><thead><tr><th>Teacher</th><th>Day</th><th>Lessons</th><th>Homework check</th></tr></thead><tbody id="teab"></tbody></table></div>
+  </section>
+
+  <!-- Notebook check (Nov 2026): random notebooks per class + subject, teacher scores. Parents never see this. -->
+  <section class="view" id="v-notebooks" hidden>
+    <p class="lead">Are teachers really correcting? Check a few children's notebooks at random each week. Office staff with the Notebook check tick can do this from their Teacher App.</p>
+    <div class="chips" id="nbtabs"><button type="button" class="chip" data-k="check" aria-pressed="true">Check notebooks</button><button type="button" class="chip" data-k="scores" aria-pressed="false">Teacher scores</button></div>
+    <div id="nbcheck"></div>
+    <div id="nbscores" class="view" hidden></div>
   </section>
 
   <section class="view" id="v-watch" hidden>
@@ -289,6 +299,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   // ── tabs ──
   $("tabs").addEventListener("click",function(e){var b=e.target.closest(".tab");if(!b)return;
     if(b.dataset.v==="work"&&!$("workFrame").src)$("workFrame").src="/staff-work.html?embed=1";
+    if(b.dataset.v==="notebooks")nbOpen();
     document.querySelectorAll(".tab").forEach(function(t){t.setAttribute("aria-selected",t===b?"true":"false");$("v-"+t.dataset.v).hidden=t!==b});
     window.scrollTo(0,0)});
   function chips(el,list,sel,cb){el.innerHTML=list.map(function(x){return '<button type="button" class="chip" data-k="'+h(x.k)+'" aria-pressed="'+(x.k===sel)+'">'+h(x.label||x.k)+(x.sub?' <small>'+h(x.sub)+'</small>':'')+'</button>'}).join("");
@@ -519,6 +530,56 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       if(!r.success){b.disabled=false;$("apmsg").style.color="var(--bad)";$("apmsg").textContent=r.error||"Could not approve.";return}
       $("apmsg").style.color="var(--ok)";$("apmsg").textContent="Approved "+(r.added||w.length)+"."+(r.sent&&r.sent.sent?" Sent to parents now.":"");
       await load()}}
+
+  // ── NOTEBOOK CHECK (Nov 2026) ── the check screen is js/notebook-check.js (shared with the Teacher App)
+  var NB={tool:null,rep:null,month:"",open:-1,view:"check"};
+  function nbOpen(){
+    if(!NB.tool){if(!window.NotebookCheck){$("nbcheck").innerHTML='<div class="err">The notebook check screen did not load. Please refresh the page.</div>';return}
+      NB.tool=window.NotebookCheck($("nbcheck"),function(a,d){return call("/api/teacher-app",Object.assign({action:a},d||{}))})}
+    else if(NB.view==="check")NB.tool.reload();
+    if(NB.view==="scores")nbLoad()}
+  $("nbtabs").onclick=function(e){var b=e.target.closest(".chip");if(!b)return;NB.view=b.dataset.k;
+    $("nbtabs").querySelectorAll(".chip").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
+    $("nbcheck").hidden=NB.view!=="check";$("nbscores").hidden=NB.view!=="scores";
+    if(NB.view==="scores")nbLoad();else if(NB.tool)NB.tool.reload()};
+  var NBR={corrected:"✓ Corrected",partly:"Partly",not_corrected:"✗ Not corrected",not_brought:"Didn't bring"};
+  function nbMon(m){var p=String(m||"").split("-");return p.length===2?MON[+p[1]-1]+" "+p[0]:m}
+  function nbPill(s){if(!s||s.pct==null)return'<span style="color:var(--mut)">No checks</span>';
+    return pill(s.pct>=90?"p-ok":s.pct>=70?"p-slow":"p-bad",s.pct+"%")+' <small style="color:var(--mut)">'+s.seen+' notebook'+(s.seen===1?"":"s")+'</small>'}
+  async function nbLoad(){
+    $("nbscores").innerHTML='<div class="panel empty">Loading scores&hellip;</div>';
+    var d=await call("/api/teacher-app",{action:"nb_report",month:NB.month||undefined});
+    if(!d.success){$("nbscores").innerHTML='<div class="err">Could not load the scores: '+h(d.error||"no answer")+'</div>';return}
+    NB.rep=d;NB.month=d.month;nbDraw()}
+  function nbDraw(){
+    var d=NB.rep,thisM=d.today.slice(0,7);
+    var html='<div class="warn" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label for="nb-pw" style="font-weight:800">Notebooks to check per class and subject each week</label>'
+      +'<input type="number" id="nb-pw" min="1" max="20" value="'+d.per_week+'" style="width:70px;padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>'
+      +'<button class="btn" type="button" id="nb-pws" style="min-height:40px;padding:6px 14px">Save</button><span id="nb-pwm" style="font-weight:800"></span></div>';
+    html+='<div class="chips" id="nbmon">'+[{k:thisM,label:"This month"},{k:(function(){var y=+thisM.slice(0,4),m=+thisM.slice(5,7);return m===1?(y-1)+"-12":y+"-"+String(m-1).padStart(2,"0")})(),label:"Last month"}].map(function(x){
+      return '<button type="button" class="chip" data-k="'+x.k+'" aria-pressed="'+(x.k===d.month)+'">'+h(x.label)+' <small>'+h(nbMon(x.k))+'</small></button>'}).join("")+'</div>';
+    if(!d.teachers.length){html+='<div class="panel empty">No notebooks checked in '+h(nbMon(d.month))+' yet. Use <b>Check notebooks</b> to start.</div>';$("nbscores").innerHTML=html;nbWire();return}
+    html+='<div class="panel scroll"><table class="w"><thead><tr><th>Teacher</th><th>'+h(nbMon(d.month))+'</th><th>Corrected</th><th>Partly</th><th>Not corrected</th><th>Didn\'t bring</th><th>'+h(nbMon(d.prev_month))+'</th><th></th></tr></thead><tbody>'
+      +d.teachers.map(function(t,i){var s=t.this_month;
+        var row='<tr><td><b>'+h(t.teacher)+'</b></td><td>'+nbPill(s)+'</td><td>'+s.corrected+'</td><td>'+s.partly+'</td><td>'+(s.not_corrected?'<b style="color:var(--bad)">'+s.not_corrected+'</b>':'0')+'</td><td>'+s.not_brought+'</td><td>'+nbPill(t.last_month)+'</td>'
+          +'<td>'+(t.rows.length?'<button type="button" class="wsb" style="margin:0" data-nbo="'+i+'">'+(NB.open===i?"Hide":"See all "+t.rows.length)+'</button>':'')+'</td></tr>';
+        if(NB.open===i)row+='<tr><td colspan="8" style="background:var(--soft)">'+t.rows.map(function(x){
+          return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:4px 0;border-top:1px solid var(--line)"><b style="min-width:62px">'+h(x.check_date.slice(8,10)+"/"+x.check_date.slice(5,7))+'</b><span>'+h(x.class_name+" "+x.subject)+' · roll '+h(x.roll)+(x.child_name?" ("+h(x.child_name)+")":"")+'</span>'
+            +pill(x.result==="corrected"?"p-ok":x.result==="partly"?"p-slow":x.result==="not_corrected"?"p-bad":"p-w",NBR[x.result]||x.result)
+            +(x.note?'<span style="color:var(--mut)">'+h(x.note)+'</span>':'')+'<small style="color:var(--mut)">checked by '+h(x.checked_by||"")+'</small>'
+            +'<button type="button" class="wsb" style="margin:0 0 0 auto" data-nbd="'+h(x.id)+'" aria-label="Remove this check">Remove</button></div>'}).join("")+'</td></tr>';
+        return row}).join("")+'</tbody></table></div>';
+    html+='<p class="lead">Score: a corrected notebook counts full, partly counts half, not corrected counts zero. "Didn\'t bring" is not counted against the teacher. Use the scores for one-to-one talks and the monthly review — parents never see them.</p>';
+    $("nbscores").innerHTML=html;nbWire()}
+  function nbWire(){
+    var s=$("nb-pws");if(s)s.onclick=async function(){var n=+$("nb-pw").value;$("nb-pwm").style.color="var(--mut)";$("nb-pwm").textContent="Saving…";
+      var d=await call("/api/teacher-app",{action:"nb_settings",per_week:n});
+      $("nb-pwm").style.color=d.success?"var(--ok)":"var(--bad)";$("nb-pwm").textContent=d.success?"Saved.":(d.error||"Could not save.");if(d.success)NB.rep.per_week=d.per_week};
+    var mo=$("nbmon");if(mo)mo.onclick=function(e){var b=e.target.closest(".chip");if(!b)return;NB.month=b.dataset.k;NB.open=-1;nbLoad()};
+    $("nbscores").querySelectorAll("[data-nbo]").forEach(function(b){b.onclick=function(){var i=+b.dataset.nbo;NB.open=NB.open===i?-1:i;nbDraw()}});
+    $("nbscores").querySelectorAll("[data-nbd]").forEach(function(b){b.onclick=async function(){
+      if(!confirm("Remove this notebook check? Use this only if it was marked by mistake."))return;b.disabled=true;
+      var d=await call("/api/teacher-app",{action:"nb_delete",id:b.dataset.nbd});if(!d.success){b.disabled=false;alert(d.error||"Could not remove.");return}nbLoad()}})}
 
   // ── LESSON STAGE (Oct 2026) ──
   // Where each class + subject is inside its lesson: Taking lesson → Class work → Activities →
