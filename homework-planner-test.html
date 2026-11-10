@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Homework Line Test — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&display=swap">
+<!--
+  Homework Planner TEST — "Homework Line" (Nov 2026). Principal page, beside the live homework-planner.html.
+  The problem it tries to fix: the Lesson Planner gives each homework a DATE and the Homework Planner counts
+  homework days from the plan's first day, so when one day slips, the two screens and the teacher all say
+  a different homework number.
+  Here homework has no date. Each class + subject has ONE line — the approved Lesson Plan's homework in
+  order — and a place in it. Today's homework is always the first one not given yet.
+   • 📍 We are here — the principal sets the place once (what the teacher says the class has finished).
+   • ➕ Put in for the day — the next homework goes into the week (replacing that day's unsent homework of
+     that class + subject), so parents get it at 4 PM (Student Diary + ERP parent app).
+   • When it has REACHED PARENTS, the place moves on by itself. Not sent → it comes again the next day.
+     No ticking, and nothing depends on the teachers' app (some schools don't use it).
+   • No workbook: the line is the plan's own homework, numbered Homework 1, 2, 3 … per chapter.
+   • Class test: a step in the line — the day before, "Tomorrow (day) class test — Revise: …".
+  Reads/writes only through /api/homework-line (table homework_line, step12-homework-line.sql).
+  Nothing changes in the live planner until "Put in" is pressed for a class.
+-->
+<style>
+:root{
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA; --gold:#C9A84C;
+  --ok:#2F6B3A; --ok-bg:#E3F0E2; --warn:#8A5A00; --warn-bg:#F8EBCB; --bad:#A12A1E; --bad-bg:#F8DEDA;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1360px;margin:0 auto;padding:0 16px 48px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1360px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+.testtag{display:inline-block;background:#C9A84C;color:#3A2A00;font-weight:700;font-size:.72rem;letter-spacing:.06em;border-radius:999px;padding:2px 10px;margin-left:8px;vertical-align:4px}
+h2{font-family:var(--display);font-weight:400;font-size:1.25rem;margin:0;color:var(--accent)}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:16px}
+.notice{background:var(--warn-bg);border:1px solid #E8CF8E;color:#5A3D00;border-radius:var(--r);padding:12px 14px;margin-top:16px;font-size:.92rem}
+.notice ol{margin:6px 0 0;padding-left:20px}
+.bar{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-weight:400;font-size:.95rem;min-width:0}
+.btn{border:none;border-radius:8px;padding:8px 13px;font-weight:600;background:var(--accent);color:var(--on-accent);font-size:.88rem}
+.btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.hint{font-size:.82rem;color:var(--muted)}
+.err{color:var(--bad);font-weight:600;margin-top:12px;white-space:pre-line}
+.cls{margin-top:16px;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.cls>.hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:10px 14px;background:var(--surface-2);border-bottom:1px solid var(--line)}
+.cls>.hd h3{font-family:var(--display);font-weight:400;font-size:1.2rem;margin:0;color:var(--accent);flex:1}
+.subj{display:grid;grid-template-columns:150px minmax(0,1.1fr) minmax(0,1.4fr) minmax(0,1.1fr);gap:14px;padding:12px 14px;border-bottom:1px solid var(--line)}
+.subj:last-child{border-bottom:none}
+.subj .nm{font-weight:700;color:var(--accent)}
+.k{font-size:.72rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.txt{white-space:pre-line;font-size:.9rem}
+.big{font-weight:700;font-size:1rem}
+.tag{display:inline-block;border-radius:999px;padding:1px 9px;font-size:.74rem;font-weight:700;margin:2px 4px 2px 0}
+.t-ok{background:var(--ok-bg);color:var(--ok)} .t-warn{background:var(--warn-bg);color:var(--warn)} .t-bad{background:var(--bad-bg);color:var(--bad)} .t-n{background:var(--surface-2);color:var(--muted)}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.old{color:var(--muted);font-size:.85rem}
+dialog{border:1px solid var(--line);border-radius:12px;padding:0;max-width:680px;width:calc(100% - 32px);background:var(--surface);color:var(--ink)}
+dialog::backdrop{background:rgba(43,26,23,.45)}
+dialog .in{padding:16px 18px}
+.pick{display:grid;gap:6px;max-height:55vh;overflow:auto;margin:10px 0}
+.pick label{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;font-weight:400;color:var(--ink);font-size:.88rem;border:1px solid var(--line);border-radius:8px;padding:7px 10px;background:#fff}
+.pick label.ch{background:#F6EAD6;border:none;font-weight:700;color:var(--accent);padding:4px 10px;display:block}
+.pick input{width:17px;height:17px;accent-color:var(--accent);margin-top:2px}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#2B1A17;color:#FFF7EA;padding:10px 16px;border-radius:10px;max-width:92vw;font-size:.9rem;white-space:pre-line;z-index:20}
+.toast.bad{background:var(--bad)}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+@media (max-width:900px){.subj{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="band"><div class="in">
+  <div class="grow"><div class="sub" id="schoolName">TeachBot</div><h1>Homework Line <span class="testtag">TEST</span></h1></div>
+  <a href="homework-planner.html">Live Homework Planner</a>
+  <a href="dashboard.html">← School Admin</a>
+</div></div>
+
+<div class="wrap">
+  <div class="notice">
+    <b>One rule: homework has no date.</b> Each class and subject has one line of homework from its Lesson Plan, in order. Today's homework is always <b>the next one not given yet</b>.
+    <ol>
+      <li><b>📍 We are here.</b> Ask the teacher which homework the class last did, and set it once.</li>
+      <li><b>➕ Put in.</b> The next homework goes into the live week for that day, replacing what is there for that subject. It goes to parents at 4 PM, in the Student Diary and, if the school has ERP, the parent app.</li>
+      <li>When it has <b>reached parents</b>, the line moves on by itself. If it didn't go, it comes again the next day. Nobody ticks anything, and the teachers' app isn't needed.</li>
+      <li><b>No workbook?</b> The line is the Lesson Plan's own homework (book-back exercises, homework notes) in order, numbered Homework 1, 2, 3… in each chapter.</li>
+      <li><b>Class test:</b> the day before, the homework is <i>“Tomorrow class test — what to revise”</i>. It goes even on a day without homework for that subject, and the test is on the next school day.</li>
+    </ol>
+    <div style="margin-top:6px">Nothing in the live Homework Planner changes until you press <b>Put in</b> for a class.</div>
+  </div>
+  <div class="err" id="topErr" hidden></div>
+
+  <div class="card">
+    <div class="bar">
+      <label>Day<input type="date" id="fDate"></label>
+      <label>Class<select id="fClass"><option value="">All classes</option></select></label>
+      <button class="btn ghost" id="reload" type="button">↻ Refresh</button>
+      <span class="hint" id="sum"></span>
+    </div>
+  </div>
+
+  <div id="list"></div>
+</div>
+
+<dialog id="hereDlg"><div class="in">
+  <h2 id="hereTitle">We are here</h2>
+  <div class="hint">Tick the <b>last homework the class has already done</b> (or the last class test already written). The next one becomes today's homework.</div>
+  <div class="pick" id="herePick"></div>
+  <div class="acts"><button class="btn" id="hereSave" type="button">Save</button><button class="btn ghost" id="hereCancel" type="button">Cancel</button></div>
+</div></dialog>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+const ROLE=lsGet("dss_role")||"";
+const PRINCIPAL=ROLE==="school_admin";
+if(!lsGet("dss_session")){location.href="/login.html";return}
+const MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],WD=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const nice=d=>{if(!d)return"";const t=new Date(d+"T00:00:00Z");return WD[t.getUTCDay()]+" "+t.getUTCDate()+" "+MON[t.getUTCMonth()]};
+const same=(a,b)=>String(a||"").replace(/\s+/g," ").trim().toLowerCase()===String(b||"").replace(/\s+/g," ").trim().toLowerCase();
+let S={rows:[],date:"",sent_now:false},busy=false,tt=null;
+
+function toast(m,bad){const t=document.createElement("div");t.className="toast"+(bad?" bad":"");t.textContent=m;document.body.appendChild(t);clearTimeout(tt);setTimeout(()=>t.remove(),bad?9000:5000)}
+function topErr(m){const e=$("topErr");e.hidden=!m;e.textContent=m||""}
+async function api(action,data){
+  const r=await fetch("/api/homework-line",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(Object.assign({action},data||{}))});
+  let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly (status "+r.status+").")}
+  if(d.error)throw new Error(d.error);return d}
+
+async function load(){
+  topErr("");$("list").innerHTML='<div class="card"><span class="spin"></span>Reading the Lesson Plans…</div>';
+  try{const d=await api("lines",{date:$("fDate").value});
+    S=d;if(!$("fDate").value)$("fDate").value=d.date;
+    if(d.school&&d.school.name)$("schoolName").textContent=d.school.name;
+    const cs=[...new Set(d.rows.map(r=>r.class_name))],keep=$("fClass").value;
+    $("fClass").innerHTML='<option value="">All classes</option>'+cs.map(c=>`<option${c===keep?" selected":""}>${esc(c)}</option>`).join("");
+    render()}
+  catch(e){$("list").innerHTML="";topErr(e.message)}}
+
+function stateOf(r){
+  const nx=r.line[r.next_k]||null,wk=r.week[0]||null;
+  if(!nx)return{nx,wk,tag:'<span class="tag t-n">All homework of the plan given</span>'};
+  if(r.hw_day===false)return{nx,wk,tag:'<span class="tag t-n">Not a homework day for this subject</span>'};
+  if(wk&&wk.sent)return{nx,wk,tag:same(wk.text,nx.text)?'<span class="tag t-ok">✓ Sent</span>':'<span class="tag t-n">Already sent</span>'};
+  // the line never waits for dates, but warn if it runs AHEAD of the plan (lesson may not be taught yet)
+  const early=nx.plan_date>S.date?`<span class="tag t-warn">Planned for ${esc(nice(nx.plan_date))} — is that lesson taught?</span>`:"";
+  if(wk&&same(wk.text,nx.text))return{nx,wk,ok:true,tag:'<span class="tag t-ok">✓ Live week has the right homework</span>'+early};
+  if(wk)return{nx,wk,diff:true,tag:'<span class="tag t-bad">⚠ Live week has a different homework</span>'+early};
+  return{nx,wk,diff:true,tag:'<span class="tag t-warn">Nothing in the live week yet</span>'+early}}
+
+function render(){
+  const f=$("fClass").value,rows=S.rows.filter(r=>!f||r.class_name===f);
+  if(!S.rows.length){$("list").innerHTML='<div class="card">No approved Lesson Plans with homework were found.</div>';$("sum").textContent="";return}
+  const by={};rows.forEach(r=>(by[r.class_name]=by[r.class_name]||[]).push(r));
+  let diffs=0,unset=0;
+  $("list").innerHTML=Object.keys(by).map(c=>{
+    const list=by[c];
+    const puts=list.filter(r=>{const s=stateOf(r);return s.diff&&!S.sent_now&&!(r.pending&&r.pending.date<S.date)});
+    return `<div class="cls"><div class="hd"><h3>${esc(c)}</h3>${PRINCIPAL&&puts.length?`<button class="btn" data-putall="${esc(c)}" type="button">➕ Put in all ${puts.length} for ${esc(nice(S.date))}</button>`:""}</div>`+
+    list.map(r=>{const s=stateOf(r),i=S.rows.indexOf(r);if(s.diff)diffs++;if(!r.confirmed)unset++;
+      const last=r.line[r.given-1];
+      return `<div class="subj">
+        <div><div class="nm">${esc(r.subject)}</div><div class="hint">Term ${esc(r.term)} · ${r.total} homework</div></div>
+        <div><div class="k">Last done</div><div class="big">${last?esc(last.label):"None yet"} <span class="hint">(${r.given} of ${r.total})</span></div>
+          ${r.confirmed?'<span class="tag t-ok">Checked</span>':'<span class="tag t-warn">Guess from ticks — check with the teacher</span>'}
+          ${r.pending?`<span class="tag t-n">Waiting to be sent ${esc(nice(r.pending.date))}</span>`:""}
+          ${PRINCIPAL?`<div class="acts"><button class="btn ghost" data-here="${i}" type="button">📍 We are here…</button></div>`:""}</div>
+        <div><div class="k">Homework for ${esc(nice(S.date))}</div>${s.nx?`<div class="big">${esc(s.nx.label)}${s.nx.test?' <span class="tag t-bad">📝 Class test tomorrow</span>':""}</div><div class="txt">${esc(s.nx.text)}</div>`:'<div class="txt">—</div>'}
+          ${s.tag}${PRINCIPAL&&s.diff&&s.nx&&!S.sent_now&&r.hw_day!==false?`<div class="acts"><button class="btn" data-put="${i}" type="button">➕ Put in for ${esc(nice(S.date))}</button></div>`:""}</div>
+        <div><div class="k">Now in the live week</div><div class="txt old">${s.wk?esc(s.wk.text):"—"}</div>
+          <div class="k" style="margin-top:8px">Lesson Planner's date says</div><div class="txt old">${esc(r.plan_says||"—")}</div></div>
+      </div>`}).join("")+`</div>`}).join("");
+  $("sum").textContent=rows.length+" subjects · "+diffs+" differ from the live week · "+unset+" not checked yet"+(S.sent_now?" · this day's homework is already sent":"")}
+
+async function put(list){if(busy)return;busy=true;
+  try{const d=await api("put",{date:S.date,list});
+    toast((d.done.length?d.done.length+" put in:\n"+d.done.join("\n"):"Nothing put in.")+(d.skipped.length?"\n\nLeft out:\n"+d.skipped.join("\n"):""),!d.done.length);
+    await load()}catch(e){toast(e.message,true)}finally{busy=false}}
+
+let HERE=null;
+function openHere(r){HERE=r;$("hereTitle").textContent="We are here — "+r.class_name+" "+r.subject;
+  let ch=null;
+  $("herePick").innerHTML=`<label><input type="radio" name="hp" value="0"${r.given===0?" checked":""}><span>None yet — start from the first homework</span></label>`+
+    r.line.map((it,k)=>{const h=it.chapter!==ch?`<label class="ch">${esc(it.chapter||"Chapter")}</label>`:"";ch=it.chapter;
+      return h+`<label><input type="radio" name="hp" value="${k+1}"${r.given===k+1?" checked":""}><span><b>${esc(it.label)}</b> <span class="hint">(${it.test?"test ":""}planned ${esc(nice(it.plan_date))})</span><br>${esc(it.text)}</span></label>`}).join("");
+  $("hereDlg").showModal();
+  const cur=$("herePick").querySelector("input:checked");if(cur)cur.scrollIntoView({block:"center"})}
+$("hereCancel").onclick=()=>$("hereDlg").close();
+$("hereSave").onclick=async()=>{const v=$("herePick").querySelector("input:checked");if(!v||!HERE)return;
+  $("hereSave").disabled=true;
+  try{await api("set_here",{class_name:HERE.class_name,subject:HERE.subject,given:+v.value});$("hereDlg").close();toast("Saved. "+HERE.class_name+" "+HERE.subject+" now goes on from here.");await load()}
+  catch(e){toast(e.message,true)}finally{$("hereSave").disabled=false}};
+
+$("list").addEventListener("click",e=>{const b=e.target.closest("button");if(!b)return;
+  if(b.dataset.here)openHere(S.rows[+b.dataset.here]);
+  else if(b.dataset.put){const r=S.rows[+b.dataset.put];
+    if(!r.confirmed&&!confirm(r.class_name+" "+r.subject+": the place is only a guess from the Lesson Planner's ticks. Put in "+r.line[r.next_k].label+" anyway?\n\n(Better: press 📍 We are here first, after asking the teacher.)"))return;
+    put([{class_name:r.class_name,subject:r.subject}])}
+  else if(b.dataset.putall){const c=b.dataset.putall;
+    const list=S.rows.filter(r=>r.class_name===c&&stateOf(r).diff&&r.hw_day!==false&&!(r.pending&&r.pending.date<S.date));
+    const unset=list.filter(r=>!r.confirmed).map(r=>r.subject);
+    if(!confirm(list.length+" homework of "+c+" will go into the live week for "+nice(S.date)+", replacing what is there for those subjects."+(unset.length?"\n\nNot checked with the teacher yet: "+unset.join(", ")+".":"")+"\n\nGo ahead?"))return;
+    put(list.map(r=>({class_name:r.class_name,subject:r.subject})))}});
+$("fClass").onchange=render;$("fDate").onchange=load;$("reload").onclick=load;
+if(!PRINCIPAL)topErr("This test page is for the principal. Teachers can look, but only the principal can change it.");
+load();
+})();
+</script>
+</body>
+</html>
