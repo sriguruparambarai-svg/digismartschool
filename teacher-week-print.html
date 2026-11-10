@@ -18,6 +18,8 @@
   Reads: /api/teacher-app list (her classes + timetable name), /api/term-plan list/get/holidays,
          /api/homework list (the week), /api/timetable get (periods).
 -->
+<!-- paper direction: set by the "Paper" choice on the page (Landscape by default) -->
+<style id="pageSize">@page{size:A4 landscape;margin:10mm}</style>
 <style>
 :root{
   --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
@@ -84,7 +86,6 @@ input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background
 .day .sign span{flex:1;border-top:1px solid #1d1311;padding-top:3px}
 .day .note{margin-top:8px;font-size:11px;color:#6b5b52}
 @media print{
-  @page{size:A4 portrait;margin:10mm}
   body{background:#fff}
   .band,.noprint{display:none!important}
   .wrap{max-width:none;padding:0}
@@ -106,6 +107,7 @@ input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background
     <div class="hint">For teachers who don't use the staff app. Pick the week and a teacher, then print. Each day prints on its own page with the class work (full steps from the Lesson Planner), the homework (exactly what goes to parents from the Homework Planner), a ☐ Done box and remarks space to fill by hand, and signature lines. Teachers and their classes come from <b>My Teachers</b>; a teacher doesn't need the app link or PIN.</div>
     <div class="bar" style="margin-top:12px">
       <label>Week starting (Monday)<input type="date" id="fWeek"></label>
+      <label>Paper<select id="fPaper" style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-size:.95rem"><option value="landscape">A4 Landscape</option><option value="portrait">A4 Portrait</option></select></label>
       <button class="btn ghost" id="reload" type="button">↻ Refresh</button>
       <button class="btn" id="printOne" type="button" disabled>🖨 Print this teacher's week</button>
       <button class="btn ghost" id="printAll" type="button" disabled>🖨 Print all teachers</button>
@@ -261,6 +263,10 @@ $("printAll").onclick=()=>{if(!D)return;const keep=$("sheet").innerHTML;
   window.addEventListener("afterprint",back);setTimeout(()=>window.print(),100)};
 $("fWeek").onchange=()=>{const v=$("fWeek").value;if(v&&monday(v)!==v)$("fWeek").value=monday(v);load()};
 $("reload").onclick=load;
+// paper direction (Chrome's print box can't change it once the page sets it, so it is chosen here); remembered
+function setPaper(v){v=v==="portrait"?"portrait":"landscape";$("fPaper").value=v;$("pageSize").textContent="@page{size:A4 "+v+";margin:10mm}";try{localStorage.setItem("tw_paper",v)}catch(e){}}
+$("fPaper").onchange=()=>setPaper($("fPaper").value);
+setPaper(lsGet("tw_paper")||"landscape");
 
 // default: this week; from Saturday afternoon on, next week (for Monday's printouts)
 (function(){const t=istToday(),d=parse(t),hr=new Date(Date.now()+5.5*3600e3).getUTCHours();
