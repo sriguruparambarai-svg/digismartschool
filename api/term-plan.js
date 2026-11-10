@@ -520,7 +520,20 @@ module.exports = async function handler(req, res) {
           seen[k] = { plan: p, item: item }; out.push(item);
         });
       });
-      return res.json({ success: true, rows: out, not_approved: notApproved });
+      // Nov 2026: classes + subjects whose place was CHECKED on the Homework Line test page ("We are here") take the
+      // week's homework from that line (next homework not yet given, class test told the day before) instead of
+      // from the Lesson Planner's dates. Others stay as above. If the line can't be read, nothing changes.
+      let fromLine = 0;
+      try {
+        const HL = require('./homework-line.js');
+        const w = await HL.weekRows(school, from, to);
+        if (Object.keys(w.keys).length) {
+          for (let i = out.length - 1; i >= 0; i--) if (w.keys[out[i].class_name + '|' + skey(out[i].subject)]) out.splice(i, 1);
+          w.rows.forEach(function (x) { out.push(x); });
+          fromLine = w.rows.length;
+        }
+      } catch (e) { console.error('term-plan.js homework line', e); }
+      return res.json({ success: true, rows: out, not_approved: notApproved, from_line: fromLine });
     }
 
     // ── one class, one day, every subject (for the Homework Planner) ──

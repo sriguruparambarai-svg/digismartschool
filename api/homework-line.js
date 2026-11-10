@@ -165,40 +165,38 @@ function nextSchoolDay(d, HOL) {
 }
 const MONS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const niceD = function (s) { const t = new Date(s + 'T00:00:00Z'); return WK[t.getUTCDay()] + ' ' + t.getUTCDate() + ' ' + MONS[t.getUTCMonth()]; };
+// each line cleaned the same way the live Homework Planner cleans Lesson Plan homework (cleanTpText)
+function cleanT(t) {
+  return String(t || '').trim().split('\n').map(function (l) { l = l.trim().replace(/^(homework\s*note|homework|reading|writing|note)\s*[:：\-–]\s*/i, ''); return l.charAt(0).toUpperCase() + l.slice(1); })
+    .filter(Boolean).join('\n');
+}
+const normT = function (t) { return cleanT(t).replace(/\s+/g, ' ').trim().toLowerCase(); };
+// is this homework text that step of the line? (a class test: "Tomorrow (…) class test — … Revise: …")
+function sameHw(it, text) {
+  if (!it) return false;
+  const t = normT(text);
+  if (it.test) return /^tomorrow\b/.test(t) && t.indexOf(normT(it.text)) !== -1;
+  return t === normT(it.text);
+}
+const dayAfterS = function (s) { const t = new Date(s + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + 1); return t.toISOString().slice(0, 10); };
 // the words parents get for one step of the line, given on day `d`
 function hwFor(it, d, HOL) {
-  if (!it.test) return it.text;
+  if (!it.test) return cleanT(it.text);
   const nx = nextSchoolDay(d, HOL), ch = String(it.chapter || '').replace(/^Ch(?:apter)?\.?\s*\d+\.?\s*/i, '');
   return 'Tomorrow' + (nx ? ' (' + niceD(nx) + ')' : '') + ' class test' + (ch ? ' — ' + ch : '') + '. ' + it.text;
 }
 
-module.exports = async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-dss-session');
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
-  if (!process.env.SUPABASE_SECRET_KEY) return res.status(500).json({ error: 'SUPABASE_SECRET_KEY is not set in Vercel.' });
-
-  try {
-    const who = readSession(req.headers['x-dss-session']);
-    if (!who || ['teacher', 'school_admin', 'super_admin'].indexOf(who.role) === -1) return res.status(401).json({ error: 'Please log in again.' });
-    const body = req.body || {};
-    const school = await findSchool(who.role === 'super_admin' ? body.school_id : who.sid);
-    if (!school) return res.status(403).json({ error: 'Your school was not found. Please log in again.' });
-    const principal = who.role !== 'teacher';
-    const action = String(body.action || '');
-    if ((action === 'set_here' || action === 'put') && !principal) return res.status(403).json({ error: 'Only the principal can do this.' });
-    const today = istToday();
-
+// Reads every approved plan's line and each one's saved place, and moves places on for homework that has
+// reached parents. Used by this page and by the live "Fill this week" (weekRows below).
+async function loadLines(school, today) {
     // ── everything the three actions need: plans → lines, saved places, the homework timetable ──
     const pr = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) +
       '&status=eq.approved&select=id,class_name,subject,term,rows,settings,updated_at&order=updated_at.desc');
-    if (!ok(pr)) return res.json({ error: 'Could not read the Lesson Plans: ' + why(pr) });
+    if (!ok(pr)) return { error: 'Could not read the Lesson Plans: ' + why(pr) };
     const st = await db('GET', '/rest/v1/homework_line?school_id=eq.' + enc(school.id) + '&select=*');
     if (!ok(st)) {
       const missing = st.status === 404 || /homework_line/.test(why(st));
-      return res.json({ error: missing ? 'The Homework Line table is not made yet. Run step12-homework-line.sql in Supabase (SQL Editor → paste → Run), then open this page again.' : 'Could not read the homework places: ' + why(st), need_sql: missing });
+      return { error: missing ? 'The Homework Line table is not made yet. Run step12-homework-line.sql in Supabase (SQL Editor → paste → Run), then open this page again.' : 'Could not read the homework places: ' + why(st), need_sql: missing };
     }
     const tt = await db('GET', '/rest/v1/homework_timetable?school_id=eq.' + enc(school.id) + '&select=plan&limit=1');
     const TT = (ok(tt) && tt.data.length && tt.data[0].plan) || {};
@@ -218,26 +216,23 @@ module.exports = async function handler(req, res) {
       items.push({ key: k, plan: p, line: line, state: saved[k] || null });
     });
 
-    // ── was the homework put in from the line really sent? (moves "given" on its own) ──
-    const pend = items.filter(function (x) { return x.state && x.state.pending_hw_id; });
-    if (pend.length) {
-      const hr = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&id=in.(' +
-        pend.map(function (x) { return enc(x.state.pending_hw_id); }).join(',') + ')&select=id,sent_at,erp_error,status,hw_date');
-      const H = {};
-      if (ok(hr)) hr.data.forEach(function (h) { H[h.id] = h; });
-      for (const x of pend) {
-        if (!ok(hr)) break;
-        const s = x.state, h = H[s.pending_hw_id];
-        let patch = null;
-        if (h && h.sent_at && !h.erp_error) {   // reached parents (diary + ERP parent app)
-          const k = Math.min(Math.max(0, s.pending_k || 0), x.line.length - 1);
-          patch = { given: k + 1, last_text: x.line[k].text, confirmed: true };
-        } else if (h && h.sent_at) patch = null;   // in the diary, but ERP refused it — ERP is tried again for 7 days; wait
-        else if (!h || h.status === 'returned' || (h.hw_date && h.hw_date < today)) patch = {};   // not given — it comes again
-        if (patch) {
-          Object.assign(patch, { pending_hw_id: '', pending_k: null, pending_date: null, updated_at: new Date().toISOString() });
-          const w = await db('PATCH', '/rest/v1/homework_line?id=eq.' + enc(s.id), patch);
-          if (ok(w) && w.data.length) x.state = w.data[0]; else Object.assign(s, patch);
+    // ── the line moves on by itself: homework of the line (put in here, or by the live "Fill this week") that has
+    //    REACHED PARENTS — Student Diary, and ERP parent app (a send ERP refused waits: ERP is tried again for 7 days).
+    //    Matched by its words, only homework dated on or after the day the place was last set or moved, one step at
+    //    a time in order, so nothing is counted twice. Not sent → not moved → it comes again.
+    const conf = items.filter(function (x) { return x.state; });
+    if (conf.length) {
+      const since = conf.reduce(function (m, x) { const d = String(x.state.updated_at || '').slice(0, 10); return !m || d < m ? d : m; }, '');
+      const sr = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=eq.added' +
+        '&sent_at=not.is.null&hw_date=gte.' + (since || today) + '&select=id,class_name,subject,homework,hw_date,erp_error&order=hw_date.asc');
+      if (ok(sr)) for (const x of conf) {
+        const s = x.state, from = String(s.updated_at || '').slice(0, 10);
+        let g = Math.max(0, Math.min(s.given || 0, x.line.length)), moved = false;
+        sr.data.filter(function (h) { return h.class_name === x.plan.class_name && skey(h.subject) === skey(x.plan.subject) && h.hw_date >= from && !h.erp_error; })
+          .forEach(function (h) { if (g < x.line.length && sameHw(x.line[g], h.homework)) { g++; moved = true; } });
+        if (moved) {
+          const w = await db('PATCH', '/rest/v1/homework_line?id=eq.' + enc(s.id), { given: g, last_text: x.line[g - 1].text, updated_at: new Date().toISOString() });
+          if (ok(w) && w.data.length) x.state = w.data[0]; else Object.assign(s, { given: g, last_text: x.line[g - 1].text });
         }
       }
     }
@@ -259,6 +254,76 @@ module.exports = async function handler(req, res) {
       x.line.forEach(function (it, k) { if (rows.some(function (r) { return r && r.date === it.plan_date && r.done; })) g = k + 1; });
       return { given: g, confirmed: false, from: 'ticks' };
     };
+    // the step of the line for day `date`: the place, moved past line homework already waiting in the week
+    // (unsent, dated from `start` up to the day before) — so two days never get the same homework
+    const kAt = function (x, date, W, start) {
+      let k = placeOf(x).given;
+      W.filter(function (h) { return !h.sent_at && h.hw_date >= start && h.hw_date < date && h.class_name === x.plan.class_name && skey(h.subject) === skey(x.plan.subject); })
+        .sort(function (a, b) { return a.hw_date < b.hw_date ? -1 : a.hw_date > b.hw_date ? 1 : 0; })
+        .forEach(function (h) { if (k < x.line.length && sameHw(x.line[k], h.homework)) k++; });
+      return k;
+    };
+    return { items: items, placeOf: placeOf, TT: TT, HOL: HOL, kAt: kAt };
+}
+
+/* Nov 2026: the live Homework Planner's "Fill this week" (api/term-plan.js for_week) asks this: for every class +
+   subject whose place was CHECKED here (We are here), the week's homework comes from the line instead of from the
+   Lesson Planner's dates — the next one not given on each homework day (a class test's "tomorrow" homework on any
+   day). Homework already in the week from the line counts as its step. Classes not checked here are left to the
+   old way. Returns { rows:[{class_name,subject,date,homework}], keys:{ "Class 3|english":1 } }. */
+async function weekRows(school, from, to) {
+  const out = { rows: [], keys: {} };
+  const today = istToday();
+  if (!isDate(from) || !isDate(to)) return out;
+  const L = await loadLines(school, today);
+  if (L.error) return out;   // table not made yet → the old way for everyone
+  const use = L.items.filter(function (x) { return x.state && x.state.confirmed; });
+  if (!use.length) return out;
+  const start = istNow().getUTCHours() >= SEND_HOUR_IST ? dayAfterS(today) : today;
+  const wk = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=neq.returned' +
+    '&hw_date=gte.' + (from > start ? from : start) + '&hw_date=lte.' + to + '&select=class_name,subject,homework,hw_date,sent_at');
+  const W = ok(wk) ? wk.data : [];
+  use.forEach(function (x) {
+    out.keys[x.key] = 1;
+    const days = ttDays(L.TT, x.plan.class_name, x.plan.subject);
+    let k = L.placeOf(x).given;
+    for (let d = from > start ? from : start; d <= to && k < x.line.length; d = dayAfterS(d)) {
+      if (wkday(d) === 'Sun' || L.HOL[d]) continue;
+      const there = W.filter(function (h) { return h.hw_date === d && h.class_name === x.plan.class_name && skey(h.subject) === skey(x.plan.subject); });
+      if (there.some(function (h) { return sameHw(x.line[k], h.homework); })) { k++; continue; }   // already in the week
+      if (there.length) continue;   // other homework is there (Fill leaves it); the line waits
+      const it = x.line[k];
+      if (!it.test && days !== null && days.indexOf(wkday(d)) === -1) continue;   // not this subject's homework day
+      out.rows.push({ class_name: x.plan.class_name, subject: x.plan.subject, date: d, homework: hwFor(it, d, L.HOL), from_line: true });
+      k++;
+    }
+  });
+  return out;
+}
+
+module.exports = async function handler(req, res) {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-dss-session');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
+  if (!process.env.SUPABASE_SECRET_KEY) return res.status(500).json({ error: 'SUPABASE_SECRET_KEY is not set in Vercel.' });
+
+  try {
+    const who = readSession(req.headers['x-dss-session']);
+    if (!who || ['teacher', 'school_admin', 'super_admin'].indexOf(who.role) === -1) return res.status(401).json({ error: 'Please log in again.' });
+    const body = req.body || {};
+    const school = await findSchool(who.role === 'super_admin' ? body.school_id : who.sid);
+    if (!school) return res.status(403).json({ error: 'Your school was not found. Please log in again.' });
+    const principal = who.role !== 'teacher';
+    const action = String(body.action || '');
+    if ((action === 'set_here' || action === 'put') && !principal) return res.status(403).json({ error: 'Only the principal can do this.' });
+    const today = istToday();
+
+    const L = await loadLines(school, today);
+    if (L.error) return res.json(L);
+    const items = L.items, placeOf = L.placeOf, TT = L.TT, HOL = L.HOL, kAt = L.kAt;
+    const sendStart = istNow().getUTCHours() >= SEND_HOUR_IST ? dayAfterS(today) : today;   // first day not sent yet
 
     const saveState = async function (x, fields) {
       fields.updated_at = new Date().toISOString();
@@ -290,9 +355,10 @@ module.exports = async function handler(req, res) {
       const list = (Array.isArray(body.list) ? body.list : []).slice(0, 40);
       if (!list.length) return res.json({ error: 'Nothing chosen.' });
       const classes = list.map(function (l) { return clip(l && l.class_name, 20); }).filter(function (c, i, a) { return c && a.indexOf(c) === i; });
-      const wk = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + date +
+      // from the first unsent day up to `date`: homework of the line already waiting before `date` moves the step on
+      const wk = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=gte.' + sendStart + '&hw_date=lte.' + date +
         '&entry_type=eq.homework&status=neq.returned&class_name=in.(' + classes.map(function (c) { return enc('"' + c.replace(/"/g, '') + '"'); }).join(',') +
-        ')&select=id,class_name,subject,homework,sent_at,status');
+        ')&select=id,class_name,subject,homework,sent_at,status,hw_date');
       if (!ok(wk)) return res.json({ error: 'Could not read the week\'s homework: ' + why(wk) });
       const done = [], skipped = [];
       for (const l of list) {
@@ -300,11 +366,10 @@ module.exports = async function handler(req, res) {
         const name = clip(l && l.class_name, 20) + ' ' + clip(l && l.subject, 40);
         if (!x) { skipped.push(name + ': no approved Lesson Plan'); continue; }
         const s = x.state;
-        if (s && s.pending_hw_id && s.pending_date && s.pending_date < date) { skipped.push(name + ': the homework put in for ' + s.pending_date + ' is not sent yet'); continue; }
-        const k = placeOf(x).given;
+        const k = kAt(x, date, wk.data, sendStart);
         if (k >= x.line.length) { skipped.push(name + ': all homework of the plan is given'); continue; }
         const text = clip(hwFor(x.line[k], date, HOL), 1000);
-        const there = wk.data.filter(function (h) { return h.class_name === x.plan.class_name && skey(h.subject) === skey(x.plan.subject); });
+        const there = wk.data.filter(function (h) { return h.hw_date === date && h.class_name === x.plan.class_name && skey(h.subject) === skey(x.plan.subject); });
         if (there.some(function (h) { return h.sent_at; })) { skipped.push(name + ': that day\'s homework is already sent'); continue; }
         let id = '', w;
         if (there.length) {
@@ -319,9 +384,11 @@ module.exports = async function handler(req, res) {
           if (ok(w) && w.data.length) id = w.data[0].id;
         }
         if (!ok(w) || !id) { skipped.push(name + ': could not save (' + why(w) + ')'); continue; }
-        const sw = await saveState(x, { given: k, last_text: k ? x.line[k - 1].text : '', confirmed: !!(s && s.confirmed),
-          pending_hw_id: String(id), pending_k: k, pending_date: date });
-        if (!ok(sw)) { skipped.push(name + ': put in, but its place was not saved (' + why(sw) + ')'); continue; }
+        if (!s) {   // first time for this class + subject: keep the (guessed) place, so the line can move on when it is sent
+          const g = placeOf(x).given;
+          const sw = await saveState(x, { given: g, last_text: g ? x.line[g - 1].text : '', confirmed: false });
+          if (!ok(sw)) { skipped.push(name + ': put in, but its place was not saved (' + why(sw) + ')'); continue; }
+        }
         done.push(name + ': ' + x.line[k].label);
       }
       return res.json({ success: true, done: done, skipped: skipped });
@@ -330,13 +397,14 @@ module.exports = async function handler(req, res) {
     // ── LINES: every class + subject on `date` ──
     if (action === 'lines') {
       const date = isDate(body.date) ? body.date : today;
-      const wk = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + date +
-        '&entry_type=eq.homework&status=neq.returned&select=id,class_name,subject,homework,sent_at,teacher_name');
-      const W = ok(wk) ? wk.data : [];
+      const wk = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=gte.' + (date < sendStart ? date : sendStart) + '&hw_date=lte.' + date +
+        '&entry_type=eq.homework&status=neq.returned&select=id,class_name,subject,homework,sent_at,teacher_name,hw_date');
+      const WA = ok(wk) ? wk.data : [], W = WA.filter(function (h) { return h.hw_date === date; });
       const out = items.map(function (x) {
         const pl = placeOf(x), s = x.state, p = x.plan;
-        const pending = s && s.pending_hw_id ? { date: s.pending_date, k: s.pending_k } : null;
-        const nextK = pending && pending.date < date ? (pending.k || 0) + 1 : pl.given;   // a day after one still waiting
+        const nextK = date >= sendStart ? kAt(x, date, WA, sendStart) : pl.given;   // after line homework already waiting in the week
+        const mine = W.find(function (h) { return !h.sent_at && h.class_name === p.class_name && skey(h.subject) === skey(p.subject) && sameHw(x.line[nextK], h.homework); });
+        const pending = mine ? { date: date } : null;
         const days = ttDays(TT, p.class_name, p.subject);
         const week = W.filter(function (h) { return h.class_name === p.class_name && skey(h.subject) === skey(p.subject); })
           .map(function (h) { return { id: h.id, text: h.homework, sent: !!h.sent_at, by: h.teacher_name || '' }; });
@@ -365,3 +433,4 @@ module.exports = async function handler(req, res) {
     return res.status(500).json({ error: 'Server error: ' + e.message });
   }
 };
+module.exports.weekRows = weekRows;
