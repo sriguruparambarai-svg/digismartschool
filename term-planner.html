@@ -112,6 +112,11 @@ table.tp{border-collapse:collapse;width:100%;min-width:1100px;font-size:.88rem}
 .tp .x:hover{color:var(--bad)}
 .toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:space-between}
 .saved{font-size:.82rem;color:var(--muted)}
+.qbad{margin-top:6px;padding:5px 8px;border-radius:6px;background:var(--bad-bg,#F8DEDA);color:var(--bad,#A12A1E);font-size:.8rem;font-weight:700;white-space:pre-line}
+tr.qrow>td{box-shadow:inset 0 0 0 9999px rgba(161,42,30,.05)}
+.qsum{margin:10px 0;padding:10px 12px;border:1px solid #e7b4ad;border-radius:8px;background:#FDF1EF;color:#5a1a12;font-size:.88rem;white-space:pre-line}
+.qsum.ok{border-color:#b9d8b6;background:#EEF6EC;color:#21492a}
+@media print{.qbad,.qsum{display:none}}
 .behind{display:inline-block;font-size:.75rem;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--warn-bg);color:var(--warn);margin-left:6px}
 .behind.ok{background:var(--ok-bg);color:var(--ok)}
 .retnote{background:var(--bad-bg);color:var(--bad);padding:8px 12px;border-radius:8px;font-size:.88rem;margin-top:10px}
@@ -1243,6 +1248,79 @@ async function hwTTButton(){
   if(!confirm(res.moved+" homework will move to the next "+subj+" homework day ("+hwDaysFor(cls,subj).join(", ")+")."+(res.filled?"\n"+res.filled+" homework day"+(res.filled>1?"s":"")+" with no homework (e.g. a TeachBot day) will get practice of the last lesson taught.":"")+(res.extra?"\n"+res.extra+" have no later homework day and will be marked to give as Extra.":"")+"\n\nOnly lessons from today on are changed. Go ahead?"))return;
   S.rows=copy;try{await refreshHwOnly()}catch(e){}renderPlan();queueSave();toast("Matched the homework timetable: "+res.moved+" moved"+(res.filled?", "+res.filled+" empty homework day"+(res.filled>1?"s":"")+" filled":"")+(res.extra?", "+res.extra+" marked Extra":"")+".")}
 
+/* ---------- 🔍 Check question numbers (Nov 2026) ----------
+   The AI that writes a plan sometimes names questions the book does not have (Class 3 Maths: "Exercise C Q6, Q7"
+   when Exercise C has 5 sums). Here the AI ONLY reads each chapter's exercise list from the school's own book
+   (names and question numbers as printed); then the COMPUTER compares every "Exercise X Qn" in the plan's homework
+   and class work with that list and marks the wrong ones in red. Nothing in the plan is changed.
+   Workbook lines ("Workbook: Home Work 5 … Q3") are the workbook's own sections, so they are not checked. */
+S.qflags={};S.qsum="";
+const exKey=x=>String(x||"").toUpperCase().replace(/^EX(ERCISE)?\.?\s*/,"").replace(/[^A-Z0-9.]/g,"");
+// every "Exercise X … Q…" reference in a text → [{ex:"C", qs:[6,7]}]
+function exRefs(text){
+  const out=[];
+  String(text||"").split("\n").forEach(line=>{
+    if(/^\s*workbook\b/i.test(line))return;
+    const parts=line.split(/\bex(?:ercise)?\.?\s+(?=[A-Z0-9])/i);
+    parts.slice(1).forEach(seg=>{
+      const m=/^([A-Z](?![a-z])|\d+(?:\.\d+)?)/.exec(seg.trim());if(!m)return;
+      const ex=exKey(m[1]),body=seg.trim().slice(m[0].length).split(/\.(?:\s|$)|\bex(?:ercise)?\b/i)[0];
+      const qs=[];
+      body.replace(/Q\.?\s*(\d+)\s*(?:\([a-z]\)\s*(?:,\s*\([a-z]\)\s*)*)?((?:\s*(?:[–-]|to)\s*Q?\.?\s*\d+)?)((?:\s*(?:,|and|&)\s*(?:Q\.?\s*)?\d+(?!\.\d)(?:\s*[–-]\s*\d+)?)*)/gi,(all,a,rng,more)=>{
+        const f=+a,r=/(\d+)/.exec(rng||"");
+        if(r){const t=+r[1];for(let q=f;q<=t&&q<=f+40;q++)qs.push(q)}else qs.push(f);
+        String(more||"").replace(/(\d+)(?:\s*[–-]\s*(\d+))?/g,(x,b,c)=>{if(c){for(let q=+b;q<=+c&&q<=+b+40;q++)qs.push(q)}else qs.push(+b);return x});
+        return all});
+      if(qs.length)out.push({ex,qs:[...new Set(qs)]})})});
+  return out}
+async function checkQnums(){
+  const btn=$("aQchk");if(btn)btn.disabled=true;
+  const titles=[...new Set(S.rows.map(r=>r.chapter).filter(Boolean))].filter(t=>S.rows.some(r=>r.chapter===t&&exRefs((r.homework||"")+"\n"+(r.teach||"")).length));
+  const flags={},notes=[];let checked=0,bad=0;
+  try{
+    if(!titles.length){S.qflags={};S.qsum="No lesson in this plan names an exercise and question number, so there is nothing to check.";renderPlan();return}
+    for(const title of titles){
+      toast("Reading the exercises of “"+title+"” from the book…");
+      const saved=((S.settings&&S.settings.chapters)||[]).find(c=>c.title===title)||{title};
+      const opt=CHOPTS.find(o=>o.key===saved.key);
+      if(!opt||!opt.bookObj){notes.push("• "+title+": no uploaded book for this chapter, so it could not be checked.");continue}
+      const ct=await chapterPages(Object.assign({},saved,{bookObj:opt.bookObj}));
+      if(ct.scanned||!(ct.pages||[]).length){notes.push("• "+title+": the book pages are pictures (scanned), so the questions could not be read. Check this chapter by hand.");continue}
+      // exercises are spread through Maths chapters and at the end of others — send every page, longest first cut at 30,000 letters
+      let txt="";ct.pages.forEach(p=>{if(txt.length<30000)txt+="\n[Book page "+p.book+"]\n"+p.text.slice(0,4000)});
+      const res=await askAI(`Class: ${$("fClass").value} · Subject: ${$("fSubject").value} · Chapter: ${title}
+Below is the text of this chapter from the school's own book. List EVERY exercise in it, exactly as printed: its name (the letter or number only, e.g. "A", "C", "2.3") and the question numbers it really has. Count only questions printed under that exercise. Do not guess and do not add questions. If the text shows no exercises, give an empty list.
+<<<${txt}
+>>>
+Reply with JSON only: {"exercises":[{"name":"A","questions":[1,2,3,4,5]}]}`,1500);
+      const list=Array.isArray(res.exercises)?res.exercises:[];
+      if(!list.length){notes.push("• "+title+": no exercises could be found in the book text, so it could not be checked.");continue}
+      const book={};list.forEach(e=>{const k=exKey(e&&e.name);if(k)book[k]=(Array.isArray(e.questions)?e.questions:[]).map(Number).filter(n=>n>0)});
+      checked++;
+      S.rows.forEach((r,i)=>{if(r.chapter!==title)return;
+        const msgs=[];
+        [["homework","Homework"],["teach","Class work"]].forEach(([f,lab])=>{exRefs(r[f]).forEach(ref=>{
+          const have=book[ref.ex];
+          if(!have){msgs.push(lab+": Exercise "+ref.ex+" is not in the book (it has "+Object.keys(book).join(", ")+").");return}
+          const miss=ref.qs.filter(q=>have.indexOf(q)===-1);
+          if(miss.length)msgs.push(lab+": Exercise "+ref.ex+" Q"+miss.join(", Q")+" — the book's Exercise "+ref.ex+" has only Q"+(have.length?Math.min(...have)+"–"+Math.max(...have):"?")+".")})});
+        if(msgs.length){flags[i]=msgs.join("\n");bad++}})}
+    S.qflags=flags;
+    S.qsum=(bad?"⚠ "+bad+" lesson"+(bad>1?"s name":" names")+" questions the book does not have — marked in red below. Correct the question numbers in those lessons (click the text to change it).":
+      checked?"✓ Every exercise and question number in "+(checked>1?"these "+checked+" chapters":"this chapter")+" is in the book.":"Nothing could be checked.")+(notes.length?"\n"+notes.join("\n"):"");
+    renderPlan();toast(bad?bad+" lesson"+(bad>1?"s":"")+" marked in red.":"Check finished.",!!bad);
+    const f=document.querySelector("tr.qrow");if(f)f.scrollIntoView({block:"center"})}
+  catch(e){toast("Could not finish the check: "+e.message,true)}
+  finally{const b=$("aQchk");if(b)b.disabled=false}}
+// red notes under the lessons with wrong numbers, and the summary above the table
+function decorateQ(){
+  let sum=$("qSum");
+  if(!sum){sum=document.createElement("div");sum.id="qSum";const t=$("tp");t.parentNode.insertBefore(sum,t)}
+  sum.hidden=!S.qsum;sum.className="qsum"+(S.qsum&&/^✓/.test(S.qsum)?" ok":"");sum.textContent=S.qsum||"";
+  Object.keys(S.qflags||{}).forEach(i=>{const tr=document.querySelector('#tp tr[data-r="'+i+'"]');if(!tr)return;
+    tr.classList.add("qrow");const cell=tr.querySelector('[data-f="homework"]')||tr.querySelector('[data-f="teach"]');
+    if(cell)cell.parentNode.insertAdjacentHTML("beforeend",`<div class="qbad">🔍 ${esc(S.qflags[i])}</div>`)})}
+
 /* redo one chapter with AI, keeping its dates */
 async function redoChapter(title){
   if(locked())return;const idx=S.rows.map((r,i)=>r.chapter===title?i:-1).filter(i=>i>=0);if(!idx.length)return;
@@ -1434,7 +1512,7 @@ function renderPlan(){
       `<td class="c-x noprint">${r.type==="speaking"?`<a class="ws sp" href="speaking-class.html${r.speak?"?topic="+encodeURIComponent(String(r.speak).split("|")[0])+"&level="+encodeURIComponent(String(r.speak).split("|")[1]||1):""}" target="_blank" rel="noopener" title="Open the Speaking Class at this topic and level" aria-label="Open the Speaking Class for lesson ${i+1}">🗣</a>`:`<a class="ws" href="${wsLink(r)}" target="_blank" rel="noopener" title="Make a worksheet for this lesson" aria-label="Make a worksheet for lesson ${i+1}">📝</a>`}${ed?`<button class="x" data-del="${i}" title="Remove this lesson">✕</button>`:""}</td></tr>`});
   $("tp").innerHTML=h+"</tbody>";
   renderHwOnly();
-  renderActs()}
+  renderActs();decorateQ()}
 function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(!PRINCIPAL&&S.plan&&(st==="draft"||st==="returned"))a.push(`<button class="btn" id="aSubmit">Send to principal</button>`);
   if(PRINCIPAL&&S.plan&&st!=="approved")a.push(`<button class="btn ok" id="aApprove">Approve</button>`);
@@ -1445,6 +1523,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   if(!locked()&&S.rows.length)a.push(`<button class="btn ghost" id="aHwTT" title="Move homework that falls on a day this subject has no homework (Homework Planner → Homework timetable) to the next homework day. Only lessons from today on.">📅 Match homework timetable</button>`);
   if(!locked()&&S.rows.length&&!isSpoken())a.push(`<button class="btn ghost" id="aTidy" title="One short homework a day; TeachBot days get the chapter's home activity; LKG/UKG: Homework given in the note. Only lessons from today on.">🧹 Tidy homework</button>`);
   if(isHand()&&S.rows.some(r=>r.type==="writing"&&r.write))a.push(`<button class="btn gold" id="aBook" title="Every period's handwriting sheet in order, as one book — cover, contents, page numbers. Print once and bind.">📒 Print the term's handwriting book</button>`);
+  if(S.rows.length&&!isSpoken())a.push(`<button class="btn ghost" id="aQchk" title="Reads each chapter's exercises from the school's uploaded book and marks in red any homework or class work that names a question the book does not have (e.g. Exercise C Q7 when Exercise C has only 5). Changes nothing.">🔍 Check question numbers</button>`);
   a.push(`<button class="btn ghost" id="aPrint">🖨 Print</button>`);
   $("planActs").innerHTML=a.join("");
   const on=(id,f)=>{const b=$(id);if(b)b.onclick=f};
@@ -1456,6 +1535,7 @@ function renderActs(){const st=(S.plan&&S.plan.status)||"draft",a=[];
   on("aBook",openBook);
   on("aHw",suggestHomework);
   on("aHwTT",hwTTButton);
+  on("aQchk",checkQnums);
   on("aTidy",tidyButton);
   on("aRefit",async()=>{if(!confirm("Put the lessons not yet done (from today) on the class's timetable periods again?\n\nTeachBot lessons go only on AI-room periods; a classroom period before one becomes a catch-up period."))return;
     try{if(S.dirty)await saveNow();const d=await tp("refit",{id:S.plan.id});S.plan=d.plan;S.rows=Array.isArray(d.plan.rows)?d.plan.rows:[];renderPlan();loadList();
