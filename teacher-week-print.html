@@ -249,11 +249,15 @@ function dayPage(t,d){
     <div class="note">Give exactly this homework — it is what parents receive at 4 PM. If a lesson could not be done, write why in remarks and continue it next period.</div>
     <div class="sign"><span>Teacher's signature</span><span>Principal's signature</span></div></section>`}
 
-function teacherWeek(t){return weekDays().map(d=>dayPage(t,d)).join("")}
+// only days the teacher has school: holidays (any kind) and days with nothing for her (e.g. Saturday) are left out, no empty pages
+const schoolDays=t=>weekDays().filter(d=>!D.hol.some(h=>h.date===d)&&entries(t,d).length);
+function teacherWeek(t){return schoolDays(t).map(d=>dayPage(t,d)).join("")}
 
 function pick(id){SEL=id;const t=D.teachers.find(x=>x.id===id);if(!t)return;
   document.querySelectorAll(".tbtn").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===id)));
-  $("sheet").innerHTML=teacherWeek(t);$("printOne").disabled=false}
+  const w=teacherWeek(t);
+  $("sheet").innerHTML=w||`<div class="card">No classes or homework for ${esc(t.name)} this week (holidays and empty days are left out).</div>`;
+  $("printOne").disabled=!w}
 
 $("teachers").addEventListener("click",e=>{const b=e.target.closest(".tbtn");if(b)pick(b.dataset.t)});
 $("printOne").onclick=()=>window.print();
