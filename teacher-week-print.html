@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Teacher's Week Printout — DigiSmartSchool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Hind+Madurai:wght@400;500;600;700&display=swap">
+<!--
+  Teacher's Week printout (Nov 2026) — principal only. READS ONLY, changes nothing.
+  For schools whose teachers don't use the staff app (My Day): the principal picks a week and a teacher
+  (from My Teachers — a teacher needs no link or PIN) and prints her week, ONE PAGE PER DAY:
+    period · class + subject · class work (full steps from the Lesson Planner: chapter, pages, kind, what to
+    teach, activity, workbook) · homework (from the Homework Planner — exactly what parents get at 4 PM)
+    · ☐ Done + remarks for the teacher to fill by hand · teacher's and principal's signature.
+  "Print all teachers" prints every teacher's week in one go.
+  Reads: /api/teacher-app list (her classes + timetable name), /api/term-plan list/get/holidays,
+         /api/homework list (the week), /api/timetable get (periods).
+-->
+<style>
+:root{
+  --bg:#F8F1E6; --surface:#FFFDF9; --surface-2:#F3E7D3; --line:#E3D2B6;
+  --ink:#2B1A17; --muted:#7A6255; --accent:#6B1A1A; --on-accent:#FFF7EA; --gold:#C9A84C;
+  --ok:#2F6B3A; --ok-bg:#E3F0E2; --warn-bg:#F8EBCB; --bad:#A12A1E; --bad-bg:#F8DEDA; --tb:#5B4A9A; --tb-bg:#ECE7F8;
+  --display:"Marcellus","Georgia",serif;
+  --body:"Hind Madurai","Noto Sans Tamil","Segoe UI",system-ui,sans-serif;
+  --r:10px; color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:15px;line-height:1.5}
+[hidden]{display:none!important}
+.wrap{max-width:1180px;margin:0 auto;padding:0 16px 48px}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer}
+:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+.band{background:#6B1A1A;color:#FFF3DF;border-bottom:3px solid #C9A84C}
+.band .in{max-width:1180px;margin:0 auto;padding:12px 16px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.band h1{font-family:var(--display);font-weight:400;font-size:1.55rem;margin:0}
+.band .sub{font-size:.82rem;color:#E8C99A;letter-spacing:.06em;text-transform:uppercase}
+.band .grow{flex:1;min-width:0}
+.band a{color:#FFF3DF;text-decoration:none;border:1px solid #C9A84C;border-radius:8px;padding:6px 10px;font-size:.85rem}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;margin-top:16px}
+.bar{display:flex;gap:12px;flex-wrap:wrap;align-items:end}
+label{display:grid;gap:4px;font-size:.8rem;font-weight:600;color:var(--muted)}
+input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);font-size:.95rem}
+.btn{border:none;border-radius:8px;padding:9px 14px;font-weight:600;background:var(--accent);color:var(--on-accent);font-size:.9rem}
+.btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.5;cursor:default}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.hint{font-size:.84rem;color:var(--muted)}
+.err{color:var(--bad);font-weight:600;margin-top:12px;white-space:pre-line}
+.warn{background:var(--warn-bg);border:1px solid #E8CF8E;color:#5A3D00;border-radius:var(--r);padding:10px 14px;margin-top:12px;font-size:.9rem}
+.teachers{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.tbtn{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 14px;font-weight:600;font-size:.9rem}
+.tbtn[aria-pressed="true"]{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.tbtn .c{font-weight:400;font-size:.78rem;opacity:.75;margin-left:4px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:sp .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes sp{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+
+/* ---- the printed day page (also the preview) ---- */
+.day{background:#fff;color:#1d1311;border:1px solid var(--line);border-radius:var(--r);padding:14px 16px;margin-top:16px;font-size:12.5px;line-height:1.45}
+.day .top{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;border-bottom:2px solid #6B1A1A;padding-bottom:6px}
+.day .top .sc{font-family:var(--display);font-size:15px;color:#6B1A1A}
+.day .top .who{font-size:17px;font-weight:700}
+.day .top .dt{font-size:15px;font-weight:700;text-align:right}
+.day table{border-collapse:collapse;width:100%;margin-top:8px;table-layout:fixed}
+.day th,.day td{border:1px solid #bba98c;padding:5px 6px;vertical-align:top;text-align:left;word-wrap:break-word}
+.day th{background:#F3E7D3;color:#6B1A1A;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.day col.p{width:74px} .day col.c{width:92px} .day col.h{width:26%} .day col.d{width:116px}
+.day .cs{font-weight:700}
+.day .kind{display:inline-block;border:1px solid #bba98c;border-radius:999px;padding:0 7px;font-size:10.5px;font-weight:700;margin-bottom:2px}
+.day .kind.tb{background:#ECE7F8;color:#5B4A9A;border-color:#c9bfe8} .day .kind.test{background:#F8DEDA;color:#A12A1E;border-color:#e7b4ad}
+.day .ch{font-weight:700}
+.day .steps{white-space:pre-line;margin-top:2px}
+.day .sub{margin-top:4px;font-size:11.5px} .day .sub b{color:#6B1A1A}
+.day .hw{white-space:pre-line}
+.day .none{color:#8a7a70;font-style:italic}
+.day .box{display:inline-block;width:13px;height:13px;border:1.5px solid #1d1311;vertical-align:-2px;margin-right:4px}
+.day .rem{border-bottom:1px dotted #8a7a70;height:18px;margin-top:6px}
+.day .hol{padding:24px 0;text-align:center;font-size:16px;font-weight:700;color:#6B1A1A}
+.day .sign{display:flex;justify-content:space-between;gap:20px;margin-top:22px;font-size:12px}
+.day .sign span{flex:1;border-top:1px solid #1d1311;padding-top:3px}
+.day .note{margin-top:8px;font-size:11px;color:#6b5b52}
+@media print{
+  @page{size:A4 portrait;margin:10mm}
+  body{background:#fff}
+  .band,.noprint{display:none!important}
+  .wrap{max-width:none;padding:0}
+  .day{border:none;border-radius:0;margin:0;padding:0;page-break-after:always;break-after:page}
+  .day:last-child{page-break-after:auto;break-after:auto}
+  .day tr{break-inside:avoid}
+}
+</style>
+</head>
+<body>
+<div class="band"><div class="in">
+  <div class="grow"><div class="sub" id="schoolName">TeachBot</div><h1>Teacher's Week — printout</h1></div>
+  <a href="homework-planner.html">Homework Planner</a>
+  <a href="dashboard.html">← School Admin</a>
+</div></div>
+
+<div class="wrap">
+  <div class="card noprint">
+    <div class="hint">For teachers who don't use the staff app. Pick the week and a teacher, then print. Each day prints on its own page with the class work (full steps from the Lesson Planner), the homework (exactly what goes to parents from the Homework Planner), a ☐ Done box and remarks space to fill by hand, and signature lines. Teachers and their classes come from <b>My Teachers</b>; a teacher doesn't need the app link or PIN.</div>
+    <div class="bar" style="margin-top:12px">
+      <label>Week starting (Monday)<input type="date" id="fWeek"></label>
+      <button class="btn ghost" id="reload" type="button">↻ Refresh</button>
+      <button class="btn" id="printOne" type="button" disabled>🖨 Print this teacher's week</button>
+      <button class="btn ghost" id="printAll" type="button" disabled>🖨 Print all teachers</button>
+    </div>
+    <div class="err" id="topErr" hidden></div>
+    <div id="warns"></div>
+    <div class="teachers" id="teachers"></div>
+  </div>
+  <div id="sheet"></div>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?"":s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+if(!lsGet("dss_session")){location.href="/login.html";return}
+if((lsGet("dss_role")||"")!=="school_admin"){$("topErr").hidden=false;$("topErr").textContent="This page is for the principal. Please log in with the School Admin login."}
+
+const WD=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"],WK=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"],MON=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const iso=d=>d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+const parse=s=>{const[a,b,c]=s.split("-").map(Number);return new Date(a,b-1,c)};
+const addD=(s,n)=>{const d=parse(s);d.setDate(d.getDate()+n);return iso(d)};
+const monday=s=>{const d=parse(s);d.setDate(d.getDate()-((d.getDay()+6)%7));return iso(d)};
+const longD=s=>{const d=parse(s);return WD[d.getDay()]+", "+d.getDate()+" "+MON[d.getMonth()]+" "+d.getFullYear()};
+const istToday=()=>new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10);
+// subject names differ between screens ("Maths"/"Mathematics", "SST"/"Social Science")
+const SK={maths:"maths",mathematics:"maths",math:"maths",social:"social",socialscience:"social",sst:"social",socialstudies:"social",evs:"evs",environmentalstudies:"evs",
+  eng:"english",tam:"tamil",hin:"hindi",sci:"science",mat:"maths"};
+const sk=x=>{x=String(x||"").toLowerCase().replace(/[^a-z]/g,"");return SK[x]||x};
+const KIND={teachbot:"🤖 TeachBot class",teach:"👩‍🏫 Teaching",read:"📖 Reading",practice:"✏️ Exercises",classwork:"✍️ Class work",hwday:"📒 Revise + homework",
+  worksheet:"📄 Worksheet",catchup:"⏪ Catch-up",revision:"🔁 Revision",test:"📝 Class test",activity:"🎨 Activity",writing:"✍️ Writing practice",speaking:"🗣 Speaking"};
+
+async function post(url,body){
+  const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+  let d={};try{d=await r.json()}catch(e){throw new Error("The server did not answer properly ("+url+", status "+r.status+").")}
+  if(r.status===401)throw new Error((d.error||"Please log in again.")+" Log out and log in again.");
+  if(d.error)throw new Error(d.error);return d}
+
+let D=null,SEL=null;   // D = the week's data; SEL = the chosen teacher's id
+
+async function load(){
+  $("topErr").hidden=true;$("warns").innerHTML="";$("sheet").innerHTML="";
+  $("teachers").innerHTML='<span class="hint"><span class="spin"></span>Reading teachers, Lesson Plans, homework and timetable…</span>';
+  $("printOne").disabled=$("printAll").disabled=true;
+  const from=$("fWeek").value,to=addD(from,5);
+  try{
+    const [tA,pl,hw,hol,tt]=await Promise.all([
+      post("/api/teacher-app",{action:"list"}),
+      post("/api/term-plan",{action:"list"}),
+      post("/api/homework",{action:"list",from,to}),
+      post("/api/term-plan",{action:"holidays",from,to}).catch(()=>({holidays:[]})),
+      post("/api/timetable",{action:"get"}).catch(()=>({}))]);
+    if(hw.school&&hw.school.name)$("schoolName").textContent=hw.school.name;
+    const teachers=(tA.teachers||[]).filter(t=>t.active!==false&&(t.classes||[]).length);
+    // the plan used for each class + subject: the newest one not sent back (same as the staff app)
+    const plans={};
+    (pl.plans||[]).filter(p=>p.status!=="returned").sort((a,b)=>a.updated_at<b.updated_at?1:-1)
+      .forEach(p=>{const k=p.class_name+"|"+sk(p.subject);if(!plans[k])plans[k]=p});
+    const need={};teachers.forEach(t=>t.classes.forEach(c=>{const p=plans[c.class_name+"|"+sk(c.subject)];if(p)need[p.id]=p}));
+    const full={};
+    await Promise.all(Object.values(need).map(p=>post("/api/term-plan",{action:"get",class_name:p.class_name,subject:p.subject,term:p.term})
+      .then(d=>{if(d.plan)full[p.class_name+"|"+sk(p.subject)]=d.plan}).catch(()=>{})));
+    D={from,to,teachers,full,hw:(hw.items||[]).filter(i=>(i.entry_type||"homework")==="homework"&&i.status!=="returned"),
+       hol:(hol.holidays||[]).filter(h=>h.date>=from&&h.date<=to),tt:tt&&tt.grid?tt:null,school:(hw.school&&hw.school.name)||""};
+    renderTeachers();renderWarns();
+    if(SEL&&teachers.some(t=>t.id===SEL))pick(SEL);
+  }catch(e){$("teachers").innerHTML="";$("topErr").hidden=false;$("topErr").textContent=e.message}}
+
+function renderTeachers(){
+  if(!D.teachers.length){$("teachers").innerHTML='<span class="hint">No teachers with classes yet. Add them in School Admin → My Teachers (name + classes and subjects; no PIN needed).</span>';return}
+  $("teachers").innerHTML=D.teachers.map(t=>`<button class="tbtn" type="button" data-t="${esc(t.id)}" aria-pressed="${t.id===SEL}">${esc(t.name)}<span class="c">${t.classes.length} class${t.classes.length>1?"es":""}</span></button>`).join("");
+  $("printAll").disabled=false}
+
+function renderWarns(){
+  const out=[],days=weekDays().filter(d=>!holidayOf(d));
+  const today=istToday();
+  const noHw=days.filter(d=>d>=today&&!D.hw.some(i=>i.hw_date===d));
+  if(noHw.length)out.push("No homework is in the Homework Planner yet for "+noHw.map(d=>WK[parse(d).getDay()]).join(", ")+". Press <b>📘 Fill this week</b> in the Homework Planner first, then print — otherwise those days print without homework.");
+  const waiting=D.hw.filter(i=>i.status==="waiting").length;
+  if(waiting)out.push(waiting+" homework "+(waiting>1?"are":"is")+" still waiting for your approval in the Homework Planner. They print marked “waiting”.");
+  if(!D.tt)out.push("The school timetable could not be read, so periods come only from the Lesson Plans.");
+  $("warns").innerHTML=out.map(m=>`<div class="warn">${m}</div>`).join("")}
+
+const weekDays=()=>[0,1,2,3,4,5].map(i=>addD(D.from,i));
+const holidayOf=d=>D.hol.find(h=>h.date===d&&(h.kind||"holiday")==="holiday")||null;
+
+// the teacher's periods on day d for class c, subject s, from the timetable (her timetable name, if linked)
+function ttPeriods(t,d,c,s){
+  if(!D.tt)return[];const day=D.tt.grid[WK[parse(d).getDay()]];if(!day)return[];
+  const who=String(t.erp_name||"").trim().toLowerCase(),out=[];
+  Object.keys(day).map(Number).sort((a,b)=>a-b).forEach(p=>{const cell=(day[String(p)]||{})[c];
+    if(!cell||sk(cell.subject)!==sk(s))return;
+    if(who&&String(cell.teacher||"").trim().toLowerCase()!==who)return;
+    const per=(D.tt.periods||[])[p]||{};out.push({i:p,label:per.label||("P"+(p+1)),time:per.start?(t12(per.start)+(per.end?"–"+t12(per.end):"")):"",ai:!!cell.ai})});
+  return out}
+// 12-hour times (9:40 AM), as the school prefers
+const t12=x=>{const m=/^(\d{1,2}):(\d{2})/.exec(String(x||""));if(!m)return String(x||"");let h=+m[1];const ap=h>=12?"PM":"AM";h=h%12||12;return h+":"+m[2]+" "+ap};
+const pIndex=l=>{const m=/(\d+)/.exec(String(l||""));return m?+m[1]-1:99};
+
+// one teacher's entries on day d
+function entries(t,d){
+  const list=[];
+  t.classes.forEach(cl=>{
+    const c=cl.class_name,s=cl.subject,plan=D.full[c+"|"+sk(s)];
+    const rows=plan&&Array.isArray(plan.rows)?plan.rows.filter(r=>r&&r.date===d):[];
+    const hw=D.hw.filter(i=>i.class_name===c&&sk(i.subject)===sk(s)&&i.hw_date===d);
+    const per=ttPeriods(t,d,c,s);
+    if(!rows.length&&!hw.length&&!per.length)return;
+    const n=Math.max(rows.length,1);
+    for(let k=0;k<n;k++){const r=rows[k]||null,tp=per[k]||null;
+      const label=(r&&r.period)||(tp&&tp.label)||"";
+      list.push({c,s,r,hw:k===0?hw:[],hwShared:k>0,period:label,time:tp&&tp.time||"",ord:r&&r.period?pIndex(r.period):tp?tp.i:99,ai:(r&&r.room==="ai")||(tp&&tp.ai)})}
+  });
+  return list.sort((a,b)=>a.ord-b.ord||(a.c<b.c?-1:1))}
+
+function dayPage(t,d){
+  const h=holidayOf(d);
+  const head=`<div class="top"><div><div class="sc">${esc(D.school)}</div><div class="who">${esc(t.name)}</div></div><div class="dt">${esc(longD(d))}</div></div>`;
+  if(h)return `<section class="day">${head}<div class="hol">Holiday — ${esc(h.name||"school closed")}</div></section>`;
+  const es=entries(t,d);
+  const body=es.length?es.map(e=>{const r=e.r;
+    const kind=r&&r.type?`<span class="kind${r.type==="teachbot"||e.ai?" tb":r.type==="test"?" test":""}">${esc(KIND[r.type]||r.type)}${e.ai&&r.type!=="teachbot"?" · AI room":""}</span><br>`:"";
+    const cw=r?`${kind}<span class="ch">${esc(r.chapter||"")}</span>${r.pages?` · <b>pp. ${esc(r.pages)}</b>`:""}
+      ${r.teach?`<div class="steps">${esc(r.teach)}</div>`:""}
+      ${r.workbook?`<div class="sub"><b>Workbook:</b> ${esc(r.workbook)}</div>`:""}
+      ${r.class_act?`<div class="sub"><b>Activity:</b> ${esc(r.class_act)}</div>`:""}
+      ${r.home_act?`<div class="sub"><b>Home activity:</b> ${esc(r.home_act)}</div>`:""}`
+      :`<span class="none">No lesson in the Lesson Planner for this period.</span>`;
+    const hw=e.hwShared?`<span class="none">(see above)</span>`:e.hw.length?e.hw.map(i=>`<div class="hw">${esc(i.homework)}${i.status==="waiting"?' <i>(waiting for principal)</i>':""}</div>`).join("<hr style='border:none;border-top:1px dotted #bba98c;margin:4px 0'>"):`<span class="none">No homework</span>`;
+    return `<tr><td><b>${esc(e.period||"—")}</b>${e.time?`<br><span style="font-size:10.5px">${esc(e.time)}</span>`:""}</td>
+      <td class="cs">${esc(e.c)}<br>${esc(e.s)}</td><td>${cw}</td><td>${hw}</td>
+      <td><span class="box"></span>Done<div class="rem"></div><div class="rem"></div></td></tr>`}).join("")
+    :`<tr><td colspan="5" class="none">No classes or homework for ${esc(t.name)} on this day.</td></tr>`;
+  return `<section class="day">${head}
+    <table><colgroup><col class="p"><col class="c"><col><col class="h"><col class="d"></colgroup>
+    <thead><tr><th>Period</th><th>Class</th><th>Class work — what to teach</th><th>Homework to give</th><th>Done · remarks</th></tr></thead>
+    <tbody>${body}</tbody></table>
+    <div class="note">Give exactly this homework — it is what parents receive at 4 PM. If a lesson could not be done, write why in remarks and continue it next period.</div>
+    <div class="sign"><span>Teacher's signature</span><span>Principal's signature</span></div></section>`}
+
+function teacherWeek(t){return weekDays().map(d=>dayPage(t,d)).join("")}
+
+function pick(id){SEL=id;const t=D.teachers.find(x=>x.id===id);if(!t)return;
+  document.querySelectorAll(".tbtn").forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.t===id)));
+  $("sheet").innerHTML=teacherWeek(t);$("printOne").disabled=false}
+
+$("teachers").addEventListener("click",e=>{const b=e.target.closest(".tbtn");if(b)pick(b.dataset.t)});
+$("printOne").onclick=()=>window.print();
+$("printAll").onclick=()=>{if(!D)return;const keep=$("sheet").innerHTML;
+  $("sheet").innerHTML=D.teachers.map(teacherWeek).join("");
+  const back=()=>{$("sheet").innerHTML=keep;window.removeEventListener("afterprint",back)};
+  window.addEventListener("afterprint",back);setTimeout(()=>window.print(),100)};
+$("fWeek").onchange=()=>{const v=$("fWeek").value;if(v&&monday(v)!==v)$("fWeek").value=monday(v);load()};
+$("reload").onclick=load;
+
+// default: this week; from Saturday afternoon on, next week (for Monday's printouts)
+(function(){const t=istToday(),d=parse(t),hr=new Date(Date.now()+5.5*3600e3).getUTCHours();
+  $("fWeek").value=(d.getDay()===0||(d.getDay()===6&&hr>=12))?monday(addD(t,2)):monday(t)})();
+load();
+})();
+</script>
+</body>
+</html>
