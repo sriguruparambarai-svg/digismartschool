@@ -542,8 +542,8 @@ module.exports = async function handler(req, res) {
             const msg = when + ' class test' + (wb ? ' in the workbook' : '') + (t.chapter ? ' on ' + String(t.chapter).replace(/^Ch\.?\s*\d+\.?\s*/i, '').replace(/^Mathematics\s*[–-]\s*/i, '') : '') +
               (pg ? ' — revise ' + (/^p/i.test(pg) ? pg : 'pp. ' + pg) : ' — revise the chapter') + '. Prepare and come.';
             const it = out.find(function (x) { return x.class_name === p.class_name && skey(x.subject) === skey(p.subject) && x.date === eve; });
-            if (it) { if (String(it.homework || '').indexOf(msg) === -1) it.homework = String(it.homework || '').trim() ? it.homework.trim() + '\n' + msg : msg; }
-            else out.push({ class_name: p.class_name, subject: p.subject, date: eve, homework: msg, test_eve: true });
+            if (it) { if (String(it.homework || '').indexOf(msg) === -1) it.homework = String(it.homework || '').trim() ? it.homework.trim() + '\n' + msg : msg; it.test_note = msg; }
+            else out.push({ class_name: p.class_name, subject: p.subject, date: eve, homework: msg, test_eve: true, test_note: msg });
           });
         });
       })();

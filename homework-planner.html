@@ -1385,16 +1385,25 @@ async function fillFromTp(){
         &&!S.cw.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned"))
         .map(x=>({class_name:x.class_name,subject:x.subject,kind:"Class work",homework:x.classwork,hw_date:x.date,made_by:"principal",entry_type:"classwork"}))}
     catch(e){toast("Class work could not be read from the Lesson Plans: "+e.message,true)}
-    if(!items.length&&!cwItems.length){toast("Nothing new to add from the Lesson Plans for this week."+note);return}
+    // Nov 2026: "Tomorrow class test" also goes onto homework ALREADY in the week for the day before a test
+    // (not sent yet, and not already saying class test) — so children are always told to prepare
+    const tnotes=(d.rows||[]).filter(x=>x.test_note&&shown.includes(x.class_name)&&!(x.date<TODAY||(x.date===TODAY&&hr>=SEND_HOUR))).map(x=>{
+      const i=S.items.find(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned");
+      return i&&!i.sent_at&&!/class test/i.test(String(i.homework||""))?{i:i,note:x.test_note}:null}).filter(Boolean);
+    if(!items.length&&!cwItems.length&&!tnotes.length){toast("Nothing new to add from the Lesson Plans for this week."+note);return}
     // Nov 2026: homework not given on its own day (homework timetable) is carried to the next homework day — never skipped
     const carried=(d.rows||[]).filter(x=>x.carried_from&&items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)));
     const cnote=carried.length?"\n\n"+carried.length+" of them "+(carried.length>1?"are":"is")+" homework carried over from an earlier day, for example: "+carried.slice(0,3).map(x=>x.class_name+" "+x.subject+" (from "+nice(x.carried_from)+" → "+nice(x.date)+")").join(", ")+".":"";
-    if(!confirm(items.length+" homework and "+cwItems.length+" class work from the approved Lesson Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+cnote+"\n\nThey go to parents together at 4 PM on their own day. You can edit or take out any of them before they are sent. Add them?"))return;
+    const tnote=tnotes.length?"\n\n📣 “Tomorrow class test” will be added to "+tnotes.length+" homework already in the week: "+tnotes.slice(0,4).map(x=>x.i.class_name+" "+x.i.subject+" ("+nice(x.i.hw_date)+")").join(", ")+".":"";
+    if(!confirm(items.length+" homework and "+cwItems.length+" class work from the approved Lesson Plans will be added to this week ("+nice(from)+" – "+nice(to)+")."+note+cnote+tnote+"\n\nThey go to parents together at 4 PM on their own day. You can edit or take out any of them before they are sent. Add them?"))return;
     busy=true;let n=0,m=0;
     try{for(let a=0;a<items.length;a+=60){const s=await hw("save_many",{items:items.slice(a,a+60),teacher_name:"Term Plan"});n+=(s.items||[]).length}
       for(let a=0;a<cwItems.length;a+=60){const s=await hw("save_many",{items:cwItems.slice(a,a+60),teacher_name:"Term Plan"});m+=(s.items||[]).length}}
     finally{busy=false}
-    await load();toast(n+" homework and "+m+" class work added from the Lesson Plans. Check and edit them in the week below."+note);
+    let tn=0;busy=true;
+    try{for(const x of tnotes){try{await hw("save",{id:x.i.id,class_name:x.i.class_name,subject:x.i.subject,kind:x.i.kind||"Written",homework:String(x.i.homework||"").trim()+"\n"+x.note,hw_date:x.i.hw_date});tn++}catch(e){}}}
+    finally{busy=false}
+    await load();toast(n+" homework and "+m+" class work added from the Lesson Plans."+(tn?" “Tomorrow class test” added to "+tn+" homework.":"")+" Check and edit them in the week below."+note);
   }catch(e){toast("Could not fill from Lesson Plans: "+e.message,true)}
   finally{btn.disabled=false}}
 if($("fillTp"))$("fillTp").onclick=fillFromTp;
