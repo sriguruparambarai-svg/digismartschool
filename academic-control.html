@@ -281,6 +281,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     <div class="warn" id="tset" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <label for="t-dl" style="font-weight:800">Submit their day by</label><input type="time" id="t-dl" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
       <label for="t-hb" style="font-weight:800;margin-left:6px">Check yesterday's homework by</label><input type="time" id="t-hb" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
+      <label for="t-tm" style="font-weight:800;margin-left:6px">Teachers see tomorrow's portion from</label><input type="time" id="t-tm" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
       <button class="btn" type="button" id="t-save" style="min-height:40px;padding:6px 14px">Save times</button><span id="t-msg" style="font-weight:800"></span>
     </div>
     <p class="lead">Each teacher is checked in the same order: <b>1</b> classes taken as planned → <b>2</b> today's homework given → <b>3</b> yesterday's homework corrected. Teachers with a problem come first. Tap a box to show only that group.</p>
@@ -942,13 +943,16 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   $("refresh").addEventListener("click",function(){S.period=null;S.pickedAt=null});
 
   // ── Oct 2026: the two daily times, set by the principal (Teachers tab) ──
-  async function tsetLoad(){try{var d=await call("/api/teacher-app",{action:"get_settings"});if(d.success){$("t-dl").value=d.deadline||"";$("t-hb").value=d.hw_check_by||""}}catch(e){}}
+  async function tsetLoad(){try{var d=await call("/api/teacher-app",{action:"get_settings"});if(d.success){$("t-dl").value=d.deadline||"";$("t-hb").value=d.hw_check_by||"";$("t-tm").value=d.tomorrow_at||"14:30"}}catch(e){}}
   $("t-save").onclick=async function(){var m=$("t-msg");m.style.color="var(--mut)";m.textContent="Saving…";
     var dl=$("t-dl").value,hb=$("t-hb").value,err="";
     if(dl){var a=await call("/api/teacher-app",{action:"save_settings",deadline:dl});if(!a.success)err=a.error||"Could not save the submit time."}
     if(!err){var b=await call("/api/teacher-app",{action:"save_settings",hw_check_by:hb});if(!b.success)err=b.error||"Could not save the homework check time."}
+    /* Nov 2026: tomorrow's portion time, moved here from the old Academic Control screen */
+    var tm=$("t-tm").value;
+    if(!err&&tm){var c=await call("/api/teacher-app",{action:"save_settings",tomorrow_at:tm});if(!c.success)err=c.error||"Could not save the tomorrow's portion time."}
     if(err){m.style.color="var(--bad)";m.textContent=err;return}
-    m.style.color="var(--ok)";m.textContent="Saved."+(hb?" Homework must be checked by "+t12(hb)+".":" No homework check time.");load()};
+    m.style.color="var(--ok)";m.textContent="Saved."+(tm?" Tomorrow's portion opens at "+t12(tm)+".":"")+(hb?" Homework must be checked by "+t12(hb)+".":" No homework check time.");load()};
   tsetLoad();
 
   // Work to Staff badge: teacher tasks still pending (red)
