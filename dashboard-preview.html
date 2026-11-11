@@ -1,0 +1,1671 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="js/session-header.js"></script>
+<script src="js/tool-access.js"></script>
+<script>
+  // This is the School Admin (principal) page. Teachers use Teacher Tools instead.
+  try { if (localStorage.getItem('dss_role') === 'teacher') location.replace('/index.html'); } catch (e) {}
+</script>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>DigiSmartSchool — Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+:root{--m:#6B0F1A;--md:#4A0A12;--mm:#8B1A2A;--g:#C9A84C;--gl:#E8C96A;--gd:#A07830;--y:#FFD700;--s:#F5E6C8;--sd:#EDD9A3;--w:#FFFDF5;--t:#2A0A0F;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:"Nunito",sans-serif;background:#f0f2f5;min-height:100vh;}
+.topbar{background:linear-gradient(90deg,var(--md),var(--m));padding:14px 24px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.topbar h1{font-family:"Cinzel",serif;color:var(--gl);font-size:1.3rem;}
+.topbar p{color:var(--s);font-size:0.85rem;margin-top:2px;}
+.badge{background:linear-gradient(135deg,var(--gd),var(--y));color:var(--md);font-weight:800;font-size:0.75rem;padding:4px 12px;border-radius:16px;}
+.badge-expired{background:#dc3545;color:white;}
+.logout{margin-left:auto;background:rgba(255,255,255,0.15);color:var(--s);border:1px solid rgba(201,168,76,0.3);padding:8px 16px;border-radius:8px;cursor:pointer;font-family:"Nunito",sans-serif;font-weight:700;font-size:0.9rem;}
+.main{padding:24px;max-width:1000px;margin:0 auto;}
+.tools-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:24px;}
+.tool-card{background:white;border-radius:16px;padding:24px;text-align:center;cursor:pointer;transition:all 0.2s;border:2px solid transparent;box-shadow:0 2px 12px rgba(0,0,0,0.06);text-decoration:none;display:block;color:inherit;}
+.tool-card:hover{border-color:var(--m);transform:translateY(-4px);box-shadow:0 8px 24px rgba(107,15,26,0.15);}
+.tool-icon{font-size:2.5rem;margin-bottom:10px;}
+.tool-name{font-family:"Cinzel",serif;font-size:1rem;color:var(--m);margin-bottom:4px;}
+.tool-desc{font-size:0.82rem;color:#666;}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+.info-card{background:white;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,0.06);}
+.info-title{font-family:"Cinzel",serif;font-size:1rem;color:var(--m);margin-bottom:12px;padding-bottom:8px;border-bottom:2px solid var(--sd);}
+.info-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #f5f5f5;font-size:0.9rem;}
+.info-row:last-child{border:none;}
+.info-label{color:#666;font-weight:600;}
+.info-val{color:var(--t);font-weight:700;}
+.status-active{color:green;font-weight:800;}
+.status-trial{color:orange;font-weight:800;}
+.status-expired{color:red;font-weight:800;}
+.expired-banner{background:linear-gradient(135deg,#dc3545,#c82333);color:white;border-radius:14px;padding:18px 24px;text-align:center;margin-bottom:20px;}
+.expired-banner h3{font-size:1.2rem;margin-bottom:6px;}
+@media(max-width:600px){.tools-grid{grid-template-columns:1fr 1fr;}.info-grid{grid-template-columns:1fr;}.main{padding:14px;}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+<div class="topbar">
+  <div>
+    <h1 id="school-name">DigiSmartSchool</h1>
+    <p id="user-email"></p>
+  </div>
+  <span class="badge" id="role-badge">School</span>
+  <button class="logout" onclick="doLogout()">Logout</button>
+</div>
+
+<div class="main" id="main-content">
+
+  <div id="expired-banner" style="display:none;" class="expired-banner">
+    <h3>🔒 Subscription Expired</h3>
+    <p>Your access is now blocked. Please renew to continue using DigiSmartSchool.</p>
+    <a href="https://wa.me/918098604177?text=Hi%2C%20our%20school%20subscription%20has%20expired.%20Please%20help%20us%20renew." target="_blank" style="display:inline-block;margin-top:10px;background:white;color:#c82333;padding:8px 20px;border-radius:8px;font-weight:800;text-decoration:none;">📲 Renew via WhatsApp</a>
+  </div>
+
+  <div id="warning-banner" style="display:none;background:linear-gradient(135deg,#e65100,#f57c00);color:white;border-radius:14px;padding:14px 20px;text-align:center;margin-bottom:20px;">
+    <span id="warning-text">⚠️ Your subscription is expiring soon.</span>
+    <a href="https://wa.me/918098604177?text=Hi%2C%20our%20school%20subscription%20is%20expiring%20soon.%20Please%20help%20us%20renew." target="_blank" style="margin-left:14px;background:white;color:#e65100;padding:5px 14px;border-radius:6px;font-weight:800;text-decoration:none;font-size:0.85rem;">Renew Now</a>
+  </div>
+
+  <!-- ACADEMIC CONTROL strip (Oct 2026): today's school at a glance. Nov 2026: opens My School's Academics (academic-control.html) -->
+  <button type="button" id="ac-strip" onclick="location.href='/academic-control.html'" style="display:none;width:100%;text-align:left;background:linear-gradient(135deg,#4A0A12,#6B0F1A);color:#FBF4E8;border:none;border-bottom:4px solid #C9A84C;border-radius:16px;padding:16px 20px;margin-bottom:18px;cursor:pointer;font-family:Nunito,sans-serif;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div>
+        <div style="font-size:.75rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">My School's Academics &middot; Today</div>
+        <div id="ac-strip-text" style="font-size:1rem;font-weight:800;margin-top:4px;">Loading&hellip;</div>
+      </div>
+      <span style="background:#C9A84C;color:#3A0E0E;border-radius:10px;padding:9px 16px;font-weight:900;font-size:.88rem;white-space:nowrap;">Open &rarr;</span>
+    </div>
+  </button>
+
+  <!-- TOOLS -->
+  <div class="tools-grid">
+    <!-- My School's Academics (Oct 2026): opens the new tabbed page academic-control.html -->
+    <a href="/academic-control.html" class="tool-card">
+      <div class="tool-icon">&#x1F3EB;</div>
+      <div class="tool-name">My School's Academics</div>
+      <div class="tool-desc">Periods, homework, class work, portion, teachers &mdash; in tabs</div>
+    </a>
+    <!-- Nov 2026: old Academic Control card hidden (My School's Academics replaces it). Code kept, not deleted. -->
+    <div class="tool-card" onclick="showAcademic()" style="display:none">
+      <div class="tool-icon">&#x1F4CA;</div>
+      <div class="tool-name">Academic Control</div>
+      <div class="tool-desc">Every class today, teachers' day, what needs you</div>
+    </div>
+    <div class="tool-card" onclick="showCalendar()">
+      <div class="tool-icon">&#x1F5D3;&#xFE0F;</div>
+      <div class="tool-name">School Calendar</div>
+      <div class="tool-desc">Holidays the Lesson Planner skips; declare a sudden holiday</div>
+    </div>
+    <div class="tool-card" onclick="showTimetable()">
+      <div class="tool-icon">&#x1F552;</div>
+      <div class="tool-name">School Timetable</div>
+      <div class="tool-desc">From ERP, or read from a photo &mdash; the Lesson Planner follows it</div>
+    </div>
+    <a href="/lesson-planner-test.html" class="tool-card">
+      <div class="tool-icon">&#x1F4DD;</div>
+      <div class="tool-name">Update Lesson Plans</div>
+      <div class="tool-desc">Remake a class&rsquo;s plan from where it is now &mdash; one class at a time</div>
+    </a>
+    <a href="/learnbot.html" class="tool-card">
+      <div class="tool-icon">🤖</div>
+      <div class="tool-name">TeachBot</div>
+      <div class="tool-desc">Teach a lesson from your textbook</div>
+    </a>
+    <a href="/index.html" class="tool-card">
+      <div class="tool-icon">🧑‍🏫</div>
+      <div class="tool-name">Teacher Tools</div>
+      <div class="tool-desc">Lesson Planner, Worksheets, Reports</div>
+    </a>
+    <a href="/bulk-reports.html" class="tool-card">
+      <div class="tool-icon">📊</div>
+      <div class="tool-name">Bulk Reports</div>
+      <div class="tool-desc">Generate all reports from Excel</div>
+    </a>
+    <div class="tool-card" onclick="window.location.href='student-progress.html'">
+      <div class="tool-icon">📈</div>
+      <div class="tool-name">Student Progress</div>
+      <div class="tool-desc">Track student performance</div>
+    </div>
+    <div class="tool-card" onclick="window.location.href='homework-planner.html'">
+      <div class="tool-icon">🗓️</div>
+      <div class="tool-name">Homework Planner</div>
+      <div class="tool-desc">Week at a glance — add teachers' homework</div>
+    </div>
+    <a href="/homework-planner-test.html" class="tool-card">
+      <div class="tool-icon">&#x1F4CD;</div>
+      <div class="tool-name">Set Homework Position</div>
+      <div class="tool-desc">Next homework not yet given &mdash; set &ldquo;We are here&rdquo; per class</div>
+    </a>
+    <a href="/teacher-week-print.html" class="tool-card">
+      <div class="tool-icon">&#x1F5A8;&#xFE0F;</div>
+      <div class="tool-name">Teacher's Week Printout</div>
+      <div class="tool-desc">Print each teacher's class work and homework, one page a day</div>
+    </a>
+    
+    <div class="tool-card" onclick="showStudents()">
+      <div class="tool-icon">&#x1F393;</div>
+      <div class="tool-name">My Students</div>
+      <div class="tool-desc">Add and manage student diary access</div>
+    </div>
+    <div class="tool-card" onclick="showTeachersPage()">
+      <div class="tool-icon">👩‍🏫</div>
+      <div class="tool-name">My Teachers</div>
+      <div class="tool-desc">Teacher app &amp; staff communication: links, PINs, Work to Staff</div>
+    </div>
+  </div>
+
+  <!-- INFO -->
+  <div class="info-grid">
+    <div class="info-card">
+      <div class="info-title">🏫 School Information</div>
+      <div class="info-row"><span class="info-label">School Name</span><span class="info-val" id="inf-name">-</span></div>
+      <div class="info-row"><span class="info-label">City</span><span class="info-val" id="inf-city">-</span></div>
+      <div class="info-row"><span class="info-label">Email</span><span class="info-val" id="inf-email">-</span></div>
+      <div class="info-row"><span class="info-label">Phone</span><span class="info-val" id="inf-phone">-</span></div>
+    </div>
+    <div class="info-card">
+      <div class="info-title">📋 Subscription Details</div>
+      <div class="info-row"><span class="info-label">Status</span><span class="info-val" id="inf-status">-</span></div>
+      <div class="info-row"><span class="info-label">Valid Until</span><span class="info-val" id="inf-end">-</span></div>
+      <div class="info-row"><span class="info-label">Max Teachers</span><span class="info-val" id="inf-teachers">5</span></div>
+      <div class="info-row"><span class="info-label">Support</span><span class="info-val">sriguruparambarai@gmail.com</span></div>
+    </div>
+  </div>
+
+
+  <!-- ACADEMIC CONTROL FULL PAGE (Oct 2026, Teacher Communication App step 3) -->
+  <div id="ac-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#F7EFE2;z-index:1000;overflow-y:auto;">
+    <div style="background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;padding:14px 16px;">
+      <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <button type="button" onclick="hideAcademic()" style="background:#C9A84C;color:#3A0E0E;border:none;border-radius:8px;padding:9px 16px;font-family:Nunito,sans-serif;font-weight:900;cursor:pointer;min-height:42px;">&#8592; Back</button>
+          <div>
+            <div style="font-size:.72rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">Academic Control</div>
+            <h2 id="ac-title" style="font-family:Cinzel,serif;color:#FBF4E8;font-size:1.25rem;margin:0;">Live School</h2>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <label for="ac-date" style="color:#F5E6C8;font-size:.8rem;font-weight:800;">Day</label>
+          <input id="ac-date" type="date" style="padding:8px;border-radius:8px;border:1.5px solid #C9A84C;font-family:Nunito,sans-serif;font-weight:700;min-height:42px;"/>
+          <button type="button" id="ac-refresh" style="background:transparent;color:#FBF4E8;border:1.5px solid #C9A84C;border-radius:8px;padding:8px 14px;font-weight:800;cursor:pointer;min-height:42px;">Refresh</button>
+        </div>
+      </div>
+    </div>
+    <div id="ac-body" style="max-width:1200px;margin:0 auto;padding:18px 16px 40px;"><div style="text-align:center;padding:30px;color:#888;">Loading&hellip;</div></div>
+  </div>
+
+  <!-- SCHOOL CALENDAR FULL PAGE (Oct 2026) -->
+  <div id="cal-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#F7EFE2;z-index:1000;overflow-y:auto;">
+    <div style="background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;padding:14px 16px;">
+      <div style="max-width:820px;margin:0 auto;display:flex;align-items:center;gap:12px;">
+        <button type="button" onclick="hideCalendar()" style="background:#C9A84C;color:#3A0E0E;border:none;border-radius:8px;padding:9px 16px;font-family:Nunito,sans-serif;font-weight:900;cursor:pointer;min-height:42px;">&#8592; Back</button>
+        <div><div style="font-size:.72rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">One calendar for the whole school</div>
+          <h2 style="font-family:Cinzel,serif;color:#FBF4E8;font-size:1.25rem;margin:0;">School Calendar</h2></div>
+      </div>
+    </div>
+    <div style="max-width:820px;margin:0 auto;padding:18px 16px 40px;">
+
+      <section style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:16px;margin-bottom:14px;">
+        <h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;margin:0 0 4px;">Add a holiday or a no-teaching day</h3>
+        <div style="font-size:.82rem;color:#6E5A4E;margin-bottom:12px;">Local festivals, temple festival days, rain holidays, exam days, sports day &mdash; anything the AI cannot know.</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;">
+          <div><label for="cal-date" style="font-size:.75rem;font-weight:800;color:#6B0F1A;display:block;margin-bottom:4px;">Date</label>
+            <input id="cal-date" type="date" style="width:100%;padding:9px;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;min-height:42px;"/></div>
+          <div><label for="cal-name" style="font-size:.75rem;font-weight:800;color:#6B0F1A;display:block;margin-bottom:4px;">Name</label>
+            <input id="cal-name" type="text" maxlength="80" placeholder="e.g. Mayuranathar temple festival" style="width:100%;padding:9px;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;min-height:42px;"/></div>
+          <div><label for="cal-kind" style="font-size:.75rem;font-weight:800;color:#6B0F1A;display:block;margin-bottom:4px;">Type</label>
+            <select id="cal-kind" style="width:100%;padding:9px;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;font-weight:700;min-height:42px;">
+              <option value="holiday">Holiday (school closed)</option>
+              <option value="no_teaching">No-teaching day (exam, event)</option></select></div>
+        </div>
+        <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:.85rem;font-weight:700;cursor:pointer;">
+          <input id="cal-move" type="checkbox" checked style="width:18px;height:18px;margin-top:2px;"/>
+          <span>Move lessons already planned on this day to the next school day, in every class (use this for a sudden holiday)</span></label>
+        <button type="button" id="cal-add" style="margin-top:12px;width:100%;padding:11px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:900;font-size:.95rem;cursor:pointer;min-height:46px;">Add to the school calendar</button>
+        <div id="cal-msg" style="font-size:.85rem;font-weight:800;min-height:20px;padding-top:8px;white-space:pre-line;"></div>
+      </section>
+
+      <section style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:16px;margin-bottom:14px;">
+        <h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;margin:0 0 4px;">Tamil Nadu government holidays</h3>
+        <div style="font-size:.82rem;color:#6E5A4E;margin-bottom:10px;">From the Tamil Nadu 2026 list (festival dates can change with the moon &mdash; check before adding). Tick the ones your school follows.</div>
+        <div id="cal-gov"></div>
+        <button type="button" id="cal-gov-add" style="margin-top:10px;padding:10px 16px;background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;border-radius:9px;font-weight:900;cursor:pointer;min-height:44px;">Add the ticked holidays</button>
+        <div id="cal-gov-msg" style="font-size:.85rem;font-weight:800;min-height:20px;padding-top:8px;white-space:pre-line;"></div>
+      </section>
+
+      <section style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:16px;">
+        <h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;margin:0 0 10px;">This school's calendar</h3>
+        <div id="cal-list"><div style="color:#888;">Loading&hellip;</div></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- SCHOOL TIMETABLE FULL PAGE (Oct 2026) -->
+  <div id="tt-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#F7EFE2;z-index:1000;overflow-y:auto;">
+    <div style="background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;padding:14px 16px;">
+      <div style="max-width:1200px;margin:0 auto;display:flex;align-items:center;gap:12px;">
+        <button type="button" onclick="hideTimetable()" style="background:#C9A84C;color:#3A0E0E;border:none;border-radius:8px;padding:9px 16px;font-family:Nunito,sans-serif;font-weight:900;cursor:pointer;min-height:42px;">&#8592; Back</button>
+        <div><div style="font-size:.72rem;font-weight:800;color:#E8C96A;letter-spacing:.06em;text-transform:uppercase;">The Lesson Planner follows this</div>
+          <h2 style="font-family:Cinzel,serif;color:#FBF4E8;font-size:1.25rem;margin:0;">School Timetable</h2></div>
+      </div>
+    </div>
+    <div id="tt-body" style="max-width:1200px;margin:0 auto;padding:18px 16px 40px;"><div style="color:#888;">Loading&hellip;</div></div>
+  </div>
+
+  <!-- MY TEACHERS FULL PAGE -->
+  <div id="teachers-page" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f2f5;z-index:1000;overflow-y:auto;padding:16px;">
+  <div id="tp-wrap" style="max-width:700px;margin:0 auto;">
+  <style>
+  /* Staff communication (Oct 2026): My Teachers has two tabs — Teachers and Work to Staff */
+  #tp-wrap.tp-work-on > *:not(.tp-keep){display:none!important}
+  #tp-wrap.tp-work-on{max-width:1000px!important}
+  .tp-tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+  .tp-tab{padding:9px 16px;border-radius:999px;border:1.5px solid #C9A84C;background:#fff;color:#6B0F1A;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;min-height:40px}
+  .tp-tab[aria-selected="true"]{background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border-color:#6B0F1A}
+  .tp-bd{display:inline-block;min-width:20px;padding:0 6px;border-radius:999px;background:#A3241B;color:#fff;font-size:.72rem;margin-left:6px;text-align:center}
+  </style>
+  <div class="tp-keep" style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <button onclick="hideTeachersPage()" style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:8px;padding:8px 16px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">&#8592; Back</button>
+    <h2 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.1rem;margin:0;">My Teachers</h2>
+  </div>
+  <div class="tp-tabs tp-keep" role="tablist" aria-label="Staff communication">
+    <button type="button" class="tp-tab" role="tab" id="tp-t-teachers" aria-selected="true" onclick="tpTab('teachers')">&#x1F469;&#x200D;&#x1F3EB; Teachers</button>
+    <button type="button" class="tp-tab" role="tab" id="tp-t-work" aria-selected="false" onclick="tpTab('work')">&#x1F4CB; Work to Staff<span id="tp-work-bd"></span></button>
+  </div>
+  <div id="tp-work" class="tp-keep" style="display:none">
+    <iframe id="tp-work-frame" title="Work to Staff" style="width:100%;min-height:600px;border:none;display:block;background:transparent"></iframe>
+  </div>
+
+  <!-- TEACHER COMMUNICATION APP (Oct 2026): each teacher gets a personal link + 4-digit PIN -->
+  <div id="ta-box" style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px;border-top:4px solid #C9A84C;">
+    <div style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;margin-bottom:6px;">&#x1F4F1; Teacher Communication App</div>
+    <div style="font-size:.82rem;color:#555;margin-bottom:14px;line-height:1.45;">Each teacher gets her own link and a 4-digit PIN. The link opens <b>only</b> her day &mdash; today's plan, yesterday's homework check and Submit my day. She cannot see books, lessons or anything else in TeachBot, and she never needs the school's login.</div>
+
+    <div id="ta-form" style="background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:12px;padding:14px;margin-bottom:14px;">
+      <div id="ta-form-title" style="font-weight:800;color:#6B0F1A;margin-bottom:10px;">&#x2795; Add a teacher to the app</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:10px;">
+        <div><label for="ta-name" style="font-size:.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Teacher name</label>
+          <input id="ta-name" type="text" autocomplete="off" placeholder="e.g. Mrs. Shalini" style="width:100%;padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/></div>
+        <div><label for="ta-phone" style="font-size:.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Phone (to send her link on WhatsApp)</label>
+          <input id="ta-phone" type="tel" autocomplete="off" placeholder="10-digit mobile" style="width:100%;padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/></div>
+      </div>
+      <div style="font-size:.75rem;font-weight:700;color:#6B0F1A;margin-bottom:4px;">Classes and subjects she takes</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+        <label for="ta-cls" style="position:absolute;left:-9999px;">Class</label>
+        <select id="ta-cls" style="padding:8px;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;font-weight:700;"></select>
+        <label for="ta-sub" style="position:absolute;left:-9999px;">Subject</label>
+        <select id="ta-sub" style="padding:8px;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;font-weight:700;"></select>
+        <button type="button" id="ta-add-cls" style="padding:8px 14px;background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;border-radius:9px;font-weight:800;cursor:pointer;">+ Add</button>
+      </div>
+      <div id="ta-cls-list" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;min-height:24px;"></div>
+      <div style="font-size:.75rem;font-weight:700;color:#6B0F1A;margin-bottom:4px;">What she can see</div>
+      <div id="ta-access" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;margin-bottom:12px;"></div>
+      <div style="font-size:.75rem;font-weight:700;color:#6B0F1A;margin-bottom:4px;">Her name in the school timetable <span style="font-weight:400;color:#777;">(for My timetable)</span></div>
+      <select id="ta-erp" style="width:100%;padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;margin-bottom:4px;"><option value="">— Not linked —</option></select>
+      <div id="ta-erp-note" style="font-size:.75rem;color:#777;margin-bottom:12px;"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button type="button" id="ta-save" style="flex:1;min-width:160px;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:.95rem;cursor:pointer;">&#x2795; Add to app</button>
+        <button type="button" id="ta-cancel" style="display:none;padding:10px 16px;background:#fff;border:1.5px solid #ccc;border-radius:9px;font-weight:800;cursor:pointer;">Cancel</button>
+      </div>
+      <div id="ta-msg" style="font-size:.82rem;font-weight:700;min-height:20px;padding-top:6px;"></div>
+    </div>
+
+    <div id="ta-pin-box" style="display:none;background:#eaf6ee;border:1.5px solid #2E7D4F;border-radius:12px;padding:14px;margin-bottom:14px;"></div>
+    <div id="ta-list"><div style="text-align:center;padding:14px;color:#888;font-style:italic;">Loading...</div></div>
+  </div>
+
+  <!-- Add Teacher Form -->
+  <div style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);margin-bottom:16px;">
+    <div style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">&#x2795; TeachBot login for a teacher <span style="font-family:Nunito,sans-serif;font-size:.75rem;color:#888;font-weight:700;">(optional &mdash; only if a teacher must open TeachBot tools herself)</span></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Teacher Name</label>
+        <input type="text" id="t-name" autocomplete="off" placeholder="e.g. Mrs. Shalini" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      </div>
+      <div>
+        <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Email</label>
+        <input type="email" id="t-email" name="new-teacher-email" autocomplete="off" placeholder="teacher@school.com" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      </div>
+    </div>
+    <div style="margin-bottom:10px;">
+      <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Password</label>
+      <input type="password" id="t-pass" name="new-teacher-password" autocomplete="new-password" placeholder="Set a password for teacher" style="width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;display:block;margin-bottom:4px;">Tools this teacher can open</label>
+      <div id="t-tools"></div>
+    </div>
+    <div id="teacher-limit-msg" style="display:none;background:#f8d7da;color:#721c24;border:1px solid #dc3545;border-radius:8px;padding:9px 12px;font-size:0.85rem;font-weight:700;margin-bottom:8px;"></div>
+    <button id="add-teacher-btn" onclick="addTeacher()" style="width:100%;padding:10px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;font-size:0.95rem;cursor:pointer;">&#x2795; Add Teacher</button>
+    <div id="t-msg" style="font-size:0.82rem;font-weight:700;min-height:22px;padding:6px 0;"></div>
+  </div>
+
+  <!-- Teachers List -->
+  <div style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);">
+    <div style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">&#x1F9D1;&#x200D;&#x1F3EB; Current Teachers <span id="t-count" style="background:#6B0F1A;color:#E8C96A;font-size:.65rem;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></div>
+    <div id="t-list"><div style="text-align:center;padding:20px;color:#888;font-style:italic;">Loading teachers...</div></div>
+  </div>
+  </div>
+  </div>
+
+  <!-- MY STUDENTS FULL PAGE -->
+  <div id="students-section" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:#f0f2f5;z-index:1000;overflow-y:auto;padding:16px;">
+  <div style="max-width:700px;margin:0 auto;">
+  <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+    <button onclick="hideStudents()" style="background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:8px;padding:8px 16px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">&#8592; Back</button>
+    <h2 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.1rem;margin:0;">My Students</h2>
+  </div>
+  <div style="background:white;border-radius:16px;padding:22px;box-shadow:0 2px 12px rgba(0,0,0,.06);">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid #EDD9A3;">
+      <span style="font-family:Cinzel,serif;font-size:1rem;color:#6B0F1A;">My Students <span id="st-total" style="background:#6B0F1A;color:#E8C96A;font-size:.65rem;padding:2px 7px;border-radius:10px;margin-left:6px;">0</span></span>
+      <button onclick="toggleBulk()" style="padding:6px 14px;background:transparent;color:#6B0F1A;border:2px solid #6B0F1A;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;font-size:.82rem;cursor:pointer;">Bulk Add</button>
+    </div>
+
+    <div id="class-tabs" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;">
+      <div onclick="filterClass2(this)" data-class="all" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #6B0F1A;background:#6B0F1A;color:#E8C96A;">All Classes</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:1fr 100px 1fr 100px;gap:8px;margin-bottom:8px;">
+      <select id="new-cls" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <input type="text" id="new-roll" placeholder="Roll No" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      <input type="text" id="new-name" placeholder="Student Name" style="padding:9px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;"/>
+      <button onclick="addOneStudent()" style="padding:9px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">+ Add</button>
+    </div>
+    <div id="st-msg" style="font-size:.82rem;font-weight:700;min-height:20px;padding:3px 0;"></div>
+
+    <div id="bulk-box" style="display:none;margin-top:10px;padding:12px;background:rgba(201,168,76,.06);border-radius:10px;border:1.5px dashed #EDD9A3;">
+      <div style="font-size:.75rem;color:#888;line-height:1.8;">Format: RollNo, Name (one per line)<br/>Example: 1, Anitha R</div>
+      <select id="bulk-cls" style="width:100%;padding:9px;margin-top:8px;font-size:.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;">
+        <option value="">Select Class</option>
+        <option>Pre KG</option><option>LKG</option><option>UKG</option>
+        <option>Class 1</option><option>Class 2</option><option>Class 3</option>
+        <option>Class 4</option><option>Class 5</option><option>Class 6</option>
+        <option>Class 7</option><option>Class 8</option><option>Class 9</option>
+        <option>Class 10</option><option>Class 11</option><option>Class 12</option>
+      </select>
+      <textarea id="bulk-text" placeholder="1, Anitha R&#10;2, Arun Kumar" style="width:100%;padding:9px;margin-top:8px;font-size:.82rem;border:1.5px solid #EDD9A3;border-radius:8px;font-family:Nunito,sans-serif;min-height:80px;resize:vertical;"></textarea>
+      <button onclick="bulkAddStudents()" style="width:100%;padding:9px;margin-top:8px;background:linear-gradient(135deg,#A07830,#FFD700);color:#4A0A12;border:none;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;cursor:pointer;">Add All Students</button>
+    </div>
+
+    <table id="st-table" style="display:none;width:100%;border-collapse:collapse;margin-top:12px;font-size:.88rem;">
+      <thead><tr style="background:#6B0F1A;color:#E8C96A;">
+        <th style="padding:9px 12px;text-align:left;">Roll</th>
+        <th style="padding:9px 12px;text-align:left;">Name</th>
+        <th style="padding:9px 12px;text-align:left;">Class</th>
+        <th style="padding:9px 12px;"></th>
+      </tr></thead>
+      <tbody id="st-tbody"></tbody>
+    </table>
+    <div id="st-empty" style="text-align:center;padding:20px;color:#888;font-style:italic;">No students yet. Add above or use Bulk Add.</div>
+  </div>
+  </div>
+  </div>
+  </div>
+  </div>
+
+</div>
+
+<script>
+const role = localStorage.getItem('dss_role');
+const user = JSON.parse(localStorage.getItem('dss_user') || '{}');
+
+if (!role || !user.email) { window.location.href = '/login.html'; }
+
+// Fill header immediately from localStorage
+document.getElementById('school-name').textContent = user.name || 'DigiSmartSchool';
+document.getElementById('user-email').textContent = user.email || '';
+document.getElementById('role-badge').textContent = role === 'teacher' ? 'Teacher' : 'School Admin';
+
+// Try fill from localStorage first
+const localSchool = role === 'teacher' ? (user.schools || {}) : user;
+if (localSchool.name)  document.getElementById('inf-name').textContent  = localSchool.name;
+if (localSchool.city)  document.getElementById('inf-city').textContent  = localSchool.city;
+if (localSchool.phone) document.getElementById('inf-phone').textContent = localSchool.phone;
+if (user.email)        document.getElementById('inf-email').textContent = user.email;
+if (localSchool.subscription_status) {
+  const s = localSchool.subscription_status;
+  const el = document.getElementById('inf-status');
+  el.textContent = s.toUpperCase(); el.className = 'info-val status-' + s;
+}
+if (localSchool.subscription_end)
+  document.getElementById('inf-end').textContent = localSchool.subscription_end;
+if (localSchool.max_teachers)
+  document.getElementById('inf-teachers').textContent = localSchool.max_teachers;
+
+// The school's id is already known from login — use it straight away so My Teachers
+// does not depend on the fresh details below (the server checks it on every request).
+if (role === 'school_admin' && user.id) window._schoolId = user.id;
+else if (role === 'teacher' && (user.school_id || (user.schools && user.schools.id))) window._schoolId = user.school_id || user.schools.id;
+if (localSchool.max_teachers) window._maxTeachers = parseInt(localSchool.max_teachers) || 5;
+
+// Always fetch fresh from server
+(async function() {
+  try {
+    const r = await fetch('/api/auth', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get_school_info', email: user.email, role: role })
+    });
+    const raw = await r.text();
+    let d = {};
+    try { d = JSON.parse(raw); } catch(pe) { d = { error: 'Server reply could not be read (status ' + r.status + ').' }; }
+    const s = d.school;
+    if (s && s.id) { window._schoolId = s.id; window._maxTeachers = parseInt(s.max_teachers) || 5; }
+    if (!s) {
+      window._schoolInfoError = (d && d.error) || 'School details were not found for this login.';
+      if (/log in again/i.test(window._schoolInfoError)) showLoginExpired();
+      return;
+    }
+    document.getElementById('school-name').textContent = s.name || user.name || 'DigiSmartSchool';
+    document.getElementById('inf-name').textContent    = s.name  || '-';
+    document.getElementById('inf-city').textContent    = s.city  || '-';
+    document.getElementById('inf-email').textContent   = s.email || user.email || '-';
+    document.getElementById('inf-phone').textContent   = s.phone || '-';
+    document.getElementById('inf-teachers').textContent = s.max_teachers || 5;
+    const status = s.subscription_status || 'active';
+    const statusEl = document.getElementById('inf-status');
+    statusEl.textContent = status.toUpperCase();
+    statusEl.className = 'info-val status-' + status;
+    document.getElementById('inf-end').textContent = s.subscription_end || '-';
+    if (status === 'expired' || status === 'suspended') {
+      document.getElementById('expired-banner').style.display = 'block';
+      // Disable all tool cards so expired schools cannot use the app
+      document.querySelectorAll('.tool-card').forEach(function(card) {
+        card.style.opacity = '0.4';
+        card.style.pointerEvents = 'none';
+        card.style.cursor = 'not-allowed';
+      });
+    }
+
+    // Show 7-day renewal warning (set during login)
+    const warn = sessionStorage.getItem('dss_warning');
+    if (warn) {
+      document.getElementById('warning-banner').style.display = 'block';
+      document.getElementById('warning-text').textContent = '⚠️ ' + warn;
+      sessionStorage.removeItem('dss_warning');
+    }
+    window._schoolId = s.id;
+    window._maxTeachers = parseInt(s.max_teachers) || 5;
+  } catch(e) {
+    console.error('School info error:', e);
+    if (!window._schoolId) window._schoolInfoError = 'Could not load school details: ' + (e.message || e);
+  }
+})();
+
+function showTeachersPage(){
+  document.getElementById('teachers-page').style.display='block';
+  document.body.style.overflow='hidden';
+  // Browsers sometimes fill the school's own login here — clear it (a little later too, after autofill)
+  var clearForm = function(){ ['t-name','t-email','t-pass'].forEach(function(id){ var el=document.getElementById(id); if(el) el.value=''; }); };
+  clearForm(); setTimeout(clearForm, 300);
+  setTimeout(function(){ loadTeachers(); }, 500);
+  setTimeout(function(){ if(window.TA) TA.load(); }, 300);
+  tpTab('teachers'); tpWorkBadge();
+}
+// Staff communication (Oct 2026): Teachers tab / Work to Staff tab inside My Teachers
+function tpTab(t){
+  var work = t === 'work';
+  document.getElementById('tp-wrap').classList.toggle('tp-work-on', work);
+  document.getElementById('tp-work').style.display = work ? 'block' : 'none';
+  document.getElementById('tp-t-teachers').setAttribute('aria-selected', String(!work));
+  document.getElementById('tp-t-work').setAttribute('aria-selected', String(work));
+  var f = document.getElementById('tp-work-frame');
+  if (work && !f.src) f.src = '/staff-work.html?embed=2';
+}
+async function tpWorkBadge(){
+  try{
+    var r = await fetch('/api/teacher-app',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'work_list'})});
+    var d = await r.json(), n = d.success ? (d.rows||[]).filter(function(x){return x.status!=='done';}).length : 0;
+    document.getElementById('tp-work-bd').innerHTML = n ? '<span class="tp-bd">'+n+'</span>' : '';
+  }catch(e){}
+}
+window.addEventListener('message', function(e){
+  if (e.origin !== location.origin || !e.data) return;
+  var f = document.getElementById('tp-work-frame');
+  if (e.data.sw === 'height' && f) f.style.height = Math.max(600, e.data.h + 20) + 'px';
+  if (e.data.sw === 'pending') document.getElementById('tp-work-bd').innerHTML = e.data.n ? '<span class="tp-bd">'+e.data.n+'</span>' : '';
+});
+function hideTeachersPage(){
+  document.getElementById('teachers-page').style.display='none';
+  document.body.style.overflow='';
+}
+async function loadTeachers(){
+  var listEl=document.getElementById('t-list');
+  var countEl=document.getElementById('t-count');
+  if(!window._schoolId){
+    listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;">Loading...</div>';
+    loadTeachers._tries = (loadTeachers._tries || 0) + 1;
+    if(window._schoolInfoError){
+      listEl.innerHTML='<div style="text-align:center;padding:20px;color:#c0392b;">'+esc(window._schoolInfoError)
+        +(/log in again/i.test(window._schoolInfoError) ? '<br><br><button onclick="doLogout()" style="padding:9px 18px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Log in again</button>' : '')
+        +'</div>';
+      loadTeachers._tries = 0; return;
+    }
+    if(loadTeachers._tries <= 20){ setTimeout(loadTeachers, 500); }   // try again for up to 10 seconds
+    else { listEl.innerHTML='<div style="text-align:center;padding:20px;color:#c0392b;">Could not load school details. Please refresh the page.</div>'; loadTeachers._tries = 0; }
+    return;
+  }
+  loadTeachers._tries = 0;
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'get_teachers',school_id:window._schoolId})});
+    var d=await r.json();
+    var teachers=d.teachers||[];
+    var maxT = window._maxTeachers || 5;
+    var remaining = maxT - teachers.length;
+
+    // Update count display with limit
+    countEl.textContent = teachers.length + ' / ' + maxT;
+
+    // Show/hide add form based on limit
+    var addBtn = document.getElementById('add-teacher-btn');
+    var limitMsg = document.getElementById('teacher-limit-msg');
+    if(remaining <= 0){
+      if(addBtn) addBtn.disabled = true;
+      if(limitMsg){ limitMsg.style.display='block'; limitMsg.textContent='⚠️ Teacher limit reached ('+maxT+'). Contact DigiSmartSchool to upgrade.'; }
+    } else {
+      if(addBtn) addBtn.disabled = false;
+      if(limitMsg){ limitMsg.style.display='none'; }
+    }
+
+    if(!teachers.length){ listEl.innerHTML='<div style="text-align:center;padding:20px;color:#888;font-style:italic;">No teachers added yet.</div>'; return; }
+    listEl.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:.88rem;">'
+      +'<thead><tr style="background:#6B0F1A;color:#E8C96A;"><th style="padding:9px 12px;text-align:left;">Name</th><th style="padding:9px 12px;text-align:left;">Email</th><th style="padding:9px 12px;text-align:left;">Tools</th><th style="padding:9px 12px;text-align:center;">Actions</th></tr></thead><tbody>'
+      +teachers.map(function(t){ return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;font-weight:700;">'+esc(t.name)+'</td><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;color:#666;">'+esc(t.email)+'</td>'
+        +'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;max-width:340px;">'+toolsSummary(t.allowed_tools)+'</td>'
+        +'<td style="padding:6px 8px;border-bottom:1px solid #f0f0f0;text-align:center;white-space:nowrap;">'
+        +'<button class="t-act" data-act="edit" data-id="'+esc(t.id)+'" style="background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;margin-right:6px;">&#9999;&#65039; Edit</button>'
+        +'<button class="t-act" data-act="del" data-id="'+esc(t.id)+'" style="background:#fdecea;border:1.5px solid #c0392b;color:#c0392b;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;">&#128465; Delete</button>'
+        +'</td></tr>'; }).join('')
+      +'</tbody></table>'
+      +'<div style="padding:10px 12px;font-size:0.82rem;color:'+(remaining>0?'#1a5c2a':'#c0392b')+';font-weight:700;">'+
+        (remaining>0 ? '✅ '+remaining+' slot(s) remaining' : '🔒 No slots remaining — upgrade to add more teachers')
+      +'</div>'
+      +'<div id="t-edit" style="display:none;margin-top:12px;background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:12px;padding:14px;"></div>';
+    window._teacherList = teachers;
+    listEl.querySelectorAll('.t-act').forEach(function(b){
+      b.onclick = function(){
+        var id = b.getAttribute('data-id');
+        if(b.getAttribute('data-act') === 'edit') openEditTeacher(id); else deleteTeacher(id);
+      };
+    });
+  }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
+}
+/* ── Teacher Tools access (Oct 2026): tick which tools each teacher may open ── */
+/* Nov 2026: Homework Diary (retired) is not offered; Report Cards and Face Attendance are not offered to schools with ERP */
+(function(){ var st=document.createElement('style'); st.textContent='label[data-tkey="diary"],body.has-erp label[data-tkey="reports"],body.has-erp label[data-tkey="attendance"]{display:none!important}'; document.head.appendChild(st); })();
+function toolBoxesHTML(prefix, list){
+  var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
+  if(!T.length) return '<div style="font-size:.8rem;color:#c0392b;">Tool list did not load (js/tool-access.js missing). Refresh the page.</div>';
+  var on = function(k){ return !list || list.indexOf(k) !== -1; };
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:10px;padding:10px;">'
+    + T.map(function(t){ return '<label data-tkey="'+t.key+'" style="display:flex;gap:7px;align-items:center;font-size:.84rem;cursor:pointer;color:#333;font-weight:600;">'
+      + '<input type="checkbox" class="'+prefix+'-tool" value="'+t.key+'"'+(on(t.key)?' checked':'')+' style="width:16px;height:16px;accent-color:#6B0F1A;"> '+t.icon+' '+esc(t.label)+'</label>'; }).join('')
+    + '</div><div style="display:flex;gap:8px;margin-top:6px;">'
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',false)" style="font-size:.75rem;padding:4px 10px;border:1px solid #C9A84C;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#6B0F1A;">Untick all</button>'
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',true)" style="font-size:.75rem;padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#666;">Tick all</button></div>';
+}
+/* Nov 2026: Tick all ticks only the tools shown (retired / ERP-only tools are hidden in the list) */
+function tickTools(prefix, on){ document.querySelectorAll('.'+prefix+'-tool').forEach(function(c){ if(!on || c.offsetParent !== null) c.checked = on; }); }
+/* a new teacher starts with TeachBot only — the principal adds more if needed */
+function newTeacherTools(){ document.querySelectorAll('.ta-tool').forEach(function(c){ c.checked = c.value === 'teachbot'; }); }
+function pickedTools(prefix){ return [].slice.call(document.querySelectorAll('.'+prefix+'-tool:checked')).map(function(c){ return c.value; }); }
+function toolsSummary(list){
+  var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
+  if(!list || !list.length) return '<span style="color:#1a5c2a;font-weight:700;">All tools</span>';
+  return T.filter(function(t){ return list.indexOf(t.key) !== -1; }).map(function(t){ return '<span title="'+esc(t.label)+'" style="display:inline-block;background:#f6efe0;border-radius:6px;padding:1px 6px;margin:1px 2px;font-size:.75rem;">'+t.icon+' '+esc(t.label)+'</span>'; }).join('');
+}
+(function(){ function fill(){ var b=document.getElementById('t-tools'); if(b && !b.innerHTML) b.innerHTML = toolBoxesHTML('ta', ['teachbot']); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fill); else fill(); })();
+
+async function addTeacher(){
+  var name=document.getElementById('t-name').value.trim();
+  var email=document.getElementById('t-email').value.trim();
+  var pass=document.getElementById('t-pass').value;
+  var msg=document.getElementById('t-msg');
+  if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent=!name?"Please type the teacher's name.":!email?"Please type the teacher's email.":'Please type a password for the teacher.'; var miss=document.getElementById(!name?'t-name':!email?'t-email':'t-pass'); if(miss) miss.focus(); return; }
+  var tools=pickedTools('ta');
+  if(!tools.length){ msg.style.color='#c0392b'; msg.textContent='Tick at least one tool for this teacher.'; return; }
+  if(!window._schoolId){ msg.style.color='#c0392b'; msg.textContent='School ID not ready. Please wait.'; return; }
+  // Frontend limit check before even calling server
+  var addBtn=document.getElementById('add-teacher-btn');
+  if(addBtn && addBtn.disabled){ msg.style.color='#c0392b'; msg.textContent='Teacher limit reached. Contact DigiSmartSchool to upgrade.'; return; }
+  msg.style.color='#6B0F1A'; msg.textContent='Adding...';
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'add_teacher',school_id:window._schoolId,teacher_name:name,teacher_email:email,teacher_password:pass,allowed_tools:tools})});
+    var d=await r.json();
+    if(d.error) throw new Error(d.error);
+    msg.style.color='#1a5c2a'; msg.textContent='✅ '+name+' added!';
+    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value=''; newTeacherTools();
+    setTimeout(function(){msg.textContent='';},3000);
+    loadTeachers();
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
+}
+function findTeacher(id){ return (window._teacherList || []).filter(function(t){ return String(t.id) === String(id); })[0]; }
+function openEditTeacher(id){
+  var t = findTeacher(id), box = document.getElementById('t-edit');
+  if(!t || !box) return;
+  var inp = 'width:100%;padding:9px;font-size:0.88rem;border:1.5px solid #EDD9A3;border-radius:9px;font-family:Nunito,sans-serif;margin-bottom:8px;';
+  box.innerHTML = '<div style="font-weight:800;color:#6B0F1A;margin-bottom:8px;">&#9999;&#65039; Edit teacher — ' + esc(t.email) + '</div>'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">Name</label>'
+    + '<input id="te-name" autocomplete="off" style="' + inp + '">'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">New password <span style="font-weight:600;color:#888;">(leave empty to keep the old one)</span></label>'
+    + '<input id="te-pass" type="password" autocomplete="new-password" placeholder="At least 6 characters" style="' + inp + '">'
+    + '<label style="font-size:0.75rem;font-weight:700;color:#6B0F1A;">Tools this teacher can open</label>'
+    + '<div style="margin:4px 0 10px;">' + toolBoxesHTML('te', t.allowed_tools) + '</div>'
+    + '<div style="display:flex;gap:8px;">'
+    + '<button id="te-save" style="flex:1;padding:9px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Save</button>'
+    + '<button id="te-cancel" style="padding:9px 16px;background:#eee;border:none;border-radius:9px;font-weight:800;cursor:pointer;">Cancel</button></div>'
+    + '<div id="te-msg" style="font-size:0.82rem;font-weight:700;min-height:20px;padding-top:6px;"></div>';
+  document.getElementById('te-name').value = t.name || '';
+  box.style.display = 'block';
+  box.scrollIntoView({ behavior:'smooth', block:'center' });
+  document.getElementById('te-cancel').onclick = function(){ box.style.display = 'none'; box.innerHTML = ''; };
+  document.getElementById('te-save').onclick = async function(){
+    var name = document.getElementById('te-name').value.trim();
+    var pass = document.getElementById('te-pass').value;
+    var msg = document.getElementById('te-msg');
+    if(!name){ msg.style.color='#c0392b'; msg.textContent='Name cannot be empty.'; return; }
+    if(pass && pass.length < 6){ msg.style.color='#c0392b'; msg.textContent='Password must be at least 6 characters.'; return; }
+    var tools = pickedTools('te');
+    if(!tools.length){ msg.style.color='#c0392b'; msg.textContent='Tick at least one tool for this teacher.'; return; }
+    msg.style.color='#6B0F1A'; msg.textContent='Saving...';
+    try{
+      var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'update_teacher',school_id:window._schoolId,teacher_id:t.id,name:name,new_password:pass,allowed_tools:tools})});
+      var d = await r.json();
+      if(d.error) throw new Error(d.error);
+      msg.style.color='#1a5c2a'; msg.textContent='✅ Saved' + (pass ? ' — tell the teacher their new password.' : '. The teacher sees the change next time she opens Teacher Tools.');
+      setTimeout(loadTeachers, 1200);
+    }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+  };
+}
+async function deleteTeacher(id){
+  var t = findTeacher(id);
+  if(!t) return;
+  if(!confirm('Remove ' + (t.name || t.email) + '?\n\nTheir login will stop working and the slot will be free for a new teacher.')) return;
+  var msg = document.getElementById('t-msg');
+  msg.style.color='#6B0F1A'; msg.textContent='Removing...';
+  try{
+    var r = await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'delete_teacher',school_id:window._schoolId,teacher_id:t.id})});
+    var d = await r.json();
+    if(d.error) throw new Error(d.error);
+    msg.style.color='#1a5c2a'; msg.textContent='✅ ' + (t.name || t.email) + ' removed.';
+    setTimeout(function(){ msg.textContent=''; }, 3000);
+    loadTeachers();
+  }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: ' + e.message; }
+}
+function showTeachers(){ showTeachersPage(); }
+async function showTeachers_old() {
+  const schoolId = user.id || window._schoolId;
+  if (!schoolId) { alert('Loading... please try again in a moment.'); return; }
+  const r = await fetch('/api/auth', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'get_teachers', school_id: schoolId })
+  });
+  const d = await r.json();
+  const teachers = d.teachers || [];
+  if (!teachers.length) { alert('No teachers added yet.'); return; }
+  alert('Teachers:\n' + teachers.map(t => '- ' + t.name + ' (' + t.email + ')').join('\n'));
+}
+
+// Login older than 12 hours: say so plainly instead of pages quietly not loading
+function showLoginExpired(){
+  if (document.getElementById('login-expired')) return;
+  var b = document.createElement('div');
+  b.id = 'login-expired';
+  b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:2000;background:#6B0F1A;color:#E8C96A;padding:12px 16px;text-align:center;font-family:Nunito,sans-serif;font-weight:800;box-shadow:0 2px 10px rgba(0,0,0,.25);';
+  b.innerHTML = '\u23F0 Your login has expired (logins last 12 hours). '
+    + '<button onclick="doLogout()" style="margin-left:10px;padding:6px 14px;background:#E8C96A;color:#6B0F1A;border:none;border-radius:8px;font-weight:900;cursor:pointer;">Log in again</button>';
+  document.body.appendChild(b);
+}
+function doLogout() {
+  localStorage.clear();
+  window.location.href = '/login.html';
+}
+// Student Management
+var _sid = ''; var _stu = []; var _ac = 'all';
+function showStudents(){
+  document.getElementById('students-section').style.display='block';
+  document.body.style.overflow='hidden';
+  // Load students when page opens
+  initSchoolId().then(function(){ loadStudents(); });
+}
+function hideStudents(){
+  document.getElementById('students-section').style.display='none';
+  document.body.style.overflow='';
+}
+function toggleBulk(){ var e=document.getElementById('bulk-box'); e.style.display=e.style.display==='none'?'block':'none'; }
+function filterClass2(el){
+  _ac = el.getAttribute('data-class')||'all';
+  document.querySelectorAll('#class-tabs div').forEach(function(t){t.style.background='white';t.style.color='#6B0F1A';});
+  el.style.background='#6B0F1A'; el.style.color='#E8C96A';
+  renderTable(_ac);
+}
+function renderTable(cls){
+  var list = cls==='all'?_stu:_stu.filter(function(s){return s.class===cls;});
+  var tb=document.getElementById('st-tbody'), tbl=document.getElementById('st-table'), em=document.getElementById('st-empty');
+  if(!list.length){tbl.style.display='none';em.style.display='block';return;}
+  tbl.style.display='table';em.style.display='none';
+  tb.innerHTML=list.map(function(s){
+    return '<tr><td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;"><b>'+esc(s.roll_no)+'</b></td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;">'+esc(s.name)+'</td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;">'+esc(s.class)+'</td>'
+      +'<td style="padding:9px 12px;border-bottom:1px solid #f0f0f0;"><button data-sid="'+s.id+'" onclick="delStu(this.dataset.sid)" style="background:none;border:none;color:#dc3545;cursor:pointer;font-weight:700;">Remove</button></td></tr>';
+  }).join('');
+}
+function renderTabs(){
+  var cls=[...new Set(_stu.map(function(s){return s.class;}))].sort();
+  var el=document.getElementById('class-tabs');
+  el.innerHTML='<div onclick="filterClass2(this)" data-class="all" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #6B0F1A;background:#6B0F1A;color:#E8C96A;">All Classes</div>'
+    +cls.map(function(c){var n=_stu.filter(function(s){return s.class===c;}).length;
+      return '<div onclick="filterClass2(this)" data-class="'+c+'" style="padding:6px 14px;border-radius:20px;font-size:.82rem;font-weight:700;cursor:pointer;border:2px solid #EDD9A3;background:white;color:#6B0F1A;">'+c+' ('+n+')</div>';
+    }).join('');
+}
+async function loadStudents(){
+  if(!_sid) return;
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'get_diary_students',school_id:_sid})});
+    var d=await r.json(); _stu=d.students||[];
+    document.getElementById('st-total').textContent=_stu.length;
+    renderTabs(); renderTable(_ac);
+  }catch(e){console.error(e);}
+}
+async function addOneStudent(){
+  var cls=document.getElementById('new-cls').value, roll=document.getElementById('new-roll').value.trim(), name=document.getElementById('new-name').value.trim();
+  if(!cls||!roll||!name){stMsg('Please fill Class, Roll No and Name','#c0392b');return;}
+  if(!_sid){stMsg('School ID loading... try again','#c0392b');return;}
+  stMsg('Adding...','#6B0F1A');
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add_diary_student',school_id:_sid,class_name:cls,roll_no:roll,name:name})});
+    var d=await r.json(); if(d.error)throw new Error(d.error);
+    document.getElementById('new-roll').value=''; document.getElementById('new-name').value='';
+    stMsg(name+' added to '+cls+'!','#1a5c2a'); await loadStudents();
+  }catch(e){stMsg(e.message,'#c0392b');}
+}
+async function bulkAddStudents(){
+  var cls=document.getElementById('bulk-cls').value, text=document.getElementById('bulk-text').value.trim();
+  if(!cls){stMsg('Select Class','#c0392b');return;} if(!text){stMsg('Paste list first','#c0392b');return;}
+  if(!_sid){stMsg('School ID loading... try again','#c0392b');return;}
+  var students=[];
+  text.split('\n').forEach(function(line){var i=line.indexOf(',');if(i>0){var r=line.substring(0,i).trim(),n=line.substring(i+1).trim();if(r&&n)students.push({roll_no:r,name:n});}});
+  if(!students.length){stMsg('Format: RollNo, Name','#c0392b');return;}
+  stMsg('Adding '+students.length+' students...','#6B0F1A');
+  try{
+    var r=await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'bulk_add_diary_students',school_id:_sid,class_name:cls,students:students})});
+    var d=await r.json(); if(d.error)throw new Error(d.error);
+    document.getElementById('bulk-text').value=''; document.getElementById('bulk-box').style.display='none';
+    stMsg(students.length+' students added!','#1a5c2a'); await loadStudents();
+  }catch(e){stMsg(e.message,'#c0392b');}
+}
+async function delStu(id){
+  if(!confirm('Remove this student?'))return;
+  await fetch('/api/auth',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete_diary_student',id:id})});
+  await loadStudents();
+}
+function stMsg(t,c){var e=document.getElementById('st-msg');e.textContent=t;e.style.color=c;if(c==='#1a5c2a')setTimeout(function(){e.textContent='';},3000);}
+function esc(t){return String(t||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+window.addEventListener('load',function(){setTimeout(function(){_sid=window._schoolId||'';loadStudents();},2000);});
+</script>
+<script>
+/* ── Teacher Communication App (Oct 2026) — School Admin side ──
+   Talks to /api/teacher-app.js. The school always comes from the principal's
+   signed login on the server, never from this page. */
+(function(){
+  var CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+  function num(c){var m=/Class (\d+)/.exec(c);return m?+m[1]:0;}
+  function subjectsFor(c){var n=num(c);
+    if(!n)return["English","Maths","Tamil","Rhymes/GK","EVS","Spoken English","English Handwriting","Tamil Handwriting"];
+    if(n<=2)return["English","Tamil","Hindi","Maths","EVS","Computer","Spoken English","English Handwriting","Tamil Handwriting"];
+    return["English","Tamil","Hindi","Maths","Science","Social Science","Computer","Spoken English","English Handwriting","Tamil Handwriting"];}
+  var ACCESS=[
+    {key:'today',label:"Today's plan (what to teach)"},
+    {key:'tomorrow',label:"Tomorrow's portion (to prepare)"},
+    {key:'hw_check',label:"Yesterday's homework check"},
+    {key:'submit_day',label:'Submit my day'},
+    {key:'notices',label:'Notices from principal (coming soon)'},
+    {key:'timetable',label:'My timetable'},
+    {key:'notebook_check',label:'Notebook check (office staff: checks notebooks at random)'}
+  ];
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+  var list=[], editing=null, picked=[];
+
+  async function call(action, data){
+    var r=await fetch('/api/teacher-app',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var txt=await r.text(), d;
+    try{ d=JSON.parse(txt); }catch(e){ d={error:'Server reply could not be read (status '+r.status+'). Is api/teacher-app.js uploaded?'}; }
+    return d;
+  }
+  function link(code){ return location.origin+'/my-day.html?t='+encodeURIComponent(code); }
+  function msg(t,ok){ var m=$('ta-msg'); m.style.color=ok?'#1a5c2a':'#c0392b'; m.textContent=t||''; }
+
+  function drawForm(){
+    $('ta-cls').innerHTML=CLASSES.map(function(c){return '<option>'+h(c)+'</option>';}).join('');
+    $('ta-cls').onchange=function(){ $('ta-sub').innerHTML=subjectsFor(String($('ta-cls').value).replace(/ [B-F]$/,'')).map(function(s){return '<option>'+h(s)+'</option>';}).join(''); };
+    $('ta-cls').onchange();
+    // Sections (Oct 2026): add e.g. "LKG B" (set in the Homework Planner → Sections) after its class
+    fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'sections'})}).then(function(r){return r.json();}).then(function(d){
+      var sec=(d&&d.success&&d.sections)||{},list=[];if(!Object.keys(sec).length)return;
+      CLASSES.forEach(function(c){list.push(c);(sec[c]||[]).forEach(function(L){list.push(c+' '+L);});});
+      var cur=$('ta-cls').value;$('ta-cls').innerHTML=list.map(function(c){return '<option>'+h(c)+'</option>';}).join('');$('ta-cls').value=cur;
+    }).catch(function(){});
+    $('ta-add-cls').onclick=function(){
+      var c=$('ta-cls').value, s=$('ta-sub').value;
+      if(picked.some(function(p){return p.class_name===c&&p.subject===s;}))return;
+      picked.push({class_name:c,subject:s}); drawPicked();
+    };
+    $('ta-save').onclick=save;
+    loadNames();
+    $('ta-cancel').onclick=resetForm;
+    setAccess(['today','tomorrow','hw_check','submit_day']);
+  }
+  function setAccess(on){
+    $('ta-access').innerHTML=ACCESS.map(function(a){
+      return '<label style="display:flex;align-items:center;gap:8px;font-size:.85rem;font-weight:700;color:#333;background:#fff;border:1px solid #EDD9A3;border-radius:8px;padding:7px 9px;cursor:pointer;">'
+        +'<input type="checkbox" class="ta-acc" value="'+a.key+'"'+(on.indexOf(a.key)!==-1?' checked':'')+' style="width:18px;height:18px;"/>'+h(a.label)+'</label>';
+    }).join('');
+  }
+  // names as written in the school timetable (ERP master / sent to staff) — Oct 2026
+  var ttNames=[];
+  async function loadNames(){
+    try{
+      var r=await fetch('/api/timetable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'staff_names'})});
+      var d=await r.json();
+      if(d&&d.success){ ttNames=d.names||[];
+        $('ta-erp-note').textContent=!ttNames.length?'No teacher names in the school timetable yet.'
+          :(d.source==='erp'?(d.sent_at?'Teachers see the timetable last sent from ERP (Send to staff).':'Not sent to staff yet — press "Send to staff" in ERP → Timetable → Master timetable.'):''); }
+      else $('ta-erp-note').textContent=(d&&d.error)||'Could not load timetable names.';
+    }catch(e){ $('ta-erp-note').textContent='Could not load timetable names.'; }
+    setErp($('ta-erp').value);
+  }
+  function setErp(v){
+    var names=ttNames.slice(); if(v&&names.indexOf(v)===-1)names.unshift(v);
+    $('ta-erp').innerHTML='<option value="">— Not linked —</option>'+names.map(function(n){return '<option'+(n===v?' selected':'')+'>'+h(n)+'</option>';}).join('');
+  }
+  function guessErp(name){
+    var k=String(name||'').trim().toLowerCase(); if(!k)return '';
+    var hit=ttNames.filter(function(n){return n.toLowerCase()===k;});
+    return hit.length===1?hit[0]:'';
+  }
+  function drawPicked(){
+    var box=$('ta-cls-list');
+    if(!picked.length){ box.innerHTML='<span style="font-size:.8rem;color:#999;font-style:italic;">None added yet</span>'; return; }
+    box.innerHTML=picked.map(function(p,i){
+      return '<span style="display:inline-flex;align-items:center;gap:6px;background:#6B0F1A;color:#fff;border-radius:999px;padding:5px 6px 5px 12px;font-size:.8rem;font-weight:700;">'
+        +h(p.class_name)+' &middot; '+h(p.subject)
+        +'<button type="button" data-i="'+i+'" class="ta-unpick" aria-label="Remove '+h(p.class_name+' '+p.subject)+'" style="background:#E8C96A;color:#4A0A12;border:none;border-radius:50%;width:22px;height:22px;font-weight:900;cursor:pointer;line-height:1;">&times;</button></span>';
+    }).join('');
+    box.querySelectorAll('.ta-unpick').forEach(function(b){ b.onclick=function(){ picked.splice(+b.getAttribute('data-i'),1); drawPicked(); }; });
+  }
+  function resetForm(){
+    editing=null; picked=[]; $('ta-name').value=''; $('ta-phone').value=''; setErp('');
+    setAccess(['today','tomorrow','hw_check','submit_day']); drawPicked();
+    $('ta-form-title').innerHTML='&#x2795; Add a teacher to the app';
+    $('ta-save').innerHTML='&#x2795; Add to app'; $('ta-cancel').style.display='none'; msg('');
+  }
+  function editTeacher(t){
+    editing=t.id; picked=(t.classes||[]).slice(); $('ta-name').value=t.name||''; $('ta-phone').value=t.phone||''; setErp(t.erp_name||guessErp(t.name));
+    setAccess(t.access||[]); drawPicked();
+    $('ta-form-title').innerHTML='&#9999;&#65039; Edit &mdash; '+h(t.name);
+    $('ta-save').textContent='Save changes'; $('ta-cancel').style.display='inline-block'; msg('');
+    $('ta-form').scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  async function save(){
+    var name=$('ta-name').value.trim();
+    var access=[].slice.call(document.querySelectorAll('.ta-acc:checked')).map(function(x){return x.value;});
+    if(!name){ msg("Please type the teacher's name."); return; }
+    if(!access.length){ msg('Tick at least one thing she can see.'); return; }
+    var officeOnly=access.indexOf('notebook_check')!==-1&&!access.some(function(k){return['today','tomorrow','hw_check','submit_day'].indexOf(k)!==-1;});   // Nov 2026: office staff need no classes
+    if(!picked.length && !officeOnly && !confirm('No classes added. Her Today screen will be empty until you add her classes. Save anyway?')) return;
+    $('ta-save').disabled=true; msg('Saving...',true);
+    if(access.indexOf('timetable')!==-1&&!$('ta-erp').value&&!confirm('"My timetable" is ticked but her name in the school timetable is not chosen, so her timetable will be empty. Save anyway?')) return;
+    var d=await call('save',{id:editing||undefined,name:name,phone:$('ta-phone').value.trim(),access:access,classes:picked,erp_name:$('ta-erp').value});
+    $('ta-save').disabled=false;
+    if(!d.success){ msg(d.error||'Could not save.'); return; }
+    var wasNew=!editing; resetForm(); msg(wasNew?'Added. Now tap "Set PIN" for her.':'Saved.',true);
+    await load();
+  }
+
+  async function load(){
+    var box=$('ta-list');
+    var d=await call('list');
+    if(!d.success){ box.innerHTML='<div style="color:#c0392b;padding:10px;font-weight:700;">'+h(d.error||'Could not load.')+'</div>'; return; }
+    list=d.teachers||[];
+    if(!list.length){ box.innerHTML='<div style="text-align:center;padding:14px;color:#888;font-style:italic;">No teachers in the app yet. Add one above.</div>'; return; }
+    box.innerHTML=list.map(function(t){
+      var cls=(t.classes||[]).map(function(c){return h(c.class_name)+' '+h(c.subject);}).join(', ')||'<i>No classes added</i>';
+      var state=!t.active?'<span style="color:#888;">Switched off</span>'
+        :t.locked?'<span style="color:#c0392b;">Locked (wrong PINs)</span>'
+        :!t.has_pin?'<span style="color:#a06a00;">PIN not set</span>'
+        :t.last_login_at?'<span style="color:#1a5c2a;">Using the app</span>'
+        :'<span style="color:#a06a00;">PIN set &mdash; not opened yet</span>';
+      function btn(act,label,style){return '<button type="button" class="ta-act" data-act="'+act+'" data-id="'+h(t.id)+'" style="min-height:38px;padding:6px 11px;border-radius:8px;font-weight:800;font-size:.8rem;cursor:pointer;'+style+'">'+label+'</button>';}
+      var soft='background:#fff8e6;border:1.5px solid #C9A84C;color:#6B0F1A;';
+      return '<div style="border:1.5px solid #EDD9A3;border-radius:12px;padding:12px 14px;margin-bottom:10px;'+(t.active?'':'opacity:.6;')+'">'
+        +'<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline;">'
+        +'<div style="font-weight:800;font-size:1rem;color:#2A0A0F;">'+h(t.name)+'</div><div style="font-size:.78rem;font-weight:800;">'+state+'</div></div>'
+        +'<div style="font-size:.8rem;color:#555;margin:4px 0 10px;">'+cls+'</div>'
+        +'<div style="display:flex;flex-wrap:wrap;gap:6px;">'
+        +btn('pin',t.has_pin?'&#128273; New PIN':'&#128273; Set PIN','background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;')
+        +btn('copy','&#128279; Copy link',soft)
+        +(t.phone?btn('wa','&#128172; Send link on WhatsApp',soft):'')
+        +btn('edit','&#9999;&#65039; Edit',soft)
+        +btn('link','New link',soft)
+        +btn('onoff',t.active?'Switch off':'Switch on',soft)
+        +btn('del','&#128465; Remove','background:#fdecea;border:1.5px solid #c0392b;color:#c0392b;')
+        +'</div></div>';
+    }).join('')
+    +'<div style="font-size:.78rem;color:#777;line-height:1.5;margin-top:6px;">&#128161; <b>New PIN</b> or <b>New link</b> logs the teacher out of her phone straight away (use it when a teacher leaves). The link never contains her PIN &mdash; tell her the PIN yourself.</div>';
+    box.querySelectorAll('.ta-act').forEach(function(b){ b.onclick=function(){ act(b.getAttribute('data-act'),b.getAttribute('data-id'),b); }; });
+  }
+
+  async function act(what,id,b){
+    var t=list.filter(function(x){return x.id===id;})[0]; if(!t) return;
+    if(what==='edit') return editTeacher(t);
+    if(what==='copy'){
+      var u=link(t.link_code);
+      try{ await navigator.clipboard.writeText(u); b.textContent='Copied'; setTimeout(function(){b.innerHTML='&#128279; Copy link';},1500); }
+      catch(e){ prompt('Copy this link for '+t.name+':',u); }
+      return;
+    }
+    if(what==='wa'){
+      var ph=String(t.phone||'').replace(/\D/g,''); if(ph.length===10) ph='91'+ph;
+      var text='Dear '+t.name+', this is your DigiSmart teacher app link. Open it and enter the 4-digit PIN given by the principal. Add it to your home screen.\n'+link(t.link_code);
+      window.open('https://wa.me/'+ph+'?text='+encodeURIComponent(text),'_blank'); return;
+    }
+    if(what==='pin'){
+      var p=prompt('PIN for '+t.name+'\n\nType 4 digits, or leave empty to make a random PIN.'+(t.has_pin?'\n\nHer old PIN will stop working and her phone will be logged out.':''),'');
+      if(p===null) return;
+      p=p.trim(); if(p && !/^\d{4}$/.test(p)){ alert('The PIN must be exactly 4 digits.'); return; }
+      var d=await call('set_pin',{id:id,pin:p});
+      if(!d.success){ alert(d.error||'Could not set the PIN.'); return; }
+      var box=$('ta-pin-box'); box.style.display='block';
+      box.innerHTML='<div style="font-weight:800;color:#1a5c2a;">PIN for '+h(t.name)+'</div>'
+        +'<div style="font-family:Cinzel,serif;font-size:2.2rem;letter-spacing:.3em;color:#2A0A0F;margin:6px 0;">'+h(d.pin)+'</div>'
+        +'<div style="font-size:.8rem;color:#333;">Tell her this PIN yourself (not in the WhatsApp message with the link). It will not be shown again &mdash; if she forgets, set a new one.</div>'
+        +'<button type="button" onclick="this.parentNode.style.display=\'none\'" style="margin-top:8px;padding:6px 14px;border-radius:8px;border:1.5px solid #2E7D4F;background:#fff;color:#1a5c2a;font-weight:800;cursor:pointer;">Done, hide it</button>';
+      box.scrollIntoView({behavior:'smooth',block:'center'});
+      return load();
+    }
+    if(what==='link'){
+      if(!confirm('Make a new link for '+t.name+'?\n\nHer old link stops working and her phone is logged out. Send her the new link.')) return;
+      var d2=await call('new_link',{id:id}); if(!d2.success){ alert(d2.error||'Could not make a new link.'); return; }
+      return load();
+    }
+    if(what==='onoff'){
+      var d3=await call('save',{id:id,name:t.name,phone:t.phone,access:t.access,classes:t.classes,active:!t.active});
+      if(!d3.success){ alert(d3.error||'Could not change.'); return; }
+      return load();
+    }
+    if(what==='del'){
+      if(!confirm('Remove '+t.name+' from the teacher app?\n\nHer link stops working.')) return;
+      var d4=await call('remove',{id:id}); if(!d4.success){ alert(d4.error||'Could not remove.'); return; }
+      if(editing===id) resetForm();
+      return load();
+    }
+  }
+
+  window.TA={load:load};
+  drawForm(); drawPicked();
+})();
+</script>
+<script>
+/* ── Academic Control (Oct 2026) — the principal's Live School screen ──
+   Reads /api/teacher-app (action 'live'): every class+subject's lesson today from the
+   Term Planner, what teachers marked Done / Not done, today's homework, portion done,
+   lessons behind, homework checks, teachers who have / have not submitted their day. */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');}
+  function istToday(){ return new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10); }
+  function t12(t){ var p=String(t||'').split(':'),H=parseInt(p[0],10); if(isNaN(H)) return t; return ((H%12)||12)+':'+(p[1]||'00')+' '+(H<12?'AM':'PM'); }
+  function clock(iso){ try{ return new Date(iso).toLocaleTimeString('en-IN',{hour:'numeric',minute:'2-digit'}); }catch(e){ return ''; } }
+  var COL={ ok:{fg:'#fff',bg:'#2E7D4F',label:'On track'}, slow:{fg:'#3A2A00',bg:'#F2CC74',label:'Slightly behind'}, bad:{fg:'#fff',bg:'#A3241B',label:'Needs action'}, info:{fg:'#fff',bg:'#5B4A3F',label:'Note'} };
+  var FLAGBG={ bad:'#FBE7E3', slow:'#FCF1D9', info:'#F3ECE2' };
+  var CLS_ORDER=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+
+  async function call(action,data){
+    var r=await fetch('/api/teacher-app',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var txt=await r.text(), d;
+    try{ d=JSON.parse(txt); }catch(e){ d={error:'Server reply could not be read (status '+r.status+').'}; }
+    return d;
+  }
+
+  // ── strip on the School Admin home ──
+  async function strip(){
+    if(localStorage.getItem('dss_role')!=='school_admin') return;
+    var el=$('ac-strip'); el.style.display='block';
+    var d=await call('live',{date:istToday()});
+    if(!d.success){ $('ac-strip-text').textContent=d.error||'Could not load.'; return; }
+    var s=d.stats, parts=[];
+    parts.push(s.lessons_today? (s.lessons_done+' of '+s.lessons_today+' lessons marked done') : 'No lessons planned today');
+    if(s.teachers) parts.push(s.submitted+' of '+s.teachers+' teachers submitted');
+    /* Nov 2026: 'need your action' left out of the strip — the Needs you list was removed from My School's Academics */
+    if(s.homework_today!=null) parts.push(s.homework_today+' homework today');
+    $('ac-strip-text').textContent=parts.join(' · ');
+  }
+
+  // ── full page ──
+  window.showAcademic=function(){
+    $('ac-page').style.display='block'; document.body.style.overflow='hidden';
+    if(!$('ac-date').value) $('ac-date').value=istToday();
+    load();
+  };
+  window.hideAcademic=function(){ $('ac-page').style.display='none'; document.body.style.overflow=''; strip(); };
+  $('ac-date').onchange=load; $('ac-refresh').onclick=load;
+
+  function tile(label,value,sub,color){
+    return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:14px 16px;">'
+      +'<div style="font-size:.8rem;color:#6E5A4E;font-weight:800;">'+h(label)+'</div>'
+      +'<div style="font-family:Cinzel,serif;font-size:1.9rem;color:'+color+';line-height:1.15;margin:4px 0;">'+h(value)+'</div>'
+      +'<div style="font-size:.76rem;color:#6E5A4E;">'+h(sub)+'</div></div>';
+  }
+  function pill(level,text){ var c=COL[level]||COL.info; return '<span style="display:inline-block;padding:4px 11px;border-radius:999px;font-size:.72rem;font-weight:900;white-space:nowrap;background:'+c.bg+';color:'+c.fg+';">'+h(text||c.label)+'</span>'; }
+  function section(title,sub,inner){
+    return '<section style="margin-top:22px;"><div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px;">'
+      +'<h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.1rem;margin:0;">'+h(title)+'</h3>'
+      +(sub?'<div style="font-size:.8rem;color:#6E5A4E;">'+sub+'</div>':'')+'</div>'+inner+'</section>';
+  }
+
+  /* Oct 2026: Every class grouped by class — class buttons on top, opens on one class
+     (the first class that has a problem). "All classes" shows every class; classes where
+     everything is on track start folded, so only problem classes are open. */
+  var acSubs=[], acSel=null, acOpen={};
+  var RANK={bad:3,slow:2,ok:1,info:0};
+  function worst(list){ var w='ok'; list.forEach(function(r){ if((RANK[r.level]||0)>(RANK[w]||0)) w=r.level; }); return w; }
+  /* Oct 2026: tidy text for the Live School screen only.
+     acChap: "Ch 1. E N G L I S H – Poem" -> "Ch 1. English – Poem".
+     acSteps: put each numbered step ("1. p. 16: ...  2. p. 16: ...") on its own line. */
+  var AC_WORDS={SOCIALSCIENCE:'Social Science',MATHEMATICS:'Mathematics',MATHS:'Maths',ENGLISH:'English',SCIENCE:'Science',HINDI:'Hindi',TAMIL:'Tamil',EVS:'EVS'};
+  function acChap(t){
+    return String(t||'').replace(/(?:\b[A-Z] ){2,}[A-Z]\b/g,function(m){
+      var w=m.replace(/ /g,''); return AC_WORDS[w]||(w.charAt(0)+w.slice(1).toLowerCase());
+    });
+  }
+  function acSteps(t){ return String(t||'').replace(/\s+(?=\d{1,2}\.\s+(?:p\.|pp\.|[A-Z]))/g,'\n'); }
+  function rowHtml(r){
+    var c=COL[r.level]||COL.info;
+    var lesson=r.today.length? r.today.map(function(x){
+        var st=x.state==='done'?' <span style="color:#2E7D4F;font-weight:900;">&#10003; Done</span>':x.state==='not'?' <span style="color:#A3241B;font-weight:900;">Not done</span>'+(x.reason?' <span style="color:#6E5A4E;">('+h(x.reason)+')</span>':''):' <span style="color:#8A6418;font-weight:800;">Not marked</span>';
+        /* Oct 2026: principal can open the full lesson — short preview stays, "See full lesson" shows every step */
+        var full=x.teach?String(x.teach):'', more=full.length>120;
+        var tb=full?(more
+          ? '<div style="color:#6E5A4E;font-size:.78rem;">'+h(full.slice(0,120))+'&hellip;</div>'
+            +'<details style="margin-top:4px;"><summary style="cursor:pointer;color:#6B0F1A;font-weight:800;font-size:.78rem;list-style:none;padding:4px 0;">See full lesson &#9662;</summary>'
+            +'<div style="margin-top:6px;padding:10px 12px;background:#FAF1E2;border:1px solid #EDD9A3;border-radius:10px;color:#3A2A22;font-size:.84rem;line-height:1.55;white-space:pre-line;">'+h(acSteps(full))+'</div></details>'
+          : '<div style="color:#6E5A4E;font-size:.78rem;white-space:pre-line;">'+h(acSteps(full))+'</div>'):'';
+        return '<div style="margin-bottom:6px;"><b>'+h(acChap(x.chapter))+'</b>'+st+tb+'</div>';
+      }).join(''):'<span style="color:#999;">No lesson planned</span>';
+    var act=r.today.map(function(x){return h(x.activity);}).filter(Boolean).join('<br>')||'<span style="color:#999;">—</span>';
+    var hw=r.hw.length? r.hw.map(function(x){return '<span style="white-space:pre-line;">'+h(acSteps(String(x.text||'')))+'</span>'+(x.status==='waiting'?' <span style="color:#8A6418;font-size:.75rem;">(waiting for you)</span>':'');}).join('<br>'):'<span style="color:#999;">—</span>';
+    var pct=r.total?Math.round(100*r.done/r.total):0;
+    return '<tr style="border-top:1px solid #EEDDC2;vertical-align:top;">'
+      +'<td style="padding:10px 12px;"><div style="font-weight:800;">'+h(r.subject)+'</div><div style="color:#6E5A4E;font-size:.78rem;">'+h(r.teacher||'No teacher set')+'</div></td>'
+      +'<td style="padding:10px 12px;">'+lesson+'</td>'
+      +'<td style="padding:10px 12px;">'+act+'</td>'
+      +'<td style="padding:10px 12px;">'+hw+'</td>'
+      +'<td style="padding:10px 12px;min-width:130px;"><div style="height:8px;background:#EEDDC2;border-radius:999px;overflow:hidden;"><div style="height:8px;width:'+pct+'%;background:'+c.bg+';"></div></div>'
+      +'<div style="font-size:.74rem;color:#6E5A4E;margin-top:4px;">'+r.done+' of '+r.total+' lessons'+(r.behind?' &middot; <b style="color:#A3241B;">'+r.behind+' behind</b>':'')+'</div></td>'
+      +'<td style="padding:10px 12px;">'+pill(r.level)+'</td></tr>';
+  }
+  function classCard(name,list,open){
+    var n={ok:0,slow:0,bad:0}; list.forEach(function(r){ if(n[r.level]!=null) n[r.level]++; });
+    var sum=[n.bad?pill('bad',n.bad+' need'+(n.bad>1?'':'s')+' action'):'', n.slow?pill('slow',n.slow+' behind'):'', n.ok?pill('ok',n.ok+' on track'):''].filter(Boolean).join(' ');
+    var out='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;margin-bottom:12px;overflow:hidden;">'
+      +'<button type="button" data-ac-fold="'+h(name)+'" style="width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;background:#F1E1C6;border:none;padding:12px 16px;cursor:pointer;text-align:left;font-family:inherit;min-height:48px;">'
+      +'<span><b style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;">'+h(name)+'</b> <span style="font-size:.8rem;color:#6E5A4E;margin-left:6px;">'+list.length+' subject'+(list.length>1?'s':'')+'</span></span>'
+      +'<span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap;">'+sum+' <b style="color:#6B0F1A;font-size:.9rem;margin-left:4px;">'+(open?'&#9650;':'&#9660;')+'</b></span></button>';
+    if(open) out+='<div style="overflow-x:auto;"><table style="width:100%;min-width:820px;border-collapse:collapse;font-size:.85rem;">'
+      +'<thead><tr style="background:#FAF1E2;text-align:left;">'
+      +['Subject · Teacher','Today\'s lesson','Activity','Homework today','Portion','Status'].map(function(x){return '<th style="padding:9px 12px;font-weight:900;">'+x+'</th>';}).join('')
+      +'</tr></thead><tbody>'+list.map(rowHtml).join('')+'</tbody></table></div>';
+    return out+'</div>';
+  }
+  function drawClasses(){
+    var box=$('ac-classes'); if(!box) return;
+    var g={}, order=[];
+    acSubs.forEach(function(r){ if(!g[r.class_name]){ g[r.class_name]=[]; order.push(r.class_name); } g[r.class_name].push(r); });
+    if(acSel!=='all' && order.indexOf(acSel)<0){
+      acSel=order.filter(function(k){ return worst(g[k])!=='ok'; })[0]||order[0];
+    }
+    var DOT={bad:'#A3241B',slow:'#E0A82E',ok:'#2E7D4F',info:'#5B4A3F'};
+    function chip(key,label,dot){
+      var on=acSel===key;
+      return '<button type="button" data-ac-cls="'+h(key)+'" style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;cursor:pointer;font-family:inherit;font-weight:900;font-size:.85rem;min-height:40px;'
+        +(on?'background:#6B0F1A;color:#E8C96A;border:1.5px solid #6B0F1A;':'background:#FFFBF4;color:#6B0F1A;border:1.5px solid #EDD9A3;')+'">'
+        +(dot?'<span style="width:9px;height:9px;border-radius:50%;background:'+dot+';display:inline-block;"></span>':'')+h(label)+'</button>';
+    }
+    var out='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px;">'
+      +order.map(function(k){ return chip(k,k,DOT[worst(g[k])]); }).join('')+chip('all','All classes','')+'</div>';
+    if(acSel==='all'){
+      var allOk=order.every(function(k){ return worst(g[k])==='ok'; });
+      if(allOk) out+='<div style="font-size:.84rem;color:#164A2C;font-weight:800;margin-bottom:10px;">All classes are on track. Tap a class to open it.</div>';
+      out+=order.map(function(k){ var open=(acOpen[k]!=null)?acOpen[k]:(worst(g[k])!=='ok'); return classCard(k,g[k],open); }).join('');
+    } else {
+      out+=classCard(acSel,g[acSel],acOpen[acSel]!==false);
+    }
+    box.innerHTML=out;
+    box.onclick=function(e){
+      var b=e.target.closest('[data-ac-cls]');
+      if(b){ acSel=b.getAttribute('data-ac-cls'); acOpen={}; drawClasses(); return; }
+      var f=e.target.closest('[data-ac-fold]');
+      if(f){
+        var k=f.getAttribute('data-ac-fold');
+        var cur=(acSel==='all')?((acOpen[k]!=null)?acOpen[k]:(worst(g[k])!=='ok')):(acOpen[k]!==false);
+        acOpen[k]=!cur; drawClasses();
+      }
+    };
+  }
+
+  /* Oct 2026: Today's parent update, class by class — class buttons on top, opens on the first
+     class with something waiting for approval; the approve button approves the class shown. */
+  var puList=[], puSel=null;
+  function clsBase(c){ var i=CLS_ORDER.indexOf(String(c).replace(/ [B-F]$/,'')); return i<0?99:i; }   // "LKG B" sorts with LKG
+  function clsSort(a,b){ return clsBase(a)-clsBase(b) || String(a).localeCompare(b); }
+  function puItem(x,withClass){
+    var st=x.sent?pill('ok','Sent to parents'):x.status==='added'?pill('ok','Approved — goes at 4 PM'):pill('slow','Waiting for you');
+    return '<div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;padding:10px 0;border-bottom:1px dashed #EEDDC2;">'
+      +'<div style="flex:0 0 150px;">'+(withClass?'<b>'+h(x.class_name)+'</b><div style="font-size:.78rem;color:#6E5A4E;">'+h(x.subject)+' &middot; ':'<b>'+h(x.subject)+'</b><div style="font-size:.78rem;color:#6E5A4E;">')+(x.type==='classwork'?'Class work':'Homework')+'</div></div>'
+      +'<div style="flex:1 1 280px;font-size:.86rem;white-space:pre-line;">'+h(x.text)+(x.teacher?'<div style="font-size:.74rem;color:#6E5A4E;margin-top:3px;">by '+h(x.teacher)+'</div>':'')+'</div>'
+      +'<div style="flex:0 0 auto;">'+st+'</div></div>';
+  }
+  function drawPu(){
+    var box=$('ac-pu'); if(!box) return;
+    var cls=[]; puList.forEach(function(x){ if(cls.indexOf(x.class_name)<0) cls.push(x.class_name); }); cls.sort(clsSort);
+    function wait(k){ return puList.filter(function(x){ return (k==='all'||x.class_name===k) && x.status==='waiting'; }).length; }
+    if(puSel!=='all' && cls.indexOf(puSel)<0) puSel=cls.filter(function(k){ return wait(k); })[0]||cls[0];
+    if(cls.length<2) puSel='all';
+    var out='';
+    if(cls.length>1) out+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">'+cls.concat(['all']).map(function(k){
+        var on=puSel===k, w=wait(k), n=puList.filter(function(x){ return k==='all'||x.class_name===k; }).length;
+        return '<button type="button" data-pu-cls="'+h(k)+'" style="display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:999px;cursor:pointer;font-family:inherit;font-weight:900;font-size:.85rem;min-height:40px;'
+          +(on?'background:#6B0F1A;color:#E8C96A;border:1.5px solid #6B0F1A;':'background:#FFFBF4;color:#6B0F1A;border:1.5px solid #EDD9A3;')+'">'
+          +(k==='all'?'':'<span style="width:9px;height:9px;border-radius:50%;background:'+(w?'#E0A82E':'#2E7D4F')+';display:inline-block;"></span>')
+          +h(k==='all'?'All classes':k)+' <span style="font-weight:700;opacity:.8;">'+(w?w+' waiting':n)+'</span></button>';
+      }).join('')+'</div>';
+    var shown=puList.filter(function(x){ return puSel==='all'||x.class_name===puSel; });
+    if(puSel==='all'){
+      out+=cls.map(function(k){ var l=shown.filter(function(x){ return x.class_name===k; }); if(!l.length) return '';
+        return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;margin-bottom:10px;overflow:hidden;"><div style="background:#F1E1C6;padding:9px 14px;font-family:Cinzel,serif;color:#6B0F1A;font-weight:700;">'+h(k)+'</div><div style="padding:2px 14px;">'+l.map(function(x){ return puItem(x,false); }).join('')+'</div></div>';
+      }).join('');
+    } else out+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:6px 14px;">'+shown.map(function(x){ return puItem(x,false); }).join('')+'</div>';
+    box.innerHTML=out;
+    var w=wait(puSel), b=$('ac-approve');
+    if(b){ b.style.display=w?'':'none'; b.textContent=(puSel==='all'?'Approve all '+w:'Approve '+puSel+' · '+w)+' and send to parents'; }
+    var aa=$('ac-approve-all');
+    if(aa) aa.innerHTML=(puSel!=='all'&&wait('all')>w)?'<span style="font-size:.8rem;color:#6E5A4E;">'+wait('all')+' waiting in all classes &mdash; tap All classes to approve them together</span>':'';
+    box.onclick=function(e){ var t=e.target.closest('[data-pu-cls]'); if(t){ puSel=t.getAttribute('data-pu-cls'); drawPu(); } };
+  }
+
+  async function load(){
+    var body=$('ac-body'), day=$('ac-date').value||istToday();
+    body.innerHTML='<div style="text-align:center;padding:30px;color:#888;">Loading&hellip;</div>';
+    var d=await call('live',{date:day});
+    if(!d.success){ body.innerHTML='<div style="background:#FBE7E3;border:1px solid #A3241B;color:#5E120C;border-radius:12px;padding:14px;font-weight:700;">'+h(d.error||'Could not load.')+'</div>'; return; }
+    var nice=new Date(day+'T00:00:00').toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'});
+    $('ac-title').textContent='Live School — '+nice;
+    var s=d.stats, out='';
+
+    // tiles
+    out+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;">'
+      +tile('Lessons marked done', s.lessons_done+' / '+s.lessons_today, 'From the Lesson Planner', '#2E7D4F')
+      +tile('Teachers submitted', s.submitted+' / '+s.teachers, (d.is_today && !d.past_deadline)?'Deadline '+t12(d.deadline):'Deadline was '+t12(d.deadline), s.submitted<s.teachers&&d.past_deadline?'#A3241B':'#6B0F1A')
+      +tile('Homework today', s.homework_today, 'In the Homework Planner', '#6B0F1A')
+      +tile('Need your action', s.needs_action, s.needs_action?'See the list below':'Everything is running', s.needs_action?'#A3241B':'#2E7D4F')
+      +'</div>';
+
+    // deadline setting
+    out+='<div style="margin-top:12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#FFFBF4;border:1px dashed #C9A84C;border-radius:12px;padding:10px 14px;font-size:.85rem;">'
+      +'<label for="ac-deadline" style="font-weight:800;color:#6B0F1A;">Teachers must submit their day by</label>'
+      +'<input id="ac-deadline" type="time" value="'+h(d.deadline)+'" style="padding:7px;border:1.5px solid #EDD9A3;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;min-height:40px;"/>'
+      +'<button type="button" id="ac-dl-save" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:8px;padding:8px 14px;font-weight:900;cursor:pointer;min-height:40px;">Save</button>'
+      +'<span id="ac-dl-msg" style="font-weight:800;"></span></div>';
+    // Oct 2026: when teachers see tomorrow's portion
+    out+='<div style="margin-top:8px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#FFFBF4;border:1px dashed #C9A84C;border-radius:12px;padding:10px 14px;font-size:.85rem;">'
+      +'<label for="ac-tomorrow" style="font-weight:800;color:#6B0F1A;">Teachers see tomorrow\'s portion from</label>'
+      +'<input id="ac-tomorrow" type="time" value="'+h(d.tomorrow_at||'14:30')+'" style="padding:7px;border:1.5px solid #EDD9A3;border-radius:8px;font-family:Nunito,sans-serif;font-weight:800;min-height:40px;"/>'
+      +'<button type="button" id="ac-tm-save" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:8px;padding:8px 14px;font-weight:900;cursor:pointer;min-height:40px;">Save</button>'
+      +'<span id="ac-tm-msg" style="font-weight:800;"></span></div>';
+
+    // needs attention
+    var flags=d.flags||[];
+    var fl=flags.length? flags.map(function(f){
+        return '<div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap;background:'+(FLAGBG[f.level]||'#F3ECE2')+';border-radius:12px;padding:12px 14px;margin-bottom:8px;">'
+          +'<div style="flex:0 0 auto;min-width:96px;">'+pill(f.level,f.kind)+'</div>'
+          +'<div style="flex:1 1 300px;"><div style="font-weight:900;font-size:.95rem;">'+h(f.title)+'</div>'
+          +'<div style="font-size:.84rem;color:#4E3D33;margin-top:2px;white-space:pre-line;">'+h(f.detail)+'</div></div></div>';
+      }).join('')
+      :'<div style="background:#EAF6EE;border:1px solid #2E7D4F;border-radius:12px;padding:14px;font-weight:800;color:#164A2C;">Nothing needs you right now. Every class is running on its own.</div>';
+    out+=section('Needs your attention','Only these need you &mdash; everything else is running on its own',fl);
+
+    // classes
+    var subs=(d.subjects||[]).slice().sort(function(a,b){ var x=CLS_ORDER.indexOf(a.class_name)-CLS_ORDER.indexOf(b.class_name); return x||String(a.subject).localeCompare(b.subject); });
+    var tbl;
+    if(!subs.length) tbl='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">No lesson plans yet. Teachers make them in Teacher Tools &rarr; Lesson Planner, and you approve them.</div>';
+    else tbl='<div id="ac-classes"></div>';
+    acSubs=subs;
+    out+=section('Every class, '+(d.is_today?'today':'that day'),
+      '<span style="display:inline-flex;gap:12px;flex-wrap:wrap;font-weight:800;"><span>'+pill('ok')+'</span><span>'+pill('slow')+'</span><span>'+pill('bad')+'</span></span>',tbl);
+
+    // today's parent update (Step 4): class work + homework, approve and send
+    var pu=d.parent_update||[], waiting=pu.filter(function(x){return x.status==='waiting';});
+    var puHtml='';
+    if(d.parent_update_error) puHtml+='<div style="background:#FBE7E3;border:1px solid #A3241B;color:#5E120C;border-radius:12px;padding:12px;font-weight:700;margin-bottom:8px;">'+h(d.parent_update_error)+'</div>';
+    if(!pu.length) puHtml+='<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">Nothing for parents yet. When teachers submit their day, the lessons they marked Done appear here as class work.</div>';
+    else {
+      puHtml+='<div id="ac-pu"></div>';
+      puList=pu;
+      puHtml+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;align-items:center;">'
+        +(waiting.length?'<button type="button" id="ac-approve" style="background:#6B0F1A;color:#E8C96A;border:none;border-radius:10px;padding:11px 18px;font-weight:900;cursor:pointer;min-height:46px;">Approve all '+waiting.length+' and send to parents</button>':'')+'<span id="ac-approve-all"></span>'
+        +'<a href="homework-planner.html" style="font-weight:800;font-size:.86rem;">Change or send back in the Homework Planner &rarr;</a>'
+        +'<span id="ac-approve-msg" style="font-weight:800;font-size:.86rem;"></span></div>';
+    }
+    out+=section('Today\'s parent update','Class work and homework go to the Student Diary and the parent app at 4 PM after you approve',puHtml);
+
+    // teachers' day
+    var ts=d.teachers||[];
+    var tl=ts.length? '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px;">'+ts.map(function(t,i){
+        var st=t.state==='ok'?pill('ok','Submitted '+clock(t.submitted_at)):t.state==='late'?pill('slow','Late — '+clock(t.submitted_at)):t.state==='missing'?pill('bad','Not submitted'):pill('info','Not yet');
+        var det='';
+        if(t.items.length) det+='<div style="margin-top:8px;font-size:.8rem;">'+t.items.map(function(x){
+            return '<div style="padding:3px 0;border-top:1px dashed #EEDDC2;">'+(x.status==='done'?'<b style="color:#2E7D4F;">&#10003;</b>':x.status==='not'?'<b style="color:#A3241B;">&#10007;</b>':'<b style="color:#8A6418;">?</b>')
+              +' '+h(x.class_name)+' '+h(x.subject)+' &mdash; '+h(x.chapter||'')+(x.status==='not'&&x.reason?' <span style="color:#6E5A4E;">('+h(x.reason)+')</span>':'')+'</div>';
+          }).join('')+'</div>';
+        if(t.hw_checks.length) det+='<div style="margin-top:6px;font-size:.8rem;color:#4E3D33;"><b>Homework check:</b> '+t.hw_checks.map(function(c){
+            return h(c.class_name+' '+c.subject)+' — '+(c.corrected==='yes'?'corrected':c.corrected==='some'?'some corrected':c.corrected==='no'?'<b style="color:#A3241B;">not corrected</b>':'not answered')
+              +(c.missing&&c.missing.length?' · didn\'t submit: roll '+h(c.missing.join(', ')):'');
+          }).join('; ')+'</div>';
+        if(t.watch) det+='<div style="margin-top:6px;font-size:.8rem;color:#4E3D33;white-space:pre-line;"><b>Children to watch:</b> '+h(t.watch)+'</div>';
+        return '<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:12px 14px;">'
+          +'<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;"><b style="font-size:.95rem;">'+h(t.name)+'</b>'+st+'</div>'
+          +'<div style="font-size:.78rem;color:#6E5A4E;margin-top:4px;">'+t.done+' done · '+t.not+' not done</div>'+det+'</div>';
+      }).join('')+'</div>'
+      :'<div style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:12px;padding:16px;color:#6E5A4E;">No teachers in the Teacher App yet. Add them in My Teachers.</div>';
+    out+=section('Teachers\' day','What each teacher marked and submitted',tl);
+
+    body.innerHTML=out;
+    drawClasses();
+    drawPu();
+    if($('ac-approve')) $('ac-approve').onclick=async function(){
+      var ids=waiting.filter(function(x){return puSel==='all'||x.class_name===puSel;}).map(function(x){return x.id;}), m=$('ac-approve-msg'), b=this;
+      if(!ids.length) return;
+      if(!confirm('Approve '+ids.length+' class work / homework for parents?\n\nThey go to parents at 4 PM (straight away if it is already past 4 PM).')) return;
+      b.disabled=true; m.style.color='#6E5A4E'; m.textContent='Approving…';
+      var r; try{ r=await fetch('/api/homework',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add',ids:ids})}).then(function(x){return x.json();}); }
+      catch(e){ r={error:'No internet: '+e.message}; }
+      if(!r.success){ b.disabled=false; m.style.color='#c0392b'; m.textContent=r.error||'Could not approve.'; return; }
+      m.style.color='#1a5c2a'; m.textContent='Approved '+(r.added||ids.length)+'.'+(r.sent&&r.sent.sent?' Sent to parents now.':'');
+      setTimeout(load,1200);
+    };
+    $('ac-dl-save').onclick=async function(){
+      var v=$('ac-deadline').value, m=$('ac-dl-msg');
+      m.style.color='#6E5A4E'; m.textContent='Saving…';
+      var r=await call('save_settings',{deadline:v});
+      if(r.success){ m.style.color='#1a5c2a'; m.textContent='Saved. Teachers see '+t12(r.deadline)+' from now.'; }
+      else { m.style.color='#c0392b'; m.textContent=r.error||'Could not save.'; }
+    };
+    if($('ac-tm-save')) $('ac-tm-save').onclick=async function(){
+      var v=$('ac-tomorrow').value, m=$('ac-tm-msg');
+      m.style.color='#6E5A4E'; m.textContent='Saving…';
+      var r=await call('save_settings',{tomorrow_at:v});
+      if(r.success){ m.style.color='#1a5c2a'; m.textContent='Saved. Tomorrow\'s portion opens at '+t12(r.tomorrow_at)+' every day.'; }
+      else { m.style.color='#c0392b'; m.textContent=r.error||'Could not save.'; }
+    };
+  }
+
+  window.addEventListener('load',function(){ setTimeout(strip,600); });
+})();
+</script>
+<script>
+/* ── School Calendar (Oct 2026) — holidays the Term Planner skips, sudden holidays move lessons ──
+   Talks to /api/term-plan (holidays, holiday_save_many, holiday_remove, declare_holiday). */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  function istToday(){ return new Date(Date.now()+5.5*3600e3).toISOString().slice(0,10); }
+  function nice(d){ try{ return new Date(d+'T00:00:00').toLocaleDateString('en-IN',{weekday:'short',day:'numeric',month:'short',year:'numeric'}); }catch(e){ return d; } }
+  // Tamil Nadu government holidays 2026 (G.O. list). Dates of moon-based festivals may change.
+  var GOV=[
+    ['2026-01-01','New Year\'s Day'],['2026-01-15','Pongal'],['2026-01-16','Thiruvalluvar Day'],['2026-01-17','Uzhavar Thirunal'],
+    ['2026-01-26','Republic Day'],['2026-02-01','Thai Poosam'],['2026-03-19','Telugu New Year\'s Day'],['2026-03-21','Ramzan (Id-ul-Fitr)'],
+    ['2026-03-31','Mahavir Jayanti'],['2026-04-03','Good Friday'],['2026-04-14','Tamil New Year / Dr Ambedkar\'s Birthday'],
+    ['2026-05-01','May Day'],['2026-05-28','Bakrid'],['2026-06-26','Muharram'],['2026-08-15','Independence Day'],
+    ['2026-08-26','Milad-un-Nabi'],['2026-09-04','Krishna Jayanti'],['2026-09-14','Vinayakar Chathurthi'],
+    ['2026-10-02','Gandhi Jayanti'],['2026-10-19','Ayutha Pooja'],['2026-10-20','Vijaya Dasami'],
+    ['2026-11-08','Deepavali'],['2026-12-25','Christmas Day'],
+    ['2027-01-01','New Year\'s Day'],['2027-01-26','Republic Day'],['2027-05-01','May Day']
+  ];
+  var LIST=[];
+  async function tp(action,data){
+    var r=await fetch('/api/term-plan',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var d; try{ d=await r.json(); }catch(e){ d={error:'Server reply could not be read (status '+r.status+').'}; }
+    return d;
+  }
+  window.showCalendar=function(){ $('cal-page').style.display='block'; document.body.style.overflow='hidden'; if(!$('cal-date').value) $('cal-date').value=istToday(); load(); };
+  window.hideCalendar=function(){ $('cal-page').style.display='none'; document.body.style.overflow=''; if(location.hash==='#calendar') history.replaceState(null,'',location.pathname); };
+
+  async function load(){
+    var d=await tp('holidays',{});
+    if(!d.success){ $('cal-list').innerHTML='<div style="color:#c0392b;font-weight:700;">'+h(d.error||'Could not load.')+'</div>'; LIST=[]; drawGov(); return; }
+    LIST=d.holidays||[];
+    var today=istToday(), up=LIST.filter(function(x){return x.date>=today;}), past=LIST.filter(function(x){return x.date<today;});
+    function row(x){
+      return '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px dashed #EEDDC2;">'
+        +'<div style="flex:0 0 150px;font-weight:900;">'+h(nice(x.date))+'</div>'
+        +'<div style="flex:1 1 200px;">'+h(x.name)+'</div>'
+        +'<span style="padding:3px 10px;border-radius:999px;font-size:.72rem;font-weight:900;'+(x.kind==='holiday'?'background:#6B0F1A;color:#fff;':'background:#F2CC74;color:#3A2A00;')+'">'+(x.kind==='holiday'?'Holiday':'No teaching')+'</span>'
+        +'<button type="button" class="cal-del" data-id="'+h(x.id)+'" aria-label="Remove '+h(x.name)+'" style="background:#fdecea;border:1.5px solid #c0392b;color:#c0392b;border-radius:7px;padding:5px 10px;font-weight:800;cursor:pointer;min-height:36px;">Remove</button></div>';
+    }
+    $('cal-list').innerHTML=(up.length?up.map(row).join(''):'<div style="color:#6E5A4E;">No coming holidays marked yet.</div>')
+      +(past.length?'<details style="margin-top:12px;"><summary style="cursor:pointer;font-weight:800;color:#6E5A4E;">Past days ('+past.length+')</summary>'+past.map(row).join('')+'</details>':'');
+    $('cal-list').querySelectorAll('.cal-del').forEach(function(b){ b.onclick=async function(){
+      if(!confirm('Remove this day from the calendar?\n\nLessons that were moved because of it stay where they are.')) return;
+      var r=await tp('holiday_remove',{id:b.getAttribute('data-id')}); if(!r.success){ alert(r.error||'Could not remove.'); return; } load();
+    }; });
+    drawGov();
+  }
+  function drawGov(){
+    var have={}; LIST.forEach(function(x){have[x.date]=1;});
+    var today=istToday(), list=GOV.filter(function(g){return g[0]>=today;});
+    $('cal-gov').innerHTML=list.length?'<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:6px;">'+list.map(function(g,i){
+      var on=have[g[0]];
+      return '<label style="display:flex;gap:8px;align-items:center;background:#fff;border:1px solid #EDD9A3;border-radius:8px;padding:7px 9px;font-size:.84rem;'+(on?'opacity:.55;':'cursor:pointer;')+'">'
+        +'<input type="checkbox" class="cal-g" data-i="'+GOV.indexOf(g)+'"'+(on?' checked disabled':' checked')+' style="width:18px;height:18px;"/>'
+        +'<span><b>'+h(nice(g[0]).replace(/ \d{4}$/,''))+'</b> &mdash; '+h(g[1])+(on?' <i>(added)</i>':'')+'</span></label>';
+    }).join('')+'</div>':'<div style="color:#6E5A4E;">No more government holidays in the list. Add the next year\'s days when the Tamil Nadu list comes out.</div>';
+  }
+
+  async function addDays(rows,msgEl){
+    // each day: Declare (saves it and moves lessons planned on it) — so plans already made stay right
+    var move=$('cal-move').checked, moved=0, over={}, hw=0, errs=[];
+    for(var i=0;i<rows.length;i++){
+      msgEl.style.color='#6E5A4E'; msgEl.textContent='Saving '+(i+1)+' of '+rows.length+'…';
+      var r=move&&rows[i].date>=istToday()? await tp('declare_holiday',rows[i]) : await tp('holiday_save',rows[i]);
+      if(!r.success){ errs.push(rows[i].name+': '+(r.error||'failed')); continue; }
+      moved+=r.moved_plans||0; hw+=r.homework_moved||0;
+      (r.over_term||[]).forEach(function(o){ over[o.class_name+' '+o.subject]=o.over; });
+    }
+    var lines=[];
+    if(rows.length-errs.length) lines.push('Added '+(rows.length-errs.length)+' day'+(rows.length-errs.length>1?'s':'')+'.');
+    if(moved) lines.push('Lessons moved forward in '+moved+' lesson plan'+(moved>1?'s':'')+'.');
+    if(hw) lines.push(hw+' homework / class work moved to the next school day.');
+    var ov=Object.keys(over); if(ov.length) lines.push('Will not finish by term end: '+ov.map(function(k){return k+' ('+over[k]+' lesson'+(over[k]>1?'s':'')+' over)';}).join(', ')+'. Add an extra period or merge two lessons in the Lesson Planner.');
+    errs.forEach(function(e){ lines.push('Not saved — '+e); });
+    msgEl.style.color=errs.length?'#c0392b':(ov.length?'#8A6418':'#1a5c2a'); msgEl.textContent=lines.join('\n');
+    load();
+  }
+  $('cal-add').onclick=async function(){
+    var date=$('cal-date').value, name=$('cal-name').value.trim(), kind=$('cal-kind').value, m=$('cal-msg');
+    if(!date){ m.style.color='#c0392b'; m.textContent='Choose a date.'; return; }
+    if(!name){ m.style.color='#c0392b'; m.textContent='Type a name.'; return; }
+    if($('cal-move').checked && date>=istToday() && !confirm('Add '+name+' on '+nice(date)+'?\n\nLessons planned on this day in every class move to the next school day, and later lessons move along too.')) return;
+    this.disabled=true; await addDays([{date:date,name:name,kind:kind}],m); this.disabled=false; $('cal-name').value='';
+  };
+  $('cal-gov-add').onclick=async function(){
+    var rows=[].slice.call(document.querySelectorAll('.cal-g:checked:not(:disabled)')).map(function(c){ var g=GOV[+c.getAttribute('data-i')]; return {date:g[0],name:g[1],kind:'holiday'}; });
+    if(!rows.length){ $('cal-gov-msg').textContent='Nothing ticked.'; return; }
+    if(!confirm('Add '+rows.length+' government holidays?'+($('cal-move').checked?'\n\nLessons already planned on these days move forward (the tick in the box above).':''))) return;
+    this.disabled=true; await addDays(rows,$('cal-gov-msg')); this.disabled=false;
+  };
+  window.addEventListener('load',function(){ if(location.hash==='#calendar' && localStorage.getItem('dss_role')==='school_admin') setTimeout(showCalendar,400); });
+})();
+</script>
+<script>
+/* ── School Timetable (Oct 2026) ──
+   Schools with ERP: read live from ERP's master timetable (shown here, changed in ERP).
+   Schools without ERP: upload photos of the timetable → AI reads them → the principal checks
+   and corrects the grid → Save. Talks to /api/timetable and /api/ai. */
+(function(){
+  var $=function(id){return document.getElementById(id);};
+  function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+  var DAYS=['Mon','Tue','Wed','Thu','Fri','Sat'], CLS=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
+  var T=null, day='Mon', dirty=false;
+  async function api(action,data){
+    var r=await fetch('/api/timetable',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action:action},data||{}))});
+    var d; try{ d=await r.json(); }catch(e){ d={error:'Server reply could not be read (status '+r.status+'). Is api/timetable.js uploaded?'}; }
+    return d;
+  }
+  window.showTimetable=function(){ $('tt-page').style.display='block'; document.body.style.overflow='hidden'; load(); };
+  window.hideTimetable=function(){ if(dirty&&!confirm('Leave without saving the timetable?'))return; $('tt-page').style.display='none'; document.body.style.overflow=''; };
+
+  async function load(){
+    $('tt-body').innerHTML='<div style="color:#888;">Loading&hellip;</div>';
+    var d=await api('get'); dirty=false;
+    if(!d.success){ $('tt-body').innerHTML=box('red',h(d.error||'Could not load.')); return; }
+    T={source:d.source,periods:d.periods||[],days:(d.days&&d.days.length?d.days:DAYS.slice(0,5)),classes:d.classes||[],grid:d.grid||{},ai_room:!!d.ai_room,year:d.academic_year||'',error:d.error||'',note:d.note||''};
+    if(T.days.indexOf(day)===-1) day=T.days[0];
+    draw();
+  }
+  function box(kind,html){ var c={red:'#FBE7E3;border:1px solid #A3241B;color:#5E120C',green:'#EAF6EE;border:1px solid #2E7D4F;color:#164A2C',gold:'#FCF1D9;border:1px solid #D9A13B;color:#4E3D33'}[kind];
+    return '<div style="background:'+c+';border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:.88rem;line-height:1.45;">'+html+'</div>'; }
+
+  function draw(){
+    var erp=T.source==='erp', out='';
+    if(erp){
+      out+=box(T.error?'red':'green', T.error? h(T.error)+'<br>Check that <b>TEACHBOT_LINK_KEY</b> is the same in both Vercel projects and that ERP\'s <b>api/teachbot-timetable.js</b> is uploaded.'
+        : '<b>Connected to ERP</b> &mdash; master timetable'+(T.year?' '+h(T.year):'')+'. To change it, edit it in ERP &rarr; Timetable &rarr; Master timetable, then tap Refresh here.'
+          +(T.note?'<br>'+h(T.note):'')+(T.ai_room?'<br>&#x1F916; AI class room: ON &mdash; the boxes ticked "AI" in ERP are the class\'s AI-room periods.':'<br>&#x1F916; AI class room: OFF in ERP (screen in every classroom).'));
+      out+='<button type="button" id="tt-refresh" style="margin-bottom:12px;padding:9px 16px;border-radius:9px;border:1.5px solid #6B0F1A;background:#fff;color:#6B0F1A;font-weight:900;cursor:pointer;min-height:42px;">Refresh from ERP</button>';
+    } else {
+      out+='<section style="background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;padding:16px;margin-bottom:14px;">'
+        +'<h3 style="font-family:Cinzel,serif;color:#6B0F1A;font-size:1.05rem;margin:0 0 4px;">'+(T.source?'Read again from photos':'Read your timetable from photos')+'</h3>'
+        +'<div style="font-size:.82rem;color:#6E5A4E;margin-bottom:10px;">Take clear photos or screenshots of the school timetable (the master timetable, or one per class &mdash; up to 6). AI reads them; then check every box below and correct anything wrong before saving.</div>'
+        +'<label for="tt-files" style="font-size:.8rem;font-weight:800;color:#6B0F1A;">Photos</label> '
+        +'<input id="tt-files" type="file" accept="image/*" multiple style="margin:6px 0;"/> '
+        +'<button type="button" id="tt-read" style="padding:10px 16px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:9px;font-weight:900;cursor:pointer;min-height:44px;">&#x2728; Read with AI</button>'
+        +'<div id="tt-read-msg" style="font-size:.85rem;font-weight:800;min-height:20px;padding-top:8px;"></div></section>';
+      if(!T.source&&!Object.keys(T.grid).length){ $('tt-body').innerHTML=out+box('gold','No timetable yet. Without it, the Lesson Planner spreads lessons evenly over the school days.'); wire(); return; }
+      out+='<label style="display:flex;gap:8px;align-items:center;font-weight:800;font-size:.9rem;margin-bottom:10px;"><input type="checkbox" id="tt-airoom"'+(T.ai_room?' checked':'')+' style="width:18px;height:18px;"/> &#x1F916; We have a separate AI class room (classes walk to it). Tick "AI" on each period a class goes there.</label>';
+    }
+    // day tabs
+    out+='<div role="tablist" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">'+T.days.map(function(d){
+      return '<button type="button" role="tab" class="tt-day" data-d="'+d+'" aria-selected="'+(d===day)+'" style="min-height:40px;padding:0 14px;border-radius:999px;font-weight:900;cursor:pointer;border:1.5px solid #6B0F1A;'+(d===day?'background:#6B0F1A;color:#fff;':'background:#fff;color:#6B0F1A;')+'">'+d+'</button>';}).join('')+'</div>';
+    var classes=T.classes.length?T.classes:CLS.filter(function(c){return Object.keys(T.grid).some(function(d){return Object.keys(T.grid[d]||{}).some(function(p){return T.grid[d][p][c];});});});
+    var np=Math.max(T.periods.length, Object.keys(T.grid[day]||{}).reduce(function(m,p){return Math.max(m,+p+1);},0));
+    if(!np||!classes.length){ out+=box('gold','Nothing for '+day+'.'); }
+    else {
+      out+='<div style="overflow-x:auto;background:#FFFBF4;border:1px solid #EDD9A3;border-radius:14px;"><table style="border-collapse:collapse;font-size:.8rem;min-width:'+(120+classes.length*130)+'px;">'
+        +'<thead><tr style="background:#F1E1C6;"><th style="padding:8px;text-align:left;position:sticky;left:0;background:#F1E1C6;">Period</th>'+classes.map(function(c){return '<th style="padding:8px;text-align:left;">'+h(c)+'</th>';}).join('')+'</tr></thead><tbody>';
+      for(var p=0;p<np;p++){
+        var pr=T.periods[p]||{label:'P'+(p+1)}; var row=(T.grid[day]||{})[String(p)]||{};
+        out+='<tr style="border-top:1px solid #EEDDC2;'+(pr.isBreak?'background:#F3ECE2;':'')+'"><td style="padding:6px 8px;font-weight:900;white-space:nowrap;position:sticky;left:0;background:'+(pr.isBreak?'#F3ECE2':'#FFFBF4')+';">'+h(pr.label||('P'+(p+1)))+(pr.start?'<div style="font-weight:600;color:#6E5A4E;">'+h(pr.start)+(pr.end?'–'+h(pr.end):'')+'</div>':'')+'</td>';
+        classes.forEach(function(c){ var cell=row[c]||{};
+          if(erp||pr.isBreak) out+='<td style="padding:6px 8px;'+(cell.ai?'background:#6B0F1A;color:#fff;':'')+'">'+(pr.isBreak?'<i style="color:#888;">break</i>':h(cell.subject||'')+(cell.ai?' <b>&#x1F916; AI</b>':'')+(cell.teacher?'<div style="font-size:.72rem;opacity:.8;">'+h(cell.teacher)+'</div>':''))+'</td>';
+          else out+='<td style="padding:4px;'+(cell.ai?'background:#F7E3E6;':'')+'"><input aria-label="'+h(c+' '+day+' '+(pr.label||'P'+(p+1)))+'" class="tt-cell" data-p="'+p+'" data-c="'+h(c)+'" value="'+h(cell.subject||'')+'" style="width:110px;padding:6px;border:1px solid #E0CBA8;border-radius:6px;font-family:Nunito,sans-serif;font-size:.8rem;"/>'
+            +(T.ai_room?'<label style="display:flex;gap:4px;align-items:center;font-size:.72rem;font-weight:800;margin-top:3px;"><input type="checkbox" class="tt-ai" data-p="'+p+'" data-c="'+h(c)+'"'+(cell.ai?' checked':'')+'/>AI</label>':'')+'</td>';
+        });
+        out+='</tr>';
+      }
+      out+='</tbody></table></div>';
+      if(!erp) out+='<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px;"><button type="button" id="tt-save" style="padding:11px 20px;background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:10px;font-weight:900;cursor:pointer;min-height:46px;">Save timetable</button><span id="tt-msg" style="font-weight:800;font-size:.86rem;"></span></div>'
+        +(T.ai_room?aiClash():'');
+    }
+    $('tt-body').innerHTML=out; wire();
+  }
+  // two classes in the AI room in the same period = a clash
+  function aiClash(){
+    var c=[];T.days.forEach(function(d){Object.keys(T.grid[d]||{}).forEach(function(p){var n=Object.keys(T.grid[d][p]).filter(function(k){return T.grid[d][p][k].ai&&!T.grid[d][p][k].common;});if(n.length>1)c.push(d+' '+((T.periods[p]||{}).label||'P'+(+p+1))+': '+n.join(', '));});});
+    return c.length?box('red','<b>AI room clash</b> &mdash; two classes in the AI room at the same time:<br>'+c.map(h).join('<br>')):'';
+  }
+  function wire(){
+    document.querySelectorAll('.tt-day').forEach(function(b){ b.onclick=function(){ day=b.getAttribute('data-d'); draw(); }; });
+    if($('tt-refresh')) $('tt-refresh').onclick=load;
+    if($('tt-airoom')) $('tt-airoom').onchange=function(){ T.ai_room=this.checked; dirty=true; draw(); };
+    document.querySelectorAll('.tt-cell').forEach(function(i){ i.oninput=function(){ var p=i.getAttribute('data-p'),c=i.getAttribute('data-c');
+      T.grid[day]=T.grid[day]||{}; T.grid[day][p]=T.grid[day][p]||{}; var cell=T.grid[day][p][c]||{};
+      cell.subject=i.value.trim(); if(!cell.subject&&!cell.teacher) delete T.grid[day][p][c]; else T.grid[day][p][c]=cell; dirty=true; }; });
+    document.querySelectorAll('.tt-ai').forEach(function(i){ i.onchange=function(){ var p=i.getAttribute('data-p'),c=i.getAttribute('data-c');
+      var cell=((T.grid[day]||{})[p]||{})[c]; if(!cell){ i.checked=false; alert('Type the subject first.'); return; } cell.ai=i.checked; dirty=true; draw(); }; });
+    if($('tt-save')) $('tt-save').onclick=async function(){
+      var m=$('tt-msg'); m.style.color='#6E5A4E'; m.textContent='Saving…';
+      var d=await api('save',{periods:T.periods,days:T.days,classes:T.classes,grid:T.grid,ai_room:T.ai_room});
+      if(d.success){ dirty=false; m.style.color='#1a5c2a'; m.textContent='Saved. The Lesson Planner follows it from now on.'; }
+      else { m.style.color='#c0392b'; m.textContent=d.error||'Could not save.'; }
+    };
+    if($('tt-read')) $('tt-read').onclick=readPhotos;
+  }
+
+  // shrink a photo to ~1500px JPEG so several fit in one request
+  function shrink(file){ return new Promise(function(ok,bad){ var img=new Image(), url=URL.createObjectURL(file);
+    img.onload=function(){ var k=Math.min(1,1500/Math.max(img.width,img.height)), cv=document.createElement('canvas'); cv.width=Math.round(img.width*k); cv.height=Math.round(img.height*k);
+      cv.getContext('2d').drawImage(img,0,0,cv.width,cv.height); URL.revokeObjectURL(url); ok(cv.toDataURL('image/jpeg',0.8).split(',')[1]); };
+    img.onerror=function(){ bad(new Error('Could not open '+file.name)); }; img.src=url; }); }
+  async function readPhotos(){
+    var files=[].slice.call(($('tt-files').files)||[]).slice(0,6), m=$('tt-read-msg');
+    if(!files.length){ m.style.color='#c0392b'; m.textContent='Choose one or more photos first.'; return; }
+    if(Object.keys(T.grid).length&&!confirm('Replace the timetable below with what AI reads from these photos?')) return;
+    this.disabled=true; m.style.color='#6E5A4E'; m.textContent='Reading '+files.length+' photo'+(files.length>1?'s':'')+'… (about a minute)';
+    try{
+      var imgs=[]; for(var i=0;i<files.length;i++) imgs.push(await shrink(files[i]));
+      var content=imgs.map(function(b){return {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b}};});
+      content.push({type:'text',text:'These photos are a school timetable (a master timetable of all classes, or one timetable per class). Read EVERY box exactly as written. Use these class names: "Pre KG","LKG","UKG","Class 1" … "Class 12" (e.g. "III Std", "3rd", "Class III" → "Class 3"). Subjects as written (e.g. English, Maths, Tamil, Hindi, EVS, Science, Social Science, Computer, PT, Library). Days as Mon Tue Wed Thu Fri Sat. Periods in order from the first; include breaks/lunch as periods with isBreak true. If a box says AI, AI class, smart class or TeachBot, set "ai": true. Leave out boxes you cannot read rather than guessing.\nReply with JSON only: {"periods":[{"label":"P1","start":"09:00","end":"09:40","isBreak":false}],"days":["Mon"],"classes":["Class 3"],"grid":{"Mon":{"0":{"Class 3":{"subject":"English","teacher":"","ai":false}}}},"unclear":"anything you could not read"}  (grid keys "0","1"… are the period numbers counting breaks).'});
+      var r=await fetch('/api/ai',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-5-5',max_tokens:12000,system:'You read school timetables from photos accurately. Reply with JSON only.',messages:[{role:'user',content:content}]})});
+      var d=await r.json(); if(!r.ok||d.type==='error') throw new Error(d.message||(d.error&&(d.error.message||d.error))||('status '+r.status));
+      var txt=(d.content||[]).map(function(x){return x.text||'';}).join(''); var a=txt.indexOf('{'), b=txt.lastIndexOf('}');
+      var j=JSON.parse(txt.slice(a,b+1));
+      T.periods=Array.isArray(j.periods)?j.periods:[]; T.days=(Array.isArray(j.days)&&j.days.length?j.days:DAYS.slice(0,6)).filter(function(x){return DAYS.indexOf(x)!==-1;});
+      T.classes=Array.isArray(j.classes)?j.classes.filter(function(c){return CLS.indexOf(c)!==-1;}):[]; T.grid=j.grid&&typeof j.grid==='object'?j.grid:{};
+      if(Object.keys(T.grid).some(function(dd){return Object.keys(T.grid[dd]||{}).some(function(p){return Object.keys(T.grid[dd][p]).some(function(c){return T.grid[dd][p][c].ai;});});})) T.ai_room=true;
+      T.source=T.source||'photo'; dirty=true; if(T.days.indexOf(day)===-1) day=T.days[0];
+      draw(); var mm=$('tt-read-msg'); mm.style.color='#8A6418';
+      mm.textContent='Read. Check every day and box against the photo, correct anything wrong'+(j.unclear?' (AI could not read: '+j.unclear+')':'')+', then tap Save timetable.';
+    }catch(e){ m.style.color='#c0392b'; m.textContent='AI could not read the photos: '+e.message+'. Try clearer photos, fewer at a time.'; }
+    finally{ var bb=$('tt-read'); if(bb) bb.disabled=false; }
+  }
+})();
+</script>
+<!-- Report Cards → ERP for schools with the ERP switch ON -->
+<script src="js/erp-report-switch.js"></script>
+<!-- ═══ My Teachers — new layout (Nov 2026 preview). One block: remove it and the old layout is back.
+     Only the arrangement changes: the same forms, lists, buttons and saving code are used. ═══ -->
+<style id="tp2-style">
+body.tp2 #teachers-page{padding:0!important;background:#F7EFE2!important;overflow-x:hidden}
+body.tp2 #tp-wrap, body.tp2 #tp-wrap.tp-work-on{max-width:1180px!important;margin:0 auto;padding:0 24px 48px}
+body.tp2 #tp-wrap > .tp-keep:first-of-type{margin:0 calc(50% - 50vw) 18px!important;padding:10px max(24px,calc(50vw - 566px));background:linear-gradient(90deg,#4A0A12,#6B0F1A);border-bottom:4px solid #C9A84C;display:flex;align-items:center;gap:14px}
+body.tp2 #tp-wrap > .tp-keep:first-of-type h2{color:#FBF4E8!important;font-size:1.3rem!important}
+body.tp2 #tp-wrap > .tp-keep:first-of-type button{background:#C9A84C!important;color:#3A0E0E!important;border:none!important;border-radius:10px!important;padding:9px 16px!important;font-weight:900!important;min-height:42px;cursor:pointer}
+body.tp2 .tp-tabs{gap:8px;margin-bottom:8px;border-bottom:2px solid #E3D2B6;padding-bottom:0}
+body.tp2 .tp-tabs > #tp-t-teachers, body.tp2 .tp-tabs > #tp-t-work{display:none}
+body.tp2 .tp-tab{border-radius:10px 10px 0 0;border:none;border-bottom:3px solid transparent;background:transparent;font-size:.98rem;padding:10px 16px;margin-bottom:-2px;min-height:44px}
+body.tp2 .tp-tab[aria-selected="true"]{background:transparent;color:#6B0F1A;border-bottom-color:#6B0F1A}
+body.tp2 .tp-tab[aria-selected="false"]{color:#7A6255}
+body.tp2 .tp-tab:focus-visible, body.tp2 .tp2-add:focus-visible{outline:3px solid #C9A84C;outline-offset:2px}
+body.tp2 .tp2-n{display:inline-block;min-width:22px;padding:1px 7px;border-radius:999px;background:#F0E2C8;color:#6B0F1A;font-size:.75rem;margin-left:6px;text-align:center}
+body.tp2 .tp2-n.red{background:#A3241B;color:#fff}
+body.tp2 .tp2-lead{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin:12px 0}
+body.tp2 .tp2-lead p{margin:0;color:#5B4A3F;font-size:.9rem;max-width:70ch}
+body.tp2 .tp2-add{background:linear-gradient(135deg,#6B0F1A,#8B1A2A);color:#E8C96A;border:none;border-radius:10px;padding:10px 18px;font-family:Nunito,sans-serif;font-weight:900;font-size:.92rem;min-height:44px;cursor:pointer;white-space:nowrap}
+/* which part shows */
+body.tp2 #tp-wrap.tp2-login > #ta-box, body.tp2 #tp-wrap.tp2-app > .tp2-loginpart{display:none!important}
+/* Teacher App tab */
+body.tp2 #ta-box{padding:0!important;background:transparent!important;box-shadow:none!important;border:none!important;margin:0!important}
+body.tp2 #ta-box > div:nth-child(1), body.tp2 #ta-box > div:nth-child(2){display:none}
+body.tp2 #ta-box:not(.tp2-open) #ta-form{display:none}
+body.tp2 #ta-form{background:#fff!important;border:1px solid #E3D2B6!important;border-top:4px solid #C9A84C!important;border-radius:14px!important;padding:18px!important;max-width:820px}
+body.tp2 #ta-list{background:#fff;border:1px solid #E3D2B6;border-radius:14px;overflow:hidden}
+body.tp2 #ta-list > div[style*="border"]{display:grid;grid-template-columns:minmax(150px,210px) minmax(0,1fr) auto;gap:4px 18px;align-items:center;border:none!important;border-bottom:1px solid #EFE3CC!important;border-radius:0!important;margin:0!important;padding:10px 16px!important}
+body.tp2 #ta-list > div[style*="border"]:last-child{border-bottom:none!important}
+body.tp2 #ta-list > div[style*="border"] > div:nth-child(1){flex-direction:column;align-items:flex-start!important;gap:1px!important}
+body.tp2 #ta-list > div[style*="border"] > div:nth-child(2){margin:0!important;font-size:.82rem!important}
+body.tp2 #ta-list > div[style*="border"] > div:nth-child(3){flex-wrap:nowrap!important;align-items:center;justify-content:flex-end}
+body.tp2 #ta-list .ta-act{min-height:36px!important;padding:5px 10px!important;white-space:nowrap}
+body.tp2 .tp2-more{position:relative}
+body.tp2 .tp2-more > summary{list-style:none;cursor:pointer;min-height:36px;padding:5px 10px;border-radius:8px;border:1.5px solid #D8C7A6;background:#fff;color:#5B4A3F;font-weight:800;font-size:.8rem;display:flex;align-items:center}
+body.tp2 .tp2-more > summary::-webkit-details-marker{display:none}
+body.tp2 .tp2-more[open] > div{position:absolute;right:0;top:calc(100% + 4px);z-index:5;background:#fff;border:1px solid #E3D2B6;border-radius:10px;box-shadow:0 8px 20px rgba(74,10,18,.18);padding:8px;display:flex;flex-direction:column;gap:6px;min-width:150px}
+body.tp2 .tp2-head{display:grid;grid-template-columns:minmax(150px,210px) minmax(0,1fr) auto;gap:18px;padding:8px 16px;background:#F5E9D3;font-size:.72rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase;color:#6B0F1A}
+/* TeachBot Logins tab */
+body.tp2 .tp2-loginpart{border-radius:14px!important;box-shadow:none!important;border:1px solid #E3D2B6;padding:18px!important}
+body.tp2 .tp2-loginform{max-width:820px}
+body.tp2 .tp2-loginform:not(.tp2-open){display:none!important}
+body.tp2 .tp2-loginform > div:first-child span{display:none}
+@media (max-width:900px){
+  body.tp2 #ta-list > div[style*="border"]{grid-template-columns:1fr}
+  body.tp2 #ta-list > div[style*="border"] > div:nth-child(3){flex-wrap:wrap!important;justify-content:flex-start}
+  body.tp2 .tp2-head{display:none}
+  body.tp2 #tp-wrap, body.tp2 #tp-wrap.tp-work-on{padding:0 12px 40px}
+}
+</style>
+<script>
+(function(){
+  var W=document.getElementById('tp-wrap'), box=document.getElementById('ta-box'), tabs=W&&W.querySelector('.tp-tabs');
+  if(!W||!box||!tabs||typeof window.tpTab!=='function') return;
+  document.body.classList.add('tp2');
+  var $=function(id){return document.getElementById(id);};
+  // the two TeachBot-login boxes are the last two boxes on the page
+  var kids=[].slice.call(W.children).filter(function(c){return c.tagName==='DIV'&&!c.classList.contains('tp-keep')&&c.id!=='ta-box';});
+  var loginForm=kids[kids.length-2], loginList=kids[kids.length-1];
+  if(!loginForm||!loginList) { document.body.classList.remove('tp2'); return; }
+  loginForm.classList.add('tp2-loginpart','tp2-loginform'); loginList.classList.add('tp2-loginpart');
+
+  // three tabs
+  function mk(id,label){ var b=document.createElement('button'); b.type='button'; b.className='tp-tab'; b.id=id; b.setAttribute('role','tab'); b.innerHTML=label+'<span class="tp2-n" id="'+id+'-n"></span>'; tabs.appendChild(b); return b; }
+  var bApp=mk('tp2-t-app','Teacher App'), bLog=mk('tp2-t-login','TeachBot Logins'), bWork=mk('tp2-t-work','Work to Staff');
+  var oldTab=window.tpTab, cur='app';
+  function setTab(t){
+    cur=t; oldTab(t==='work'?'work':'teachers');
+    W.classList.toggle('tp2-app',t==='app'); W.classList.toggle('tp2-login',t==='login');
+    bApp.setAttribute('aria-selected',String(t==='app')); bLog.setAttribute('aria-selected',String(t==='login')); bWork.setAttribute('aria-selected',String(t==='work'));
+  }
+  bApp.onclick=function(){setTab('app');}; bLog.onclick=function(){setTab('login');}; bWork.onclick=function(){setTab('work');};
+  window.tpTab=function(t){ setTab(t==='work'?'work':(cur==='login'?'login':'app')); };
+
+  // short line + Add button above each list; the forms open only when asked
+  function lead(text,btnText,onAdd){ var d=document.createElement('div'); d.className='tp2-lead'; var p=document.createElement('p'); p.textContent=text; var b=document.createElement('button'); b.type='button'; b.className='tp2-add'; b.textContent=btnText; b.onclick=onAdd; d.appendChild(p); d.appendChild(b); return {el:d,btn:b}; }
+  var form=$('ta-form');
+  var L1=lead("Each teacher gets her own link and a 4-digit PIN. It opens only her day: today's plan, homework check and Submit my day.", '+ Add a teacher', function(){ openApp(!box.classList.contains('tp2-open')); });
+  box.insertBefore(L1.el, form);
+  function openApp(on){ box.classList.toggle('tp2-open',on); L1.btn.textContent=on?'Close':'+ Add a teacher'; if(on){ form.scrollIntoView({block:'nearest',behavior:'smooth'}); var n=$('ta-name'); if(n) n.focus(); } }
+  var L2=lead("Optional. Only for a teacher who must open TeachBot tools herself, with her own email and password. Tick only the tools she needs.", '+ Add a TeachBot login', function(){ openLogin(!loginForm.classList.contains('tp2-open')); });
+  L2.el.classList.add('tp2-loginpart'); L2.el.style.cssText='border:none;padding:0!important;background:transparent';
+  W.insertBefore(L2.el, loginForm);
+  function openLogin(on){ loginForm.classList.toggle('tp2-open',on); L2.btn.textContent=on?'Close':'+ Add a TeachBot login'; if(on){ var n=$('t-name'); if(n) n.focus(); } }
+
+  // Edit opens the form; finishing an edit or getting the new PIN closes it
+  var title=$('ta-form-title'), wasEdit=false;
+  if(title) new MutationObserver(function(){ var e=/Edit/.test(title.textContent); if(e){ openApp(true); } else if(wasEdit){ openApp(false); } wasEdit=e; }).observe(title,{childList:true,characterData:true,subtree:true});
+  var pin=$('ta-pin-box');
+  if(pin) new MutationObserver(function(){ if(pin.style.display!=='none'&&pin.innerHTML){ openApp(false); pin.scrollIntoView({block:'nearest',behavior:'smooth'}); } }).observe(pin,{attributes:true,childList:true});
+  var tmsg=$('t-msg');
+  if(tmsg) new MutationObserver(function(){ if(/added/i.test(tmsg.textContent)) setTimeout(function(){ openLogin(false); },1500); }).observe(tmsg,{childList:true,characterData:true,subtree:true});
+
+  // compact rows: the three rarely used buttons go under "More"
+  var list=$('ta-list'), busy=false;
+  function tidy(){
+    if(busy) return; busy=true;
+    var rows=[].slice.call(list.children).filter(function(r){ return r.querySelector&&r.querySelector('.ta-act'); });
+    rows.forEach(function(r){
+      var bar=r.children[2]; if(!bar||bar.querySelector('.tp2-more')) return;
+      var wa=bar.querySelector('.ta-act[data-act="wa"]'); if(wa){ wa.setAttribute('title','Send her link on WhatsApp'); wa.setAttribute('aria-label','Send her link on WhatsApp'); wa.innerHTML='&#128172; WhatsApp'; }
+      var more=[].slice.call(bar.querySelectorAll('.ta-act')).filter(function(b){ return /^(link|onoff|del)$/.test(b.getAttribute('data-act')); });
+      if(!more.length) return;
+      var d=document.createElement('details'); d.className='tp2-more'; var s=document.createElement('summary'); s.textContent='More ▾'; var inner=document.createElement('div');
+      more.forEach(function(b){ inner.appendChild(b); }); d.appendChild(s); d.appendChild(inner); bar.appendChild(d);
+    });
+    if(rows.length && !list.querySelector('.tp2-head')){ var hd=document.createElement('div'); hd.className='tp2-head'; hd.innerHTML='<span>Teacher</span><span>Classes and subjects</span><span>Actions</span>'; list.insertBefore(hd,list.firstChild); }
+    var n=$('tp2-t-app-n'); if(n) n.textContent=rows.length||'';
+    busy=false;
+  }
+  if(list){ new MutationObserver(tidy).observe(list,{childList:true}); tidy(); }
+  document.addEventListener('click',function(e){ document.querySelectorAll('.tp2-more[open]').forEach(function(d){ if(!d.contains(e.target)) d.removeAttribute('open'); }); });
+  // counts on the other two tabs
+  var tc=$('t-count'); function cnt(){ var n=$('tp2-t-login-n'); if(n&&tc) n.textContent=tc.textContent.replace(/\s/g,''); }
+  if(tc){ new MutationObserver(cnt).observe(tc,{childList:true,characterData:true,subtree:true}); cnt(); }
+  var wb=$('tp-work-bd'); function wcnt(){ var n=$('tp2-t-work-n'); if(!n||!wb) return; var t=wb.textContent.trim(); n.textContent=t; n.className='tp2-n'+(t?' red':''); n.style.display=t?'':'none'; }
+  if(wb){ new MutationObserver(wcnt).observe(wb,{childList:true,subtree:true}); wcnt(); }
+  setTab('app');
+})();
+</script>
+<!-- ═══ end of My Teachers new layout ═══ -->
+</body>
+</html>
