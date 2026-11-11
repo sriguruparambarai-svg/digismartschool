@@ -599,25 +599,30 @@ async function loadTeachers(){
   }catch(e){ listEl.innerHTML='<div style="color:#c0392b;">Error: '+e.message+'</div>'; }
 }
 /* ── Teacher Tools access (Oct 2026): tick which tools each teacher may open ── */
+/* Nov 2026: Homework Diary (retired) is not offered; Report Cards and Face Attendance are not offered to schools with ERP */
+(function(){ var st=document.createElement('style'); st.textContent='label[data-tkey="diary"],body.has-erp label[data-tkey="reports"],body.has-erp label[data-tkey="attendance"]{display:none!important}'; document.head.appendChild(st); })();
 function toolBoxesHTML(prefix, list){
   var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
   if(!T.length) return '<div style="font-size:.8rem;color:#c0392b;">Tool list did not load (js/tool-access.js missing). Refresh the page.</div>';
   var on = function(k){ return !list || list.indexOf(k) !== -1; };
   return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:6px;background:#fffaf0;border:1.5px solid #EDD9A3;border-radius:10px;padding:10px;">'
-    + T.map(function(t){ return '<label style="display:flex;gap:7px;align-items:center;font-size:.84rem;cursor:pointer;color:#333;font-weight:600;">'
+    + T.map(function(t){ return '<label data-tkey="'+t.key+'" style="display:flex;gap:7px;align-items:center;font-size:.84rem;cursor:pointer;color:#333;font-weight:600;">'
       + '<input type="checkbox" class="'+prefix+'-tool" value="'+t.key+'"'+(on(t.key)?' checked':'')+' style="width:16px;height:16px;accent-color:#6B0F1A;"> '+t.icon+' '+esc(t.label)+'</label>'; }).join('')
     + '</div><div style="display:flex;gap:8px;margin-top:6px;">'
-    + '<button type="button" onclick="tickTools(\''+prefix+'\',true)" style="font-size:.75rem;padding:4px 10px;border:1px solid #C9A84C;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#6B0F1A;">Tick all</button>'
-    + '<button type="button" onclick="tickTools(\''+prefix+'\',false)" style="font-size:.75rem;padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#666;">Untick all</button></div>';
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',false)" style="font-size:.75rem;padding:4px 10px;border:1px solid #C9A84C;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#6B0F1A;">Untick all</button>'
+    + '<button type="button" onclick="tickTools(\''+prefix+'\',true)" style="font-size:.75rem;padding:4px 10px;border:1px solid #ccc;background:#fff;border-radius:7px;cursor:pointer;font-weight:700;color:#666;">Tick all</button></div>';
 }
-function tickTools(prefix, on){ document.querySelectorAll('.'+prefix+'-tool').forEach(function(c){ c.checked = on; }); }
+/* Nov 2026: Tick all ticks only the tools shown (retired / ERP-only tools are hidden in the list) */
+function tickTools(prefix, on){ document.querySelectorAll('.'+prefix+'-tool').forEach(function(c){ if(!on || c.offsetParent !== null) c.checked = on; }); }
+/* a new teacher starts with TeachBot only — the principal adds more if needed */
+function newTeacherTools(){ document.querySelectorAll('.ta-tool').forEach(function(c){ c.checked = c.value === 'teachbot'; }); }
 function pickedTools(prefix){ return [].slice.call(document.querySelectorAll('.'+prefix+'-tool:checked')).map(function(c){ return c.value; }); }
 function toolsSummary(list){
   var T = (window.DSS_ACCESS && DSS_ACCESS.TOOLS) || [];
   if(!list || !list.length) return '<span style="color:#1a5c2a;font-weight:700;">All tools</span>';
   return T.filter(function(t){ return list.indexOf(t.key) !== -1; }).map(function(t){ return '<span title="'+esc(t.label)+'" style="display:inline-block;background:#f6efe0;border-radius:6px;padding:1px 6px;margin:1px 2px;font-size:.75rem;">'+t.icon+' '+esc(t.label)+'</span>'; }).join('');
 }
-(function(){ function fill(){ var b=document.getElementById('t-tools'); if(b && !b.innerHTML) b.innerHTML = toolBoxesHTML('ta', null); }
+(function(){ function fill(){ var b=document.getElementById('t-tools'); if(b && !b.innerHTML) b.innerHTML = toolBoxesHTML('ta', ['teachbot']); }
   if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', fill); else fill(); })();
 
 async function addTeacher(){
@@ -625,7 +630,7 @@ async function addTeacher(){
   var email=document.getElementById('t-email').value.trim();
   var pass=document.getElementById('t-pass').value;
   var msg=document.getElementById('t-msg');
-  if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent='Please fill all fields.'; return; }
+  if(!name||!email||!pass){ msg.style.color='#c0392b'; msg.textContent=!name?"Please type the teacher's name.":!email?"Please type the teacher's email.":'Please type a password for the teacher.'; var miss=document.getElementById(!name?'t-name':!email?'t-email':'t-pass'); if(miss) miss.focus(); return; }
   var tools=pickedTools('ta');
   if(!tools.length){ msg.style.color='#c0392b'; msg.textContent='Tick at least one tool for this teacher.'; return; }
   if(!window._schoolId){ msg.style.color='#c0392b'; msg.textContent='School ID not ready. Please wait.'; return; }
@@ -639,7 +644,7 @@ async function addTeacher(){
     var d=await r.json();
     if(d.error) throw new Error(d.error);
     msg.style.color='#1a5c2a'; msg.textContent='✅ '+name+' added!';
-    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value=''; tickTools('ta', true);
+    document.getElementById('t-name').value=''; document.getElementById('t-email').value=''; document.getElementById('t-pass').value=''; newTeacherTools();
     setTimeout(function(){msg.textContent='';},3000);
     loadTeachers();
   }catch(e){ msg.style.color='#c0392b'; msg.textContent='Error: '+e.message; }
