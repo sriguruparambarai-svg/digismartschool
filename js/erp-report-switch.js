@@ -23,6 +23,7 @@
   }
 
   function pointButtonsToERP() {
+    try { document.body.classList.add('has-erp'); } catch (e) {}   // Nov 2026: lets a page hide cards that belong in ERP
     var found = document.querySelectorAll('[onclick*="bulk-reports.html"], a[href*="bulk-reports.html"]');
     for (var i = 0; i < found.length; i++) {
       var el = found[i];
