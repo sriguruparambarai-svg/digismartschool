@@ -520,6 +520,33 @@ module.exports = async function handler(req, res) {
           seen[k] = { plan: p, item: item }; out.push(item);
         });
       });
+      /* Nov 2026: a class test is told the day before, as homework — "Tomorrow (Wed) class test in the workbook —
+         revise pp. 17–24." — so children prepare and come. It goes on the school day before the test (Sundays and
+         holidays skipped), even on a day without homework for that subject, below that day's own homework. */
+      (function () {
+        const firstPlan = {}, SCHOOLDAY = {};
+        r.data.forEach(function (p) { (Array.isArray(p.rows) ? p.rows : []).forEach(function (x) { if (x && isDate(x.date)) SCHOOLDAY[x.date] = 1; }); });
+        r.data.forEach(function (p) { const k = p.class_name + '|' + skey(p.subject); if (!firstPlan[k] && Array.isArray(p.rows) && p.rows.length) firstPlan[k] = p; });
+        Object.keys(firstPlan).forEach(function (k) {
+          const p = firstPlan[k];
+          if (p.status !== 'approved') return;
+          const rows = p.rows.filter(function (x) { return x && isDate(x.date); });
+          rows.filter(function (x) { return x.type === 'test'; }).forEach(function (t) {
+            // the school day before: the last earlier day with any lesson in any plan (so a closed Saturday is skipped)
+            let eve = dayBefore(t.date);
+            for (let i = 0; i < 10 && (wkday(eve) === 'Sun' || HOL[eve] || (SCHOOLDAY[eve] === undefined && Object.keys(SCHOOLDAY).length)); i++) eve = dayBefore(eve);
+            if (eve < from || eve > to) return;
+            const wb = !!(p.settings && p.settings.use_wb) || rows.some(function (x) { return x.chapter === t.chapter && /workbook/i.test(String(x.homework || '')); });
+            const pg = String(t.pages || '').trim();
+            const when = dayAfter(eve) === t.date ? 'Tomorrow (' + wkday(t.date) + ')' : 'On ' + wkday(t.date) + ' ' + niceD(t.date) + ',';
+            const msg = when + ' class test' + (wb ? ' in the workbook' : '') + (t.chapter ? ' on ' + String(t.chapter).replace(/^Ch\.?\s*\d+\.?\s*/i, '').replace(/^Mathematics\s*[–-]\s*/i, '') : '') +
+              (pg ? ' — revise ' + (/^p/i.test(pg) ? pg : 'pp. ' + pg) : ' — revise the chapter') + '. Prepare and come.';
+            const it = out.find(function (x) { return x.class_name === p.class_name && skey(x.subject) === skey(p.subject) && x.date === eve; });
+            if (it) { if (String(it.homework || '').indexOf(msg) === -1) it.homework = String(it.homework || '').trim() ? it.homework.trim() + '\n' + msg : msg; }
+            else out.push({ class_name: p.class_name, subject: p.subject, date: eve, homework: msg, test_eve: true });
+          });
+        });
+      })();
       // Nov 2026: classes + subjects whose place was CHECKED on the Homework Line test page ("We are here") take the
       // week's homework from that line (next homework not yet given, class test told the day before) instead of
       // from the Lesson Planner's dates. Others stay as above. If the line can't be read, nothing changes.
