@@ -1136,12 +1136,19 @@ module.exports = async function handler(req, res) {
     if (action === 'live') {
       const day = isDate(body.date) ? body.date : istToday();
       const isToday = day === istToday();
-      const deadline = await readDeadline(school);
-      const pastDeadline = !isToday || istTime() > deadline;
-
-      const wt = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + day +
-        '&entry_type=in.(homework,classwork)&status=in.(waiting,added)&select=id,entry_type,class_name,subject,homework,status,sent_at,teacher_name&order=class_name.asc');
-      const [tr, pr, hr, rr, wr] = await Promise.all([
+      // Nov 2026 (speed): every read below starts at the same time instead of one after another.
+      // The answers are the same; only the waiting is shorter.
+      const nmonth = day.slice(0, 7);
+      const early = {
+        deadline: readDeadline(school), hwCheckBy: readHwCheckBy(school), tomorrowAt: readTomorrowAt(school),
+        wt: db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&hw_date=eq.' + day +
+          '&entry_type=in.(homework,classwork)&status=in.(waiting,added)&select=id,entry_type,class_name,subject,homework,status,sent_at,teacher_name&order=class_name.asc'),
+        pr2: db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=eq.added&hw_date=gte.' +
+          addDays(day, -7) + '&hw_date=lt.' + day + '&select=id,class_name,subject,hw_date'),
+        nr: Promise.resolve(db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&result=eq.not_corrected&check_date=gte.' + nmonth +
+          '-01&check_date=lte.' + day + '&select=teacher_name,class_name,subject,roll,check_date&order=check_date.desc&limit=2000')).catch(function () { return { status: 0, data: [] }; })
+      };
+      const five = Promise.all([
         db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access'),
         db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&status=neq.returned&select=id,class_name,subject,term,status,teacher_name,rows'),
         db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=neq.returned&hw_date=eq.' + day + '&select=id,class_name,subject,homework,status'),
@@ -1149,6 +1156,11 @@ module.exports = async function handler(req, res) {
         db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&report_date=gte.' + addDays(day, -7) +
                   '&report_date=lte.' + day + '&select=teacher_name,report_date,hw_checks')
       ]);
+      const deadline = await early.deadline;
+      const pastDeadline = !isToday || istTime() > deadline;
+
+      const wt = await early.wt;
+      const [tr, pr, hr, rr, wr] = await five;
       for (const x of [tr, pr, hr, rr, wr]) {
         if (!ok(x)) return res.json({ error: 'Could not load: ' + why(x) + (x.status === 404 ? ' (Have the step 1 and step 2 SQL files been run in Supabase?)' : '') });
       }
@@ -1275,12 +1287,11 @@ module.exports = async function handler(req, res) {
       });
 
       // ── Oct 2026: homework check — the last school day's homework each teacher must check today ──
-      const hwCheckBy = await readHwCheckBy(school);
+      const hwCheckBy = await early.hwCheckBy;
       const pastCheck = !!hwCheckBy && (!isToday || istTime() >= hwCheckBy);
       const HK = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social' };
       const hk = function (x) { x = low(x).trim(); return HK[x] || x; };
-      const pr2 = await db('GET', '/rest/v1/homework_plan?school_id=eq.' + enc(school.id) + '&entry_type=eq.homework&status=eq.added&hw_date=gte.' +
-        addDays(day, -7) + '&hw_date=lt.' + day + '&select=id,class_name,subject,hw_date');
+      const pr2 = await early.pr2;
       const prevHw = ok(pr2) ? pr2.data : [];
       tday.forEach(function (td) {
         const t = teachers.find(function (x) { return x.id === td.id; }) || {};
@@ -1316,9 +1327,7 @@ module.exports = async function handler(req, res) {
       const waitingN = parentUpdate.filter(function (x) { return x.status === 'waiting'; }).length;
       // Nov 2026: Notebook check — a teacher with 2 or more notebooks found Not corrected this month
       try {
-        const nm = day.slice(0, 7);
-        const nr = await db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&result=eq.not_corrected&check_date=gte.' + nm +
-          '-01&check_date=lte.' + day + '&select=teacher_name,class_name,subject,roll,check_date&order=check_date.desc&limit=2000');
+        const nr = await early.nr;
         if (ok(nr)) {
           const nb = {};
           nr.data.forEach(function (x) { const k = x.teacher_name || 'No teacher set'; (nb[k] = nb[k] || []).push(x); });
@@ -1334,7 +1343,7 @@ module.exports = async function handler(req, res) {
         detail: 'Approve them in "Today\'s parent update" below so parents get them at 4 PM.' });
       flags.sort(function (a, b) { return order[a.level] - order[b.level]; });
       return res.json({ success: true, date: day, is_today: isToday, deadline: deadline, past_deadline: pastDeadline,
-        tomorrow_at: await readTomorrowAt(school), hw_check_by: hwCheckBy,
+        tomorrow_at: await early.tomorrowAt, hw_check_by: hwCheckBy,
         parent_update: parentUpdate, parent_update_error: ok(wt) ? '' : 'Could not read class work: ' + why(wt),
         stats: { lessons_today: lessonsToday, lessons_done: lessonsDone, homework_today: hwToday.length,
                  submitted: submitTeachers.filter(function (t) { return reportOf[t.id] && reportOf[t.id].submitted_at; }).length,
