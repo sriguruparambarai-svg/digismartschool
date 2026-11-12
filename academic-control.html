@@ -381,10 +381,18 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     $("loaderr").innerHTML='<div class="panel empty">Loading the school\'s day&hellip;</div>';
     var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);S.yday=y;S.nday=n;
     var safe=function(p){return p.catch(function(e){return{error:"No internet or the server did not answer ("+(e&&e.message||e)+")."}})};
+    var pA=safe(call("/api/teacher-app",{action:"list"}));   // Nov 2026: to show each teacher by her My Teachers name
     var pT=safe(call("/api/timetable",{action:"get"})),pY=safe(call("/api/teacher-app",{action:"live",date:y})),pN=safe(call("/api/teacher-app",{action:"live",date:n}));
     var L=await safe(call("/api/teacher-app",{action:"live",date:S.day}));
     if(!L.success){$("loaderr").innerHTML='<div class="err">Could not load the day: '+h(L.error||"no answer")+'</div>';return}
     var T=await pT;S.L=L;S.TT=T.success?T:null;S.Y=null;S.N=null;
+    /* Nov 2026: one name per teacher. The timetable may spell a name differently ("Divya Bharathi", "Shalini.S");
+       each teacher linked in My Teachers (her timetable name) is shown by her My Teachers name instead. */
+    try{var A=await pA,NM={},key=function(x){return String(x||"").toLowerCase().replace(/[^a-z0-9]/g,"")};
+      (A.teachers||[]).forEach(function(t){if(t.erp_name)NM[key(t.erp_name)]=t.name;NM[key(t.name)]=t.name});
+      var fix=function(o){if(!o||typeof o!=="object")return;Object.keys(o).forEach(function(k){var v=o[k];
+        if(typeof v==="string"&&/teacher|helper/i.test(k)&&NM[key(v)])o[k]=NM[key(v)];else if(v&&typeof v==="object")fix(v)})};
+      if(S.TT)fix(S.TT.grid)}catch(e){}
     $("loaderr").innerHTML=T.success?"":'<div class="err">Timetable could not be read: '+h(T.error||"no answer")+'</div>';
     drawAll();
     Promise.all([pY,pN]).then(function(r){S.Y=r[0].success?r[0]:null;S.N=r[1].success?r[1]:null;
