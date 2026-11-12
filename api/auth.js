@@ -377,7 +377,8 @@ module.exports = async function(req2, res) {
 
       // Step 3: Create school record — with retry for schema cache
       const endDate = subscription_end || new Date(Date.now() + 30*24*60*60*1000).toISOString().split('T')[0];
-      const schoolData = { name: school_name, email, phone: phone||'', city: city||'', subscription_status: 'active', subscription_end: endDate };
+      // Nov 2026: a school added as "Trial / Demo" is saved as trial (counted under Trial Schools, not Active)
+      const schoolData = { name: school_name, email, phone: phone||'', city: city||'', subscription_status: body.plan === 'trial' ? 'trial' : 'active', subscription_end: endDate };
 
       let sr = await req('POST', '/rest/v1/schools', schoolData);
 
