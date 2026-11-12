@@ -1769,7 +1769,15 @@ body.has-erp .tool-card[data-erp-done], body.has-erp .tool-card[onclick*="studen
 (function(){
   var c=document.getElementById('erp-card'); if(!c) return;
   c.addEventListener('click',function(e){
-    if(document.body.classList.contains('has-erp')) return;            // school has ERP: open it
+    if(document.body.classList.contains('has-erp')){                     // school has ERP: open it, already signed in
+      e.preventDefault();
+      var w=window.open('about:blank','_blank');                         // opened now, so the browser does not block it
+      fetch('/api/teacher-app',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'erp_pass'})})
+        .then(function(r){return r.json()}).catch(function(){return {}})
+        .then(function(d){ var to=(d&&d.success&&d.url)?d.url:'https://erp.digismartschool.com';   // no pass: the ERP login page, as before
+          if(w&&!w.closed){ try{w.opener=null}catch(x){} w.location.replace(to); } else window.location.href=to; });
+      return;
+    }
     e.preventDefault();
     var n=(document.getElementById('school-name')||{}).textContent||'our school';
     if(confirm('School Office (ERP) is an add-on: fees, attendance, report cards and the parent app, in the same app as TeachBot.\n\nWould you like to ask DigiSmart about adding it?'))

@@ -972,6 +972,20 @@ module.exports = async function handler(req, res) {
     const school = await findSchool(who.role === 'super_admin' ? body.school_id : who.sid);
     if (!school) return res.json({ error: 'School not found for this login.' });
 
+    // ── ONE LOGIN FOR ERP (Nov 2026) ──
+    // The School Office (ERP) card asks for a short pass. ERP's /api/teachbot-login checks it with the
+    // same shared secret as the homework link (TEACHBOT_LINK_KEY) and opens ERP as this school's owner.
+    // The pass names only the ERP school and lasts 2 minutes. Only the principal (School Admin login) gets one.
+    if (action === 'erp_pass') {
+      const key = process.env.TEACHBOT_LINK_KEY || '';
+      if (!key) return res.json({ error: 'TEACHBOT_LINK_KEY is not set in TeachBot\'s Vercel settings.' });
+      const erpId = await erpSchoolOf(school);
+      if (!erpId) return res.json({ error: 'This school does not have DigiSmart ERP switched on.', no_erp: true });
+      const payload = Buffer.from(JSON.stringify({ erp: erpId, exp: Date.now() + 120000, n: crypto.randomBytes(9).toString('hex') })).toString('base64url');
+      const sig = crypto.createHmac('sha256', key).update('tb-login.' + payload).digest('base64url');
+      return res.json({ success: true, url: 'https://erp.digismartschool.com/teachbot-login.html#pass=' + payload + '.' + sig });
+    }
+
     // ── WORK TO STAFF (Oct 2026) — principal side ──
     if (action === 'work_teachers') {
       const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name&order=name.asc');
