@@ -1786,5 +1786,94 @@ body.has-erp .tool-card[data-erp-done], body.has-erp .tool-card[onclick*="studen
 })();
 </script>
 <!-- ═══ end of School Admin grouped layout ═══ -->
+<!-- ═══ Getting Started checklist (Nov 2026) — School Admin. Each step ticks itself from the school's own data.
+     PREVIEW: shown only with ?gs=1 until approved. Hidden for good once every step is done, or when "Hide" is pressed. ═══ -->
+<style id="gs-style">
+#gs-box{margin:0 0 22px;background:#FFFDF8;border:2px solid #D4A017;border-radius:16px;padding:18px 22px;box-shadow:0 4px 18px rgba(74,10,18,.08);font-family:inherit}
+#gs-box .gs-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+#gs-box h2{margin:0;font-family:'Cinzel',serif;color:#6B0F1A;font-size:1.15rem;letter-spacing:.5px}
+#gs-box .gs-sub{color:#7a5a3a;font-size:.88rem;margin:2px 0 0}
+#gs-box .gs-count{margin-left:auto;background:#6B0F1A;color:#F5D98B;border-radius:20px;padding:5px 14px;font-weight:800;font-size:.85rem}
+#gs-box .gs-bar{height:7px;background:#F1E4CC;border-radius:6px;margin:12px 0 6px;overflow:hidden}
+#gs-box .gs-bar i{display:block;height:100%;background:linear-gradient(90deg,#D4A017,#B8860B);width:0;transition:width .5s}
+#gs-box ol{list-style:none;margin:10px 0 0;padding:0;display:grid;gap:8px}
+#gs-box li{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:12px;background:#FBF4E8;border:1px solid #EEDFC2}
+#gs-box li.done{background:#F2F8F1;border-color:#CFE5CC}
+#gs-box .gs-n{flex:0 0 30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;background:#fff;border:2px solid #D4A017;color:#6B0F1A}
+#gs-box li.done .gs-n{background:#2E7D32;border-color:#2E7D32;color:#fff}
+#gs-box .gs-t{flex:1;min-width:0}
+#gs-box .gs-t b{display:block;color:#4A0A12;font-size:.95rem}
+#gs-box .gs-t span{display:block;color:#7a6650;font-size:.82rem;margin-top:2px}
+#gs-box li.done .gs-t b{color:#2E5E31}
+#gs-box .gs-go{flex:0 0 auto;background:#6B0F1A;color:#F5D98B;border:0;border-radius:10px;padding:8px 14px;font-weight:800;cursor:pointer;font-size:.85rem}
+#gs-box .gs-go:hover{background:#4A0A12}
+#gs-box li.done .gs-go{background:transparent;color:#2E7D32;border:1px solid #9CC79A}
+#gs-box .gs-hide{background:none;border:0;color:#9a7a55;font-size:.8rem;cursor:pointer;text-decoration:underline}
+#gs-box .gs-wait{color:#9a7a55;font-size:.85rem;padding:6px 0}
+@media(max-width:640px){#gs-box li{flex-wrap:wrap}#gs-box .gs-go{margin-left:42px}}
+</style>
+<script id="gs-script">
+(function(){
+  var role='';try{role=localStorage.getItem('dss_role')||''}catch(e){}
+  if(role&&role!=='school_admin')return;
+  var preview=/[?&]gs=1\b/.test(location.search);
+  if(!preview)return;                                    // PREVIEW ONLY for now
+  var sid='';try{var u=JSON.parse(localStorage.getItem('dss_user')||'{}');sid=u.school_id||u.id||''}catch(e){}
+  var HIDE='dss_gs_hidden_'+sid;
+  try{if(!preview&&localStorage.getItem(HIDE))return}catch(e){}
+  function post(url,body){return fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(function(r){return r.json()}).catch(function(){return {}})}
+  function card(sel){var c=document.querySelector('.tool-card[onclick*="'+sel+'"]');if(c)c.click()}
+  function ymd(d){return d.toISOString().slice(0,10)}
+  var STEPS=[
+    {k:'tt',t:'Set the School Timetable',d:'Which subject and teacher in each period. Everything else follows it.',go:function(){card('showTimetable')}},
+    {k:'tc',t:'Add your teachers',d:'Name, classes and subjects in My Teachers. Give each only the tools she needs.',go:function(){card('showTeachersPage')}},
+    {k:'cal',t:'Mark holidays in the School Calendar',d:'Lesson plans skip these days by themselves.',go:function(){card('showCalendar')}},
+    {k:'lp',t:'Make the first Lesson Plan',d:'Pick a class and subject; the AI reads the textbook and plans it to the term end.',go:function(){location.href='/lesson-planner-test.html'}},
+    {k:'hw',t:'Set the Homework Timetable',d:'Which subjects give homework on which day. Parents get it at 4 PM.',go:function(){location.href='/homework-planner.html#tt'}},
+    {k:'pin',t:'Give teachers their app link and PIN',d:'In My Teachers: set a PIN and share the link on WhatsApp. Teachers see their day on the phone.',go:function(){card('showTeachersPage')}}
+  ];
+  function draw(box,done){
+    var n=STEPS.filter(function(s){return done[s.k]}).length;
+    if(n===STEPS.length&&!preview){box.remove();return}
+    box.innerHTML='<div class="gs-head"><div><h2>🚀 Getting started</h2><p class="gs-sub">Six steps and the school runs on its own — each one ticks itself when it is done.</p></div>'
+      +'<span class="gs-count">'+n+' of '+STEPS.length+' done</span></div>'
+      +'<div class="gs-bar"><i style="width:'+Math.round(n*100/STEPS.length)+'%"></i></div>'
+      +'<ol>'+STEPS.map(function(s,i){var ok=!!done[s.k];
+        return '<li class="'+(ok?'done':'')+'"><span class="gs-n">'+(ok?'✓':(i+1))+'</span><span class="gs-t"><b>'+s.t+'</b><span>'+(ok&&done[s.k+'_note']?done[s.k+'_note']:s.d)+'</span></span>'
+          +'<button type="button" class="gs-go" data-i="'+i+'">'+(ok?'Open':'Do this →')+'</button></li>'}).join('')+'</ol>'
+      +'<div style="text-align:right;margin-top:8px"><button type="button" class="gs-hide">Hide this list</button></div>';
+    box.querySelectorAll('.gs-go').forEach(function(b){b.onclick=function(){STEPS[+b.getAttribute('data-i')].go()}});
+    box.querySelector('.gs-hide').onclick=function(){try{localStorage.setItem(HIDE,'1')}catch(e){}box.remove()};
+  }
+  function start(){
+    var anchor=document.getElementById('ac-strip');if(!anchor||document.getElementById('gs-box'))return;
+    var box=document.createElement('section');box.id='gs-box';box.innerHTML='<div class="gs-wait">Checking your school’s set-up…</div>';
+    anchor.parentNode.insertBefore(box,anchor);
+    var t=new Date(),wk=ymd(new Date(t.getTime()-7*864e5)),wk2=ymd(new Date(t.getTime()+14*864e5));
+    Promise.all([
+      post('/api/timetable',{action:'get'}),
+      post('/api/teacher-app',{action:'list'}),
+      post('/api/term-plan',{action:'holidays'}),
+      post('/api/term-plan',{action:'list'}),
+      post('/api/homework',{action:'list',from:wk,to:wk2})
+    ]).then(function(r){
+      var tt=r[0]||{},tc=(r[1]&&r[1].teachers)||[],hol=(r[2]&&r[2].holidays)||[],pl=(r[3]&&r[3].plans)||[],hw=r[4]||{};
+      var appr=pl.filter(function(p){return p.status==='approved'}),pins=tc.filter(function(x){return x.has_pin&&x.active!==false});
+      var htt=hw.timetable||{},httN=Object.keys(htt).filter(function(c){var d=htt[c]||{};return Object.keys(d).some(function(k){return (d[k]||[]).length})}).length;
+      var done={
+        tt:!!(tt.success&&(tt.classes||[]).length), tt_note:(tt.classes||[]).length?'Set for '+tt.classes.length+' classes.':'',
+        tc:tc.length>0, tc_note:tc.length+' teacher'+(tc.length>1?'s':'')+' added.',
+        cal:hol.length>0, cal_note:hol.length+' holiday'+(hol.length>1?'s':'')+' marked.',
+        lp:appr.length>0, lp_note:appr.length+' approved plan'+(appr.length>1?'s':'')+'.',
+        hw:httN>0, hw_note:'Set for '+httN+' class'+(httN>1?'es':'')+'.',
+        pin:pins.length>0&&pins.length>=tc.filter(function(x){return x.active!==false}).length, pin_note:pins.length+' of '+tc.length+' teachers can open the app.'
+      };
+      if(!done.pin&&pins.length)STEPS[5].d=pins.length+' of '+tc.length+' teachers have a PIN. Set a PIN for the rest in My Teachers and share their links.';
+      draw(box,done);
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){setTimeout(start,400)});else setTimeout(start,400);
+})();
+</script>
 </body>
 </html>
