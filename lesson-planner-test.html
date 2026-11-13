@@ -250,6 +250,7 @@ async function loadBooks(){if(BOOKS)return BOOKS;
   const ncertOn=!!(USER&&USER.has_ncert_library);
   lib=lib.filter(b=>b&&(b.syllabus_type==="ncert"?ncertOn:!!b.pdf_url))   // a Samacheer copy with no stored PDF cannot be read
          .filter(b=>!own.some(o=>normCls(o.class_name)===normCls(b.class_name)&&sk(o.subject||"")===sk(b.subject||"")))
+         .sort((x,y)=>{const o=t=>{const i=["history","geography","civics","economics","physics","chemistry","biology"].findIndex(w=>new RegExp(w,"i").test(t.title||""));return i<0?99:i};return o(x)-o(y)||/part\s*-?\s*2/i.test(x.title)-/part\s*-?\s*2/i.test(y.title)})
          .map(b=>({id:b.id,book_name:b.title,title:b.title,class_name:b.class_name,subject:b.subject,term:"",pdf_url:b.pdf_url,lib:true}));
   BOOKS=own.concat(lib);return BOOKS}
 /* Library (NCERT) books are stored one PDF per chapter, named by file code (fees101…). Keep real chapters only
@@ -277,7 +278,7 @@ function unitChapters(rows){
   const f=String(rows[0].extracted_text||"").match(/_EM\.indd\s+(\d+)/),off=f?(+rows[0].page_from||1)-(+f[1]):1-U[us[0]],last=Math.max(...rows.map(c=>+c.page_to||0));
   return us.map((u,i)=>{const s=U[u],e=i+1<us.length?U[us[i+1]]-1:1e9,cnt={};
     for(const m of txt.matchAll(/(?:^|\s)(\d{1,3})\s+([A-Z][A-Za-z,’'&():\- –]{5,70}?)(?=\s{2}|\s+\d|\n)/g)){const p=+m[1],k=m[2].trim();
-      if(p>=s&&p<=e&&/\s/.test(k)&&!/^(Introduction|Learning Objectives?)\b/i.test(k))cnt[k]=(cnt[k]||0)+1}
+      if(p>=s&&p<=e&&/\s/.test(k)&&!/^(Introduction|Learning Objectives?)\b/i.test(k)&&!/Class\s+[XVI]+\b|^(Social Science|Science|Mathematics|English|Tamil)\b/i.test(k))cnt[k]=(cnt[k]||0)+1}
     let title=(Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0]||[""])[0].replace(/\b([B-HJ-Z]) ([a-z]{3,})/g,"$1$2");
     const from=Math.max(1,s+off),to=Math.min(last,i+1<us.length?e+off:last);
     return{chapter_number:u,chapter_title:title||("Unit "+u),label:"Unit "+u+". "+(title||"(pp "+from+"–"+to+")"),page_from:from,page_to:to}}).filter(c=>c.page_to>=c.page_from)}
