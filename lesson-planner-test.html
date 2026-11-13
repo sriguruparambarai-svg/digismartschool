@@ -241,10 +241,20 @@ const way=sb=>{const k=subjKey(sb);return k==="maths"?(num($("fClass").value)<=2
 /* ---------- books + chapters ---------- */
 const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|\./g,"");
 let BOOKS=null;const BOOK_CH={},PDFS={};
-async function loadBooks(){if(BOOKS)return BOOKS;try{const d=await authCall("get_school_books");BOOKS=d.books||[]}catch(e){BOOKS=[]}return BOOKS}
+/* Nov 2026: the central Textbook Library counts too — Samacheer for every school, NCERT when the school's
+   NCERT Library is on. A book the school uploaded itself wins over the library copy of the same class+subject. */
+async function loadBooks(){if(BOOKS)return BOOKS;
+  let own=[];try{const d=await authCall("get_school_books");own=d.books||[]}catch(e){}
+  let lib=[];try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"textbook_library",params:"status=eq.ready&select=id,title,subject,class_name,syllabus_type,pdf_url&order=class_name"})});
+    const d=await r.json();if(Array.isArray(d))lib=d}catch(e){}
+  const ncertOn=!!(USER&&USER.has_ncert_library);
+  lib=lib.filter(b=>b&&b.pdf_url&&(b.syllabus_type==="ncert"?ncertOn:true))
+         .filter(b=>!own.some(o=>normCls(o.class_name)===normCls(b.class_name)&&sk(o.subject||"")===sk(b.subject||"")))
+         .map(b=>({id:b.id,book_name:b.title,title:b.title,class_name:b.class_name,subject:b.subject,term:"",pdf_url:b.pdf_url,lib:true}));
+  BOOKS=own.concat(lib);return BOOKS}
 async function bookChapters(b){
   if(BOOK_CH[b.id])return BOOK_CH[b.id];
-  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:b.lib?"textbook_chapters":"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
     const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to)}catch(e){BOOK_CH[b.id]=[]}
   return BOOK_CH[b.id]}
 
