@@ -248,7 +248,7 @@ async function loadBooks(){if(BOOKS)return BOOKS;
   let lib=[];try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"textbook_library",params:"status=eq.ready&select=id,title,subject,class_name,syllabus_type,pdf_url&order=class_name"})});
     const d=await r.json();if(Array.isArray(d))lib=d}catch(e){}
   const ncertOn=!!(USER&&USER.has_ncert_library);
-  lib=lib.filter(b=>b&&(b.syllabus_type==="ncert"?ncertOn:true))
+  lib=lib.filter(b=>b&&(b.syllabus_type==="ncert"?ncertOn:!!b.pdf_url))   // a Samacheer copy with no stored PDF cannot be read
          .filter(b=>!own.some(o=>normCls(o.class_name)===normCls(b.class_name)&&sk(o.subject||"")===sk(b.subject||"")))
          .map(b=>({id:b.id,book_name:b.title,title:b.title,class_name:b.class_name,subject:b.subject,term:"",pdf_url:b.pdf_url,lib:true}));
   BOOKS=own.concat(lib);return BOOKS}
@@ -268,11 +268,29 @@ function libChapters(rows){
     if(!title||/^\d/.test(title)||avg<3||title.length>70||/[^\x00-ɏ‘’“”–―—]/.test(title))title="";
     return{chapter_number:n,label:title?"Ch "+n+". "+title:"Chapter "+n,chapter_title:title||("Chapter "+n),page_from:1,page_to:+c.page_to,pdf_url:c.pdf_url}
   }).sort((a,b)=>a.chapter_number-b.chapter_number)}
+/* Samacheer books saved in 15-page "Sections": rebuild the real units from the book's own page markers
+   ("11_Geography_Unit_1_EM.indd 128") and name each unit from its running page header. */
+function unitChapters(rows){
+  const txt=rows.map(c=>c.extracted_text||"").join("\n"),U={};
+  for(const m of txt.matchAll(/\d+_\w+?_Unit_(\d+)_EM\.indd\s+(\d+)/g)){const u=+m[1],p=+m[2];U[u]=Math.min(U[u]||1e9,p)}
+  const us=Object.keys(U).map(Number).sort((a,b)=>a-b);if(us.length<2)return rows;
+  const f=String(rows[0].extracted_text||"").match(/_EM\.indd\s+(\d+)/),off=f?(+rows[0].page_from||1)-(+f[1]):1-U[us[0]],last=Math.max(...rows.map(c=>+c.page_to||0));
+  return us.map((u,i)=>{const s=U[u],e=i+1<us.length?U[us[i+1]]-1:1e9,cnt={};
+    for(const m of txt.matchAll(/(?:^|\s)(\d{1,3})\s+([A-Z][A-Za-z,’'&():\- –]{5,70}?)(?=\s{2}|\s+\d|\n)/g)){const p=+m[1],k=m[2].trim();
+      if(p>=s&&p<=e&&/\s/.test(k)&&!/^(Introduction|Learning Objectives?)\b/i.test(k))cnt[k]=(cnt[k]||0)+1}
+    let title=(Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0]||[""])[0].replace(/\b([B-HJ-Z]) ([a-z]{3,})/g,"$1$2");
+    const from=Math.max(1,s+off),to=Math.min(last,i+1<us.length?e+off:last);
+    return{chapter_number:u,chapter_title:title||("Unit "+u),label:"Unit "+u+". "+(title||"(pp "+from+"–"+to+")"),page_from:from,page_to:to}}).filter(c=>c.page_to>=c.page_from)}
+// "10th Social Science - Geography" → "Geography · " (when one subject has several library books)
+const partName=b=>{const m=String(b.title||"").match(/[-–]\s*([^-–]+)$/);return m?m[1].trim().replace(/\s+/g," ").replace(/^./,x=>x.toUpperCase())+" · ":""};
 async function bookChapters(b){
   if(BOOK_CH[b.id])return BOOK_CH[b.id];
   try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:b.lib?"textbook_chapters":"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"+(b.lib?",pdf_url,source_file,extracted_text":"")})});
     const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to);
-    if(b.lib)BOOK_CH[b.id]=libChapters(BOOK_CH[b.id])}catch(e){BOOK_CH[b.id]=[]}
+    if(b.lib){const rows=BOOK_CH[b.id];
+      if(rows.some(c=>c.pdf_url))BOOK_CH[b.id]=libChapters(rows);                       // NCERT: one PDF per chapter
+      else if(rows.length&&rows.every(c=>/^section\s*\d+$/i.test(String(c.chapter_title||"").trim())))BOOK_CH[b.id]=unitChapters(rows);   // Samacheer saved in 15-page pieces
+      BOOK_CH[b.id].forEach(c=>{delete c.extracted_text})}}catch(e){BOOK_CH[b.id]=[]}
   return BOOK_CH[b.id]}
 
 /* ---------- the school's workbook (Workbook Generator) ---------- */
@@ -405,7 +423,7 @@ async function loadAll(){
       if(!b.subject){const g=await subjectGroups(b,chs);   // a term book with every subject in it: keep only this subject's chapters
         if(g&&g.fail)sortNote="This class's book has all subjects in one book, and the subjects could not be sorted just now, so every chapter is shown. Tick only "+sb+" chapters.";
         else if(g)chs=[].concat(...g.filter(x=>subjKey(x.subject)===subjKey(sb)).map(x=>x.chs))}
-      chs.forEach((ch,i)=>mine.push({key:"B:"+b.id+":"+(ch.pdf_url?ch.chapter_number:(ch.chapter_number||i+1)),title:ch.label||("Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled")),bookObj:ch.pdf_url?Object.assign({},b,{id:b.id+"#"+ch.chapter_number,pdf_url:ch.pdf_url}):b,from:+ch.page_from,to:+ch.page_to}))}
+      chs.forEach((ch,i)=>mine.push({key:"B:"+b.id+":"+(ch.pdf_url?ch.chapter_number:(ch.chapter_number||i+1)),title:(books.length>1&&b.lib?partName(b):"")+(ch.label||("Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"))),bookObj:ch.pdf_url?Object.assign({},b,{id:b.id+"#"+ch.chapter_number,pdf_url:ch.pdf_url}):b,from:+ch.page_from,to:+ch.page_to}))}
     // Nov 2026: chapters saved in the current plan are added only when this term has no book chapters (they may be other terms' or other subjects')
     if(!mine.length)(st.chapters||[]).forEach(x=>{if(!mine.some(o=>o.key===x.key||o.title===x.title))mine.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
     const wl=wbList(c,sb);
