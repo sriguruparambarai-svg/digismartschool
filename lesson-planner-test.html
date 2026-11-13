@@ -248,14 +248,25 @@ async function loadBooks(){if(BOOKS)return BOOKS;
   let lib=[];try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"textbook_library",params:"status=eq.ready&select=id,title,subject,class_name,syllabus_type,pdf_url&order=class_name"})});
     const d=await r.json();if(Array.isArray(d))lib=d}catch(e){}
   const ncertOn=!!(USER&&USER.has_ncert_library);
-  lib=lib.filter(b=>b&&b.pdf_url&&(b.syllabus_type==="ncert"?ncertOn:true))
+  lib=lib.filter(b=>b&&(b.syllabus_type==="ncert"?ncertOn:true))
          .filter(b=>!own.some(o=>normCls(o.class_name)===normCls(b.class_name)&&sk(o.subject||"")===sk(b.subject||"")))
          .map(b=>({id:b.id,book_name:b.title,title:b.title,class_name:b.class_name,subject:b.subject,term:"",pdf_url:b.pdf_url,lib:true}));
   BOOKS=own.concat(lib);return BOOKS}
+/* Library (NCERT) books are stored one PDF per chapter, named by file code (fees101…). Keep real chapters only
+   (not the glossary/prelims/answers files), read the real chapter name from the first page, and give each its own PDF. */
+function libChapters(rows){
+  return rows.filter(c=>c.pdf_url&&!/(gl|ps|an)\.pdf$/i.test(c.source_file||"")).map(c=>{
+    const t=String(c.extracted_text||"").replace(/\[Page \d+\]/g," ").replace(/\s+/g," ").trim();
+    const m=t.match(/^\d+\s+(\d+)\s+/),num=m?+m[1]:0,rest=m?t.slice(m[0].length):t.replace(/^\d+\s+/,""),w=rest.split(" ");
+    let title="";for(let k=1;k<=14&&2*k<=w.length;k++){if(w.slice(0,k).join(" ")===w.slice(k,2*k).join(" ")){title=w.slice(0,k).join(" ");break}}
+    if(!title){const i=rest.search(/\bCHAPTER\b/);title=i>0?rest.slice(0,i).trim():w.slice(0,6).join(" ")}
+    return{chapter_number:num,label:(num?"Ch "+num+". ":"")+title.slice(0,80),chapter_title:title.slice(0,80),page_from:1,page_to:+c.page_to,pdf_url:c.pdf_url}
+  }).sort((a,b)=>a.chapter_number-b.chapter_number)}
 async function bookChapters(b){
   if(BOOK_CH[b.id])return BOOK_CH[b.id];
-  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:b.lib?"textbook_chapters":"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"})});
-    const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to)}catch(e){BOOK_CH[b.id]=[]}
+  try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:b.lib?"textbook_chapters":"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"+(b.lib?",pdf_url,source_file,extracted_text":"")})});
+    const d=await r.json();BOOK_CH[b.id]=(Array.isArray(d)?d:[]).filter(c=>c&&c.page_from&&c.page_to);
+    if(b.lib)BOOK_CH[b.id]=libChapters(BOOK_CH[b.id])}catch(e){BOOK_CH[b.id]=[]}
   return BOOK_CH[b.id]}
 
 /* ---------- the school's workbook (Workbook Generator) ---------- */
@@ -388,7 +399,7 @@ async function loadAll(){
       if(!b.subject){const g=await subjectGroups(b,chs);   // a term book with every subject in it: keep only this subject's chapters
         if(g&&g.fail)sortNote="This class's book has all subjects in one book, and the subjects could not be sorted just now, so every chapter is shown. Tick only "+sb+" chapters.";
         else if(g)chs=[].concat(...g.filter(x=>subjKey(x.subject)===subjKey(sb)).map(x=>x.chs))}
-      chs.forEach((ch,i)=>mine.push({key:"B:"+b.id+":"+(ch.chapter_number||i+1),title:"Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled"),bookObj:b,from:+ch.page_from,to:+ch.page_to}))}
+      chs.forEach((ch,i)=>mine.push({key:"B:"+b.id+":"+(ch.pdf_url?ch.chapter_number:(ch.chapter_number||i+1)),title:ch.label||("Ch "+(ch.chapter_number||i+1)+". "+(String(ch.chapter_title||"").trim()||"Untitled")),bookObj:ch.pdf_url?Object.assign({},b,{id:b.id+"#"+ch.chapter_number,pdf_url:ch.pdf_url}):b,from:+ch.page_from,to:+ch.page_to}))}
     // Nov 2026: chapters saved in the current plan are added only when this term has no book chapters (they may be other terms' or other subjects')
     if(!mine.length)(st.chapters||[]).forEach(x=>{if(!mine.some(o=>o.key===x.key||o.title===x.title))mine.push({key:x.key,title:x.title,bookObj:null,from:x.from||null,to:x.to||null})});
     const wl=wbList(c,sb);
