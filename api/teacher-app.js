@@ -478,7 +478,7 @@ module.exports = async function handler(req, res) {
       const t = await byCode(body.code);
       if (!t || t.active === false) return res.json({ error: 'This link is not working. Please ask your principal for your link.' });
       const school = await findSchool(t.school_id);
-      return res.json({ success: true, name: t.name, school_name: (school && school.name) || '' });
+      return res.json({ success: true, name: t.name, school_name: (school && school.name) || '', has_pin: !!t.pin_hash });
     }
 
     if (action === 'login') {

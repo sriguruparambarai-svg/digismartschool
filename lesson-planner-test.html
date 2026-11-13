@@ -149,7 +149,7 @@ details summary{cursor:pointer;font-weight:700;color:var(--accent)}
     <h3 style="margin-top:16px">TeachBot turns</h3>
     <p class="hint" style="margin:0">TeachBot runs on its own timetable. The class never waits for it: lessons go on in order, and when the class's TeachBot turn comes, the children go to the AI room for the chapter they are on.</p>
     <div class="turns">
-      <label>Test turn (until ticked in ERP)<select id="fTurnDay"><option value="">None</option><option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option><option>Fri</option><option>Sat</option></select></label>
+      <label><span id="turnLbl">Test turn (until ticked in ERP)</span><select id="fTurnDay"><option value="">None</option><option>Mon</option><option>Tue</option><option>Wed</option><option>Thu</option><option>Fri</option><option>Sat</option></select></label>
       <label>How often<select id="fTurnEvery"><option value="1">Every week</option><option value="2">Every 2 weeks</option></select></label>
     </div>
     <p class="hint" id="turnHint" style="margin:6px 0 0"></p>
@@ -243,6 +243,12 @@ const normCls=s=>String(s||"").toLowerCase().replace(/class|std|standard|\s|-|_|
 let BOOKS=null;const BOOK_CH={},PDFS={};
 /* Nov 2026: the central Textbook Library counts too — Samacheer for every school, NCERT when the school's
    NCERT Library is on. A book the school uploaded itself wins over the library copy of the same class+subject. */
+/* Nov 2026: schools without DigiSmart ERP should not read about "ticked in ERP" */
+let HAS_ERP=null;
+(async()=>{try{const sid=USER&&(USER.school_id||(USER.schools&&USER.schools.id)||USER.id);if(!sid)return;
+  const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get_school_sources",school_id:sid})});
+  const d=await r.json();HAS_ERP=!!(d&&d.has_erp===true);
+  if(!HAS_ERP){const l=document.getElementById("turnLbl");if(l)l.textContent="TeachBot day";const h=document.getElementById("turnHint");if(h&&/ERP/.test(h.textContent))h.innerHTML="🤖 Choose the day this class goes to TeachBot (the AI class), if it does."}}catch(e){}})();
 async function loadBooks(){if(BOOKS)return BOOKS;
   let own=[];try{const d=await authCall("get_school_books");own=d.books||[]}catch(e){}
   let lib=[];try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:"textbook_library",params:"status=eq.ready&select=id,title,subject,class_name,syllabus_type,pdf_url&order=class_name"})});
@@ -457,7 +463,7 @@ async function loadAll(){
       ?`<br><span class="small">Start at ${o.hindi?"letter set":W==="wbmaths"?"homework":"lesson"} <input type="number" min="1" max="40" value="1" data-s="${i}" style="width:64px;padding:2px 6px" aria-label="Start at">${W==="maths"?` <b>or</b> from exercise <input type="text" data-x="${i}" placeholder="e.g. D" style="width:90px;padding:2px 6px" aria-label="Start from exercise" title="Already finished the exercises before this one? Type the exercise to start from, e.g. D or 2.3">`:""}</span>`
       :`<br><span class="small">Start from <select data-s="${i}" style="width:auto;padding:2px 6px;font-size:.82rem"><option value="teach">the beginning (teaching)</option><option value="classwork">class work</option>${Array.from({length:Math.max(12,Math.min(30,o.hwN||0))},(_,k)=>`<option value="hw${k+1}">revise + homework ${k+1}</option>`).join("")}<option value="test">class test</option></select></span>`;
     return `<label class="chk${fin?" done":""}"><input type="checkbox" data-i="${i}"${tick?" checked":""}><span>${esc(o.title)}${fin?' <span class="small">· finished</span>':""}${o.wb&&!o.wbHw.length&&W==="book"?'<br><span class="small" style="color:#b00020;font-weight:600">⚠ Workbook homework not saved — pick it in Workbook Generator</span>':""}${startBox}</span><span class="pg">${esc(info)}</span>${box}</label>`}).join("")
-    :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term.</div>';
+    :'<div class="hint">No chapters found for '+esc(c+" "+sb)+' this term. Upload this class\'s book in TeachBot → Textbook → 📖 Private / CBSE (it is read into chapters), then open this page again. Or ask DigiSmart (info@digismartschool.com) to add the book to the library.</div>';
   if(sortNote)$("chaps").insertAdjacentHTML("afterbegin",'<div class="hint" style="color:#b00020">⚠ '+esc(sortNote)+'</div>');
   computeSlots();showFit();renderCurrent()}
 
@@ -480,6 +486,7 @@ function computeSlots(){
   const ppw=ROOM.length/weeks();FEW=way(sb)==="book"&&ppw<=2.2;
   $("ttHint").innerHTML="🕒 "+SLOT_NOTE+": <b>"+ROOM.length+" classroom periods</b> from "+esc(nice(st))+" to "+esc(nice(en))+" (about "+ppw.toFixed(1)+" a week), holidays skipped.";
   const erpN=TURNS.filter(x=>x.erp).length;
+  if(HAS_ERP===false){$("turnHint").innerHTML=extra.length?"🤖 "+extra.length+" TeachBot classes ("+esc($("fTurnDay").value)+"). They do not use classroom periods.":"🤖 Choose the day this class goes to TeachBot (the AI class), if it does.";}else
   $("turnHint").innerHTML=erpN?"🤖 "+erpN+" TeachBot turns ticked in ERP for "+esc(c+" "+sb)+(extra.length?" + "+extra.length+" test turns":"")+".":(extra.length?"🤖 "+extra.length+" test TeachBot turns ("+esc($("fTurnDay").value)+"). None are ticked in ERP yet.":"🤖 No TeachBot turns ticked in ERP for "+esc(c+" "+sb)+". Choose a test turn to see where TeachBot classes would go.");
   $("modeBox").innerHTML=FEW?`<div class="notice" style="margin:0">This subject has only about ${ppw.toFixed(1)} periods a week, so <b>teacher teaching is skipped</b>: TeachBot teaches the chapter and the class starts with class work. TeachBot turns are needed for this.</div>`:""}
 
