@@ -272,18 +272,25 @@ function libChapters(rows){
 /* Samacheer books saved in 15-page "Sections": rebuild the real units from the book's own page markers
    ("11_Geography_Unit_1_EM.indd 128") and name each unit from its running page header. */
 function unitChapters(rows){
-  const txt=rows.map(c=>c.extracted_text||"").join("\n"),U={};
-  for(const m of txt.matchAll(/\d+_\w+?_Unit_(\d+)_EM\.indd\s+(\d+)/g)){const u=+m[1],p=+m[2];U[u]=Math.min(U[u]||1e9,p)}
+  const RX=/Unit[-_ ]?(\d+)(?:_EM)?\.indd\s+(\d+)/g,U={};let off=-1e9;
+  rows.forEach(c=>{let minP=1e9;for(const m of String(c.extracted_text||"").matchAll(RX)){const u=+m[1],p=+m[2];U[u]=Math.min(U[u]||1e9,p);minP=Math.min(minP,p)}
+    if(minP<1e9)off=Math.max(off,(+c.page_from||1)-minP)});
   const us=Object.keys(U).map(Number).sort((a,b)=>a-b);if(us.length<2)return rows;
-  const f=String(rows[0].extracted_text||"").match(/_EM\.indd\s+(\d+)/),off=f?(+rows[0].page_from||1)-(+f[1]):1-U[us[0]],last=Math.max(...rows.map(c=>+c.page_to||0));
+  const txt=rows.map(c=>c.extracted_text||"").join("\n"),last=Math.max(...rows.map(c=>+c.page_to||0)),heads=[],caps={};
+  for(const m of txt.matchAll(/(?:^|\s)(\d{1,3})\s+([A-Z][A-Za-z,’'&():\- –]{5,70}?)(?=\s{2}|\s+\d|\n)/g)){const k=m[2].trim();
+    if(/\s/.test(k)&&!/[a-z][A-Z][a-z]/.test(k)&&!/^(Introduction|Learning Objectives?|Learning Outcomes?)\b/i.test(k)&&!/Class\s+[XVI]+\b|Standard|^(Social Science|Science|Mathematics|English|Tamil)\b/i.test(k))heads.push([+m[1],k])}
+  for(const m of txt.matchAll(/(?:\bUNIT\s+|(?:^|\s))(\d{1,2})\s+([A-Z][A-Z,&’'\-]+(?:[ ]{1,2}[A-Z,&’'\-]{2,}){0,7})(?=\s)/g)){const k=m[2].trim();
+    if(k.length>=6&&!/^(INTRODUCTION|LEARNING|ACTIVITY|EXERCISE|EVALUATION)/.test(k)&&!caps[m[1]])caps[m[1]]=k.toLowerCase().replace(/(^|\s)(\S)/g,(a,b,c)=>b+c.toUpperCase()).replace(/\b(And|Of|In|Its|The|To)\b/g,w=>w.toLowerCase()).replace(/^./,x=>x.toUpperCase())}
   return us.map((u,i)=>{const s=U[u],e=i+1<us.length?U[us[i+1]]-1:1e9,cnt={};
-    for(const m of txt.matchAll(/(?:^|\s)(\d{1,3})\s+([A-Z][A-Za-z,’'&():\- –]{5,70}?)(?=\s{2}|\s+\d|\n)/g)){const p=+m[1],k=m[2].trim();
-      if(p>=s&&p<=e&&/\s/.test(k)&&!/^(Introduction|Learning Objectives?)\b/i.test(k)&&!/Class\s+[XVI]+\b|^(Social Science|Science|Mathematics|English|Tamil)\b/i.test(k))cnt[k]=(cnt[k]||0)+1}
-    let title=(Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0]||[""])[0].replace(/\b([B-HJ-Z]) ([a-z]{3,})/g,"$1$2");
+    heads.forEach(([p,k])=>{if(p>=s&&p<=e)cnt[k]=(cnt[k]||0)+1});
+    const best=Object.entries(cnt).sort((a,b)=>b[1]-a[1]||a[0].length-b[0].length)[0];
+    let title=caps[u]||(best&&(best[1]>=2||e-s<=6)?best[0]:"");title=title.replace(/\b([B-HJ-Z]) ([a-z]{3,})/g,"$1$2");
     const from=Math.max(1,s+off),to=Math.min(last,i+1<us.length?e+off:last);
-    return{chapter_number:u,chapter_title:title||("Unit "+u),label:"Unit "+u+". "+(title||"(pp "+from+"–"+to+")"),page_from:from,page_to:to}}).filter(c=>c.page_to>=c.page_from)}
+    return{chapter_number:u,chapter_title:title||("Unit "+u),label:"Unit "+u+". "+(title||"(pp "+from+"–"+to+")"),page_from:from,page_to:to}})
+    .filter((c,i)=>c.page_to>=c.page_from&&!(i===0&&c.page_to-c.page_from<2))}   // a 1–2 page tail of the previous part's last unit is not a chapter
 // "10th Social Science - Geography" → "Geography · " (when one subject has several library books)
-const partName=b=>{const m=String(b.title||"").match(/[-–]\s*([^-–]+)$/);return m?m[1].trim().replace(/\s+/g," ").replace(/^./,x=>x.toUpperCase())+" · ":""};
+const partName=b=>{const t=String(b.title||"").replace(/^\s*\d+\s*(st|nd|rd|th)?\s*/i,"").replace(/^(social\s*science|science|maths?|mathematics)\b\s*/i,"").replace(/\s*[-–]\s*/g," ").replace(/\s+/g," ").trim();
+  return t&&t.length<30?t.replace(/(^|\s)(\S)/g,(a,x,y)=>x+y.toUpperCase())+" · ":""};
 async function bookChapters(b){
   if(BOOK_CH[b.id])return BOOK_CH[b.id];
   try{const r=await fetch("/api/auth",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"tbl_get",table:b.lib?"textbook_chapters":"school_book_chapters",params:"book_id=eq."+encodeURIComponent(b.id)+"&order=page_from&select=chapter_number,chapter_title,page_from,page_to"+(b.lib?",pdf_url,source_file,extracted_text":"")})});
