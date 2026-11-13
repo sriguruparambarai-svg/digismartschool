@@ -504,7 +504,12 @@ if(LOGO){$("schoolLogo").src=LOGO;$("schoolLogo").hidden=false}
 /* ---------- classes, subjects, limits ---------- */
 const ALL_CLASSES=["Pre KG","LKG","UKG","Class 1","Class 2","Class 3","Class 4","Class 5","Class 6","Class 7","Class 8","Class 9","Class 10","Class 11","Class 12"];
 const num=c=>{const m=/Class (\d+)/.exec(c);return m?+m[1]:0};
-function classesShown(){const max=+($("maxCls").value||8);return ALL_CLASSES.filter(c=>num(c)<=max)}
+/* Nov 2026: show only the school's own classes (from the School Timetable). Used only when EVERY timetable
+   class is recognised — otherwise (or with no timetable) the old "Show classes up to" list stays. */
+let OWN=null;
+const clsKey=c=>String(c||"").toLowerCase().replace(/standard|std|class|grade|[\s.\-_]/g,"").replace(/^(pre)?kg$/,m=>m).replace(/^prekindergarten$/,"prekg");
+const baseOf=c=>BASE_CLASSES.find(b=>c===b||c.indexOf(b+" ")===0)||c;
+function classesShown(){if(OWN)return ALL_CLASSES.filter(c=>OWN.has(clsKey(baseOf(c))));const max=+($("maxCls").value||8);return ALL_CLASSES.filter(c=>num(c)<=max)}
 /* Sections (Oct 2026): a class can get a second section, e.g. LKG B for Vijayadasami children.
    The plain class ("LKG") stays section A, so all its old homework stays where it is.
    Set by the principal (Sections button); saved per school. */
@@ -808,7 +813,7 @@ $("fxSuggest").onclick=()=>{const c=ttCls();TTD._fixed=TTD._fixed||{};const F=TT
   ttDirty=true;renderTT();toast(n+" line"+(n>1?"s":"")+" filled for "+c+" (Tamil included). Check them, then press Save timetable."+mm,!!miss.length)};
 function ttFill(){const cur=$("ttCls").value||S.sel.cls;$("ttCls").innerHTML=classesShown().map(c=>`<option value="${c}"${c===cur?" selected":""}>${lbl(c)}</option>`).join("");
   const c=ttCls();$("ttCopyTo").innerHTML=`<option value="">— choose —</option>`+classesShown().filter(x=>x!==c).map(x=>`<option value="${x}">${lbl(x)}</option>`).join("")}
-$("secToggle").onclick=()=>{const b=$("secBox");if(b.hidden){$("secRows").innerHTML=BASE_CLASSES.filter(c=>num(c)<=+($("maxCls").value||8)).map(c=>`<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" value="${c}"${(SECTIONS[c]||[]).length?" checked":""}> ${c} B</label>`).join("");$("secState").textContent=""}b.hidden=!b.hidden};
+$("secToggle").onclick=()=>{const b=$("secBox");if(b.hidden){$("secRows").innerHTML=BASE_CLASSES.filter(c=>OWN?OWN.has(clsKey(c)):num(c)<=+($("maxCls").value||8)).map(c=>`<label style="display:flex;align-items:center;gap:6px"><input type="checkbox" value="${c}"${(SECTIONS[c]||[]).length?" checked":""}> ${c} B</label>`).join("");$("secState").textContent=""}b.hidden=!b.hidden};
 $("secSave").onclick=async()=>{const sec={};$("secRows").querySelectorAll("input:checked").forEach(i=>{sec[i.value]=["B"]});
   const gone=Object.keys(SECTIONS).filter(c=>!sec[c]);
   if(gone.length&&!confirm("Remove section B from "+gone.join(", ")+"? Its homework stays saved but will not be shown."))return;
@@ -1072,6 +1077,11 @@ $("grid").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.ta
 $("tDays").addEventListener("click",e=>{const d=e.target.closest(".day");if(d)pick(S.tcls,d.dataset.d)});
 $("tDays").addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.classList.contains("day")){e.preventDefault();pick(S.tcls,e.target.dataset.d)}});
 $("tCls").onchange=()=>{S.tcls=$("tCls").value;lsSet("hwp_class",S.tcls);S.sel.cls=S.tcls;S.sel.focus=null;cancelEdit(true);renderAll()};
+(async()=>{try{const r=await fetch("/api/timetable",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({action:"get"})});
+  const d=await r.json();const tc=(d&&d.success&&Array.isArray(d.classes))?d.classes:[];if(!tc.length)return;
+  const known=new Set(BASE_CLASSES.map(clsKey)),keys=tc.map(clsKey);if(!keys.every(k=>known.has(k)))return;
+  OWN=new Set(keys);$("maxClsWrap").style.display="none";
+  if(!classesShown().includes(S.sel.cls))S.sel.cls=classesShown()[0];renderAll()}catch(e){}})();
 $("maxCls").onchange=()=>{lsSet("hwp_maxcls",$("maxCls").value);if(!classesShown().includes(S.sel.cls))S.sel.cls=classesShown()[0];renderAll()};
 $("prevWk").onclick=()=>moveWeek(-7);$("nextWk").onclick=()=>moveWeek(7);
 $("thisWk").onclick=()=>{S.week=mondayOf(new Date());S.sel.date=defaultDate();S.sel.focus=null;load()};
