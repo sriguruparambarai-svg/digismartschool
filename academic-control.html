@@ -321,6 +321,9 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
 </main>
 
 <script>
+// "pp. 1–9" / "p. 165" / "165" → one clean label (Nov 2026)
+function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return /[–-]/.test(g)?"pp. "+g:"p. "+g}
+
 (function(){
   var $=function(id){return document.getElementById(id)};
   function h(t){return String(t==null?'':t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;')}
@@ -471,7 +474,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
       var cell=p.row[c];
       if(!cell||(!cell.subject&&!cell.teacher))return '<div class="pc none"><div class="c"><b>'+h(c)+'</b>'+pill("p-bad","Nothing set")+'</div><div class="por">No subject or teacher in the timetable for this period.</div></div>';
       var lf=lessonFor(S.L,c,cell.subject,p.label),les=lf&&lf.les,teacher=cell.teacher||(lf&&lf.sub&&lf.sub.teacher)||"No teacher";
-      var por=les?h(chap(les.chapter))+(les.pages?" · p. "+h(les.pages):""):'<i>No lesson planned for this subject today</i>';
+      var por=les?h(chap(les.chapter))+(les.pages?" · "+h(pgLabel(les.pages)):""):'<i>No lesson planned for this subject today</i>';
       var st=les?stPill(les.state):"";
       var det=les&&les.teach?'<details><summary>What to teach ▾</summary><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></details>':"";
       return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.helper?' <small>+ helper '+h(cell.helper)+'</small>':'')+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")+freeBox(p)}
@@ -518,7 +521,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     if(!list.length&&S.N)(S.N.subjects||[]).filter(function(x){return x.class_name===c&&x.today.length}).forEach(function(x){list.push({p:{label:"—"},cell:{subject:x.subject,teacher:x.teacher},lf:{sub:x,les:x.today[0]}})});
     S.nlist=list;
     $("h-nb").innerHTML=list.length?list.map(function(x,i){var les=x.lf&&x.lf.les;
-      return '<button type="button" data-i="'+i+'" aria-pressed="'+(i===S.sideI)+'"><span class="pn">'+h(shortP(x.p.label,0))+'</span><span><b>'+h(x.cell.subject)+'</b> · '+h(x.cell.teacher||(x.lf&&x.lf.sub&&x.lf.sub.teacher)||"")+'<br><span class="ps">'+(les?h(chap(les.chapter))+(les.pages?" · p. "+h(les.pages):""):"No lesson planned")+'</span></span></button>'}).join(""):'<div class="empty">Nothing planned for '+h(c)+' on '+h(nice(S.nday))+'.</div>';
+      return '<button type="button" data-i="'+i+'" aria-pressed="'+(i===S.sideI)+'"><span class="pn">'+h(shortP(x.p.label,0))+'</span><span><b>'+h(x.cell.subject)+'</b> · '+h(x.cell.teacher||(x.lf&&x.lf.sub&&x.lf.sub.teacher)||"")+'<br><span class="ps">'+(les?h(chap(les.chapter))+(les.pages?" · "+h(pgLabel(les.pages)):""):"No lesson planned")+'</span></span></button>'}).join(""):'<div class="empty">Nothing planned for '+h(c)+' on '+h(nice(S.nday))+'.</div>';
     $("h-nb").onclick=function(e){var b=e.target.closest("button");if(!b)return;S.sideI=+b.dataset.i;
       $("h-nb").querySelectorAll("button").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});drawSide();
       if(window.innerWidth<1000)$("side").scrollIntoView({behavior:"smooth",block:"start"})};
@@ -528,7 +531,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
     if(!x){$("s-t").textContent="Pick a period";$("s-s").textContent="";$("s-b").innerHTML='<div class="empty">Tap a period in the class work list to see its class work and planned homework here, next to today\'s homework.</div>';return}
     var les=x.lf&&x.lf.les;
     $("s-t").textContent=shortP(x.p.label,0)+" · "+S.cls+" · "+x.cell.subject+(x.cell.teacher?" · "+x.cell.teacher:"");
-    $("s-s").textContent=les?chap(les.chapter)+(les.pages?" · p. "+les.pages:"")+" · "+nice(S.nday):nice(S.nday);
+    $("s-s").textContent=les?chap(les.chapter)+(les.pages?" · "+pgLabel(les.pages):"")+" · "+nice(S.nday):nice(S.nday);
     if(!les){$("s-b").innerHTML='<div class="empty">No lesson in the Lesson Planner for this subject on that day.</div>';return}
     $("s-b").innerHTML='<div class="bx cw"><h4>Class work — what to teach</h4><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></div>'
       +(les.activity?'<div class="bx cw"><h4>Activity</h4><p>'+h(les.activity)+'</p></div>':'')
