@@ -76,6 +76,23 @@ function erpDoor1(body) {
     r.write(data); r.end();
   });
 }
+// Nov 2026: the ERP's substitute door — which teachers are absent on a day and who is free to cover
+function erpSubstitutes(body) {
+  return new Promise(function (resolve) {
+    const key = process.env.TEACHBOT_LINK_KEY || '';
+    if (!key) return resolve({ status: 0, data: { error: 'TEACHBOT_LINK_KEY is not set in TeachBot\'s Vercel settings.' } });
+    const data = JSON.stringify(body);
+    const r = https.request({ hostname: ERP_DOOR_HOST, path: '/api/substitutes', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-teachbot-key': key } }, function (res) {
+      let d = '';
+      res.on('data', function (c) { d += c; });
+      res.on('end', function () { let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; } resolve({ status: res.statusCode, data: j || {} }); });
+    });
+    r.on('error', function (e) { resolve({ status: 0, data: { error: e.message } }); });
+    r.setTimeout(20000, function () { r.destroy(new Error('the ERP took too long to answer')); });
+    r.write(data); r.end();
+  });
+}
 const ok = function (r) { return r && r.status >= 200 && r.status < 300; };
 const why = function (r) { const d = r && r.data; return 'status ' + (r && r.status) + ': ' + (typeof d === 'string' ? d : (d && (d.message || d.error)) || JSON.stringify(d)); };
 const enc = encodeURIComponent;
@@ -226,6 +243,16 @@ module.exports = async function handler(req, res) {
       const t = await loadTimetable(school);
       if (t.error && t.source !== 'erp') return res.json({ error: t.error });
       return res.json(Object.assign({ success: true, principal: principal }, t));
+    }
+
+    // Nov 2026: teachers absent on a day + suggested substitutes (ERP schools only) — for My School's Academics
+    if (action === 'absent_teachers') {
+      if (!principal) return res.status(403).json({ error: 'Only the principal can see this.' });
+      if (!viaErp) return res.json({ success: true, erp: false, absent: [] });
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(String(body.date || '')) ? String(body.date) : '';
+      const r = await erpSubstitutes({ school_id: school.erp_school_id, date: date || undefined });
+      if (!ok(r) || !r.data || r.data.ok === false) return res.json({ error: 'Could not read staff attendance from ERP: ' + why(r) });
+      return res.json({ success: true, erp: true, date: r.data.date, absent: r.data.absent || [], att_used: !!r.data.att_used, reason: r.data.reason || '' });
     }
 
     if (action === 'staff_names') {

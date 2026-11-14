@@ -83,6 +83,14 @@ main{padding:16px 0 40px}
 .pc .por{font-size:.85rem;color:var(--mut)}
 .pc.free{border:1.5px dashed var(--gold,#C9A84C);background:#FFFBF0}
 .pc.free .c b{font-family:inherit}
+/* Nov 2026: teachers absent today (from ERP staff attendance) */
+.absbox{background:#FFF4F2;border:1.5px solid #E8B4AC;border-radius:12px;padding:11px 13px;margin:0 0 12px}
+.absbox h3{margin:0 0 6px;font-size:.98rem;color:var(--bad,#A32D2D)}
+.absbox .at{margin:6px 0 0;font-size:.88rem}
+.absbox .at b{color:var(--m)}
+.absbox ul{margin:3px 0 0;padding-left:18px;line-height:1.55}
+.pc.abs{border:1.5px solid #E8B4AC;background:#FFF8F6}
+.pc .sub{font-size:.85rem;font-weight:800;color:var(--ok,#2D7A3A)}
 .pc .fl{margin:4px 0 2px;padding-left:18px;font-size:.88rem;line-height:1.55}
 .pc .fl span{color:var(--mut);font-size:.8rem}
 .pc.ai{border-color:#3B4A8C}
@@ -230,6 +238,7 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   <div id="loaderr"></div>
   <section class="view" id="v-periods">
     <p class="lead">For rounds. Pick a period to see every class: subject, teacher and the portion being taught. On today it opens on the period running now.</p>
+    <div id="absBox"></div>
     <div class="chips" id="pchips"></div>
     <div class="pgrid" id="pgrid"></div>
   </section>
@@ -385,6 +394,8 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
     var y=schoolDay(S.day,-1),n=schoolDay(S.day,1);S.yday=y;S.nday=n;
     var safe=function(p){return p.catch(function(e){return{error:"No internet or the server did not answer ("+(e&&e.message||e)+")."}})};
     var pA=safe(call("/api/teacher-app",{action:"list"}));   // Nov 2026: to show each teacher by her My Teachers name
+    var pAb=safe(call("/api/timetable",{action:"absent_teachers",date:S.day}));   // Nov 2026: absent teachers + substitutes (ERP)
+    S.ABS=null;
     var pT=safe(call("/api/timetable",{action:"get"})),pY=safe(call("/api/teacher-app",{action:"live",date:y})),pN=safe(call("/api/teacher-app",{action:"live",date:n}));
     var L=await safe(call("/api/teacher-app",{action:"live",date:S.day}));
     if(!L.success){$("loaderr").innerHTML='<div class="err">Could not load the day: '+h(L.error||"no answer")+'</div>';return}
@@ -395,9 +406,13 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
       (A.teachers||[]).forEach(function(t){if(t.erp_name)NM[key(t.erp_name)]=t.name;NM[key(t.name)]=t.name});
       var fix=function(o){if(!o||typeof o!=="object")return;Object.keys(o).forEach(function(k){var v=o[k];
         if(typeof v==="string"&&/teacher|helper/i.test(k)&&NM[key(v)])o[k]=NM[key(v)];else if(v&&typeof v==="object")fix(v)})};
-      if(S.TT)fix(S.TT.grid)}catch(e){}
+      if(S.TT)fix(S.TT.grid);
+      S.nmFix=function(n){return NM[key(n)]||n}}catch(e){}
     $("loaderr").innerHTML=T.success?"":'<div class="err">Timetable could not be read: '+h(T.error||"no answer")+'</div>';
     drawAll();
+    pAb.then(function(r){if(!r||!r.success||!r.erp)return;var fx=S.nmFix||function(n){return n};
+      S.ABS={};(r.absent||[]).forEach(function(t){t.name=fx(t.name);(t.periods||[]).forEach(function(p){p.free=(p.free||[]).map(fx)});S.ABS[nkey(t.name)]=t});
+      S.ABS_LIST=r.absent||[];try{drawAbsent();drawPgrid()}catch(e){showErr(e)}});
     Promise.all([pY,pN]).then(function(r){S.Y=r[0].success?r[0]:null;S.N=r[1].success?r[1]:null;
       try{drawHomeworkBody();drawCwBody()}catch(e){showErr(e)}});
   }
@@ -458,7 +473,7 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
   // the "Free this period" box, shown after the class boxes in Periods
   function freeBox(p){
     var ps=periodsOf(S.day),busy=busyIn(p),all=allTeachers();if(!all.length)return "";
-    var free=all.filter(function(n){return!busy[nkey(n)]}),later=ps.filter(function(x){return x.i>p.i});
+    var free=all.filter(function(n){return!busy[nkey(n)]&&!absentOf(n)}),later=ps.filter(function(x){return x.i>p.i});
     var li=free.map(function(n){var k=nkey(n),nx=null;
       later.forEach(function(x){var b=busyIn(x)[k];if(b&&!nx)nx={p:x,b:b[0]}});
       var next=nx?"next "+shortP(nx.p.label,nx.p.i)+" · "+nx.b.cls+(nx.b.subject?" "+nx.b.subject:"")+(nx.b.role==="help"?" (helper)":""):"no more classes today";
@@ -466,6 +481,19 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
     return '<div class="pc free"><div class="c"><b>Free this period</b>'+pill("p-ok",free.length+" free")+'</div>'+
       (free.length?'<ul class="fl">'+li+'</ul>':'<div class="por">No teacher is free in '+h(shortP(p.label,p.i))+'.</div>')+
       '<div class="por" style="font-size:.75rem">Only teachers named in the timetable are counted.</div></div>'}
+  // ── ABSENT TEACHERS (Nov 2026, from ERP staff attendance + staff leave) ──
+  var ABS_WHY={absent:"marked absent",leave:"on leave",not_in:"not checked in yet"};
+  function absentOf(name){return S.ABS&&S.ABS[nkey(name)]||null}
+  function subFor(t,p,cls){return(t.periods||[]).find(function(x){return(x.class===cls)&&(shortP(x.period,0)===shortP(p.label,p.i)||x.period===p.label)})}
+  function drawAbsent(){
+    var L=S.ABS_LIST||[];
+    if(!L.length){$("absBox").innerHTML=S.ABS?'<div class="por" style="margin:0 0 10px;color:var(--ok,#2D7A3A);font-weight:800">✅ All teachers in the timetable are present '+(S.day===istToday()?"today":"on this day")+'.</div>':"";return}
+    var n=L.reduce(function(a,t){return a+(t.periods||[]).length},0);
+    $("absBox").innerHTML='<div class="absbox"><h3>🔁 '+L.length+' teacher'+(L.length>1?"s":"")+' absent · '+n+' period'+(n>1?"s":"")+' to cover</h3>'+
+      L.map(function(t){return '<div class="at"><b>'+h(t.name)+'</b> — '+h((ABS_WHY[t.status]||t.status)+(t.leave_type?" ("+t.leave_type+")":""))+
+        '<ul>'+(t.periods||[]).map(function(p){return '<li>'+h(shortP(p.period,0))+(p.time?' '+h(p.time):'')+' · '+h(p.class)+(p.subject?' '+h(p.subject):'')+' → '+
+          (p.free&&p.free.length?'<b style="color:var(--ok,#2D7A3A)">'+h(p.free[0])+'</b>'+(p.free.length>1?' <span style="color:var(--mut)">(or '+h(p.free.slice(1).join(", "))+')</span>':''):'<b style="color:var(--bad,#A32D2D)">nobody free</b>')+'</li>'}).join("")+'</ul></div>'}).join("")+
+      '<div class="por" style="font-size:.75rem;margin-top:6px">From ERP staff attendance and staff leave. Suggested: present, free that period, fewest periods today first.</div></div>'}
   function shortP(l,i){var m=/(\d+)/.exec(l||"");return m?"P"+m[1]:(l||"P"+(i+1))}
   function drawPgrid(){
     var p=periodsOf(S.day).find(function(x){return x.i===S.period});if(!p)return;
@@ -477,7 +505,9 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
       var por=les?h(chap(les.chapter))+(les.pages?" · "+h(pgLabel(les.pages)):""):'<i>No lesson planned for this subject today</i>';
       var st=les?stPill(les.state):"";
       var det=les&&les.teach?'<details><summary>What to teach ▾</summary><ol class="steps">'+steps(les.teach).map(function(s){return"<li>"+h(s.replace(/^\d{1,2}\.\s*/,""))+"</li>"}).join("")+'</ol></details>':"";
-      return '<div class="pc'+(cell.ai?" ai":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.helper?' <small>+ helper '+h(cell.helper)+'</small>':'')+(cell.common?' <small>(common class)</small>':'')+'</div><div class="por">'+por+'</div>'+det+'</div>'}).join("")+freeBox(p)}
+      var ab=absentOf(cell.teacher),sb=ab&&subFor(ab,p,c);
+      var absLine=ab?'<div class="sub">'+(sb&&sb.free&&sb.free.length?'Substitute: '+h(sb.free[0])+(sb.free.length>1?' <span style="color:var(--mut);font-weight:600">(or '+h(sb.free.slice(1).join(", "))+')</span>':''):'<span style="color:var(--bad,#A32D2D)">No teacher free — cover this class</span>')+'</div>':'';
+      return '<div class="pc'+(cell.ai?" ai":"")+(ab?" abs":"")+'"><div class="c"><b>'+h(c)+'</b>'+(cell.ai?pill("p-w","AI room"):"")+(ab?pill("p-bad","Teacher absent"):"")+' '+st+'</div><div class="who">'+h(cell.subject||"—")+' · '+h(teacher)+(cell.helper?' <small>+ helper '+h(cell.helper)+'</small>':'')+(cell.common?' <small>(common class)</small>':'')+'</div>'+absLine+'<div class="por">'+por+'</div>'+det+'</div>'}).join("")+freeBox(p)}
 
   // ── HOMEWORK ──
   function wsLink(cls,date,list){var q=new URLSearchParams({src:"hw",class:cls,date:date,subject:list[0].subject});q.set("hw",list.length===1?list[0].text:list.map(function(x){return "["+x.subject+"]\n"+x.text}).join("\n\n"));return "todays-worksheet.html?"+q.toString()}
