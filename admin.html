@@ -140,6 +140,7 @@ tr:hover td{background:#fef9f0;}
     <button class="tbl-sidebar-item" id="tbl-tab-revision" onclick="tblTab('revision')">🗣️ Revision Library</button>
     <button class="tbl-sidebar-item" id="tbl-tab-pics" onclick="tblTab('pics')">🎨 Picture Library</button>
     <button class="tbl-sidebar-item" id="tbl-tab-concepts" onclick="tblTab('concepts')">🎯 Concept Classes</button>
+    <button class="tbl-sidebar-item" id="tbl-tab-owners" onclick="tblTab('owners')">📱 Owner App</button>
   </div>
   <div class="tbl-content">
   <div class="tbl-panel tbl-show" id="tbl-panel-schools">
@@ -769,6 +770,40 @@ loadSchools();
       </div>
     </div>
   </div><!-- /pics panel -->
+
+  <!-- ══════════ OWNER APP PEOPLE (Nov 2026) ══════════ -->
+  <!-- Who gets the ERP's Owner App (erp.digismartschool.com/owner). Only the super admin
+       adds people; each gets a one-time starting PIN and must make their own password. -->
+  <div class="tbl-panel" id="tbl-panel-owners">
+    <div class="card">
+      <div class="card-title">📱 Owner App — add a person</div>
+      <div style="font-size:0.85rem;color:#6b5a50;line-height:1.6;margin-bottom:12px;">
+        The Owner App shows school owners what the ERP did on autopilot (fee reminders and more), on their phone.
+        Add the owner, chairman or correspondent here. They open <b>erp.digismartschool.com/owner</b>, log in with their
+        mobile number and the starting PIN, and must make their own password at once — nobody else can see it.
+      </div>
+      <div class="grid2">
+        <div><label>School (ERP)</label><select id="oa-school" onchange="oaLoad()"><option value="">Loading schools…</option></select></div>
+        <div></div>
+      </div>
+      <div class="grid2" style="margin-top:10px;">
+        <div><label>Name</label><input type="text" id="oa-name" placeholder="e.g. Chairman — Mr. Ramesh"/></div>
+        <div><label>Mobile number (to log in)</label><input type="text" id="oa-phone" inputmode="numeric" maxlength="14" placeholder="10-digit number"/></div>
+      </div>
+      <div class="error" id="oa-err"></div>
+      <br/>
+      <button class="btn bp" onclick="oaAdd()">➕ Add and make starting PIN</button>
+      <div id="oa-pin"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">👥 People with the Owner App <button class="btn bg bsm" onclick="oaLoad()">🔄 Refresh</button></div>
+      <div id="oa-list" style="font-size:0.9rem;color:#777;">Choose a school.</div>
+      <div style="font-size:0.8rem;color:#8a7d74;margin-top:12px;line-height:1.6;">
+        <b>Reset</b> — forgot password: their phone gets a warning, is logged out, and you get a new starting PIN.
+        <b>Remove</b> — takes away access; their phone gets a notice.
+      </div>
+    </div>
+  </div><!-- /owners panel -->
 
   </div><!-- /tbl-content -->
 </div><!-- /tbl-wrap -->
@@ -1547,7 +1582,7 @@ function openConceptClass(page){
 }
 
 function tblTab(tab) {
-  ['schools','library','revision','pics','concepts'].forEach(function(t) {
+  ['schools','library','revision','pics','concepts','owners'].forEach(function(t) {
     var tb = document.getElementById('tbl-tab-' + t);
     var pn = document.getElementById('tbl-panel-' + t);
     if (tb) tb.classList.toggle('tbl-on', t === tab);
@@ -1556,6 +1591,80 @@ function tblTab(tab) {
   if (tab === 'library') { tblLoadBooks(); tblLoadAccess(); }
   if (tab === 'revision') { rlLoadList(); }
   if (tab === 'pics') { kgLoad(); }
+  if (tab === 'owners') { oaSchools(); }
+}
+
+// ══ OWNER APP PEOPLE (Nov 2026) — through /api/owner-app-people → ERP ══
+function oaEsc(t) { return String(t == null ? '' : t).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+async function oaCall(body) {
+  try {
+    const r = await fetch('/api/owner-app-people', { method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-dss-session': (localStorage.getItem('dss_session') || '') },
+      body: JSON.stringify(body) });
+    return await r.json();
+  } catch (e) { return { ok: false, error: 'No connection.' }; }
+}
+var oaSchoolsLoaded = false;
+async function oaSchools() {
+  if (oaSchoolsLoaded) return;
+  const sel = document.getElementById('oa-school');
+  const out = await oaCall({ action: 'schools' });
+  if (!out.ok) { sel.innerHTML = '<option value="">' + oaEsc(out.error || 'Could not load ERP schools') + '</option>'; return; }
+  oaSchoolsLoaded = true;
+  sel.innerHTML = '<option value="">— Choose a school —</option>' + (out.schools || []).map(function (s) {
+    return '<option value="' + oaEsc(s.school_id) + '">' + oaEsc(s.name || s.school_id) + '</option>'; }).join('');
+}
+function oaPinBox(o, what) {
+  return '<div style="background:#FFF8E8;border:2px dashed #C9A84C;border-radius:12px;padding:14px;margin-top:14px;">' +
+    '<div style="font-size:0.85rem;color:#6b5a50;">' + what + ' — give this to <b>' + oaEsc(o.name) + '</b> (' + oaEsc(o.phone) + ') by phone call or in person:</div>' +
+    '<div style="font-size:2rem;font-weight:800;letter-spacing:.25em;color:#6B1A1A;margin:6px 0;">' + oaEsc(o.pin) + '</div>' +
+    '<div style="font-size:0.8rem;color:#8a7d74;">Shown only now and works only once. erp.digismartschool.com/owner → mobile number + this PIN → make own password.</div></div>';
+}
+async function oaAdd() {
+  const err = document.getElementById('oa-err');
+  err.style.display = 'none';
+  const out = await oaCall({ action: 'add', school_id: document.getElementById('oa-school').value,
+    name: document.getElementById('oa-name').value, phone: document.getElementById('oa-phone').value });
+  if (!out.ok) { err.textContent = out.error || 'Could not add.'; err.style.display = 'block'; return; }
+  document.getElementById('oa-pin').innerHTML = oaPinBox(out, 'Starting PIN');
+  document.getElementById('oa-name').value = ''; document.getElementById('oa-phone').value = '';
+  oaLoad(true);
+}
+async function oaLoad(keepPin) {
+  if (!keepPin) document.getElementById('oa-pin').innerHTML = '';
+  const box = document.getElementById('oa-list');
+  const sid = document.getElementById('oa-school').value;
+  if (!sid) { box.textContent = 'Choose a school.'; return; }
+  box.textContent = 'Loading…';
+  const out = await oaCall({ action: 'list', school_id: sid });
+  if (!out.ok) { box.textContent = out.error || 'Could not load.'; return; }
+  const people = out.people || [];
+  if (!people.length) { box.textContent = 'Nobody added yet for this school.'; return; }
+  const now = Date.now();
+  box.innerHTML = '<table><thead><tr><th>Name</th><th>Mobile</th><th>Status</th><th></th></tr></thead><tbody>' +
+    people.map(function (p) {
+      const locked = p.locked_until && new Date(p.locked_until).getTime() > now;
+      const st = locked ? '<span style="color:#A32D2D;font-weight:700;">Locked 15 min (wrong tries)</span>'
+        : p.must_change ? '<span style="color:#9A6A00;font-weight:700;">Waiting for first login</span>'
+        : '<span style="color:#2D7A3A;font-weight:700;">Active' + (p.last_login ? ' · last ' + oaEsc(new Date(p.last_login).toLocaleDateString('en-IN')) : '') + '</span>';
+      return '<tr><td>' + oaEsc(p.name) + '</td><td>' + oaEsc(p.phone) + '</td><td>' + st + '</td>' +
+        '<td style="white-space:nowrap;text-align:right;"><button class="btn bg bsm" onclick="oaReset(\'' + oaEsc(p.id) + '\',\'' + oaEsc(p.name) + '\')">Reset</button> ' +
+        '<button class="btn bsm" style="background:#fff;color:#A32D2D;border:1.5px solid #A32D2D;" onclick="oaRemove(\'' + oaEsc(p.id) + '\',\'' + oaEsc(p.name) + '\')">Remove</button></td></tr>';
+    }).join('') + '</tbody></table>';
+}
+async function oaReset(id, name) {
+  if (!confirm('Reset ' + name + "'s Owner App password?\n\nTheir phone gets a warning and is logged out. You get a new starting PIN to give them.")) return;
+  const out = await oaCall({ action: 'reset', id: id });
+  if (!out.ok) { alert(out.error || 'Could not reset.'); return; }
+  document.getElementById('oa-pin').innerHTML = oaPinBox(out, 'New starting PIN');
+  oaLoad(true);
+  window.scrollTo(0, 0);
+}
+async function oaRemove(id, name) {
+  if (!confirm('Remove ' + name + ' from the Owner App? Their phone gets a notice and is logged out.')) return;
+  const out = await oaCall({ action: 'remove', id: id });
+  if (!out.ok) { alert(out.error || 'Could not remove.'); return; }
+  oaLoad();
 }
 
 var tblFile = null;
