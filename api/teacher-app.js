@@ -563,8 +563,14 @@ async function tcAppraisal(school, from, to) {
   let m = addDays(from, -((new Date(from + 'T00:00:00Z').getUTCDay() + 6) % 7));   // the Monday of from's week
   for (; m <= to; m = addDays(m, 7)) { const sat = addDays(m, 5); if (sat >= from && sat <= to && sat <= today) weeks.push(m); }
   // weeks before the school's first saved checklist don't count (the school wasn't using it yet)
-  const first = await db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&select=week_start&order=week_start.asc&limit=1');
-  const firstWeek = ok(first) && first.data.length ? String(first.data[0].week_start).slice(0, 10) : '9999-12-31';
+  const [first, firstApp] = await Promise.all([
+    db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&select=week_start&order=week_start.asc&limit=1'),
+    db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&select=report_date&order=report_date.asc&limit=1')]);
+  let firstWeek = ok(first) && first.data.length ? String(first.data[0].week_start).slice(0, 10) : '9999-12-31';
+  if (ok(firstApp) && firstApp.data.length) {
+    const fa = String(firstApp.data[0].report_date).slice(0, 10), fam = addDays(fa, -((new Date(fa + 'T00:00:00Z').getUTCDay() + 6) % 7));
+    if (fam < firstWeek) firstWeek = fam;
+  }
   for (let i = weeks.length - 1; i >= 0; i--) if (weeks[i] < firstWeek) weeks.splice(i, 1);
   const [tr, wr, nr] = await Promise.all([
     db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access&order=name.asc'),
@@ -574,6 +580,39 @@ async function tcAppraisal(school, from, to) {
   if (!ok(tr)) return { error: 'Could not load teachers: ' + why(tr) };
   if (!ok(wr)) return { error: 'Could not load the weekly checklists: ' + why(wr) + (wr.status === 404 ? ' (Has step13-teacher-weekly.sql been run in Supabase?)' : '') };
   const teachers = tr.data.filter(function (t) { return (t.classes || []).length && !isOfficeOnly(t); });
+  // Nov 2026: schools whose teachers use the Teacher App — "Submit my day" gives the same checklist:
+  // each lesson Done / Not done (a revision or class-test lesson counts as revision / test), yesterday's homework
+  // corrected, and "children to watch" as the remark. Used for any week without a printed checklist.
+  const appRows = {};   // teacher_id|week → { rows, complaints, days }
+  const schoolDays = {};   // week → set of days anyone submitted
+  if (weeks.length) {
+    const dr = await db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&report_date=gte.' + weeks[0] + '&report_date=lte.' + addDays(weeks[weeks.length - 1], 5) +
+      '&select=teacher_app_id,report_date,items,hw_checks,watch,submitted_at&limit=5000');
+    const pr = await db('GET', '/rest/v1/term_plans?school_id=eq.' + enc(school.id) + '&select=id,class_name,subject,rows');
+    const planBy = {}; if (ok(pr)) pr.data.forEach(function (p) { planBy[String(p.id)] = p; });
+    const REV = ['revision', 'hwday', 'catchup', 'practice', 'worksheet'];
+    (ok(dr) ? dr.data : []).forEach(function (d) {
+      const day = String(d.report_date).slice(0, 10), wk = addDays(day, -((new Date(day + 'T00:00:00Z').getUTCDay() + 6) % 7));
+      if (weeks.indexOf(wk) === -1) return;
+      if (d.submitted_at) (schoolDays[wk] = schoolDays[wk] || {})[day] = 1;
+      const k = String(d.teacher_app_id) + '|' + wk;
+      const a = appRows[k] = appRows[k] || { rows: [], complaints: [], days: {} };
+      if (d.submitted_at) a.days[day] = 1;
+      (d.items || []).forEach(function (x) {
+        const p = planBy[String(x.plan_id)], row = p && Array.isArray(p.rows) ? p.rows[x.index] : null;
+        if (!p || !row) return;
+        const v = x.status === 'done' ? 'yes' : x.status === 'not' ? 'no' : 'blank';
+        const kind = row.type === 'test' ? 'test' : REV.indexOf(row.type) !== -1 ? 'revision' : 'portion';
+        const r = { date: day, class_name: p.class_name, subject: p.subject, portion: 'na', hw: 'na', revision: 'na', test: 'na' };
+        r[kind] = v; a.rows.push(r);
+      });
+      (d.hw_checks || []).forEach(function (h) {
+        if (!h.corrected) return;
+        a.rows.push({ date: day, class_name: h.class_name, subject: h.subject, portion: 'na', hw: h.corrected === 'yes' ? 'yes' : 'no', revision: 'na', test: 'na' });
+      });
+      if (String(d.watch || '').trim()) a.complaints.push({ date: day, text: clip(d.watch, 300) });
+    });
+  }
   // homework sheet: Corrected Yes / No (ERP)
   let corr = [], corrNote = '';
   try {
@@ -594,10 +633,17 @@ async function tcAppraisal(school, from, to) {
     let weekPctSum = 0;
     const myCorrNo = {};
     corr.forEach(function (c) { if (mine(c.class, c.subject) && c.corrected === false) myCorrNo[c.checked_on + '|' + low(c.class) + '|' + sk(c.subject)] = 1; });
-    let mismatch = 0;
+    let mismatch = 0, appMissed = 0;
     weeks.forEach(function (w) {
-      const rec = wr.data.find(function (x) { return String(x.teacher_id) === String(t.id) && String(x.week_start).slice(0, 10) === w; });
+      let rec = wr.data.find(function (x) { return String(x.teacher_id) === String(t.id) && String(x.week_start).slice(0, 10) === w; });
+      let via = 'sheet';
+      if (!rec && appRows[String(t.id) + '|' + w] && Object.keys(appRows[String(t.id) + '|' + w].days).length) { rec = appRows[String(t.id) + '|' + w]; via = 'app'; }
       if (!rec) { wk.push({ week: w, handed: false, pct: 0 }); return; }
+      let share = 1;   // a day not submitted in the Teacher App counts as not done (like a sheet not handed in)
+      if (via === 'app') {
+        const sd = Object.keys(schoolDays[w] || {}).length, md = Object.keys(rec.days).length;
+        if (sd && md < sd) { appMissed += sd - md; share = md / sd; }
+      }
       let yes = 0, all = 0;
       (rec.rows || []).forEach(function (r) {
         ['portion', 'hw', 'revision', 'test'].forEach(function (k) {
@@ -608,9 +654,9 @@ async function tcAppraisal(school, from, to) {
         if (r.hw === 'yes' && myCorrNo[r.date + '|' + low(r.class_name) + '|' + sk(r.subject)]) mismatch++;
       });
       (rec.complaints || []).forEach(function (c) { if (c && String(c.text || '').trim()) complaints.push({ date: c.date, text: clip(c.text, 300) }); });
-      const p = pct(yes, all);
+      const p0 = pct(yes, all), p = p0 == null ? null : Math.round(p0 * share);
       weekPctSum += p == null ? 0 : p;
-      wk.push({ week: w, handed: true, pct: p });
+      wk.push({ week: w, handed: true, pct: p, via: via });
     });
     const ownScore = weeks.length ? Math.round(weekPctSum / weeks.length) : null;
     const myC = corr.filter(function (c) { return mine(c.class, c.subject) && c.corrected != null; });
@@ -623,6 +669,7 @@ async function tcAppraisal(school, from, to) {
     const flags = [];
     const missed = wk.filter(function (x) { return !x.handed; }).length;
     if (missed) flags.push('Checklist not handed in for ' + missed + ' week' + (missed > 1 ? 's' : '') + ' (counted as 0).');
+    if (appMissed) flags.push('Did not submit her day in the Teacher App on ' + appMissed + ' school day' + (appMissed > 1 ? 's' : '') + '.');
     if (mismatch) flags.push('⚠️ Ticked "homework corrected" ' + mismatch + ' time' + (mismatch > 1 ? 's' : '') + ' when the homework sheet says NOT corrected.');
     if (ownHw != null && ownHw >= 80 && nb.pct != null && nb.pct < 60) flags.push('⚠️ Ticks say homework corrected (' + ownHw + '%) but the notebook check is only ' + nb.pct + '%.');
     if (ownPortion != null && ownPortion >= 80 && quizPct != null && quizPct < 40) flags.push('⚠️ Ticks say portions done (' + ownPortion + '%) but the children\'s class quiz average is only ' + quizPct + '%.');
@@ -1160,9 +1207,13 @@ module.exports = async function handler(req, res) {
         const week = isDate(body.week) ? mondayOf(body.week) : mondayOf(istToday());
         const wr = await db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&week_start=eq.' + week + '&select=teacher_id,saved_at,saved_by');
         if (!ok(wr)) return res.json({ error: 'Could not load: ' + why(wr) + (wr.status === 404 ? NEED : '') });
+        // teachers who submit their day in the Teacher App need no sheet
+        const ar = await db('GET', '/rest/v1/teacher_day_reports?school_id=eq.' + enc(school.id) + '&report_date=gte.' + week + '&report_date=lte.' + addDays(week, 5) + '&submitted_at=not.is.null&select=teacher_app_id,report_date');
+        const appDays = {}; if (ok(ar)) ar.data.forEach(function (x) { const k = String(x.teacher_app_id); (appDays[k] = appDays[k] || {})[String(x.report_date).slice(0, 10)] = 1; });
         return res.json({ success: true, week: week, teachers: teachers.map(function (t) {
           const s = wr.data.find(function (x) { return String(x.teacher_id) === String(t.id); });
-          return { id: String(t.id), name: t.name, saved_at: s ? s.saved_at : null, saved_by: s ? s.saved_by : '' };
+          return { id: String(t.id), name: t.name, saved_at: s ? s.saved_at : null, saved_by: s ? s.saved_by : '',
+                   app_days: Object.keys(appDays[String(t.id)] || {}).length };
         }) });
       }
       if (action === 'tc_read') {
