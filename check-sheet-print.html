@@ -76,6 +76,25 @@ input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;bac
 .pg .foot{display:flex;justify-content:space-between;gap:20px;margin-top:16px;font-size:11.5px}
 .pg .foot span{flex:1;border-top:1px solid #111;padding-top:3px}
 .pg .lbl{font-size:11px;font-weight:700;margin-top:4px}
+/* register sheets (Nov 2026) */
+.pg table.reg{width:100%;border-collapse:collapse;margin-top:8px;table-layout:fixed}
+.pg table.reg th,.pg table.reg td{border:1px solid #333;padding:2px 5px;vertical-align:middle}
+.pg table.reg th{font-size:11.5px;text-align:center;background:#f1f1f1}
+.pg table.reg th .cs{font-weight:400;font-size:9.5px;line-height:1.2;color:#333;max-height:24px;overflow:hidden}
+.pg table.reg th .code{font-size:8.5px;font-weight:400}
+.pg table.reg th.pt{font-size:10px;font-weight:700}
+.pg table.reg td.nm,.pg table.reg th.nm{width:34%;text-align:left;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg table.reg td.nm b{display:inline-block;min-width:20px}
+.pg table.reg td{height:23px}
+.pg table.reg.big td{height:18px;font-size:11px}
+.pg table.reg tr.ft td{height:auto;font-size:10.5px;vertical-align:top;padding:4px 5px}
+.pg table.reg .cor{margin-bottom:4px}
+.pg table.reg .sg{min-height:22px}
+.pg table.reg tbody tr:nth-child(5n) td{border-bottom:2px solid #333}
+/* Nov 2026: children are numbered 1, 2, 3… on the sheet; this key says who is who */
+.pg .key{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:1px 10px;margin:6px 0 2px;font-size:10.5px;border:1px solid #999;border-radius:6px;padding:4px 7px}
+.pg .key div{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pg .key b{display:inline-block;min-width:16px}
 @media print{
   body{background:#fff}
   .band,.noprint{display:none!important}
@@ -94,9 +113,11 @@ input,select{border:1px solid var(--line);border-radius:8px;padding:8px 10px;bac
 
 <div class="wrap">
   <div class="card noprint">
-    <div class="hint">One page per class for each school day. Teachers put a <b>✗ on the roll number</b> of every child who did not do the homework, did not write the class test, was absent for it, or came without nails cut, notes maintained, shoes, uniform or haircut — and tick whether they <b>corrected</b> the homework. The office collects the sheets, photographs them and uploads them in <b>ERP → Homework Defaulters → 📷 Sheet photo</b>. Parents get the messages at 4 PM with the homework.</div>
+    <div class="hint">Three separate sheets, one page per class: <b>Homework</b> (print for the whole week), <b>Class test</b> (only days with a test in the Lesson Plans) and <b>Discipline</b> (print for the day you check). Each child has their own row with their name — the teacher puts a <b>✗ in the child's row</b>, and ticks whether the homework was <b>corrected</b>. The office collects the sheets, photographs them and uploads them in <b>ERP → Homework Defaulters → 📷 Sheet photo</b>. Parents get the messages at 4 PM with the homework.</div>
     <div class="bar" style="margin-top:12px">
       <label>Week starting (Monday)<input type="date" id="fWeek"></label>
+      <label>Sheet<select id="fKind"><option value="hw">📚 Homework (daily)</option><option value="test">📝 Class test (test days)</option><option value="disc">👔 Discipline (when you check)</option></select></label>
+      <label>Day<select id="fDay"><option value="">Whole week</option></select></label>
       <label>Class<select id="fClass"><option value="">All classes</option></select></label>
       <button class="btn ghost" id="reload" type="button">↻ Refresh</button>
       <button class="btn" id="printBtn" type="button" disabled>🖨 Print</button>
@@ -169,7 +190,7 @@ async function load(){
     const classes=Object.keys(cset).filter(Boolean).sort((a,b)=>cpos(a)-cpos(b)||a.localeCompare(b));
     const rr=await post("/api/teacher-app",{action:"class_rolls",classes}).catch(()=>({rolls:{}}));
     const hols={};(hol.holidays||[]).forEach(h=>{if((h.kind||"holiday")==="holiday")hols[h.date]=h.name||"Holiday"});
-    D={from,to,school,items,tests,teacherOf,classes,rolls:rr.rolls||{},hols};
+    D={from,to,school,items,tests,teacherOf,classes,rolls:rr.rolls||{},names:rr.names||{},hols};
     const keep=$("fClass").value;
     $("fClass").innerHTML='<option value="">All classes</option>'+classes.map(c=>`<option${c===keep?" selected":""}>${esc(c)}</option>`).join("");
     render();
@@ -190,58 +211,78 @@ function schoolDays(){
     if(parse(d).getDay()===6)return D.items.some(h=>h.hw_date===d)||D.tests.some(t=>t.date===d);   // Saturday only if the school works
     return true})}
 
-function rollsHtml(cls){
-  const r=D.rolls[cls]||[];
-  const list=r.length?r:Array.from({length:40},(_,i)=>String(i+1));
-  return '<div class="rolls'+(list.length>30?' sm':'')+'">'+list.map(x=>`<span>${esc(x)}</span>`).join("")+'</div>'}
+/* Nov 2026: three separate sheets — Homework (daily), Class test (test days only), Discipline (when the school
+   checks it). Each is a register: one row per child (number + name), one column per homework / test / item.
+   The teacher puts ✗ in the child's row under the column. Column codes (HW·… TEST·… DISC·…) are for ERP's photo reading. */
+function kidsOf(cls){
+  const nm=D.names[cls]||[];
+  if(nm.length)return nm.map((x,i)=>({n:i+1,name:String(x)}));
+  return Array.from({length:40},(_,i)=>({n:i+1,name:""}))}
+function head(cls,d,title,sub){
+  return `<div class="top"><div><div class="sc">${esc(D.school)} · ${esc(title)}</div><div class="cl">${esc(cls)}</div></div>
+      <div class="dt">${longD(d)}<div class="code">DCS·${esc(cls)}·${d}·n${(D.rolls[cls]||[]).length||40}</div></div></div>
+    <div class="how">${sub}</div>`}
+// cols: [{code, title, sub, foot}] ; extra = second header row labels (tests)
+function register(cls,cols,opts){
+  const kids=kidsOf(cls),big=kids.length>32;
+  const h1=cols.map(c=>`<th colspan="${c.parts?c.parts.length:1}"><b>${esc(c.title)}</b>${c.sub?`<div class="cs">${esc(c.sub)}</div>`:""}<div class="code">${esc(c.code)}</div></th>`).join("");
+  const anyParts=cols.some(c=>c.parts);
+  const h2=anyParts?`<tr><th class="nm"></th>${cols.map(c=>(c.parts||[""]).map(p=>`<th class="pt">${esc(p)}</th>`).join("")).join("")}</tr>`:"";
+  const body=kids.map(k=>`<tr><td class="nm"><b>${k.n}</b> ${esc(k.name)}</td>${cols.map(c=>(c.parts||[""]).map(()=>'<td class="bx"></td>').join("")).join("")}</tr>`).join("");
+  const foot=cols.some(c=>c.foot)?`<tr class="ft"><td class="nm">${esc(opts&&opts.footLabel||"")}</td>${cols.map(c=>`<td colspan="${c.parts?c.parts.length:1}">${c.foot||""}</td>`).join("")}</tr>`:"";
+  return `<table class="reg${big?" big":""}"><thead><tr><th class="nm">Child</th>${h1}</tr>${h2}</thead><tbody>${body}${foot}</tbody></table>`}
 
-function sheetHtml(cls,d){
+function hwSheet(cls,d){
   const y=prevSchoolDay(d);
   const hw=y?D.items.filter(h=>h.class_name===cls&&h.hw_date===y):[];
-  // one row per subject (two homework in one subject are joined)
   const bySub={};hw.forEach(h=>{const k=sk(h.subject);(bySub[k]=bySub[k]||{subject:h.subject,text:[]}).text.push(String(h.homework||"").split("\n")[0])});
-  const hwRows=Object.values(bySub);
+  const subs=Object.values(bySub);
+  if(!subs.length)return"";
+  const cols=subs.map(r=>{const t=D.teacherOf[cls+"|"+sk(r.subject)]||"";
+    return{code:"HW·"+y+"·"+r.subject,title:r.subject,sub:r.text.join(" · ").slice(0,70),
+      foot:`<div class="cor">Corrected?<br><span class="ck"></span>Yes <span class="ck"></span>No</div><div class="sg">${t?esc(t)+"<br>":""}Sign:</div>`}});
+  return `<section class="pg">${head(cls,d,"Homework Check","Homework given on <b>"+shortD(y)+"</b>. Put a <b>✗ in the child's row</b> under the subject if the child did NOT do the homework. At the bottom, tick <b>Corrected Yes / No</b> and sign. Give this sheet to the office by 3 PM.")}
+    ${register(cls,cols,{footLabel:"Teacher"})}</section>`}
+
+function testSheet(cls,d){
   const tests=D.tests.filter(t=>t.class_name===cls&&t.date===d);
-  let n=0;
-  const hwHtml=hwRows.length?hwRows.map(r=>{n++;const t=D.teacherOf[cls+"|"+sk(r.subject)]||"";
-    return `<div class="row"><div class="rh"><b>H${n} · ${esc(r.subject)}</b><span class="hwt">${esc(r.text.join(" · ").slice(0,110))}</span><span class="code">HW·${y}·${esc(r.subject)}</span></div>
-      ${rollsHtml(cls)}
-      <div class="rf"><span>Corrected?<span class="ck"></span>Yes<span class="ck"></span>No</span><span>${t?esc(t)+" · ":""}Sign <span class="sgn"></span></span></div></div>`}).join("")
-    :'<div class="none">No homework was given'+(y?" on "+shortD(y):"")+'.</div>';
-  const tHtml=tests.length?tests.map(t=>`<div class="row"><div class="rh"><b>${esc(t.subject)} class test</b><span class="hwt">${esc(t.chapter)}${t.pages?" ("+esc(t.pages)+")":""}</span><span class="code">TEST·${d}·${esc(t.subject)}</span></div>
-      <div class="lbl">Not written / not prepared</div>${rollsHtml(cls)}
-      <div class="lbl">Absent for the test</div>${rollsHtml(cls)}</div>`).join(""):"";
-  const dHtml=DISC.map(x=>`<div class="row"><div class="rh"><b>${esc(x[1])}</b><span class="code">DISC·${x[0]}</span></div>${rollsHtml(cls)}</div>`).join("");
-  return `<section class="pg">
-    <div class="top"><div><div class="sc">${esc(D.school)} · Daily Check Sheet</div><div class="cl">${esc(cls)}</div></div>
-      <div class="dt">${longD(d)}<div class="code">DCS·${esc(cls)}·${d}</div></div></div>
-    <div class="how">Put a <b>✗ on the roll number</b> of each child who did NOT do it. Tick <b>Corrected Yes / No</b> for each homework. Give this sheet to the office by 3 PM.</div>
-    <h3>1. Yesterday's homework${y?" — given on "+shortD(y):""}</h3>${hwHtml}
-    ${tHtml?`<h3>2. Class test today</h3>${tHtml}`:""}
-    <h3>${tHtml?"3":"2"}. Discipline — class teacher</h3>${dHtml}
-    <div class="foot"><span>Class teacher's signature</span><span>Office: photo uploaded on</span></div>
-  </section>`}
+  if(!tests.length)return"";
+  const cols=tests.map(t=>({code:"TEST·"+d+"·"+t.subject,title:t.subject+" test",sub:(t.chapter||"")+(t.pages?" ("+t.pages+")":""),parts:["Not written","Absent"]}));
+  return `<section class="pg">${head(cls,d,"Class Test Check","Put a <b>✗ in the child's row</b>: <b>Not written</b> = did not write / not prepared; <b>Absent</b> = absent for the test. Give this sheet to the office by 3 PM.")}
+    ${register(cls,cols)}<div class="foot"><span>Teacher's signature</span><span>Office: photo uploaded on</span></div></section>`}
+
+function discSheet(cls,d){
+  const cols=DISC.map(x=>({code:"DISC·"+x[0],title:x[1]}));
+  return `<section class="pg">${head(cls,d,"Discipline Check","Put a <b>✗ in the child's row</b> under each thing the child did not follow today. Give this sheet to the office by 3 PM.")}
+    ${register(cls,cols)}<div class="foot"><span>Class teacher's signature</span><span>Office: photo uploaded on</span></div></section>`}
 
 function render(){
   if(!D)return;
-  const days=schoolDays(),pick=$("fClass").value;
+  const kind=$("fKind").value,dayPick=$("fDay").value,pick=$("fClass").value;
+  const all=schoolDays();
+  const keepDay=dayPick;
+  $("fDay").innerHTML='<option value="">Whole week</option>'+all.map(d=>`<option value="${d}"${d===keepDay?" selected":""}>${shortD(d)}</option>`).join("");
+  const days=dayPick&&all.includes(dayPick)?[dayPick]:all;
   const classes=pick?[pick]:D.classes;
   if(!classes.length){$("count").textContent="";$("sheet").innerHTML='<div class="card">No classes found. Add homework in the Homework Planner or classes in My Teachers first.</div>';return}
+  const make=kind==="test"?testSheet:kind==="disc"?discSheet:hwSheet;
   const out=[];
-  days.forEach(d=>classes.forEach(c=>out.push(sheetHtml(c,d))));
-  $("sheet").innerHTML=out.join("");
+  days.forEach(d=>classes.forEach(c=>{const h=make(c,d);if(h)out.push(h)}));
+  $("sheet").innerHTML=out.join("")||`<div class="card">${kind==="test"?"No class test is planned in the approved Lesson Plans for the chosen day(s).":"No homework found for the chosen day(s). Fill the week in the Homework Planner first."}</div>`;
   const warns=[];
-  const noRolls=classes.filter(c=>!(D.rolls[c]||[]).length);
-  if(noRolls.length)warns.push("No class list found for "+noRolls.join(", ")+" — those sheets show roll numbers 1 to 40. Add the students in ERP (or the Student Diary) to print the real roll numbers.");
-  const today=istToday(),noHw=days.filter(d=>d>=today&&!D.items.some(h=>h.hw_date===prevSchoolDay(d)));
-  if(noHw.length)warns.push("No homework is in the Homework Planner yet for the day before "+noHw.map(shortD).join(", ")+". Fill the week in the Homework Planner first, then print.");
+  const noRolls=classes.filter(c=>!(D.names[c]||[]).length);
+  if(noRolls.length)warns.push("No class list found for "+noRolls.join(", ")+" — those sheets print rows 1 to 40 without names. Add the students in ERP to print their names.");
+  if(kind==="hw"){const today=istToday(),noHw=days.filter(d=>d>=today&&!D.items.some(h=>h.hw_date===prevSchoolDay(d)));
+    if(noHw.length)warns.push("No homework is in the Homework Planner yet for the day before "+noHw.map(shortD).join(", ")+". Fill the week in the Homework Planner first, then print.");}
   $("warns").innerHTML=warns.map(m=>`<div class="warn">${esc(m)}</div>`).join("");
-  $("count").textContent=out.length+" page"+(out.length===1?"":"s")+" · "+days.length+" school day"+(days.length===1?"":"s")+" × "+classes.length+" class"+(classes.length===1?"":"es")+". Print on A4.";
+  $("count").textContent=out.length+" page"+(out.length===1?"":"s")+". Print on A4.";
   $("printBtn").disabled=!out.length}
 
 $("printBtn").onclick=()=>window.print();
 $("reload").onclick=load;
 $("fClass").onchange=render;
+$("fKind").onchange=render;
+$("fDay").onchange=render;
 $("fWeek").onchange=()=>{const v=$("fWeek").value;if(v&&monday(v)!==v)$("fWeek").value=monday(v);load()};
 // default: this week; from Saturday afternoon on, next week
 (function(){const t=istToday(),d=parse(t),hr=new Date(Date.now()+5.5*3600e3).getUTCHours();
