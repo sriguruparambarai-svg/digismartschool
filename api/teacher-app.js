@@ -1042,6 +1042,17 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true, removed: (w.data || []).length });
     }
 
+    // ── Nov 2026: Daily Check Sheet — each class's roll numbers (ERP, else the Student Diary) ──
+    if (action === 'class_rolls') {
+      const list = (Array.isArray(body.classes) ? body.classes : []).map(function (x) { return clip(x, 30); }).filter(Boolean).slice(0, 40);
+      const out = {};
+      await Promise.all(list.map(function (cls) {
+        return nbKids(school, cls).then(function (k) { out[cls] = (k || []).map(function (x) { return String(x.roll); }); })
+          .catch(function () { out[cls] = []; });
+      }));
+      return res.json({ success: true, rolls: out, school_name: school.name || '' });
+    }
+
     if (action === 'list') {
       const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&select=*&order=name.asc');
       if (!ok(r)) return res.json({ error: 'Could not load teachers: ' + why(r) + (r.status === 404 ? ' (Has step1-teacher-app.sql been run in Supabase?)' : '') });
