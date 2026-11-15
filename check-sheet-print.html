@@ -196,14 +196,16 @@ async function load(){
     render();
   }catch(e){$("count").textContent="";$("topErr").hidden=false;$("topErr").textContent=e.message}}
 
-// the school day before d: skip Sundays and holidays; prefer a day that had homework in the school
+// the school day before d: skip Sundays, holidays, and Saturdays the school doesn't work (no homework or test that day).
+// Nov 2026: it never reaches further back just because that day has no homework yet.
 function prevSchoolDay(d){
-  let x=addD(d,-1),first="";
+  let x=addD(d,-1);
   for(let i=0;i<8;i++,x=addD(x,-1)){
-    if(parse(x).getDay()===0||D.hols[x])continue;
-    if(!first)first=x;
-    if(D.items.some(h=>h.hw_date===x))return x}
-  return first}
+    const wd=parse(x).getDay();
+    if(wd===0||D.hols[x])continue;
+    if(wd===6&&!D.items.some(h=>h.hw_date===x)&&!D.tests.some(t=>t.date===x))continue;
+    return x}
+  return addD(d,-1)}
 
 function schoolDays(){
   return [0,1,2,3,4,5].map(i=>addD(D.from,i)).filter(d=>{
