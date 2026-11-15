@@ -188,6 +188,17 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
 .lsc .more{color:var(--m);font-weight:800;font-size:.8rem}
 .twatch{background:var(--now);border-radius:8px;padding:6px 9px;font-size:.8rem;white-space:pre-line}
 .twatch b{display:block;font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--m)}
+/* Appraisal (Nov 2026) */
+#v-teachers.ap-on > :not(.apkeep){display:none!important}
+.apg{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;align-items:start}
+.apc{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:12px;padding:11px 13px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.apc.slow{border-left-color:var(--g)}.apc.bad{border-left-color:var(--bad)}
+.apc .top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}.apc .top b{font-size:1rem}
+.apc .big{font-size:1.5rem;font-weight:900;font-variant-numeric:tabular-nums}
+.apc table{width:100%;border-collapse:collapse;font-size:.82rem}.apc td{padding:2px 0}.apc td:last-child{text-align:right;font-weight:800;font-variant-numeric:tabular-nums}
+.apc .fl{background:#FBE7E3;color:#5E120C;border-radius:8px;padding:6px 9px;font-size:.8rem}
+.apc details summary{cursor:pointer;color:var(--m);font-weight:800;font-size:.8rem}
+.apc .cm{font-size:.8rem;border-top:1px dashed var(--line);padding-top:4px;margin-top:4px;white-space:pre-line}
 /* Teachers tab cards (Nov 2026) */
 .tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;align-items:start}
 .tcd{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -286,6 +297,11 @@ table.sg th{width:90px;white-space:nowrap;vertical-align:middle}
   </section>
 
   <section class="view" id="v-teachers" hidden>
+    <!-- Nov 2026: Appraisal — weekly checklist + homework sheet + notebook check + class quiz (principal only) -->
+    <div class="chips apkeep" id="tview"><button type="button" class="chip" data-k="day" aria-pressed="true">Today</button><button type="button" class="chip" data-k="ap" aria-pressed="false">📊 Appraisal</button>
+      <a class="chip" href="teacher-checklist-print.html" style="text-decoration:none;display:inline-flex;align-items:center">🖨 Print weekly checklists</a>
+      <a class="chip" href="teacher-report.html" style="text-decoration:none;display:inline-flex;align-items:center">📷 Upload checklists</a></div>
+    <div class="apkeep" id="apBox" hidden></div>
     <p class="lead">Who submitted their day (and when), what they marked, and their homework check.</p>
     <div class="warn" id="tset" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
       <label for="t-dl" style="font-weight:800">Submit their day by</label><input type="time" id="t-dl" style="padding:6px;border:1px solid var(--line);border-radius:8px;font-weight:800;min-height:40px"/>
@@ -384,6 +400,44 @@ function pgLabel(x){var g=String(x||"").trim().replace(/^pp?\.?\s*/i,"");return 
     window.scrollTo(0,0)});
   function chips(el,list,sel,cb){el.innerHTML=list.map(function(x){return '<button type="button" class="chip" data-k="'+h(x.k)+'" aria-pressed="'+(x.k===sel)+'">'+h(x.label||x.k)+(x.sub?' <small>'+h(x.sub)+'</small>':'')+'</button>'}).join("");
     el.onclick=function(e){var b=e.target.closest(".chip");if(!b)return;el.querySelectorAll(".chip").forEach(function(c){c.setAttribute("aria-pressed",c===b?"true":"false")});cb(b.dataset.k)}}
+
+
+  // ── Nov 2026: Teachers → 📊 Appraisal (principal only; teachers never see their scores) ──
+  (function(){
+    var box=$("apBox"),sec=$("v-teachers");
+    function per(k){var t=istToday(),y=+t.slice(0,4),m=+t.slice(5,7);
+      if(k==="last"){var lm=m===1?12:m-1,ly=m===1?y-1:y,last=new Date(Date.UTC(ly,lm,0)).getUTCDate();return{from:ly+"-"+String(lm).padStart(2,"0")+"-01",to:ly+"-"+String(lm).padStart(2,"0")+"-"+last,label:MON[lm-1]+" "+ly}}
+      if(k==="week"){var mo=add(t,-((pd(t).getUTCDay()+6)%7)),sat=add(mo,5);if(sat>t){mo=add(mo,-7);sat=add(mo,5)}return{from:mo,to:sat,label:"Week of "+nice(mo)}}
+      return{from:t.slice(0,8)+"01",to:t,label:MON[m-1]+" "+y+" so far"}}
+    var cur="month";
+    function pc(v){return v==null?'<span style="color:var(--mut)">—</span>':v+"%"}
+    async function load(){
+      var p=per(cur);
+      box.innerHTML='<div class="chips" id="apPer">'+[["month","This month"],["last","Last month"],["week","Last full week"]].map(function(x){return '<button type="button" class="chip" data-k="'+x[0]+'" aria-pressed="'+(x[0]===cur)+'">'+x[1]+'</button>'}).join("")+'</div><div class="panel empty">Working out the scores for '+h(p.label)+'…</div>';
+      var d=await call("/api/teacher-app",{action:"tc_scores",from:p.from,to:p.to});
+      var head='<div class="chips" id="apPer">'+[["month","This month"],["last","Last month"],["week","Last full week"]].map(function(x){return '<button type="button" class="chip" data-k="'+x[0]+'" aria-pressed="'+(x[0]===cur)+'">'+x[1]+'</button>'}).join("")+'</div>';
+      if(!d.success){box.innerHTML=head+'<div class="err">'+h(d.error||"Could not load")+'</div>';return}
+      var lead='<p class="lead">'+h(p.label)+' · '+d.weeks.length+' full week'+(d.weeks.length===1?'':'s')+'. The score is the average of: her own weekly checklist ticks (a sheet not handed in counts as 0), the homework sheet\'s Corrected Yes/No, the notebook check, and the children\'s class quiz. <b>⚠️</b> shows where her ticks don\'t match the other checks. Only you and the owner see this.</p>'+(d.note?'<div class="warn">'+h(d.note)+'</div>':'');
+      var cards=(d.teachers||[]).map(function(t){
+        var cls=t.overall==null?'':t.overall>=80?'':t.overall>=60?' slow':' bad';
+        return '<div class="apc'+cls+'"><div class="top"><b>'+h(t.name)+'</b><span class="big">'+(t.overall==null?'—':t.overall+'%')+'</span></div>'
+          +'<div style="font-size:.8rem;font-weight:800;color:'+(cls===' bad'?'var(--bad)':cls===' slow'?'var(--hw)':'var(--ok)')+'">'+h(t.rating||'Not enough to score yet')+'</div>'
+          +'<table><tr><td>Checklists handed in</td><td>'+t.handed+' / '+t.weeks_total+'</td></tr>'
+          +'<tr><td>Her ticks — portions done</td><td>'+pc(t.own.portion)+'</td></tr><tr><td>Her ticks — homework corrected</td><td>'+pc(t.own.hw)+'</td></tr>'
+          +'<tr><td>Her ticks — revision done</td><td>'+pc(t.own.revision)+'</td></tr><tr><td>Her ticks — class tests held</td><td>'+pc(t.own.test)+'</td></tr>'
+          +'<tr><td>Homework sheet — corrected'+(t.sheet.checked?' ('+t.sheet.checked+')':'')+'</td><td>'+pc(t.sheet.pct)+'</td></tr>'
+          +'<tr><td>Notebook check'+(t.notebook.seen?' ('+t.notebook.seen+' notebooks)':'')+'</td><td>'+pc(t.notebook.pct)+'</td></tr>'
+          +'<tr><td>Children\'s class quiz'+(t.quiz.count?' ('+t.quiz.count+')':'')+'</td><td>'+pc(t.quiz.pct)+'</td></tr></table>'
+          +(t.flags||[]).map(function(f){return '<div class="fl">'+h(f)+'</div>'}).join('')
+          +((t.complaints||[]).length?'<details><summary>Complaints she wrote ('+t.complaints.length+')</summary>'+t.complaints.map(function(c){return '<div class="cm"><b>'+h(nice(c.date))+':</b> '+h(c.text)+'</div>'}).join('')+'</details>':'')
+          +'</div>'}).join('');
+      box.innerHTML=head+lead+'<div class="apg">'+(cards||'<div class="panel empty">No teachers with classes in My Teachers.</div>')+'</div>';
+    }
+    box.addEventListener("click",function(e){var b=e.target.closest("#apPer .chip");if(!b)return;cur=b.dataset.k;load().catch(showErr)});
+    $("tview").addEventListener("click",function(e){var b=e.target.closest("button.chip");if(!b)return;
+      $("tview").querySelectorAll("button.chip").forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
+      var on=b.dataset.k==="ap";sec.classList.toggle("ap-on",on);box.hidden=!on;if(on)load().catch(showErr)});
+  })();
 
   // ── load ──
   async function load(){

@@ -459,6 +459,187 @@ function nbShuffle(a) {
   return a;
 }
 
+// ══ Nov 2026: TEACHER'S WEEKLY CHECKLIST — photo reading, scores, and the link to ERP ══
+const TC_VALS = ['yes', 'no', 'blank', 'na'];
+function claudeVision(photoB64, mediaType, prompt) {
+  return new Promise(function (resolve) {
+    const key = process.env.ANTHROPIC_API_KEY || '';
+    if (!key) return resolve({ error: 'Photo reading is not set up (ANTHROPIC_API_KEY missing in Vercel).' });
+    const data = JSON.stringify({ model: 'claude-sonnet-4-5', max_tokens: 4000, messages: [{ role: 'user', content: [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: photoB64 } }, { type: 'text', text: prompt }] }] });
+    const r = https.request({ hostname: 'api.anthropic.com', path: '/v1/messages', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-api-key': key, 'anthropic-version': '2023-06-01' } }, function (res) {
+      let d = ''; res.setEncoding('utf8');
+      res.on('data', function (c) { d += c; });
+      res.on('end', function () {
+        let j = null; try { j = JSON.parse(d); } catch (e) { return resolve({ error: 'Photo reading failed (status ' + res.statusCode + ').' }); }
+        if (res.statusCode !== 200) return resolve({ error: 'Photo reading failed: ' + ((j.error && j.error.message) || res.statusCode) });
+        const text = ((j.content || []).find(function (c) { return c.type === 'text'; }) || {}).text || '';
+        const m = text.match(/\{[\s\S]*\}/);
+        if (!m) return resolve({ error: 'The photo could not be read. Please take a clearer photo of the whole sheet.' });
+        try { resolve({ json: JSON.parse(m[0]) }); } catch (e) { resolve({ error: 'The photo could not be read. Please take a clearer photo of the whole sheet.' }); }
+      });
+    });
+    r.on('error', function (e) { resolve({ error: 'Photo reading failed: ' + e.message }); });
+    r.setTimeout(55000, function () { r.destroy(new Error('took too long')); });
+    r.write(data); r.end();
+  });
+}
+const TC_PROMPT = 'This is a photo of a printed "Teacher\'s Weekly Checklist" from a school. At the top right is a code like "TCL·1a2b3c4d·2026-11-16" (teacher code and the week\'s Monday).\n'
+  + 'The table has a row for each class on each day. Each row has a small grey code "R·<date>·<class>·<subject>" under the class name. '
+  + 'The row has four boxes in this order: "Portion done as planned", "Yesterday\'s homework corrected", "Revision done", "Class test held". '
+  + 'In each box the teacher wrote ✓ (done) or ✗ (not done), or left it empty. Some boxes are printed grey with "—" (does not apply).\n'
+  + 'Under each day there is a "Complaints / remarks" line with a code "C·<date>"; copy any handwriting there (in English or Tamil as written).\n'
+  + 'For each box answer: "yes" for ✓, "no" for ✗ (or a cross / "No"), "blank" if empty, "na" if printed "—". Look carefully; do not guess.\n'
+  + 'Reply with ONLY this JSON:\n'
+  + '{"code":"TCL·1a2b3c4d·2026-11-16","rows":[{"code":"R·2026-11-16·Class 3·Maths","portion":"yes","hw":"no","revision":"na","test":"na"}],'
+  + '"complaints":[{"code":"C·2026-11-16","text":"handwriting, or empty"}],"unclear":"say here if anything was hard to read, else empty"}\n'
+  + 'Include every row and every complaints line. Copy codes exactly as printed.';
+function tcVal(v) { v = String(v || '').toLowerCase(); return TC_VALS.indexOf(v) !== -1 ? v : 'blank'; }
+function tcRowCode(code) {
+  const p = String(code || '').split(/\s*[·•|]\s*/).filter(Boolean);
+  if ((p[0] || '').toUpperCase() !== 'R' || !/^\d{4}-\d{2}-\d{2}$/.test(p[1] || '')) return null;
+  return { date: p[1], class_name: clip(p[2], 20), subject: clip(p.slice(3).join(' '), 40) };
+}
+function tcCleanRows(rows) {
+  return (Array.isArray(rows) ? rows : []).slice(0, 80).map(function (r) {
+    const c = r && r.code ? tcRowCode(r.code) : { date: String(r && r.date || ''), class_name: clip(r && r.class_name, 20), subject: clip(r && r.subject, 40) };
+    if (!c || !/^\d{4}-\d{2}-\d{2}$/.test(c.date) || !c.class_name || !c.subject) return null;
+    return { date: c.date, class_name: c.class_name, subject: c.subject, portion: tcVal(r.portion), hw: tcVal(r.hw), revision: tcVal(r.revision), test: tcVal(r.test) };
+  }).filter(Boolean);
+}
+// Calls ERP's TeachBot door (homework sheet corrections, owner alerts)
+function postErpLink(row) {
+  return new Promise(function (resolve) {
+    const key = process.env.TEACHBOT_LINK_KEY || '';
+    if (!key) return resolve({ status: 0, data: { error: 'TEACHBOT_LINK_KEY is not set.' } });
+    const data = JSON.stringify(row);
+    const r = https.request({ hostname: 'erp.digismartschool.com', path: '/api/teachbot-link', method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data), 'x-teachbot-key': key } }, function (res) {
+      let d = ''; res.setEncoding('utf8');
+      res.on('data', function (c) { d += c; });
+      res.on('end', function () { let j = null; try { j = d ? JSON.parse(d) : null; } catch (e) { j = { error: d.slice(0, 200) }; } resolve({ status: res.statusCode, data: j || {} }); });
+    });
+    r.on('error', function (e) { resolve({ status: 0, data: { error: e.message } }); });
+    r.setTimeout(20000, function () { r.destroy(new Error('ERP did not answer in 20 seconds')); });
+    r.write(data); r.end();
+  });
+}
+// The school's Class Quiz results between two dates: [{cls, subject, date, pct}]
+async function quizzesBetween(school, from, to) {
+  const out = [];
+  const folders = [String(school.school_code || ''), String(school.id || '')]
+    .map(function (s) { return s.replace(/[^A-Za-z0-9_-]/g, '').substring(0, 64); }).filter(function (s, i, a) { return s && a.indexOf(s) === i; });
+  for (const f of folders) {
+    const lr = await db('POST', '/storage/v1/object/list/lesson-audio', { prefix: 'class-quiz/s-' + f + '/', limit: 300, sortBy: { column: 'name', order: 'desc' } });
+    const names = ok(lr) && Array.isArray(lr.data) ? lr.data.map(function (x) { return x && x.name ? String(x.name) : ''; }).filter(function (n) { return /\.json$/.test(n); }) : [];
+    const got = await Promise.all(names.slice(0, 300).map(function (n) { return db('GET', '/storage/v1/object/lesson-audio/class-quiz/s-' + f + '/' + enc(n)); }));
+    got.forEach(function (g) {
+      const q = ok(g) ? g.data : null;
+      if (!q || !Array.isArray(q.results)) return;
+      const day = String(q.ts || q.date || '').slice(0, 10);
+      if (!day || day < from || day > to) return;
+      let right = 0, seen = 0, rsum = 0, rn = 0;
+      q.results.forEach(function (x) {
+        if (x.cards && x.correct) Object.keys(x.cards).forEach(function (k) { seen++; if (x.cards[k] === x.correct) right++; });
+        if (x.rating) { rsum += x.rating; rn++; }
+      });
+      const pct = seen ? Math.round(right * 100 / seen) : rn ? Math.round(((rsum / rn) - 1) * 50) : null;   // Most/Half/Few taps: 3→100, 2→50, 1→0
+      if (pct != null) out.push({ cls: q.cls, subject: q.subject, date: day, pct: pct });
+    });
+  }
+  return out;
+}
+// One school's teacher appraisal for a period (weeks whose Monday is in [from, to]) — principal and owner only
+async function tcAppraisal(school, from, to) {
+  const SKS = { maths: 'mathematics', math: 'mathematics', 'social science': 'social', sst: 'social', 'social studies': 'social', evs: 'evs' };
+  const low = function (s) { return String(s || '').toLowerCase(); };
+  const sk = function (x) { x = low(x).trim(); return SKS[x] || x; };
+  const sameSub = function (a, b) { a = sk(a); b = sk(b); return a === b || (a.length >= 3 && b.length >= 3 && (a.indexOf(b) === 0 || b.indexOf(a) === 0)); };
+  const sameCls = function (a, b) { return low(a).replace(/[^a-z0-9]/g, '') === low(b).replace(/[^a-z0-9]/g, ''); };
+  const today = istToday();
+  // complete weeks: the week's Saturday falls in the period and is already over (a week belongs to the month of its Saturday)
+  const weeks = [];
+  let m = addDays(from, -((new Date(from + 'T00:00:00Z').getUTCDay() + 6) % 7));   // the Monday of from's week
+  for (; m <= to; m = addDays(m, 7)) { const sat = addDays(m, 5); if (sat >= from && sat <= to && sat <= today) weeks.push(m); }
+  // weeks before the school's first saved checklist don't count (the school wasn't using it yet)
+  const first = await db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&select=week_start&order=week_start.asc&limit=1');
+  const firstWeek = ok(first) && first.data.length ? String(first.data[0].week_start).slice(0, 10) : '9999-12-31';
+  for (let i = weeks.length - 1; i >= 0; i--) if (weeks[i] < firstWeek) weeks.splice(i, 1);
+  const [tr, wr, nr] = await Promise.all([
+    db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access&order=name.asc'),
+    weeks.length ? db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&week_start=in.(' + weeks.join(',') + ')&select=*') : Promise.resolve({ status: 200, data: [] }),
+    db('GET', '/rest/v1/notebook_checks?school_id=eq.' + enc(school.id) + '&check_date=gte.' + from + '&check_date=lte.' + to + '&select=teacher_app_id,result&limit=5000')
+  ]);
+  if (!ok(tr)) return { error: 'Could not load teachers: ' + why(tr) };
+  if (!ok(wr)) return { error: 'Could not load the weekly checklists: ' + why(wr) + (wr.status === 404 ? ' (Has step13-teacher-weekly.sql been run in Supabase?)' : '') };
+  const teachers = tr.data.filter(function (t) { return (t.classes || []).length && !isOfficeOnly(t); });
+  // homework sheet: Corrected Yes / No (ERP)
+  let corr = [], corrNote = '';
+  try {
+    const erp = await erpSchoolOf(school);
+    if (erp) {
+      const r = await postErpLink({ action: 'corrections', school_id: erp, from: from, to: to });
+      if (r.status === 200 && r.data && r.data.ok) corr = r.data.rows || [];
+      else corrNote = 'Homework sheet ticks could not be read from ERP: ' + ((r.data && r.data.error) || r.status);
+    }
+  } catch (e) { corrNote = 'Homework sheet ticks could not be read from ERP.'; }
+  let quizzes = [];
+  try { quizzes = await quizzesBetween(school, from, to); } catch (e) { /* scores still work without */ }
+  const pct = function (a, b) { return b ? Math.round(a * 100 / b) : null; };
+  const out = teachers.map(function (t) {
+    const mine = function (cls, sub) { return (t.classes || []).some(function (c) { return sameCls(c.class_name, cls) && sameSub(c.subject, sub); }); };
+    const own = { portion: [0, 0], hw: [0, 0], revision: [0, 0], test: [0, 0] };
+    const wk = [], complaints = [];
+    let weekPctSum = 0;
+    const myCorrNo = {};
+    corr.forEach(function (c) { if (mine(c.class, c.subject) && c.corrected === false) myCorrNo[c.checked_on + '|' + low(c.class) + '|' + sk(c.subject)] = 1; });
+    let mismatch = 0;
+    weeks.forEach(function (w) {
+      const rec = wr.data.find(function (x) { return String(x.teacher_id) === String(t.id) && String(x.week_start).slice(0, 10) === w; });
+      if (!rec) { wk.push({ week: w, handed: false, pct: 0 }); return; }
+      let yes = 0, all = 0;
+      (rec.rows || []).forEach(function (r) {
+        ['portion', 'hw', 'revision', 'test'].forEach(function (k) {
+          if (r[k] === 'na') return;
+          own[k][1]++; all++;
+          if (r[k] === 'yes') { own[k][0]++; yes++; }
+        });
+        if (r.hw === 'yes' && myCorrNo[r.date + '|' + low(r.class_name) + '|' + sk(r.subject)]) mismatch++;
+      });
+      (rec.complaints || []).forEach(function (c) { if (c && String(c.text || '').trim()) complaints.push({ date: c.date, text: clip(c.text, 300) }); });
+      const p = pct(yes, all);
+      weekPctSum += p == null ? 0 : p;
+      wk.push({ week: w, handed: true, pct: p });
+    });
+    const ownScore = weeks.length ? Math.round(weekPctSum / weeks.length) : null;
+    const myC = corr.filter(function (c) { return mine(c.class, c.subject) && c.corrected != null; });
+    const sheetPct = pct(myC.filter(function (c) { return c.corrected === true; }).length, myC.length);
+    const nbRows = (ok(nr) ? nr.data : []).filter(function (r) { return String(r.teacher_app_id) === String(t.id); });
+    const nb = nbScore(nbRows);
+    const myQ = quizzes.filter(function (q) { return mine(q.cls, q.subject); });
+    const quizPct = myQ.length ? Math.round(myQ.reduce(function (s, q) { return s + q.pct; }, 0) / myQ.length) : null;
+    const ownHw = pct(own.hw[0], own.hw[1]), ownPortion = pct(own.portion[0], own.portion[1]);
+    const flags = [];
+    const missed = wk.filter(function (x) { return !x.handed; }).length;
+    if (missed) flags.push('Checklist not handed in for ' + missed + ' week' + (missed > 1 ? 's' : '') + ' (counted as 0).');
+    if (mismatch) flags.push('⚠️ Ticked "homework corrected" ' + mismatch + ' time' + (mismatch > 1 ? 's' : '') + ' when the homework sheet says NOT corrected.');
+    if (ownHw != null && ownHw >= 80 && nb.pct != null && nb.pct < 60) flags.push('⚠️ Ticks say homework corrected (' + ownHw + '%) but the notebook check is only ' + nb.pct + '%.');
+    if (ownPortion != null && ownPortion >= 80 && quizPct != null && quizPct < 40) flags.push('⚠️ Ticks say portions done (' + ownPortion + '%) but the children\'s class quiz average is only ' + quizPct + '%.');
+    const parts = [ownScore, sheetPct, nb.pct, quizPct].filter(function (x) { return x != null; });
+    const overall = parts.length ? Math.round(parts.reduce(function (s, x) { return s + x; }, 0) / parts.length) : null;
+    return { id: String(t.id), name: t.name, overall: overall,
+             rating: overall == null ? '' : overall >= 80 ? 'Good' : overall >= 60 ? 'Fair' : 'Needs attention',
+             own: { score: ownScore, portion: ownPortion, hw: ownHw, revision: pct(own.revision[0], own.revision[1]), test: pct(own.test[0], own.test[1]) },
+             weeks: wk, handed: weeks.length - missed, weeks_total: weeks.length,
+             sheet: { pct: sheetPct, checked: myC.length, not_corrected: myC.filter(function (c) { return c.corrected === false; }).length },
+             notebook: { pct: nb.pct, seen: nb.seen }, quiz: { pct: quizPct, count: myQ.length },
+             mismatch: mismatch, flags: flags, complaints: complaints };
+  });
+  out.sort(function (a, b) { return (a.overall == null ? 999 : a.overall) - (b.overall == null ? 999 : b.overall) || String(a.name).localeCompare(String(b.name)); });
+  return { from: from, to: to, weeks: weeks, teachers: out, note: corrNote };
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -964,6 +1145,75 @@ module.exports = async function handler(req, res) {
       }
     }
 
+    // ── TEACHER'S WEEKLY CHECKLIST (Nov 2026) — principal or office staff (Notebook check tick) ──
+    if (action === 'tc_teachers' || action === 'tc_read' || action === 'tc_save') {
+      const a = await nbActor(req, body);
+      if (a.error) return a.status ? res.status(a.status).json({ error: a.error }) : res.json({ error: a.error });
+      const school = a.school;
+      const isDate = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); };
+      const mondayOf = function (d) { return addDays(d, -((new Date(d + 'T00:00:00Z').getUTCDay() + 6) % 7)); };
+      const tr = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name,classes,access&order=name.asc');
+      if (!ok(tr)) return res.json({ error: 'Could not load teachers: ' + why(tr) });
+      const teachers = tr.data.filter(function (t) { return (t.classes || []).length && !isOfficeOnly(t); });
+      const NEED = ' (Has step13-teacher-weekly.sql been run in Supabase?)';
+      if (action === 'tc_teachers') {
+        const week = isDate(body.week) ? mondayOf(body.week) : mondayOf(istToday());
+        const wr = await db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&week_start=eq.' + week + '&select=teacher_id,saved_at,saved_by');
+        if (!ok(wr)) return res.json({ error: 'Could not load: ' + why(wr) + (wr.status === 404 ? NEED : '') });
+        return res.json({ success: true, week: week, teachers: teachers.map(function (t) {
+          const s = wr.data.find(function (x) { return String(x.teacher_id) === String(t.id); });
+          return { id: String(t.id), name: t.name, saved_at: s ? s.saved_at : null, saved_by: s ? s.saved_by : '' };
+        }) });
+      }
+      if (action === 'tc_read') {
+        const photo = String(body.photo || '').replace(/^data:image\/\w+;base64,/, '');
+        const mt = /^image\/(jpeg|png|webp)$/.test(String(body.media_type || '')) ? body.media_type : 'image/jpeg';
+        if (photo.length < 1000) return res.json({ error: 'Please choose a photo of the checklist.' });
+        if (photo.length > 6000000) return res.json({ error: 'The photo is too big. Please try again.' });
+        const v = await claudeVision(photo, mt, TC_PROMPT);
+        if (v.error) return res.json({ error: v.error });
+        const j = v.json || {};
+        const p = String(j.code || '').split(/\s*[·•|]\s*/).filter(Boolean);
+        const short = String(p[1] || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+        const t = short ? teachers.find(function (x) { return String(x.id).toLowerCase().indexOf(short) === 0; }) : null;
+        const week = isDate(p[2]) ? mondayOf(p[2]) : '';
+        const rows = tcCleanRows(j.rows);
+        const complaints = (Array.isArray(j.complaints) ? j.complaints : []).slice(0, 12).map(function (c) {
+          const q = String(c && c.code || '').split(/\s*[·•|]\s*/);
+          return { date: isDate(q[1]) ? q[1] : '', text: clip(c && c.text, 400) };
+        }).filter(function (c) { return c.date; });
+        if (!rows.length) return res.json({ error: 'No rows of a Teacher\'s Weekly Checklist were found in this photo. Please take it again — the whole sheet, flat, in good light.' });
+        return res.json({ success: true, teacher_id: t ? String(t.id) : '', teacher_name: t ? t.name : '', week: week || mondayOf(rows[0].date),
+          rows: rows, complaints: complaints, unclear: clip(j.unclear, 300),
+          teachers: teachers.map(function (x) { return { id: String(x.id), name: x.name }; }) });
+      }
+      // tc_save
+      const t = teachers.find(function (x) { return String(x.id) === String(body.teacher_id || ''); });
+      if (!t) return res.json({ error: 'Choose the teacher this sheet belongs to.' });
+      if (!isDate(body.week)) return res.json({ error: 'The week is missing.' });
+      const week = mondayOf(body.week);
+      const rows = tcCleanRows(body.rows);
+      const complaints = (Array.isArray(body.complaints) ? body.complaints : []).slice(0, 12)
+        .map(function (c) { return { date: isDate(c && c.date) ? c.date : '', text: clip(c && c.text, 400) }; }).filter(function (c) { return c.date; });
+      // a checklist can be two pages (two photos): rows from another page of the same week are kept,
+      // the same day + class + subject is replaced by the newest photo
+      const old = await db('GET', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&teacher_id=eq.' + enc(String(t.id)) + '&week_start=eq.' + week + '&select=rows,complaints&limit=1');
+      if (ok(old) && old.data.length) {
+        const key = function (r) { return r.date + '|' + String(r.class_name).toLowerCase() + '|' + String(r.subject).toLowerCase(); };
+        const have = {}; rows.forEach(function (r) { have[key(r)] = 1; });
+        (old.data[0].rows || []).forEach(function (r) { if (!have[key(r)]) rows.push(r); });
+        const cd = {}; complaints.forEach(function (x) { cd[x.date] = 1; });
+        (old.data[0].complaints || []).forEach(function (x) { if (!cd[x.date]) complaints.push(x); });
+        rows.sort(function (x, y) { return x.date < y.date ? -1 : x.date > y.date ? 1 : 0; });
+      }
+      const fields = { teacher_name: t.name, rows: rows, complaints: complaints, saved_by: a.by, saved_at: new Date().toISOString() };
+      // a sheet uploaded again for the same teacher + week replaces the earlier one
+      let w = await db('PATCH', '/rest/v1/teacher_weekly?school_id=eq.' + enc(school.id) + '&teacher_id=eq.' + enc(String(t.id)) + '&week_start=eq.' + week, fields);
+      if (ok(w) && !w.data.length) w = await db('POST', '/rest/v1/teacher_weekly', Object.assign({ school_id: String(school.id), teacher_id: String(t.id), week_start: week }, fields));
+      if (!ok(w)) return res.json({ error: 'Could not save: ' + why(w) + (w.status === 404 ? NEED : '') });
+      return res.json({ success: true, saved: rows.length, teacher_name: t.name, week: week });
+    }
+
     // ───────────── Principal side ─────────────
     const who = verify(req.headers['x-dss-session'], process.env.SUPABASE_SECRET_KEY || '');
     if (!who || (who.role !== 'school_admin' && who.role !== 'super_admin')) {
@@ -1040,6 +1290,16 @@ module.exports = async function handler(req, res) {
       const w = await db('DELETE', '/rest/v1/staff_work?batch_id=eq.' + enc(b) + '&school_id=eq.' + enc(school.id));
       if (!ok(w)) return res.json({ error: 'Could not remove it: ' + why(w) });
       return res.json({ success: true, removed: (w.data || []).length });
+    }
+
+    // ── Nov 2026: teachers' appraisal (weekly checklist + homework sheet + notebook check + class quiz) — principal only ──
+    if (action === 'tc_scores') {
+      const isD = function (s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')); };
+      const to = isD(body.to) ? body.to : istToday();
+      const from = isD(body.from) ? body.from : to.slice(0, 8) + '01';
+      const r = await tcAppraisal(school, from, to);
+      if (r.error) return res.json({ error: r.error });
+      return res.json(Object.assign({ success: true }, r));
     }
 
     // ── Nov 2026: Daily Check Sheet — each class's roll numbers (ERP, else the Student Diary) ──
