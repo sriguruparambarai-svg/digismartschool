@@ -784,7 +784,7 @@ loadSchools();
       </div>
       <div class="grid2">
         <div><label>School (ERP)</label><select id="oa-school" onchange="oaLoad()"><option value="">Loading schools…</option></select></div>
-        <div></div>
+        <div><label>This person is</label><select id="oa-role"><option value="owner">Owner (fees, salary, reports — everything)</option><option value="principal">Principal (only "not done yet" alerts)</option></select></div>
       </div>
       <div class="grid2" style="margin-top:10px;">
         <div><label>Name</label><input type="text" id="oa-name" placeholder="e.g. Chairman — Mr. Ramesh"/></div>
@@ -1624,7 +1624,7 @@ async function oaAdd() {
   const err = document.getElementById('oa-err');
   err.style.display = 'none';
   const out = await oaCall({ action: 'add', school_id: document.getElementById('oa-school').value,
-    name: document.getElementById('oa-name').value, phone: document.getElementById('oa-phone').value });
+    name: document.getElementById('oa-name').value, phone: document.getElementById('oa-phone').value, role: document.getElementById('oa-role').value });
   if (!out.ok) { err.textContent = out.error || 'Could not add.'; err.style.display = 'block'; return; }
   document.getElementById('oa-pin').innerHTML = oaPinBox(out, 'Starting PIN');
   document.getElementById('oa-name').value = ''; document.getElementById('oa-phone').value = '';
@@ -1641,13 +1641,13 @@ async function oaLoad(keepPin) {
   const people = out.people || [];
   if (!people.length) { box.textContent = 'Nobody added yet for this school.'; return; }
   const now = Date.now();
-  box.innerHTML = '<table><thead><tr><th>Name</th><th>Mobile</th><th>Status</th><th></th></tr></thead><tbody>' +
+  box.innerHTML = '<table><thead><tr><th>Name</th><th>Mobile</th><th>Is</th><th>Status</th><th></th></tr></thead><tbody>' +
     people.map(function (p) {
       const locked = p.locked_until && new Date(p.locked_until).getTime() > now;
       const st = locked ? '<span style="color:#A32D2D;font-weight:700;">Locked 15 min (wrong tries)</span>'
         : p.must_change ? '<span style="color:#9A6A00;font-weight:700;">Waiting for first login</span>'
         : '<span style="color:#2D7A3A;font-weight:700;">Active' + (p.last_login ? ' · last ' + oaEsc(new Date(p.last_login).toLocaleDateString('en-IN')) : '') + '</span>';
-      return '<tr><td>' + oaEsc(p.name) + '</td><td>' + oaEsc(p.phone) + '</td><td>' + st + '</td>' +
+      return '<tr><td>' + oaEsc(p.name) + '</td><td>' + oaEsc(p.phone) + '</td><td>' + (p.role === 'principal' ? 'Principal' : 'Owner') + '</td><td>' + st + '</td>' +
         '<td style="white-space:nowrap;text-align:right;"><button class="btn bg bsm" onclick="oaReset(\'' + oaEsc(p.id) + '\',\'' + oaEsc(p.name) + '\')">Reset</button> ' +
         '<button class="btn bsm" style="background:#fff;color:#A32D2D;border:1.5px solid #A32D2D;" onclick="oaRemove(\'' + oaEsc(p.id) + '\',\'' + oaEsc(p.name) + '\')">Remove</button></td></tr>';
     }).join('') + '</tbody></table>';

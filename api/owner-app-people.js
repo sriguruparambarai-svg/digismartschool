@@ -64,7 +64,8 @@ module.exports = async function (req, res) {
     school_id: body.school_id != null ? String(body.school_id).slice(0, 64) : undefined,
     name: body.name != null ? String(body.name).slice(0, 80) : undefined,
     phone: body.phone != null ? String(body.phone).slice(0, 20) : undefined,
-    id: body.id != null ? String(body.id).slice(0, 64) : undefined
+    id: body.id != null ? String(body.id).slice(0, 64) : undefined,
+    role: body.role === 'principal' ? 'principal' : undefined   // Nov 2026: principal sees only "not done yet" alerts
   });
   return res.status(out.status || 500).json(out.data);
 };
