@@ -2493,6 +2493,20 @@ async function tblLoadAccess() {
       erpBtn.addEventListener('click', function() { srcToggle(this); });
       row.appendChild(erpBtn);
 
+      // Nov 2026: Global Language Master add-on — ON needs the school's GLM school code (one-tap login from School Admin)
+      var glmOn = s.has_glm === true && !!s.glm_code;
+      var glmBtn = document.createElement('button');
+      glmBtn.className = glmOn ? 'tbl-acc-on' : 'tbl-acc-off';
+      glmBtn.style.marginLeft = '6px';
+      glmBtn.textContent = glmOn ? 'GLM ON (' + s.glm_code + ')' : 'GLM OFF';
+      glmBtn.title = 'ON = School Admin shows a Global Language Master card that opens GLM already logged in';
+      glmBtn.setAttribute('data-sid', s.id);
+      glmBtn.setAttribute('data-src', 'glm');
+      glmBtn.setAttribute('data-on', glmOn ? '1' : '0');
+      glmBtn.setAttribute('data-code', s.glm_code || '');
+      glmBtn.addEventListener('click', function() { srcToggle(this); });
+      row.appendChild(glmBtn);
+
       list.appendChild(row);
     });
   } catch(e) { list.innerHTML = 'Error: ' + e.message; }
@@ -2517,14 +2531,19 @@ async function srcToggle(btn) {
   var sid = btn.getAttribute('data-sid');
   var src = btn.getAttribute('data-src');
   var isOn = btn.getAttribute('data-on') === '1';
-  var SRC_LABELS = { text: 'Text', image: 'Image', ncert: 'NCERT', foundation: 'Foundation', erp: 'ERP' };
+  var SRC_LABELS = { text: 'Text', image: 'Image', ncert: 'NCERT', foundation: 'Foundation', erp: 'ERP', glm: 'GLM' };
   var label = SRC_LABELS[src] || src;
+  var glmCode = '';
+  if (src === 'glm' && !isOn) {
+    glmCode = (prompt('Global Language Master school code for this school (as in GLM Super Admin):', btn.getAttribute('data-code') || '') || '').trim();
+    if (!glmCode) return;
+  }
   btn.disabled = true; btn.textContent = 'Saving...';
   try {
-    var d = await callAuth({ action: 'set_school_source', school_id: sid, source: src, enabled: !isOn });
+    var d = await callAuth({ action: 'set_school_source', school_id: sid, source: src, enabled: !isOn, glm_code: glmCode || undefined });
     if (d && d.error) throw new Error(d.error);
     if (isOn) { btn.className = 'tbl-acc-off'; btn.textContent = label + ' OFF'; btn.setAttribute('data-on','0'); }
-    else { btn.className = 'tbl-acc-on'; btn.textContent = label + ' ON'; btn.setAttribute('data-on','1'); }
+    else { btn.className = 'tbl-acc-on'; btn.textContent = label + ' ON' + (glmCode ? ' (' + glmCode + ')' : ''); btn.setAttribute('data-on','1'); if (glmCode) btn.setAttribute('data-code', glmCode); }
   } catch(e) { alert('Error: ' + e.message); btn.textContent = isOn ? (label + ' ON') : (label + ' OFF'); }
   btn.disabled = false;
 }

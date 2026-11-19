@@ -85,7 +85,10 @@
       body: JSON.stringify({ action: 'get_school_sources', school_id: sid })
     })
       .then(function (r) { return r.json(); })
-      .then(function (d) { if (d && d.has_erp === true) apply(); })
+      .then(function (d) {
+        if (d && d.has_erp === true) apply();
+        try { document.body.classList.toggle('has-glm', !!(d && d.has_glm === true)); } catch (e) {}   // Nov 2026: GLM add-on card
+      })
       .catch(function () { /* keep page as it is */ });
   }
 

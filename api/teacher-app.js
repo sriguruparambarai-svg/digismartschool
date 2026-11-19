@@ -1287,6 +1287,20 @@ module.exports = async function handler(req, res) {
       return res.json({ success: true, url: 'https://erp.digismartschool.com/teachbot-login.html#pass=' + payload + '.' + sig });
     }
 
+    // ── ONE LOGIN FOR GLOBAL LANGUAGE MASTER (Nov 2026) ──
+    // Same idea as erp_pass: a 2-minute pass naming only the school's GLM code, signed with GLM_LINK_KEY
+    // (the same value in TeachBot's and GLM's Vercel settings). GLM's /api/auth (teachbot_pass) checks it.
+    if (action === 'glm_pass') {
+      const key = process.env.GLM_LINK_KEY || '';
+      if (!key) return res.json({ error: 'GLM_LINK_KEY is not set in TeachBot\'s Vercel settings.' });
+      const gr = await db('GET', '/rest/v1/schools?id=eq.' + enc(school.id) + '&select=has_glm,glm_code&limit=1');
+      const gs = ok(gr) && gr.data.length ? gr.data[0] : null;
+      if (!gs || gs.has_glm !== true || !gs.glm_code) return res.json({ error: 'This school does not have Global Language Master switched on.', no_glm: true });
+      const payload = Buffer.from(JSON.stringify({ glm: String(gs.glm_code), exp: Date.now() + 120000, n: crypto.randomBytes(9).toString('hex') })).toString('base64url');
+      const sig = crypto.createHmac('sha256', key).update('glm-login.' + payload).digest('base64url');
+      return res.json({ success: true, url: 'https://learn.digismartschool.com/index.html#tbpass=' + payload + '.' + sig });
+    }
+
     // ── WORK TO STAFF (Oct 2026) — principal side ──
     if (action === 'work_teachers') {
       const r = await db('GET', '/rest/v1/teacher_app?school_id=eq.' + enc(school.id) + '&active=eq.true&select=id,name&order=name.asc');

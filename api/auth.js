@@ -933,7 +933,12 @@ module.exports = async function(req2, res) {
         has_ncert: row.has_ncert_library === true,
         has_foundation: row.has_foundation === true,
         // School also uses DigiSmart ERP — hides TeachBot's Bulk Reports (report cards live in ERP).
-        has_erp: row.has_erp === true
+        has_erp: row.has_erp === true,
+        // Nov 2026: Global Language Master add-on (asked separately, so an older database without the column still works)
+        has_glm: await (async function () {
+          const g = await req('GET', '/rest/v1/schools?id=eq.' + encodeURIComponent(canonicalId) + '&select=has_glm,glm_code&limit=1');
+          return !!(Array.isArray(g.data) && g.data[0] && g.data[0].has_glm === true && g.data[0].glm_code);
+        })()
       });
     }
 
@@ -948,11 +953,17 @@ module.exports = async function(req2, res) {
         image: 'has_image_upload',
         ncert: 'has_ncert_library',
         foundation: 'has_foundation',
-        erp: 'has_erp'
+        erp: 'has_erp',
+        glm: 'has_glm'          // Nov 2026: Global Language Master add-on, with the school's GLM code
       };
       const col = SOURCE_COLS[source] || null;
       if (!col) return res.json({ error: 'invalid source' });
       const patch = {}; patch[col] = !!enabled;
+      if (source === 'glm' && enabled) {
+        const code = String(body.glm_code || '').trim().slice(0, 40);
+        if (!code) return res.json({ error: 'Type the school\'s Global Language Master school code.' });
+        patch.glm_code = code;
+      }
       const r = await req('PATCH', '/rest/v1/schools?id=eq.' + encodeURIComponent(school_id), patch);
       if (r.status === 200 || r.status === 204) return res.json({ success: true });
       const msg = typeof r.data === 'object' ? JSON.stringify(r.data) : r.data;
