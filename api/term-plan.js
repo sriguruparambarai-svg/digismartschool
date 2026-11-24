@@ -462,8 +462,13 @@ module.exports = async function handler(req, res) {
         // a lesson marked "give it as Extra" may hold two waiting homework (one per line) — each waits its own turn.
         // Nov 2026: two lessons on the SAME day (e.g. two Maths periods) give their homework together, as one.
         const line = [], byDay = {};
+        // Nov 2026: a class work period's homework box is a class work note ("… completed in class today"), not
+        // homework, when the plan has real revise + homework periods (Hindi keeps it: its class work letters are the homework)
+        const realHw = String(p.subject || '').toLowerCase().trim() !== 'hindi' &&
+          all.some(function (x) { return x.type === 'hwday' && hwText(x); });
         all.forEach(function (x) {
           if (FIXED_HW.indexOf(x.type) !== -1 || !hwText(x)) return;
+          if (realHw && x.type === 'classwork') return;
           if (/give it as Extra if needed/.test(String(x.teach || ''))) {
             // the leftover was added as the LAST line; the lines above it are this lesson's own homework
             const ls = String(x.homework || '').split('\n').map(function (l) { return l.trim(); }).filter(function (l) { return l && !isFiller(l); });
