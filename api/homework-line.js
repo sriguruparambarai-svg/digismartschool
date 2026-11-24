@@ -117,12 +117,20 @@ function kgLine(cls, subject, t, wb) {   // LKG/UKG wording, as in api/term-plan
   return 'Homework given in ' + (isWb ? 'workbook' : subject + ' note') + (isWb && pm ? ' – ' + pm[0] : '');
 }
 
+// Nov 2026: a CLASS WORK period's "homework" box (e.g. "Class Work B … completed in class today", "Complete any
+// unfinished Class Work A") is a class work note, not homework — it is not a step of the line when the plan has
+// real "revise + homework" periods. Hindi keeps it: there the letters taught as class work ARE that day's homework.
+function cwNote(p, x) {
+  if (!x || x.type !== 'classwork' || skey(p.subject) === 'hindi') return false;
+  return (Array.isArray(p.rows) ? p.rows : []).some(function (r) { return r && r.type === 'hwday' && hwText(r); });
+}
 // The line: the plan's homework in lesson order, no dates. Two lessons the same day give one homework.
-function buildLine(p) {
+// keepCw: the old line WITH class work notes (only to move a place saved before Nov 2026 onto the new line)
+function buildLine(p, keepCw) {
   const rows = (Array.isArray(p.rows) ? p.rows : []).map(function (x, i) { return Object.assign({ _i: i }, x); })
     .concat((p.settings && Array.isArray(p.settings.hw_only) ? p.settings.hw_only : []).map(function (x) { return Object.assign({ _i: -1 }, x); }));
   const byDay = {}, line = [];
-  rows.filter(function (x) { return x && isDate(x.date) && (x.type === 'test' || hwText(x)); })
+  rows.filter(function (x) { return x && isDate(x.date) && (x.type === 'test' || hwText(x)) && (keepCw || !cwNote(p, x)); })
     .sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : a._i - b._i; })
     .forEach(function (x) {
       if (x.type === 'test') {   // a class test: told the day before
@@ -131,9 +139,9 @@ function buildLine(p) {
       }
       const t = kgLine(p.class_name, p.subject, hwText(x), !!(p.settings && p.settings.use_wb));
       if (line.length && line[line.length - 1].test && line[line.length - 1].plan_date === x.date) {   // homework on the test day itself
-        line.push({ text: t, chapter: String(x.chapter || ''), plan_date: x.date }); return; }
-      if (byDay[x.date]) { if (byDay[x.date].text.split('\n').indexOf(t) === -1) byDay[x.date].text += '\n' + t; return; }
-      byDay[x.date] = { text: t, chapter: String(x.chapter || ''), plan_date: x.date };
+        line.push({ text: t, chapter: String(x.chapter || ''), plan_date: x.date, cw: cwNote(p, x) }); return; }
+      if (byDay[x.date]) { if (byDay[x.date].text.split('\n').indexOf(t) === -1) byDay[x.date].text += '\n' + t; if (!cwNote(p, x)) byDay[x.date].cw = false; return; }
+      byDay[x.date] = { text: t, chapter: String(x.chapter || ''), plan_date: x.date, cw: cwNote(p, x) };
       line.push(byDay[x.date]);
     });
   // a short label: "Ch 1 · Homework 5" — the workbook's own number when the text has one, else the count
@@ -215,6 +223,27 @@ async function loadLines(school, today) {
       if (!line.length) return;
       items.push({ key: k, plan: p, line: line, state: saved[k] || null });
     });
+
+    // Nov 2026: class work notes left the line. A place saved before that counted them — move it once onto the new
+    // line: the real homework done up to the saved last homework. Saved back, so this happens only one time.
+    for (const x of items) {
+      const s = x.state;
+      if (!s || !(s.given > 0)) continue;
+      const g0 = Math.min(s.given, x.line.length);
+      if (s.last_text && g0 && x.line[g0 - 1].text === s.last_text) continue;            // already on the new line
+      let g = s.last_text ? x.line.findIndex(function (it) { return it.text === s.last_text; }) + 1 : 0;
+      if (!g) {
+        const full = buildLine(x.plan, true);
+        let f = s.last_text ? full.findIndex(function (it) { return it.text === s.last_text; }) : -1;
+        if (f === -1) f = Math.min(s.given, full.length) - 1;
+        g = 0; for (let i = 0; i <= f; i++) if (!full[i].cw) g++;
+        g = Math.min(g, x.line.length);
+      }
+      if (g === s.given && (!g || x.line[g - 1].text === s.last_text)) continue;
+      const fix = { given: g, last_text: g ? x.line[g - 1].text : '' };
+      await db('PATCH', '/rest/v1/homework_line?id=eq.' + enc(s.id), fix);   // updated_at kept: sent homework is still matched from the same day
+      Object.assign(s, fix);
+    }
 
     // ── the line moves on by itself: homework of the line (put in here, or by the live "Fill this week") that has
     //    REACHED PARENTS — Student Diary, and ERP parent app (a send ERP refused waits: ERP is tried again for 7 days).
