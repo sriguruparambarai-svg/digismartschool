@@ -95,6 +95,20 @@ async function fillSchool(schoolId, from, dry) {
   const items = rows.filter(function (x) { return !has(hwHave, x); }).map(function (x) {
     return { class_name: x.class_name, subject: x.subject, kind: 'Written', homework: fixedText(FX, x.class_name, x.subject) || cleanTpText(x.homework), hw_date: x.date, made_by: 'principal' };
   }).filter(function (x) { return String(x.homework || '').trim(); });
+  // Nov 2026: a fixed homework line fills its homework-timetable days by itself, even with no Lesson Plan homework
+  const TT = L.timetable || {}, DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'], hols = d.holidays || [];
+  Object.keys(TT).forEach(function (c) {
+    for (let k = 0; k < 6; k++) {
+      const ds = addDays(from, k);
+      if (ds <= today || hols.indexOf(ds) !== -1) continue;
+      ((TT[c] || {})[DAYS[k]] || []).forEach(function (sb) {
+        const t = fixedText(FX, c, sb); if (!t) return;
+        const x = { class_name: c, subject: sb, date: ds };
+        if (has(hwHave, x) || items.some(function (i) { return i.class_name === c && i.hw_date === ds && lc(i.subject) === lc(sb); })) return;
+        items.push({ class_name: c, subject: sb, kind: 'Written', homework: t, hw_date: ds, made_by: 'principal' });
+      });
+    }
+  });
 
   let cwItems = [], cwErr = '';
   const dc = await callApi(termPlanApi, token, { action: 'cw_for_week', from: from, to: to });

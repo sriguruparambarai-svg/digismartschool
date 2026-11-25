@@ -327,7 +327,7 @@ textarea{resize:vertical;min-height:70px}
         </div>
         <p class="hint" style="margin:0">EWP = English Writing Practice, ERP = English Reading Practice. Tick the subjects that get homework on each day. Teachers see this on their page. It also sets the daily limit. Teachers can still send other subjects — they come to you marked "Extra".</p>
         <div class="ttwrap"><table class="tt" id="ttTable"></table></div>
-        <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — from the Lesson Plans, in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills empty boxes, and writes the Tamil for English lines you typed. Check them, then Save.</span></div></div>
+        <div class="fxbox" id="fxBox"><h3>Fixed homework lines</h3><p class="hint" style="margin:0">One standing line per subject, e.g. “Homework given in Hindi Workbook.” Write it once with its Tamil line for parents. It fills in by itself — on every homework-timetable day when you press “Fill this week” (even with no Lesson Plan), in Teacher types and in the AI ways — so it needs no daily editing. Leave a box empty for subjects that get new homework every day. Press Save timetable to keep it.</p><div id="fxRows"></div><div class="btnrow"><button class="btn ghost" id="fxSuggest" type="button">Fill suggested lines</button><span class="hint">Fills empty boxes, and writes the Tamil for English lines you typed. Check them, then Save.</span></div></div>
         <div class="btnrow">
           <button class="btn" id="ttSave">Save timetable</button>
           <label style="display:flex;align-items:center;gap:6px">Copy this class to <select id="ttCopyTo"></select></label>
@@ -1386,7 +1386,17 @@ async function fillFromTp(){
       if(x.date<TODAY||(x.date===TODAY&&hr>=SEND_HOUR)){past++;return false}
       if(S.items.some(i=>i.class_name===x.class_name&&i.hw_date===x.date&&lc(i.subject)===lc(x.subject)&&i.status!=="returned")){have++;return false}
       return true}).map(x=>({class_name:x.class_name,subject:x.subject,kind:"Written",homework:fixedText(x.class_name,x.subject)||cleanTpText(x.homework),hw_date:x.date,made_by:"principal"}));
-    const note=(have?" "+have+" already had homework (left as is).":"")+(past?" "+past+(past>1?" were":" was")+" for days already sent.":"")+(d.not_approved?" "+d.not_approved+" Lesson Plan"+(d.not_approved>1?"s are":" is")+" not approved yet, so "+(d.not_approved>1?"their":"its")+" homework was not taken.":"");
+    /* Nov 2026: a fixed homework line fills its homework-timetable days by itself, even when the Lesson Plans
+       give no homework that day (e.g. a class with no approved Lesson Plan yet). Skips holidays, days already
+       sent, and class+day+subject that already has homework. */
+    const hols=new Set(d.holidays||[]);let fxN=0;
+    shown.forEach(c=>{if(!hasTT(c))return;for(let k=0;k<6;k++){const ds=addDays(from,k);
+      if(hols.has(ds)||ds<TODAY||(ds===TODAY&&hr>=SEND_HOUR))continue;
+      (TT[c][DAYS[k]]||[]).forEach(sb=>{const t=fixedText(c,sb);if(!t)return;
+        const same=i=>i.class_name===c&&i.hw_date===ds&&lc(i.subject)===lc(sb);
+        if(S.items.some(i=>same(i)&&i.status!=="returned")||items.some(same))return;
+        items.push({class_name:c,subject:sb,kind:"Written",homework:t,hw_date:ds,made_by:"principal"});fxN++})}});
+    const note=(fxN?" "+fxN+" of the homework "+(fxN>1?"are":"is")+" the fixed homework line for days with no Lesson Plan homework.":"")+(have?" "+have+" already had homework (left as is).":"")+(past?" "+past+(past>1?" were":" was")+" for days already sent.":"")+(d.not_approved?" "+d.not_approved+" Lesson Plan"+(d.not_approved>1?"s are":" is")+" not approved yet, so "+(d.not_approved>1?"their":"its")+" homework was not taken.":"");
     // Nov 2026: class work too — one short line per lesson (lesson name + pages), so parents get
     // "Class work" and "Homework" in one 4 PM message. Subjects that already have class work that day are left alone.
     let cwItems=[];

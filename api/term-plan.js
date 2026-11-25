@@ -565,7 +565,9 @@ module.exports = async function handler(req, res) {
           fromLine = w.rows.length;
         }
       } catch (e) { console.error('term-plan.js homework line', e); }
-      return res.json({ success: true, rows: out, not_approved: notApproved, from_line: fromLine });
+      // Nov 2026: the week's school holidays too, so fixed homework lines are not put on a holiday
+      const holidays = Object.keys(HOL).filter(function (x) { return x >= from && x <= to; }).sort();
+      return res.json({ success: true, rows: out, not_approved: notApproved, from_line: fromLine, holidays: holidays });
     }
 
     // ── one class, one day, every subject (for the Homework Planner) ──
